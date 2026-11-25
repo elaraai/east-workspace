@@ -238,9 +238,18 @@ component, nothing in east-ui.
   (`useFooterFit` over `fitFooter`, pure): the legend's items
   (`data-footer-unit`, cut whole by `footerCut`, `FooterMore` ending a cut
   legend), or a footer's hints running on in one item (`data-footer-units`),
-  stay whole; the line shows its full text, its short form or its dot alone. A
-  builder's own rail that carries the line takes `FOOTER_FIT`
-  (`builder-footer.ts`), as the Sheet's does. Nothing the fit measures may
+  stay whole; the line shows its full text, its short form or its dot alone.
+  Every builder's footer is one slot recipe, `builderFooter`
+  (`builder-footer.ts`, east-workspace#1748, ruled 24 Nov 2026: one rail, one
+  look): its rail (`FOOTER_RAIL`, the frame's cold-load footer's too) and its
+  voices — `item` a status or a legend item, `count` a count or a note,
+  `hint` and `hintSep`, `message` (`data-echo` a toolbar status line's echo),
+  `spacer`, `legend` and `notices` — each run of words with its capitals at
+  the middle of the 27px under its rule (`centredCapitals`). A renderer reads
+  it with `useSlotStyles("builderFooter")`; no builder keeps a rail or a voice
+  of its own, its recipe only its marks — a swatch, an icon, a chip — an odd
+  one beside an item's words taking `RAIL_ODD_MARK` (the showcase's
+  `bar-capitals.spec.ts` holds every builder's rail to it). Nothing the fit measures may
   move with the fit: every other item of the rail is weighed at its natural
   width, and one the flex layout shrinks — the Sheet's message, which
   ellipsizes — is marked `data-footer-slack`, fitted at no width, and takes

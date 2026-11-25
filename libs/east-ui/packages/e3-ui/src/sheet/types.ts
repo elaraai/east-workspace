@@ -50,8 +50,8 @@ import {
 import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
-import { DensityType, StatusValueType } from "@elaraai/east-ui";
-import { CarriedRowSourceType, FieldOptionType, FieldSpecType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
+import { DensityType, Sparkline, StatusValueType, Trace } from "@elaraai/east-ui";
+import { CarriedRowSourceType, FieldOptionType, FieldSpecType, NumberDomainType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // Links — members, the typed link value, the cell
@@ -127,11 +127,12 @@ export type SheetActionCellType = typeof SheetActionCellType;
  * @property Null - The blank cell
  * @property Boolean - A boolean value (a Record's `boolean` / `toggle` column's cell)
  * @property Integer - An integer value
- * @property Float - A float value (a `quantity` column's cell)
+ * @property Float - A float value (a `quantity` column's cell; a Record's meter's)
  * @property String - A string value (text · lookup · reference · enum · stamped; a Record's title · person · cycle)
  * @property DateTime - A UTC-midnight date (a `date` column's cell); the moment an `age` counts from, or an `audit`'s change was made
  * @property Link - A typed link (a `set` / `link` column's cell)
  * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
+ * @property Series - A series of numbers, read only (east-workspace#1728): a Record's trace and sparkline columns' cell
  */
 export const SheetCellType = VariantType({
     Invalid:  StringType,
@@ -143,6 +144,7 @@ export const SheetCellType = VariantType({
     DateTime: DateTimeType,
     Link:     SheetLinkType,
     Action:   SheetActionCellType,
+    Series:   ArrayType(FloatType),
 });
 /** Type alias for {@link SheetCellType}. */
 export type SheetCellType = typeof SheetCellType;
@@ -225,15 +227,23 @@ export type SheetBandType = typeof SheetBandType;
 export const SHEET_TITLE_CELL = "$title";
 
 /**
+ * The cell key a row's read at the day says why it failed under (east-workspace#1734's review): the message of a mark,
+ * or a column from data's `read` or `mark`, that threw over the row, a String. The renderer keeps the row's own cells
+ * then, every marked one locked, and the row's meters, each read apart, stand over them. The `$` prefix keeps it clear
+ * of every field name, as {@link SHEET_TITLE_CELL} does.
+ */
+export const SHEET_UNREAD_CELL = "$unread";
+
+/**
  * The key of an UNRENDERED cell a column's rule projects into (#844) — a
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
  *
- * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`; a mark's `"mark"`, its words, and `"lock"`, whether it locks)
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`; a mark's `"mark"`, its words, and `"lock"`, whether it locks; a meter column's `"max"`, the row's max — or why the app's max or tone could not be read over it — and `"tone"`, its tone's case)
  * @param column - The column key
  * @returns The cell key (`"$level:start"`)
  */
-export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title" | "by" | "verb" | "mark" | "lock", column: string): string {
+export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title" | "by" | "verb" | "mark" | "lock" | "max" | "tone", column: string): string {
     return `$${rule}:${column}`;
 }
 
@@ -884,7 +894,7 @@ export type SheetLookLiteral = "chip" | "mark";
  * What an age column counts.
  *
  * @property hours - Whole hours, to the browser's clock
- * @property days - Days, from the moment's date to the viewer's own day: one more at each of their midnights
+ * @property days - Days, from the moment's date to the Record's day — the day its page sets, else the viewer's own: one more at each of their midnights
  * @property weeks - Whole weeks of those days
  */
 export const SheetAgeUnitType = VariantType({ hours: NullType, days: NullType, weeks: NullType });
@@ -939,8 +949,11 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property boolean - A checkbox; a Record's
  * @property toggle - Two states on a Boolean, each a word; a Record's
  * @property cycle - A register's members, stepped by a click — a `scale` steps up the heat ramp, otherwise each member's tone; a Record's
- * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the viewer's own day: `elapsed(since, at)` — `at` the clock's instant for hours, the viewer's day at UTC midnight for days and weeks — warning at `stale`; read only, a Record's
+ * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the Record's day: `elapsed(since, at)` — `at` the clock's instant for hours; for days and weeks the day the Record's page sets, as it gives it, else the viewer's day at UTC midnight — warning at `stale`; read only, a Record's
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
+ * @property trace - A row's series as one track of value-coloured steps (east-workspace#1728), drawn with east-ui's Trace: its `now`, its steps' labels (`axis`), its `scale` and its `future`, Trace's own, `domain` one scale for every row, and the words for a row with no series (`absent`); read only, a Record's
+ * @property sparkline - A row's series as a line or an area across the cell (east-workspace#1729), drawn with east-ui's Sparkline: its `type`, Sparkline's own, `domain` one vertical scale for every row, and the words for a row with no series (`absent`); read only, a Record's
+ * @property meter - A row's value against its max as a filled bar and its percent (east-workspace#1730), drawn with east-ui's Meter: `max` the cell holding the row's max, a Float — or, where the app's max or tone threw over the row, the error's message, a String — `tone` the one holding its tone's case (`none` without a tone, the bar the brand's) — each read at the day over the row's entry or its draft (`cellsAt`), so they follow the draft — and the words for a row with no value (`absent`); read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
@@ -990,6 +1003,20 @@ export const SheetColumnKindType = VariantType({
         elapsed: FunctionType([DateTimeType, DateTimeType], IntegerType),
     }),
     audit:     StructType({ mode: SheetAuditModeType, absent: OptionType(StringType), by: StringType, verb: StringType }),
+    trace:     StructType({
+        now:    OptionType(IntegerType),
+        axis:   OptionType(ArrayType(StringType)),
+        scale:  Trace.Types.Scale,
+        future: Trace.Types.Future,
+        domain: OptionType(NumberDomainType),
+        absent: OptionType(StringType),
+    }),
+    sparkline: StructType({
+        type:   Sparkline.Types.ChartType,
+        domain: OptionType(NumberDomainType),
+        absent: OptionType(StringType),
+    }),
+    meter:     StructType({ max: StringType, tone: OptionType(StringType), absent: OptionType(StringType) }),
 });
 /** Type alias for {@link SheetColumnKindType}. */
 export type SheetColumnKindType = typeof SheetColumnKindType;
@@ -997,7 +1024,8 @@ export type SheetColumnKindType = typeof SheetColumnKindType;
 export type SheetColumnKindLiteral =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
     | "set" | "link" | "stamped" | "custom" | "action"
-    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit"
+    | "trace" | "sparkline" | "meter";
 
 /**
  * The column from data and the member a wire column was made for, the field
@@ -1232,6 +1260,23 @@ export const SheetSelectionType = StructType({
 export type SheetSelectionType = typeof SheetSelectionType;
 
 /**
+ * A click on a row, as the grid reports it (east-workspace#1727): the row by its id, its place in its group, and the
+ * column clicked. The sheet reads the id back as the rows' key and calls the author's `onRowClick` with
+ * `Sheet.Types.RowClick(K)` ({@link SheetRowClickTypeFor}).
+ *
+ * @property rowId - The row clicked, as the grid identifies it — on a grouped sheet, the GROUP's id
+ * @property index - A grouped sheet: the clicked line's place among its group's lines, from 0 (`none` on the band, a loose row, or a flat sheet)
+ * @property column - The column clicked, as {@link SheetSelectionType} names it (a band: the line column the cell sits under, or `$title`); `none` for the row's number
+ */
+export const SheetRowClickType = StructType({
+    rowId:  StringType,
+    index:  OptionType(IntegerType),
+    column: OptionType(StringType),
+});
+/** Type alias for {@link SheetRowClickType}. */
+export type SheetRowClickType = typeof SheetRowClickType;
+
+/**
  * One footer item (B§9).
  *
  * @property text - The footer text
@@ -1311,7 +1356,9 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
+ * @property onRowClick - A pointer click on a row (east-workspace#1727) — never a key, nor a press that ticks, steps a cell, drags or takes an action: the author's `onRowClick`, its row read back from the row's id ({@link SheetRowClickType})
  * @property selection - Controlled selection when `some`
+ * @property onTick - A Record's ticked rows, after each change of its ticks (east-workspace#1737): their ids, which the app's `onTick` hears read back as the record's keys; `none` where the Record is given no `onTick`, and on every Sheet
  * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; with none, an Integer key's one past the largest (#1549); `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
  * @property readOnly - The whole sheet is read-only
@@ -1320,7 +1367,7 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property footer - Footer items
  * @property style - The gutter width
  * @property narrow - On a phone: any column it pins, and how many it shows at once ({@link SheetNarrowType})
- * @property cellsAt - A row's cells at a day, the browser's local calendar date at UTC midnight, read over its draft or its entry: each column from data's, its member's value through the column's `read`, and every column's marks ({@link SheetMarkCellsType}); `none` where no column reads any. A row from the source holds none of them, so its projection stays pure, as an age cell's count does
+ * @property cellsAt - A row's cells at a day — a Record's, the day its page sets, else the browser's local calendar date at UTC midnight — read over its draft or its entry: each column from data's, its member's value through the column's `read`, every column's marks ({@link SheetMarkCellsType}), and each meter's max and tone's name (east-workspace#1730); `none` where no column reads any. A row from the source holds none of them, so its projection stays pure, as an age cell's count does
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,
@@ -1335,7 +1382,9 @@ export const SheetRootType = StructType({
     activeView:    OptionType(StringType),
     onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
+    onRowClick:    OptionType(FunctionType([SheetRowClickType], NullType)),
     selection:     OptionType(SheetSelectionType),
+    onTick:        OptionType(FunctionType([SetType(StringType)], NullType)),
     newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
     readOnly:      OptionType(BooleanType),
@@ -1403,6 +1452,29 @@ export function SheetContextTypeFor<R extends StructType, D extends EastType = N
 export function SheetFillTypeFor<T extends EastType>(payloadType: T) {
     return StructType({ value: payloadType, meta: StringType });
 }
+
+/**
+ * `Sheet.Types.RowClick(K)` — a click on a row as the author's `onRowClick` hears it (east-workspace#1727): the row's
+ * key, typed at the rows' key type, its place in its group, and the column clicked.
+ *
+ * @typeParam K - The rows' key type: a record's own; `String` where the rows are identified by an id field (`data`, `entry`)
+ * @param keyType - The key type value
+ * @returns The concrete click `StructType`
+ *
+ * @property key - The row's key as the session holds it — a row added this session, the key it was given; a row an edit moved under another key, the one it stands under now; on a grouped sheet, the group's
+ * @property index - On a grouped sheet, the clicked line's place among its group's lines, from 0; `none` for the group's band, a loose row and every flat sheet
+ * @property column - The clicked column's key, as `Sheet.Types.Selection` names it; `none` for a press on the row's number
+ */
+export function SheetRowClickTypeFor<K extends EastType>(keyType: K) {
+    return StructType({ key: keyType, index: OptionType(IntegerType), column: OptionType(StringType) });
+}
+
+/**
+ * The click `onRowClick` hears over rows keyed by `K` ({@link SheetRowClickTypeFor}).
+ *
+ * @typeParam K - The rows' key type
+ */
+export type SheetRowClickOf<K extends EastType> = ReturnType<typeof SheetRowClickTypeFor<K>>;
 
 /**
  * The fields of a struct type as a record of East types — the shape every

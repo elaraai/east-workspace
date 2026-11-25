@@ -10,6 +10,7 @@ import * as ex from "./trace.examples.js";
 describeEast("Trace", (test) => {
     Assert.examples(test, {
         traceBasic: ex.traceBasic,
+        traceDomain: ex.traceDomain,
         traceWithChipRail: ex.traceWithChipRail,
         traceVariants: ex.traceVariants,
     });
@@ -84,6 +85,15 @@ describeEast("Trace", (test) => {
     test("stores future style", $ => {
         const trace = $.let(Trace.Root([{ name: "A", values: [1.0] }], { future: "hatch" }));
         $(Assert.equal(trace.unwrap().unwrap("Trace").future.unwrap("some").hasTag("hatch"), true));
+    });
+
+    test("stores one domain for every track, and none without it (east-workspace#1728)", $ => {
+        const shared = $.let(Trace.Root([{ name: "A", values: [1.0] }, { name: "B", values: [9.0] }], { domain: [0.0, 40.0] }));
+        const domain = $.let(shared.unwrap().unwrap("Trace").domain.unwrap("some"));
+        $(Assert.equal(domain.min, 0.0));
+        $(Assert.equal(domain.max, 40.0));
+        const own = $.let(Trace.Root([{ name: "A", values: [1.0] }]));
+        $(Assert.equal(own.unwrap().unwrap("Trace").domain.hasTag("none"), true));
     });
 
     // =========================================================================

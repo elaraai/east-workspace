@@ -56,17 +56,28 @@ export const ChartXType = VariantType({
 export type ChartXType = typeof ChartXType;
 
 /**
+ * A numeric extent `[min, max]` (east-workspace#1728): a linear axis's domain
+ * ({@link ChartDomainType}'s `number`), and the one scale a Trace's or a
+ * Sparkline's values are placed on, whatever each track holds.
+ *
+ * @property min - The extent's low end
+ * @property max - Its high end
+ */
+export const NumberDomainType = StructType({ min: FloatType, max: FloatType });
+export type NumberDomainType = typeof NumberDomainType;
+
+/**
  * An explicit axis domain `[min, max]`, typed to the axis's coordinate kind.
  *
  * @remarks
  * Supplied on a `linear` or `time` axis to fix the extent instead of deriving it
  * from the data; not meaningful for a `band` (categorical) axis.
  *
- * @property number - Numeric bounds for a linear axis
+ * @property number - Numeric bounds for a linear axis ({@link NumberDomainType})
  * @property time   - Temporal bounds for a time axis
  */
 export const ChartDomainType = VariantType({
-    number: StructType({ min: FloatType, max: FloatType }),
+    number: NumberDomainType,
     time:   StructType({ min: DateTimeType, max: DateTimeType }),
 });
 export type ChartDomainType = typeof ChartDomainType;

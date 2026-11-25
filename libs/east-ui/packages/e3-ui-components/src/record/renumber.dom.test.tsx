@@ -57,6 +57,8 @@ const piecesNumbered = East.function([], UIComponentType, (_$) => Reactive.Root(
 
 /** The grid's rows, by their keys, in order. */
 const ids = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="row"]')].map((row) => row.getAttribute("data-row-id"));
+/** The rows ticked, by their keys. */
+const ticked = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="row"][data-ticked]')].map((row) => row.getAttribute("data-row-id"));
 /** The toolbar's region. */
 const toolbar = (container: HTMLElement) => slot(container, "toolbar")!;
 /** The status line's words. */
@@ -101,6 +103,21 @@ describe("a new row's key another Save took (#1583)", () => {
         unmount();
         const again = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber" });
         expect(status(again.container)).toBe("");
+    });
+
+    test("a ticked new piece the Save gives the next key keeps its tick under that key — never on the piece that took its own (east-workspace#1738's review)", async () => {
+        const { container } = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber-ticked" });
+        await add(container);
+        const box = container.querySelector<HTMLElement>('[data-record] [data-slot="row"][data-row-id="J-104"] [role="checkbox"]')!;
+        fireEvent.mouseDown(box, { button: 0 });
+        fireEvent.click(box);
+        await settle();
+        expect(ticked(container)).toEqual(["J-104"]);
+        // Saved as J-105, the other session's piece under J-104: the tick is on the piece this page drafted.
+        await h.race(ex.recordPieces, () => { fireEvent.click(history(container, editingMessages.apply())); }, theirs);
+        await waitFor(() => expect(ids(container)).toEqual(["J-101", "J-102", "J-103", "J-104", "J-105"]));
+        expect(pieceEqual((await h.read(ex.recordPieces)).get("J-105")!, BOOKSHELF)).toBe(true);
+        await waitFor(() => expect(ticked(container)).toEqual(["J-105"]));
     });
 
     test("a reload keeps the key the session's own: a piece drafted before it, whose key another Save takes after it, goes on under the next — both pieces saved, nothing to choose", async () => {

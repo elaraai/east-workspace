@@ -1240,15 +1240,24 @@ Either way the rule is the core's, in one tested place:
   ends. Two fingers pinch, and the Schematic's canvas keeps the drawing under
   them (`schematic/canvas/CLAUDE.md`, invariants 33 and 34).
 
-The Sheet's range drag is the one gesture built on mouse events — each cell
-hears the pointer enter it — and holds itself to the same end: its button
-lifted, a move with the button no longer held, or the window losing the page
-(`sheet/use-input.ts`).
+The Sheet's press is the one gesture built on mouse events — it becomes its
+range drag, each cell hearing the pointer enter it, or a row's click
+(east-workspace#1727), released where it was pressed — and holds itself to
+the same end: its button lifted, a move with the button no longer held, or the
+window losing the page (`sheet/use-input.ts`). A click's release is judged by
+the box of the cell or the row's number pressed, as the press found it, never
+by the element under the pointer: before the button lifts a press may draw
+over its cell — Details over a scrim where the frame has no room to pin them,
+a phone's bottom editor, a sticky line's row in its copy's place, the row
+drawn again under the key its committed edit gave it — and the release lands
+on that.
 
 A test of a part's gesture fires what a second pointer and a lost one would:
 a move and a release under another `pointerId` mid-gesture, a second finger's
 press, a `pointerCancel`, a lost capture, a mouse's move with no button held,
-the window's `blur` — each proved to fail over the gesture as it stood. The
+the window's `blur` — each proved to fail over the gesture as it stood; the
+Sheet's press the two a mouse sends, its drag's and its click's alike
+(`sheet/range-drag.dom.test.tsx`, `sheet/row-click.dom.test.tsx`). The
 orders the events can arrive in are walked in the core's own tests
 (`gestures.test.ts`, `touches.test.ts`), once, never again a component. A
 phone's canvas is held in a browser too (`schematic-phone.spec.ts`: a touch

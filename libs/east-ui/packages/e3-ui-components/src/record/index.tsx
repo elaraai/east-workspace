@@ -48,6 +48,11 @@
  * the ticks with every draft (AD6), and a new search or filter drops them, so
  * Delete never takes a row the narrowing hides.
  *
+ * The select column shows where its ticks are acted on: Delete, or the app's
+ * `onTick`, which hears every ticked row's key after each change of the ticks
+ * — Add and Delete on or off, read only too (east-workspace#1737). With
+ * neither, there is no select column, as there is none on a phone.
+ *
  * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
  * the title column pinned at the left, the Sheet's pager stepping through the
@@ -60,7 +65,9 @@
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
  * `sizes.row` tokens, and its header row the same. Its ages count to one
- * clock, the browser's, read again each minute (`clock.tsx`). ⌘Z undoes and
+ * clock, the browser's, read again each minute, and their days and weeks to
+ * one day, the one its cells from data are read and written at: the page's
+ * `day`, else the viewer's own (`clock.tsx`). ⌘Z undoes and
  * ⇧⌘Z redoes from anywhere in the frame, as the Sheet's do. It fills its
  * parent and draws no border.
  *
@@ -69,7 +76,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { Box, useToken } from "@chakra-ui/react";
-import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
+import { SortedSet, StringType, compareFor, equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerWidth,
@@ -88,7 +95,7 @@ import { indexColumns, indexRegisters } from "../sheet/model.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { RecordClock, useRecordNow } from "./clock.js";
+import { RecordClock, useRecordTime } from "./clock.js";
 import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
 import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, titleColumnOf, useRecordGrid, type RecordGrid } from "./grid.js";
 import { RecordDetails, RecordInspectorProvider, recordIssueWhere, type RecordFocus, type RecordInspector } from "./inspector.js";
@@ -109,6 +116,9 @@ const payloadEquivalent = equivalentFor(RecordPayloadType);
 
 /** The select column's width, px (SL1): 20 in, the 14 box, 12 out. */
 const SELECT_PX = 46;
+
+/** The order of a set of row ids, as East orders their Strings. */
+const compareIds = compareFor(StringType);
 
 /**
  * The narrowest main gets beside a pinned inspector, px: wider than a phone's
@@ -161,15 +171,44 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const [rowHeight] = useToken("sizes", [`row.${density}`]);
     const rowPx = Number.parseInt(rowHeight ?? "", 10);
     const styles = useSlotStyles("record", { density });
-    // A read-only Record has no select column: nothing it ticks could be acted on.
     const readOnly = (getSomeorUndefined(value.sheet.readOnly) ?? false) || value.sheet.editing.onApply.type === "none";
     const [ticks] = useState(createRecordTicks);
+    // The select column shows where its ticks are acted on (east-workspace#1737): Delete, or the app's `onTick`.
+    const onTick = getSomeorUndefined(value.sheet.onTick);
+    const tickable = onTick !== undefined || (!readOnly && value.sheet.editing.edits.removeRows);
+    // The app hears the ticks: after each change, every ticked row's id — which the payload's function reads back as its
+    // key — in a microtask, as the Sheet calls `onSelect`. A change that leaves the same rows ticked says nothing.
+    const onTickRef = useRef(onTick);
+    onTickRef.current = onTick;
+    useEffect(() => {
+        let heard: ReadonlySet<string> = new Set();
+        const stop = ticks.subscribe(() => {
+            const ids = [...ticks.held().keys()];
+            if (ids.length === heard.size && ids.every((id) => heard.has(id))) return;
+            heard = new Set(ids);
+            const call = onTickRef.current;
+            if (call === undefined) return;
+            const ticked = new SortedSet(ids, compareIds);
+            queueMicrotask(() => call(ticked));
+        });
+        // The Record let go, its ticks go with it: an app that heard some hears none (east-workspace#1738's review).
+        return () => {
+            stop();
+            const call = onTickRef.current;
+            if (heard.size === 0 || call === undefined) return;
+            const none = new SortedSet<string>([], compareIds);
+            queueMicrotask(() => call(none));
+        };
+    }, [ticks]);
     const [status] = useState(createRecordStatus);
     // The grid is a phone's as its frame is, 560 wide or less — never as main is, which an overlaid inspector's rail
     // leaves narrower than the frame. Until the frame is laid out, the grid's own width decides.
     const frameRef = useRef<HTMLDivElement | null>(null);
     const frameWidth = useContainerWidth(frameRef);
     const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
+    // A tick no box shows goes (east-workspace#1738's review): in a phone's frame, which draws no select column, and where
+    // nothing acts on the ticks — the person could neither see them nor untick them, and the app hears that none stand.
+    useEffect(() => { if (phone === true || !tickable) ticks.clear(); }, [phone, tickable, ticks]);
     // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer — opened through the
     // frame's panes, as the Record's own code opens them.
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
@@ -199,9 +238,21 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const onHistory = useCallback((action: HistoryAction, session: SheetTransactions) => {
         const step = stepOf(action, session, fields);
         if (step === undefined) return undefined;
+        // The rows an Undo or a Redo puts under other keys: a new map where the step moves one (`EditSession.rekeyed`).
+        const rekeyedBefore = session.rekeyed;
         return () => {
             if (step.id !== "applied") {
                 if (step.id === "discarded") ticks.clear();
+                // An Undo or a Redo that takes ticked rows away takes their ticks (east-workspace#1738's review): a row it
+                // leaves with no draft — removed, or a new row taken back — stands no more. A ticked row it puts under
+                // another key goes on ticked there, followed first: its tick never left with the key it had.
+                else {
+                    if (session.rekeyed !== rekeyedBefore) ticks.follow(session.rekeyed);
+                    ticks.drop((id) => {
+                        const version = session.entries.get(id) ?? session.originals.get(id);
+                        return version !== undefined && version.draft === undefined;
+                    });
+                }
                 status.say(step);
                 return;
             }
@@ -231,7 +282,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const forms = getSomeorUndefined(value.inspector)?.forms;
     const host = useMemo((): SheetHost => ({
         grid: {
-            rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
+            rowPx, leadPx: tickable ? SELECT_PX : 0, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
             Strip: RecordStrip, onOpen: inspector ? onOpen : undefined,
         },
         phone,
@@ -240,15 +291,19 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         forms,
         // Whether its Autosave begins on, as its author says.
         autosave: value.autosave,
-    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
+        // The frame it lays the sheet in: a field of its Details with the keyboard holds the day (`useEditDay`).
+        frame: frameRef,
+    }), [rowPx, tickable, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
-    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
+    const grid = useMemo((): RecordGrid => ({ styles, density, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, density, ticks, value.columnGroups, noun, title, inspector]);
     const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
+    // The day the page sets, where it sets one: what the Record's clock gives its cells from data and its ages.
+    const day = getSomeorUndefined(value.day);
     return (
         <SheetMessagesProvider messages={RECORD_SHEET_MESSAGES}>
-            <RecordClock>
+            <RecordClock day={day}>
                 <RecordGridProvider value={grid}>
                     <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
                         <RecordInspectorProvider value={inspection}>
@@ -299,7 +354,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
     const inspect = useSheetInspect();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const { noun, title } = useRecordGrid();
@@ -318,6 +373,13 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     // The rows ticked: what Delete deletes and the status line counts — a row a paged record has dropped as the grid
     // scrolled on among them, its tick holding what the Sheet held of it (#1579).
     ticks.holdWith(entries.hold);
+    // A ticked row a gesture moves under another key keeps its tick, under the key it stands under now (east-workspace#1737);
+    // and a ticked new row the drafts' carry-over gives another key, another Save having taken its own — never the row
+    // that took it (east-workspace#1738's review).
+    const moved = entries.moved;
+    useEffect(() => { ticks.follow(moved); }, [moved, ticks]);
+    const renumbered = entries.renumbered;
+    useEffect(() => { ticks.follow(renumbered); }, [renumbered, ticks]);
     const tickVersion = useSyncExternalStore(ticks.subscribe, ticks.version);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tickVersion moves with every tick: the ticks are a store read by its version.
     const ticked = useMemo(() => ticks.size(), [ticks, tickVersion]);
@@ -368,7 +430,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown but a new one, and the legend.
     const count = shown === undefined || total === undefined ? undefined
         : rm.shownOf({ shown: words.number(shown), total: words.number(total), n: total, noun: noun.singular, nouns: noun.plural });
-    const stale = entries.whole ? staleNoteOf(columns, entries.rows, entries.changes, now, words) : undefined;
+    const stale = entries.whole ? staleNoteOf(columns, entries.rows, entries.changes, time, words) : undefined;
     const legend = useMemo(() => legendOf(columns, registers), [columns, registers]);
     // An issue's place in a banner: its row, named as the Issues tab names it — a Record's rows have no lines.
     const where = useCallback((issue: EditIssue) => issueWhere(issue, placeOf.current(issue)), [issueWhere]);

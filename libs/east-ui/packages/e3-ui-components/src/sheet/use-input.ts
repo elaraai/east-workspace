@@ -4,8 +4,9 @@
  */
 
 /**
- * The pointer and the keyboard: the ring following a host's controlled selection, a press, a drag and a hover on a cell,
- * the grid's keys — the history's, ⏎ on an action cell, a phone's paging of the columns, the machine's — and the clipboard.
+ * The pointer and the keyboard: the ring following a host's controlled selection; a press, a drag and a hover on a
+ * cell, and a press released where it was pressed, which clicks its row (east-workspace#1727); the grid's keys, the
+ * history's, ⏎ on an action cell, a phone's paging of the columns and the machine's; and the clipboard.
  *
  * @packageDocumentation
  */
@@ -24,6 +25,20 @@ import type { SheetBody } from "./use-body.js";
 import type { SheetMachine } from "./use-machine.js";
 import type { SheetEffects } from "./use-effects.js";
 import type { SheetGestures } from "./use-gestures.js";
+
+/** Where a press was: the box of what it pressed, on the page, as the press found it. */
+interface PressBox {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+}
+
+/** What a press pressed, where it lies on the page as the press lands. */
+function pressBoxOf(el: Element): PressBox {
+    const b = el.getBoundingClientRect();
+    return { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+}
 
 /** The action cells' calls as the sheet stands (#1475): made afresh each render, read through a ref by the one host. */
 export interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> {
@@ -101,21 +116,40 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
     // every gesture is held to, east-ui-components' `src/pointer/`).
     const pressed = useRef(false);
     const dragging = useRef(false);
+    // Where the press in hand was — the box of the cell, or the row's number, it pressed, as the press found it — until
+    // its button lifts (east-workspace#1727): a release inside it is a click there, wherever the pointer went between,
+    // and whatever the press drew over it by then, which the release lands on instead — Details over a scrim, a phone's
+    // bottom editor, a sticky line's row in its copy's place, the row drawn again under the key its committed edit gave
+    // it. The machine says whether the press was one.
+    const pressBox = useRef<PressBox | null>(null);
     useEffect(() => {
-        const up = () => { pressed.current = false; dragging.current = false; };
+        const release = (at: { x: number; y: number } | undefined) => {
+            const box = pressBox.current;
+            if (box === null) return;
+            pressBox.current = null;
+            dispatch({ t: "cell.up", inside: at !== undefined && at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom });
+        };
+        // A lift never heard — a move with the button no longer held, the window losing the page — clicks nothing.
+        const letGo = () => { pressed.current = false; dragging.current = false; release(undefined); };
+        const up = (e: globalThis.MouseEvent) => {
+            pressed.current = false;
+            dragging.current = false;
+            if (e.button !== 0) return;
+            release({ x: e.clientX, y: e.clientY });
+        };
         const move = (e: globalThis.MouseEvent) => {
-            if ((e.buttons & 1) === 0) up();
+            if ((e.buttons & 1) === 0) letGo();
             else if (pressed.current) dragging.current = true;
         };
         window.addEventListener("mouseup", up);
         window.addEventListener("mousemove", move);
-        window.addEventListener("blur", up);
+        window.addEventListener("blur", letGo);
         return () => {
             window.removeEventListener("mouseup", up);
             window.removeEventListener("mousemove", move);
-            window.removeEventListener("blur", up);
+            window.removeEventListener("blur", letGo);
         };
-    }, []);
+    }, [dispatch]);
     /**
      * A gesture on the ring (#860): counted — a key's move past the rows read lands only if none came after it — and,
      * when it is no such move itself, it abandons one still on its way at once, the rows that move holds put back as
@@ -132,10 +166,12 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         e.preventDefault();
         pressed.current = !e.shiftKey;
         dragging.current = false;
+        pressBox.current = pressBoxOf(e.currentTarget);
         ringGesture();
         // A press opens a phone's action bar again, wherever it was closed (SH9).
         setBarClosedAt(undefined);
-        dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
+        // The button's first press may be a click on the row; a double click's second is not (east-workspace#1727).
+        dispatch({ t: "cell.down", r, c, shift: e.shiftKey, click: e.detail <= 1 });
     }, [dispatch, ringGesture, setBarClosedAt]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
@@ -145,7 +181,11 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         if (e.button !== 0) return;
         e.preventDefault();
         ringGesture();
-        dispatch({ t: "row.pick", r, shift: e.shiftKey });
+        // A press on the row's number may be a click on the row (east-workspace#1727); a pick of its box comes as the
+        // box's click, and ticks it — no press.
+        const press = e.type === "mousedown";
+        if (press) pressBox.current = pressBoxOf(e.currentTarget);
+        dispatch({ t: "row.pick", r, shift: e.shiftKey, click: press && e.detail <= 1 });
     }, [dispatch, ringGesture]);
     const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);
     const onFillRow = useCallback(() => dispatch({ t: "fill.row" }), [dispatch]);

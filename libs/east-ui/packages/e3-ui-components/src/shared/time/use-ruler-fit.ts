@@ -10,15 +10,15 @@
  * on its column; `thinTicks` then decides from the labels as they drew which
  * draw and where. It measures before the browser paints — when the ruler
  * mounts, when its buckets change, when its track's width changes (in the
- * ResizeObserver's delivery) and when fonts arrive — so no frame shows a label
- * it does not rest on. A track with no width yet (a ruler not laid out) draws
- * every label.
+ * ResizeObserver's delivery) and when fonts arrive (`useMeasureAgain`)
+ * — so no frame shows a label it does not rest on. A track with no width yet
+ * (a ruler not laid out) draws every label.
  *
  * @packageDocumentation
  */
 
-import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
-import { flushSync } from "react-dom";
+import { useLayoutEffect, useState, type RefObject } from "react";
+import { useMeasureAgain } from "@elaraai/east-ui-components/internal";
 import type { Scale, ScaleBucket } from "./scale.js";
 
 /** The geometry and vocabulary a ruler needs, independent of its host. */
@@ -74,35 +74,12 @@ function insideOf(el: HTMLElement): { left: number; right: number } {
 export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: RulerScale<I>, prefer?: number, enabled = true): RulerFit | undefined {
     // What the labels' places depend on: each one's words and its column, and the bucket preferred.
     const signature = `${prefer ?? ""}\u0002${scale.buckets.map((b) => `${b.label}\u0000${b.x0}\u0000${b.x1}`).join("\u0001")}`;
-    const [measuring, setMeasuring] = useState(true);
+    const { measuring, measured } = useMeasureAgain(trackRef, signature, enabled);
     const [fit, setFit] = useState<RulerFit | undefined>(undefined);
-    useLayoutEffect(() => { setMeasuring(true); }, [signature]);
-    // The track's width changed: measured again in the observer's delivery, before the frame paints.
-    useLayoutEffect(() => {
-        const track = trackRef.current;
-        if (!enabled || track === null || typeof ResizeObserver === "undefined") return undefined;
-        let width = track.getBoundingClientRect().width;
-        const ro = new ResizeObserver(() => {
-            const now = track.getBoundingClientRect().width;
-            if (Math.abs(now - width) < 0.01) return;
-            width = now;
-            flushSync(() => setMeasuring(true));
-        });
-        ro.observe(track);
-        return () => ro.disconnect();
-    }, [trackRef, enabled]);
-    // Fonts arriving change the labels' widths, not the track's.
-    useEffect(() => {
-        const fonts = typeof document === "undefined" ? undefined : document.fonts;
-        if (fonts === undefined) return undefined;
-        const again = () => setMeasuring(true);
-        fonts.addEventListener("loadingdone", again);
-        return () => fonts.removeEventListener("loadingdone", again);
-    }, []);
     useLayoutEffect(() => {
         const track = trackRef.current;
         if (!enabled || !measuring || track === null) return;
-        setMeasuring(false);
+        measured();
         const spans = [...track.querySelectorAll<HTMLElement>("[data-tick-label]")];
         if (spans.length === 0 || spans.length !== scale.buckets.length) { setFit(undefined); return; }
         // Each label's box as drawn, and its column's inside edges, where a label that would run past the track's start
@@ -115,7 +92,7 @@ export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: R
             return { box: { left: r.left, right: r.right }, column: insideOf(span.parentElement!), anchor: startsPeriod(scale, b), prefer: b.index === prefer };
         }), pad, RULER_GAP);
         setFit(input === undefined ? undefined : thinTicks(input.labels, input.track, input.gap));
-    }, [measuring, signature, scale, prefer, trackRef, enabled]);
+    }, [measuring, measured, signature, scale, prefer, trackRef, enabled]);
     // While it measures, every label draws whole: never painted, as the measure lands first.
     return enabled && !measuring && fit !== undefined && fit.shown.length === scale.buckets.length ? fit : undefined;
 }

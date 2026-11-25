@@ -12,19 +12,23 @@
  * worded in the kind it resolves to (`CNC router · 4 machines`) — dashed chips for text / placeholder / a proposal, the faint
  * FROM / TO labels on an empty live half, a lock tag on a locked one — warn
  * when it holds content — and a flagged member's warn treatment with its
- * message as the title.
+ * message as the title. Each half's chips stand on one line, `+n` for those
+ * past its room — its hover naming each as the cell prints it, a counted
+ * member with its count (`ChipLine`, east-workspace#1741); Details' halves
+ * wrap instead, every member drawn.
  */
 
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
-import { memberChipLabel, memberIsDashed } from "../model.js";
+import { memberChipLabel, memberIsDashed, memberLabel } from "../model.js";
 import { memberMeta, type LinkVocabulary } from "../link/grammar.js";
 import { halfWarns, type LinkHalves } from "../link/sides.js";
 import type { LinkFlags } from "../link/checks.js";
 import type { SheetLinkValue, SheetMemberValue } from "../values.js";
 import { useSheetWords, type SheetWords } from "../words.js";
+import { ChipLine } from "./ChipLine.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -73,7 +77,7 @@ export const LinkChip = memo(function LinkChip({ styles, member, meta, ghost, fl
             title={flagged ? flags.join(" · ") : undefined}
             style={flagged ? { color: "var(--chakra-colors-status-warn)", background: "var(--chakra-colors-bg-warning-subtle)", borderColor: "var(--chakra-colors-status-warn)" } : undefined}
         >
-            {memberChipLabel(member)}
+            <Box as="span" css={styles.chipText} data-slot="chipText">{memberChipLabel(member)}</Box>
             {count !== undefined
                 ? <Box as="span" css={styles.chipMeta} data-slot="chipCount">{count}</Box>
                 : meta !== "" && <Box as="span" css={styles.chipMeta}>{meta}</Box>}
@@ -91,10 +95,12 @@ export interface LinkHalfProps {
     ghost: boolean;
     /** The driver's name for the lock tag's title — `undefined` when the row names none. */
     driverName: string | undefined;
+    /** Its chips on as many lines as they take, none folded: Details'. */
+    wrap?: boolean | undefined;
 }
 
 /** One half: the lock tag or the hint, then the chips. */
-export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, state, vocab, flags, ghost, driverName }: LinkHalfProps) {
+export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, state, vocab, flags, ghost, driverName, wrap }: LinkHalfProps) {
     // The half's words (#861).
     const words = useSheetWords();
     const { m } = words;
@@ -102,23 +108,24 @@ export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, 
     const title = !state.live
         ? m.halfNone({ driver: driverName ?? m.thisRow(), half, lock: state.lock !== "" ? state.lock : undefined })
         : m.halfTitle({ half });
+    const chips = members.map((member, i) => {
+        const label = memberChipLabel(member);
+        const meta = members.length === 1 && vocab !== undefined ? memberMeta(member, vocab, words) : "";
+        const count = countText(member, vocab, words);
+        return {
+            key: `${label}\u0001${meta}\u0001${count ?? ""}`,
+            // As the cell prints it — `4 × CNC router`: the chip's own words leave the count to its meta.
+            words: memberLabel(member),
+            node: <LinkChip styles={styles} member={member} meta={meta} ghost={ghost} flags={flags[i] ?? []} count={count} />,
+        };
+    });
     return (
         <Box css={styles.half} data-half={half} data-locked={!state.live ? "" : undefined} title={title}>
             {!state.live && state.lock !== "" && (
                 <Box as="span" css={warn ? styles.lockWarn : styles.lockTag} data-slot={warn ? "lockWarn" : "lockTag"}>{state.lock}</Box>
             )}
             {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{m.halfLabel({ half })}</Box>}
-            {members.map((member, i) => (
-                <LinkChip
-                    key={i}
-                    styles={styles}
-                    member={member}
-                    meta={members.length === 1 && vocab !== undefined ? memberMeta(member, vocab, words) : ""}
-                    ghost={ghost}
-                    flags={flags[i] ?? []}
-                    count={countText(member, vocab, words)}
-                />
-            ))}
+            {chips.length > 0 && <ChipLine styles={styles} chips={chips} end={half === "from"} wrap={wrap} />}
         </Box>
     );
 });
@@ -133,17 +140,19 @@ export interface LinkCellProps {
     ghost: boolean;
     /** The row's driver member's name — `undefined` when it names none. */
     driverName: string | undefined;
+    /** Each half's chips on as many lines as they take, none folded: Details'. */
+    wrap?: boolean | undefined;
 }
 
 /** Renders the split cell. */
-export const LinkCell = memo(function LinkCell({ styles, link, halves, vocab, flags, ghost, driverName }: LinkCellProps) {
+export const LinkCell = memo(function LinkCell({ styles, link, halves, vocab, flags, ghost, driverName, wrap }: LinkCellProps) {
     return (
         <Box css={styles.linkGrid} data-slot="linkCell" data-sides={halves.sides} data-ghost={ghost ? "" : undefined}>
-            <LinkHalfView styles={styles} half="from" members={link.from} state={halves.from} vocab={vocab} flags={flags.from} ghost={ghost} driverName={driverName} />
+            <LinkHalfView styles={styles} half="from" members={link.from} state={halves.from} vocab={vocab} flags={flags.from} ghost={ghost} driverName={driverName} wrap={wrap} />
             <Box as="span" css={styles.arrow} aria-hidden="true" data-slot="arrow">
                 <FontAwesomeIcon icon={halves.isIn ? faMinus : faArrowRightLong} />
             </Box>
-            <LinkHalfView styles={styles} half="to" members={link.to} state={halves.to} vocab={vocab} flags={flags.to} ghost={ghost} driverName={driverName} />
+            <LinkHalfView styles={styles} half="to" members={link.to} state={halves.to} vocab={vocab} flags={flags.to} ghost={ghost} driverName={driverName} wrap={wrap} />
         </Box>
     );
 });

@@ -25,7 +25,7 @@ import type { SheetNotice } from "./sheet-types.js";
 import { LATENCY_MS } from "./suggest.js";
 import { editsOutOfPlace, stepsInPlace } from "./steps.js";
 import type { EditorFocusRequest } from "./Editor.js";
-import type { SheetSelectionValue } from "./values.js";
+import type { SheetRowClickValue, SheetSelectionValue } from "./values.js";
 import type { SheetDecode } from "./use-decode.js";
 import type { SheetSession } from "./use-session.js";
 import type { SheetBody } from "./use-body.js";
@@ -47,12 +47,14 @@ import type { SheetCopilot } from "./use-copilot.js";
 export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSession, sheetBody: SheetBody,
     sheetMachine: SheetMachine, sheetWrites: SheetWrites, sheetCopilot: SheetCopilot) {
     const {
-        chrome, columns, copilotOn, declaredNoun, declaredViews, group, hostGrid, onSelectFn, onViewsChangeFn,
+        chrome, columns, copilotOn, declaredNoun, declaredViews, group, hostGrid, onRowClickFn, onSelectFn, onViewsChangeFn,
         setViewsState, triggers, viewsRef, words,
     } = sheetDecode;
-    const { canEdit, dispatchStore, paging, recordGesture, store } = sheetSession;
+    const { canEdit, dispatchStore, editingState, paging, recordGesture, store } = sheetSession;
+    // The key a row stands under now: the one a gesture moved it to (`rowKey`) where it moved.
+    const { under } = editingState;
     const { blankLineRowOf, cellAt, colCount, idAt, lensEnds, metaAt, parseCtxFor, rowAt, rowOf, rowSpace, writableAt } = sheetBody;
-    const { dispatch, expectedNarrowing, jumpToElement, lensJumpTo } = sheetMachine;
+    const { dispatch, drainedFx, expectedNarrowing, followRing, jumpToElement, lensJumpTo } = sheetMachine;
     const { deleteRows, failed, gestureEvents, insertLooseProposals, insertProposal, writeCells } = sheetWrites;
     const { requestReady, requestRun } = sheetCopilot;
     // ── Effects ───────────────────────────────────────────────────────────
@@ -96,20 +98,27 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
     }, []);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
         gestureEvents.current = [];
+        // No press's commit in hand as a batch starts: the ring follows the rows a press's commit moves in its batch alone.
+        followRing(false);
         /** The writes so far as one gesture: one step of the history. */
         const recordSoFar = () => {
             try { recordGesture(gestureEvents.current); }
             catch (error) { failed(error); }
             finally { gestureEvents.current = []; }
         };
-        /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
-        const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
+        /**
+         * After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs.
+         * A press's commit (`follow`) leaves the ring where the press put it, on its row, which the machine follows by
+         * identity as the write's rows land (east-workspace#1727's review).
+         */
+        const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean, follow = false) => {
             const anchorBefore = idAt(r);
+            if (follow) followRing(true);
             if (res.firstInserted !== undefined) {
                 // The blank row became real at the end of the sheet: the ring
                 // follows it, keeping whatever move the commit made.
                 const delta = store.ui.sel.r - r;
-                dispatchStore({ t: "patch", patch: { sel: { r: res.firstInserted + delta, c: store.ui.sel.c }, selEnd: null } });
+                if (!follow) dispatchStore({ t: "patch", patch: { sel: { r: res.firstInserted + delta, c: store.ui.sel.c }, selEnd: null } });
                 if (anchorBefore !== undefined && isBlankRowId(anchorBefore) && res.ids[0] !== undefined) {
                     dispatch({ t: "suggest.rekey", from: anchorBefore, to: res.ids[0] });
                 }
@@ -139,7 +148,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         break;
                     }
                     const res = writeCells([{ r: eff.r, c: eff.c, cell }], "typed");
-                    afterWrite(eff.r, res, triggers.size === 0 || triggers.has(meta.key));
+                    afterWrite(eff.r, res, triggers.size === 0 || triggers.has(meta.key), eff.follow === true);
                     break;
                 }
                 case "write.many": {
@@ -342,6 +351,25 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     queueMicrotask(() => onSelectFn(sel));
                     break;
                 }
+                case "emit.rowClick": {
+                    // A click on a row (east-workspace#1727): a row's id, a line's group's and its place among the
+                    // group's lines, a band's group's; the column as `onSelect` names it, none for the row's number. A
+                    // blank padding row and a proposal are no rows.
+                    if (onRowClickFn === undefined) break;
+                    const it = rowAt(eff.r);
+                    if (it === undefined || (it.kind !== "real" && it.kind !== "group")) break;
+                    const meta = eff.c === null ? undefined : metaAt(eff.r, eff.c);
+                    const lg = it.kind === "real" ? it.group : undefined;
+                    const click: SheetRowClickValue = {
+                        // The key the row stands under now (east-workspace#1727's review): a press and its release in one
+                        // task are run before the commit the press made renders, a row it moved still under the key it left.
+                        rowId: under(lg !== undefined ? lg.row.id : it.row.id),
+                        index: lg !== undefined ? some(BigInt(lg.index)) : none,
+                        column: meta !== undefined ? some(meta.key) : none,
+                    };
+                    queueMicrotask(() => onRowClickFn(click));
+                    break;
+                }
                 case "scroll.to": {
                     const bi = rowSpace.bodyIndexOf[eff.r];
                     if (bi !== undefined) setScrollTarget({ index: bi, align: "auto" });
@@ -437,13 +465,15 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
-    const drainedFx = useRef(0);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onRowClickFn, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, followRing, under, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
+    // Each effectful event's batch, once and in order, each one gesture: every batch since the last drain — a press and
+    // its release dispatched in one task among them — never the last alone.
     useLayoutEffect(() => {
-        if (store.fxSeq === drainedFx.current) return;
+        const from = drainedFx.current;
+        if (store.fxSeq === from) return;
         drainedFx.current = store.fxSeq;
-        runEffects(store.fx);
-    }, [store.fxSeq, store.fx, runEffects]);
+        for (const batch of store.fx) if (batch.seq > from) runEffects(batch.effects);
+    }, [store.fxSeq, store.fx, drainedFx, runEffects]);
     return {
         cardRef, editorFocus, jumpBy, revealSeq, ringMoves, runEffects, scrollTarget, seekIntent, setScrollTarget,
         toolbarRef,

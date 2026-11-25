@@ -61,6 +61,7 @@ import {
 // Internal re-export for sibling modules (slice/chart, component dispatch).
 // NOT surfaced on the east-ui barrel — public access is via `Chart.Spec.Types.*`.
 export * from "./types.js";
+export { numberDomainOf, type NumberDomainInput } from "./number-domain.js";
 // The chart tree's node type and its constructors, which the namespace below names.
 export * from "./nodes.js";
 

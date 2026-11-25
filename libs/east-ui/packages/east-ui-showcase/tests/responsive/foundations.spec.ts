@@ -31,6 +31,7 @@ import { test, expect, type Page } from "playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installColourReader, type ColourReader } from "./colour";
 import { settled } from "./settle";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -181,61 +182,13 @@ async function open(page: Page, mode: Mode, hash = "container/card/cardBasic"): 
     expect(await page.evaluate(() => document.documentElement.classList.contains("dark")), `the page is in ${mode}`).toBe(mode === "dark");
 }
 
-/** Installs the page's colour reader: any CSS colour (a token, a mix, a
- *  literal), resolved by the page, drawn over a ground and read back as sRGB. */
-async function installReader(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const probe = document.createElement("span");
-        probe.setAttribute("data-colour-probe", "");
-        document.body.append(probe);
-        const canvas = document.createElement("canvas");
-        canvas.width = 1;
-        canvas.height = 1;
-        const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-        const resolve = (css: string): string => {
-            probe.style.color = "";
-            probe.style.color = css;
-            return getComputedStyle(probe).color;
-        };
-        const rgb = (css: string, under?: string): [number, number, number, number] => {
-            ctx.clearRect(0, 0, 1, 1);
-            if (under !== undefined) {
-                ctx.fillStyle = resolve(under);
-                ctx.fillRect(0, 0, 1, 1);
-            }
-            ctx.fillStyle = resolve(css);
-            ctx.fillRect(0, 0, 1, 1);
-            const d = ctx.getImageData(0, 0, 1, 1).data;
-            return [d[0]!, d[1]!, d[2]!, d[3]!];
-        };
-        const lum = ([r, g, b]: number[]): number => {
-            const lin = (x: number) => { const s = x / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
-            return 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
-        };
-        /** The WCAG contrast of a text colour on a ground (the text drawn over it). */
-        const contrast = (text: string, ground: string): number => {
-            const g = rgb(ground, "#808080");
-            const t = rgb(text, ground);
-            const [a, b] = [lum(t), lum(g)];
-            return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-        };
-        (window as unknown as { __colour: unknown }).__colour = { resolve, rgb, contrast };
-    });
-}
-
-interface ColourReader {
-    resolve: (css: string) => string;
-    rgb: (css: string, under?: string) => [number, number, number, number];
-    contrast: (text: string, ground: string) => number;
-}
-
 test.describe("Foundations — colour", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
     for (const mode of MODES) {
         test(`F1 (${mode}): every design-system colour renders as the design system declares it`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             const pairs = Object.entries(THEME_VAR).map(([ds, cssVar]) => ({ ds, theme: `var(${cssVar})`, want: dsColour(ds, mode) }));
             const bad = await page.evaluate((rows) => {
                 const c = (window as unknown as { __colour: ColourReader }).__colour;
@@ -251,7 +204,7 @@ test.describe("Foundations — colour", () => {
 
         test(`F2 (${mode}): readable ink holds 4.5:1 on every paper and on --brand-tint`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             const inks = ["--ink", "--ink-2", "--ink-3", "--ink-4"];
             const bad = await page.evaluate(({ inks, grounds, vars }) => {
                 const c = (window as unknown as { __colour: ColourReader }).__colour;
@@ -265,7 +218,7 @@ test.describe("Foundations — colour", () => {
 
         test(`F3 (${mode}): a valence set as text holds 4.5:1 on every paper, on --brand-tint and on its own wash over each`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             const bad = await page.evaluate(({ valences, grounds, vars }) => {
                 const c = (window as unknown as { __colour: ColourReader }).__colour;
                 return valences.flatMap((v) => grounds.flatMap((ground) => {
@@ -285,7 +238,7 @@ test.describe("Foundations — colour", () => {
 
         test(`F4 (${mode}): a heat value holds 4.5:1 on its step — --ink on 1–3, --paper on 4–5`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             const bad = await page.evaluate((vars) => {
                 const c = (window as unknown as { __colour: ColourReader }).__colour;
                 return [1, 2, 3, 4, 5].flatMap((step) => {
@@ -299,7 +252,7 @@ test.describe("Foundations — colour", () => {
 
         test(`F5 (${mode}): the page is --paper-2, and a Frame --paper on it`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             const read = await page.evaluate((vars) => {
                 const c = (window as unknown as { __colour: ColourReader }).__colour;
                 const card = document.querySelector(".chakra-card__root");
@@ -366,7 +319,7 @@ test.describe("Foundations — type", () => {
 
     test("T1: h1–h6 render as the design system's base styles declare them (_ds_bundle.css)", async ({ page }) => {
         await open(page, "light");
-        await installReader(page);
+        await installColourReader(page);
         const tags = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
         const read = await probe(page, tags.map((t) => `<${t} data-probe="${t}">Probe</${t}>`).join(""));
         const bad: string[] = [];
@@ -390,7 +343,7 @@ test.describe("Foundations — type", () => {
 
     test("T2: links, inline code, key caps and the page's figures render as the design system declares them", async ({ page }) => {
         await open(page, "light");
-        await installReader(page);
+        await installColourReader(page);
         const read = await probe(page, [
             `<a href="#probe" data-probe="a">link</a>`,
             `<p style="font-size: 13px"><code data-probe="code">code</code></p>`,
@@ -525,7 +478,7 @@ test.describe("Foundations — radii, shadows and motion", () => {
 
         test(`S2 (${mode}): the keyboard's focus wears the one focus ring, --shadow-focus`, async ({ page }) => {
             await open(page, mode);
-            await installReader(page);
+            await installColourReader(page);
             await page.keyboard.press("Tab");
             const ring = await page.evaluate(() => {
                 const el = document.activeElement;

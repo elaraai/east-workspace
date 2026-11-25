@@ -30,6 +30,7 @@ function traceValue(tracks: { name: string; values: number[] }[], options: Parti
         density: some(variant("compact", null)),
         scale: none,
         future: none,
+        domain: none,
         style: none,
         ...options,
     } as TraceValue;
@@ -286,5 +287,91 @@ describe("Trace's nowLineColor: a theme colour's name, or a CSS colour", () => {
         cleanup();
         // jsdom writes a hex colour back as rgb().
         expect(declaredStyle(nowLineOf("#123456"), "background")).toBe("rgb(18, 52, 86)");
+    });
+});
+
+describe("Trace's domain: one scale for every track (east-workspace#1728)", () => {
+    const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+    /** Each step's value, its level and, diverging, its side of the midpoint. */
+    const levelsOf = (container: HTMLElement) => stepsOf(container).map((s) => [s.textContent, s.getAttribute("data-level"), s.getAttribute("data-side")]);
+    /** Two tracks of different ranges, on a domain or none. */
+    const drawn = (domain: TraceValue["domain"], scale: TraceValue["scale"] = none) => render(
+        <ChakraProvider value={system}>
+            <EastChakraTrace value={traceValue([
+                { name: "A", values: [10, 20, 30] },
+                { name: "B", values: [20, 40, 60] },
+            ], { domain, scale })} storageKey="domain" />
+        </ChakraProvider>,
+    ).container;
+
+    test("on a domain, the same value takes the same level on every track, and a value past either end that end's", () => {
+        // [0, 40] in five equal steps of 8, the top one closed: 10 → 1, 20 → 2, 30 → 3, 40 → 4, and 60, past the end, 4.
+        expect(levelsOf(drawn(some({ min: 0, max: 40 })))).toEqual([
+            ["10", "1", null], ["20", "2", null], ["30", "3", null],
+            ["20", "2", null], ["40", "4", null], ["60", "4", null],
+        ]);
+    });
+
+    test("with none, each track runs over its own range", () => {
+        // A over 10–30 and B over 20–60: each its lowest 0, its middle 2, its highest 4.
+        expect(levelsOf(drawn(none))).toEqual([
+            ["10", "0", null], ["20", "2", null], ["30", "4", null],
+            ["20", "0", null], ["40", "2", null], ["60", "4", null],
+        ]);
+    });
+
+    test("diverging on a domain, the midpoint is the domain's middle", () => {
+        // [0, 40], its middle 20: 10 below at half the way to the end, level 1; 20 and 30 above at 0 and 1; 40 and 60, past it, the end's 3.
+        expect(levelsOf(drawn(some({ min: 0, max: 40 }), some(variant("diverge", null))))).toEqual([
+            ["10", "1", "below"], ["20", "0", "above"], ["30", "1", "above"],
+            ["20", "0", "above"], ["40", "3", "above"], ["60", "3", "above"],
+        ]);
+    });
+
+    test("a domain whose max is not past its min places nothing on it: each track runs over its own range", () => {
+        const own = levelsOf(drawn(none));
+        cleanup();
+        expect(levelsOf(drawn(some({ min: 5, max: 5 })))).toEqual(own);
+    });
+
+    test("nor does one whose bounds are no finite numbers — NaN at either end, or an infinity: each track runs over its own range", () => {
+        const own = levelsOf(drawn(none));
+        cleanup();
+        for (const [said, domain] of [["[0, NaN]", { min: 0, max: NaN }], ["[NaN, 40]", { min: NaN, max: 40 }], ["[-∞, 40]", { min: -Infinity, max: 40 }], ["[0, ∞]", { min: 0, max: Infinity }]] as const) {
+            expect(levelsOf(drawn(some(domain))), said).toEqual(own);
+            cleanup();
+        }
+    });
+});
+
+describe("Trace's values, where a step has no room for them (east-workspace#1728)", () => {
+    const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+
+    test("the root carries its longest value's figures, in characters: what every value stands as wide as", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue([{ name: "A", values: [8, 14.5, 120] }, { name: "B", values: [9, 10, 11] }])} storageKey="fit" />
+            </ChakraProvider>,
+        );
+        // "8", "14.5", "120": the longest, four.
+        expect(gridOf(container).parentElement!.style.getPropertyValue("--t-value-ch")).toBe("4");
+    });
+
+    test("the recipe stands each value as wide as the longest, and a step with no room for it wraps it under its edge, out of sight — so none shows where one has no room", () => {
+        const base = traceSlotRecipe.base as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+        const step = base.step!;
+        expect([step.flexWrap, step.overflow, step["&::before"]]).toEqual(["wrap", "hidden", { content: '""', height: "100%" }]);
+        expect([base.value!.minWidth, base.value!.textAlign]).toEqual(["calc(var(--t-value-ch, 0) * 1ch)", "center"]);
+    });
+
+    test("an unnamed track's step says its label, its value and whether it is measured — nothing before the value for a name", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue([{ name: "", values: [32, 30, 28] }], { now: some(2n), axis: some(["W41", "W42", "W43"]) })} storageKey="unnamed" />
+            </ChakraProvider>,
+        );
+        expect(stepsOf(container).map((s) => s.title)).toEqual(["W41 · 32 · measured", "W42 · 30 · measured", "W43 · 28 · predicted"]);
+        // Its stub, the track's place for a name, holds none.
+        expect(gridOf(container).children[0]!.textContent).toBe("");
     });
 });

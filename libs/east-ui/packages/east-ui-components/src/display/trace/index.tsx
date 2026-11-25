@@ -8,13 +8,18 @@
  * The recipe (`theme/slot-recipes/trace.ts`) owns density sizing, static
  * chrome and every scale's fills; this renderer computes the dynamic parts —
  * grid column count, each step's level on its ramp, an author's own hue, and
- * the now-line position.
+ * the now-line position. A step's level is its place in its track's own range,
+ * or in the Trace's `domain`, one scale for every track, where it has one
+ * (east-workspace#1728). A step's value is drawn on it where every step has
+ * room for the longest of them; where one has not — many steps in a narrow
+ * plot gutter — none is, and the steps read as a heat strip, each still saying
+ * its value on hover.
  */
 
 import { memo, Fragment, useEffect, useMemo } from "react";
 import { Box as ChakraBox, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Trace } from "@elaraai/east-ui/internal";
+import { Trace, drawsDomain } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { resolveColor } from "../../collections/shared/helpers.js";
 import { useDensity, type Density } from "../../contracts/density";
@@ -74,10 +79,20 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const leftCol = gLeft ?? labelWidth ?? "var(--t-stub-w)";
     const rightCol = gRight ?? "0px";
 
+    // One scale for every track (east-workspace#1728): the domain's. One whose bounds are no finite numbers, or whose max
+    // is not past its min, places nothing on it, and each track runs over its own range, as with none.
+    const domain = useMemo(() => {
+        const given = getSomeorUndefined(value.domain);
+        return given !== undefined && drawsDomain(given.min, given.max) ? given : undefined;
+    }, [value.domain]);
+
     const nowRaw = useMemo(() => getSomeorUndefined(value.now), [value.now]);
     const now = nowRaw !== undefined ? Number(nowRaw) : undefined;
 
     const tracks = value.tracks;
+    // The longest value's figures, in characters (east-workspace#1728): each step's value stands that wide, so where one
+    // has no room on its step none has, and none is drawn (the recipe).
+    const valueCh = useMemo(() => tracks.reduce((n, t) => t.values.reduce((m, v) => Math.max(m, words.tick(v).length), n), 0), [tracks, words]);
     // Tracks share one step grid; size it to the LONGEST track so a longer
     // track can't auto-flow its surplus cells onto a new, stub-less row (#126).
     // Shorter tracks are padded with empty trailing cells (below) so each track
@@ -119,6 +134,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
             data-future={future}
             {...(gutterActive ? { display: "block", width: "100%" } : {})}
             style={{
+                ["--t-value-ch"]: valueCh,
                 ...(labelWidth !== undefined ? { ["--t-stub-w"]: labelWidth } : {}),
                 ...(hue !== undefined ? { ["--t-hue"]: hue } : {}),
             } as React.CSSProperties}
@@ -135,8 +151,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
             <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns, ...gutterGap }} position="relative">
                 {tracks.map((track, ti) => {
                     const values = track.values as unknown as number[];
-                    const min = Math.min(...values);
-                    const max = Math.max(...values);
+                    // The track's own range, or the domain every track shares.
+                    const min = domain?.min ?? Math.min(...values);
+                    const max = domain?.max ?? Math.max(...values);
                     const mid = (min + max) / 2;
                     // A categorical track's place in the series order; the first is the brand's own ramp, as the brand scale's.
                     const series = scale === "categorical" ? ti % SERIES : 0;
@@ -145,17 +162,22 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                             <ChakraBox css={styles.stub} title={track.name}>{track.name}</ChakraBox>
                             {values.map((v, i) => {
                                 const isFuture = now !== undefined && i >= now;
-                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${track.name} ${words.tick(v)} · ${isFuture ? "predicted" : "measured"}`;
+                                // Its label, its track's name and its value — an unnamed track's value alone — and whether it is measured.
+                                const named = track.name.length === 0 ? words.tick(v) : `${track.name} ${words.tick(v)}`;
+                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${named} · ${isFuture ? "predicted" : "measured"}`;
                                 // Gutter mode drops the grid column gap for exact
                                 // axis alignment; put the inter-cell space back as a
-                                // symmetric margin so the cell centre stays on-track.
-                                const gap = gutterActive ? { marginInline: "calc(var(--t-gap) / 2)" } : undefined;
+                                // symmetric margin so the cell centre stays on-track —
+                                // never past an eighth of the track, so a step stands
+                                // inside it however many share the lane (east-workspace#1728).
+                                const gap = gutterActive ? { marginInline: "min(calc(var(--t-gap) / 2), 12.5%)" } : undefined;
                                 // Diverging, a step's side of the track's midpoint and its distance from it in three
                                 // equal steps, its ramp's first, second or fourth; else five equal-width steps of the
                                 // track's range, the top one closed. A predicted step takes its ramp's lighter steps —
-                                // the first two, or three — so it reads paler than a measured one.
+                                // the first two, or three — so it reads paler than a measured one. A value past either
+                                // end of a domain takes that end's level.
                                 const d = scale === "diverge" ? (v - mid) / (Math.max(max - mid, mid - min) || 1) : undefined;
-                                const t = d !== undefined ? Math.min(Math.abs(d), 1) : max > min ? (v - min) / (max - min) : 0.5;
+                                const t = d !== undefined ? Math.min(Math.abs(d), 1) : max > min ? Math.min(1, Math.max(0, (v - min) / (max - min))) : 0.5;
                                 const level = d !== undefined
                                     ? [0, 1, 3][isFuture ? Math.min(1, Math.floor(t * 2)) : Math.min(2, Math.floor(t * 3))]
                                     : (isFuture ? Math.min(2, Math.floor(t * 3)) : Math.min(4, Math.floor(t * 5)));

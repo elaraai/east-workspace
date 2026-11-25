@@ -11,7 +11,7 @@
  */
 
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Sheet } from "@elaraai/e3-ui/internal";
+import type { Sheet, SheetRowClickType } from "@elaraai/e3-ui/internal";
 import type { WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 
 /** The decoded Sheet root. */
@@ -60,6 +60,8 @@ export type SheetDriverValue = ValueTypeOf<typeof Sheet.Types.Driver>;
 export type SheetEditValue = ValueTypeOf<typeof Sheet.Types.WireEdit>;
 /** The selection value. */
 export type SheetSelectionValue = ValueTypeOf<typeof Sheet.Types.Selection>;
+/** A click on a row as the grid reports it to `onRowClick` (east-workspace#1727): the row's id, its place in its group, the column. */
+export type SheetRowClickValue = ValueTypeOf<typeof SheetRowClickType>;
 /** The wire copilot context. */
 export type SheetContextValue = ValueTypeOf<typeof Sheet.Types.WireContext>;
 /** The copilot's row-proposal declaration. */

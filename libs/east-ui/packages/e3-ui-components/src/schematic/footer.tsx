@@ -4,8 +4,8 @@
  */
 
 /**
- * The Schematic's footer (#1387, `Schematic Builder Spec.md` §6.3), on the
- * shared builder rail (`builder-footer.ts`): only what is live (ruled 23 Oct
+ * The Schematic's footer (#1387, `Schematic Builder Spec.md` §6.3), on every
+ * builder's rail (`builderFooter`, east-workspace#1748): only what is live (ruled 23 Oct
  * 2026) — each kind drawn as its density in place of items (#1393, D25): how
  * many rows it shades in the viewport where it rests (`densityInView`), and
  * that zooming in draws them, the side of its cells named on it
@@ -37,15 +37,13 @@
  */
 
 import { useMemo, useRef, useSyncExternalStore } from "react";
-import { Box, type SystemStyleObject } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { useRailWrap } from "../shared/schedule/footer.js";
 import { densityInView, type SchematicDensity, type SchematicViewportStore } from "./area.js";
 import type { SchematicWords } from "./messages.js";
-
-type Styles = Record<string, SystemStyleObject>;
 
 /** A kind read through its source that writes: what its Save's notice counts the rows it took out of the narrowing in. */
 export interface SchematicNotice {
@@ -61,8 +59,6 @@ export interface SchematicNotice {
 
 /** Props of {@link SchematicFooter}. */
 export interface SchematicFooterProps {
-    /** The `schematic` recipe's styles. */
-    readonly styles: Styles;
     /** The Schematic's words. */
     readonly words: SchematicWords;
     /** Each kind read by area drawing its density in place of items, by its slot (D25). */
@@ -93,7 +89,7 @@ export interface SchematicFooterProps {
  *   landed, and the loading line
  * @returns The footer: its rail, its notices and its loading line, empty while nothing is live
  */
-export function SchematicFooter({ styles, words, density, names, viewport, extent, refusal, notices, found, line }: SchematicFooterProps) {
+export function SchematicFooter({ words, density, names, viewport, extent, refusal, notices, found, line }: SchematicFooterProps) {
     // Where the viewport rests: the footer alone renders again as it moves, and only while a kind draws its density.
     const rests = useSyncExternalStore(viewport.subscribe, viewport.get, viewport.get);
     const { width, height } = extent;
@@ -111,16 +107,17 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
     const shown = useRevealed() === true;
     const live = useRef<HTMLDivElement>(null);
     const wrap = useRailWrap(live, [...dense.map((notice) => notice.text), refusal ?? "", found ?? ""].join("\n"));
+    const footer = useSlotStyles("builderFooter");
     return (
-        <Box ref={rail} css={styles.footer} data-schematic-footer="">
-            <Box ref={live} css={styles.footerNotices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
+        <Box ref={rail} css={footer.root} data-schematic-footer="">
+            <Box ref={live} css={footer.notices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
                 {dense.map((notice) => (
-                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side} data-footer-live="" data-footer-ambient="">{notice.text}</Box>
+                    <Box as="span" key={notice.slot} css={footer.item} data-schematic-density={notice.slot} data-density-cell={notice.side} data-footer-live="" data-footer-ambient="">{notice.text}</Box>
                 ))}
-                {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" data-footer-live="" role="alert">{refusal}</Box>}
+                {refusal !== undefined && <Box as="span" css={footer.item} data-schematic-refused="" data-tone="refused" data-footer-live="" role="alert">{refusal}</Box>}
                 {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
                 {/* Where Find's last pick landed, the canvas not showing it as itself: why. */}
-                {found !== undefined && <Box as="span" css={styles.footerItem} data-schematic-found="" data-footer-live="" role="status">{found}</Box>}
+                {found !== undefined && <Box as="span" css={footer.item} data-schematic-found="" data-footer-live="" role="status">{found}</Box>}
             </Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>

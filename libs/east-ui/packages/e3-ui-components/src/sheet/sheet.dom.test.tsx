@@ -1921,7 +1921,7 @@ describe("the link editor (B§4.4)", () => {
         expect(flagged.getAttribute("title")).toBe("A7301 is not a router");
     });
 
-    test("a locked half is skipped by ⇥ and flagged when typed into; a click in a half moves the caret; ⌫ pops a chip", () => {
+    test("a locked half is skipped by ⇥ and flagged when typed into; a click in a half moves the caret; ⌫ picks a chip, and a second takes it out whole", () => {
         const { container, cell, key, type, editorKey, input } = mount(sheetJournal(buildLinkSheet()).value);
         // Delivery — from only: the editor opens in From, ⇥ commits right instead of hopping.
         fireEvent.mouseDown(cell(2, "stations"), { button: 0 });
@@ -1931,16 +1931,19 @@ describe("the link editor (B§4.4)", () => {
         editorKey("Tab");
         expect(input()).toBeNull();
         expect(cell(2, "notes").hasAttribute("data-selected")).toBe(true);
-        // Routing — both halves: click the To half, pop its chip back into the buffer.
+        // Routing — both halves: click the From half; ⌫ picks its chip, and a second takes it out whole — never back into
+        // the buffer as words to delete (east-workspace#1741).
         fireEvent.mouseDown(cell(0, "stations"), { button: 0 });
         key("Enter");
         expect(input()!.getAttribute("data-side")).toBe("1");   // the first live EMPTY half is none ⇒ destination
         fireEvent.mouseDown(container.querySelector('[data-slot="editor"] [data-half="from"]')!, { button: 0 });
         expect(input()!.getAttribute("data-side")).toBe("0");
         editorKey("Backspace");
-        expect(input()!.value).toBe("R2140");
+        expect(input()!.value).toBe("");
+        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="from"] [data-slot="chip"][data-picked]')].map((c) => c.textContent)).toEqual(["R2140"]);
+        editorKey("Backspace");
+        expect(input()!.value).toBe("");
         expect(container.querySelectorAll('[data-slot="editor"] [data-half="from"] [data-slot="chip"]')).toHaveLength(0);
-        type("");
         editorKey("Escape");
         expect(input()).toBeNull();
         // Cancelled: the cell keeps its chips.

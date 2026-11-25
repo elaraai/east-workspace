@@ -172,6 +172,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     tabClose: () => string;
     /** The folded tabs' menu button — `+2`. */
     tabMore: (p: { n: number; count: string }) => string;
+    /** The members past a cell's one line (east-workspace#1741) — `+2`. */
+    chipsMore: (p: { n: number; count: string }) => string;
+    /** A chip's × in a link editor (east-workspace#1741): what it removes, as its accessible name. */
+    chipRemove: (p: { member: string }) => string;
     /** The same button's accessible name. */
     tabMoreName: (p: { n: number; count: string }) => string;
     /** The same button's title. */
@@ -313,6 +317,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
     // The footer's loading line over a paged source (#1398, CL3), in what the rail counts the rows in: `lineLoading`,
     // `lineFiltering`, `lineFailed` and `lineShort` (`PagedLoadingMessages`).
+    // The key hints, the footer's and the strip's, name only the keys nobody would guess (east-workspace#1743): a key
+    // every sheet takes — ⏎ to edit or commit, esc, the arrows, a click — goes unsaid, and a coarse pointer shows none.
     /** The key hint — a selected suggestion. */
     hintProposal: () => string;
     /** The key hint — the ring on a band. */
@@ -321,6 +327,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     hintSubRows: (p: { open: boolean; n: number; count: string; noun: string }) => string;
     /** The key hint — whole rows selected. */
     hintRows: (p: { n: number; count: string }) => string;
+    /** How many whole rows are selected — `3 rows selected` — which that hint leads with: what the footer says of them where it names no key, on a coarse pointer. */
+    hintRowsSelected: (p: { n: number; count: string }) => string;
     /** The key hint — fills waiting. */
     hintFills: () => string;
     /** The key hint — suggested rows waiting. */
@@ -367,31 +375,21 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     stripPending: (p: { header: string }) => string;
     /** Its title. */
     stripPendingTitle: (p: { header: string }) => string;
-    /** The keys — a text kept as typed. */
-    stripKeysTyped: () => string;
     /** The keys — a menu with nothing armed. */
     stripKeysFilter: () => string;
     /** The keys — the armed candidate. */
     stripKeysTake: (p: { many: boolean; index: string; total: string }) => string;
-    /** The keys — an empty date field. */
-    stripKeysDateEmpty: () => string;
-    /** The keys — an incomplete date. */
-    stripKeysDate: () => string;
-    /** The keys — a value to commit. */
-    stripKeysCommit: () => string;
-    /** The keys — a number field. */
-    stripKeysStep: () => string;
-    /** The keys — a custom column. */
-    stripKeysParse: () => string;
     /** The keys — predicted members. */
     stripKeysPredicted: () => string;
     /** The keys — a link's armed candidate. */
     stripKeysLinkTake: (p: { many: boolean; index: string; total: string; single: boolean }) => string;
     /** The keys — a link half with nothing to offer. */
     stripKeysLinkAdd: (p: { single: boolean }) => string;
+    /** Where the armed candidate stands among them — `2 of 9` — which its keys lead with: what the strip says of it where its keys don't show. */
+    stripCount: (p: { index: string; total: string }) => string;
     /** The keys — the pending suggestions. */
     stripKeysSuggested: () => string;
-    /** The keys — a resting cell's detail. */
+    /** The keys — a resting cell's detail: ⏎ to the wanted date behind one that has happened, and none for any other. */
     stripKeysDetail: (p: { date: boolean }) => string;
     /** The pager's title. */
     stripPager: (p: { n: number; count: string; page: string; pages: string }) => string;
@@ -733,6 +731,12 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
+/** How many whole rows are selected — `3 rows selected`: a count, never a key. */
+const rowsSelected = (n: number, count: string): string => `${count} ${plural(n, "row", "rows")} selected`;
+
+/** Where the armed candidate stands among them — `2 of 9`: a count, never a key. */
+const armedOf = (index: string, total: string): string => `${index} of ${total}`;
+
 /** A row the rail's narrowing hides, by the choices that do — joined as the rail's `Replaces …` joins them — and what a pick of it clears: the hidden pick's English. */
 const hiddenBy = hiddenByText;
 
@@ -766,6 +770,8 @@ export const sheetMessages: SheetMessages = {
     tabDirty: () => "Unsaved query — ⏎ updates this tab · esc reverts",
     tabClose: () => "Close tab",
     tabMore: ({ count }) => `+${count}`,
+    chipsMore: ({ count }) => `+${count}`,
+    chipRemove: ({ member }) => `Remove ${member}`,
     tabMoreName: ({ n, count }) => `${count} more ${plural(n, "view", "views")}`,
     tabMoreTitle: () => "More views",
     tabAdd: () => "tab",
@@ -834,13 +840,14 @@ export const sheetMessages: SheetMessages = {
 
     summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
         `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
-    hintProposal:() => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
-    hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all · click its number to select its lines`,
-    hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun} · ⏎ edit`,
-    hintRows: ({ n, count }) => `${count} ${plural(n, "row", "rows")} selected · ⌫ deletes them · ⌘C copies`,
-    hintFills: () => "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything · esc dismisses",
-    hintSuggestedRows: () => "⏎ adds the next suggested row · click a row to select it · esc dismisses",
-    hintDefault: () => "⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel",
+    hintProposal: () => "⏎ adds the selected row · ⌫ rejects it",
+    hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all`,
+    hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun}`,
+    hintRows: ({ n, count }) => `${rowsSelected(n, count)} · ⌫ deletes them · ⌘C copies`,
+    hintRowsSelected: ({ n, count }) => rowsSelected(n, count),
+    hintFills: () => "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything",
+    hintSuggestedRows: () => "⏎ adds the next suggested row",
+    hintDefault: () => "⌘C / ⌘V round-trips with Excel",
 
     stripAccepts: ({ header }) => `${header} · accepts`,
     stripHalf: ({ header, half }) => (half === undefined ? header : `${header} · ${half}`),
@@ -861,20 +868,15 @@ export const sheetMessages: SheetMessages = {
     stripRowsHeader: () => "rows",
     stripPending: ({ header }) => `${header} ⋯`,
     stripPendingTitle: ({ header }) => `${header} — thinking`,
-    stripKeysTyped: () => "⏎ commit as typed",
-    stripKeysFilter: () => "type to filter · ⌥↓ to pick · click any",
-    stripKeysTake: ({ many, index, total }) => `${many ? `${index} of ${total} · ` : ""}⇥ take`,
-    stripKeysDateEmpty: () => "digits fill a segment · ↑↓ step it · ⇥ next",
-    stripKeysDate: () => "digits fill a segment · ⇥ next",
-    stripKeysCommit: () => "⏎ commit · esc cancel",
-    stripKeysStep: () => "↑↓ step · ⏎ commit",
-    stripKeysParse: () => "type to parse",
-    stripKeysPredicted: () => "⇥ one · ⌘→ all · or type",
+    stripKeysFilter: () => "⌥↓ to pick",
+    stripKeysTake: ({ many, index, total }) => `${many ? `${armedOf(index, total)} · ` : ""}⇥ take`,
+    stripKeysPredicted: () => "⇥ one · ⌘→ all",
     stripKeysLinkTake: ({ many, index, total, single }) =>
-        `${many ? `${index} of ${total} · ` : ""}⇥ take · , next${single ? "" : " · > hops to the To half"} · ⌘→ rest`,
-    stripKeysLinkAdd: ({ single }) => `, adds${single ? "" : " · > hops to the To half"} · ⏎ done`,
-    stripKeysSuggested: () => "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc",
-    stripKeysDetail: ({ date }) => (date ? "⏎ edits the wanted date" : "⏎ edit"),
+        `${many ? `${armedOf(index, total)} · ` : ""}⇥ take · , next${single ? "" : " · > hops to the To half"} · ⌘→ rest`,
+    stripKeysLinkAdd: ({ single }) => `, adds${single ? "" : " · > hops to the To half"}`,
+    stripCount: ({ index, total }) => armedOf(index, total),
+    stripKeysSuggested: () => "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all",
+    stripKeysDetail: ({ date }) => (date ? "⏎ edits the wanted date" : ""),
     stripPager: ({ count, page, pages }) => `${count} options · page ${page} of ${pages}`,
     stripPage: ({ page, pages }) => `${page}/${pages}`,
     stripPrevious: () => "Previous options",

@@ -124,7 +124,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintAmong, mintLineId,
         readiness, recordGesture, rows, session, setLayer, sourceRows, store, storedBreaches, takenKeys, ui,
     } = sheetSession;
-    const { allowedFor, body, idAt, levelAt, linkCellCtx, parseCtxFor, rowAt, rowSpace } = sheetBody;
+    const { allowedFor, body, idAt, levelAt, linkCellCtx, linkCtxFor, parseCtxFor, rowAt, rowSpace } = sheetBody;
     const { dispatch, expectedNarrowing, keyIsText, uiRef } = sheetMachine;
     const { emitEdit, failed, gestureEvents, writeCells } = sheetWrites;
     const { requestRun } = sheetCopilot;
@@ -536,15 +536,21 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         const meta = columnAt(r, key);
         return meta === undefined ? undefined : allowedFor(r, meta);
     }, [columnAt, allowedFor]);
+    // A row's link or set cell, as its editor resolves members (east-workspace#1741) — never a band's, as the grid's editor.
+    const linkAt = useCallback((r: number, key: string) => {
+        const c = columns.list.findIndex((col) => stringEqual(col.key, key));
+        return c < 0 || rowAt(r)?.kind !== "real" ? undefined : linkCtxFor(r, c);
+    }, [columns, rowAt, linkCtxFor]);
     const drawCell = useCallback((r: number, key: string): ReactNode => {
         const it = rowAt(r);
         const meta = columnAt(r, key);
         if (it === undefined || meta === undefined || (it.kind !== "real" && it.kind !== "group")) return null;
         const cell = it.row.cells.get(meta.key);
         const member = namesMember(meta) && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+        // The pane has the room, and a touch screen no hover to read a `+n` by: a set's and a link's members on as many lines as they take.
         return (
             <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitAt(r, key)} member={member} ghost={undefined}
-                link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />
+                link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} wrap />
         );
     }, [rowAt, columnAt, registers, styles, unitAt, linkCellCtx]);
     const goToIssue = useCallback((issue: EditIssue) => {
@@ -673,9 +679,9 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,
-        columnAt, cellAt: inspectCellAt, writableAt: inspectWritableAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
+        columnAt, cellAt: inspectCellAt, writableAt: inspectWritableAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, linkAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, inspectWritableAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, inspectWritableAt, changesAt, unitAt, inspectLevelAt, allowedAt, linkAt, drawCell, drawAction, draftVersion]);
     return { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowName, rowWhere, versionOf };
 }
 

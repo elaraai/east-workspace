@@ -9,7 +9,8 @@
  * records: a borderless `BuilderFrame` filling the box its example gives it —
  * one 44px toolbar row, the canvas filling main, the library's 44px rail at
  * main's start and the inspector's at its end (#1250), the frame too narrow to
- * pin either beside it, the footer's counts along the foot — and no eyebrow of
+ * pin either beside it, the footer's counts along the foot on every builder's
+ * 28px rail (east-workspace#1748) — and no eyebrow of
  * the canvas's own. The toolbar folds by one ladder: the rail's chips into its
  * one trigger, the rail's summary, the freshness chip, LR · TD into its chip,
  * find state into its icon, then into its View, which takes LR · TD and the
@@ -171,12 +172,13 @@ test.describe("The Flowchart's frame (#1245)", () => {
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
-            expect(read.footer).toEqual([0, read.h - 38, read.w, 38]);
+            // Every builder's rail: 28 tall (east-workspace#1748).
+            expect(read.footer).toEqual([0, read.h - 28, read.w, 28]);
             // The library and the inspector, each on by default (#1250): too narrow a frame to pin either beside main, a
             // 44px rail at each of its ends.
-            expect(read.start).toEqual([0, 44, 44, read.h - 44 - 38]);
-            expect([read.mode, read.end]).toEqual(["overlay", [read.w - 44, 44, 44, read.h - 44 - 38]]);
-            expect(read.main).toEqual([44, 44, read.w - 88, read.h - 44 - 38]);
+            expect(read.start).toEqual([0, 44, 44, read.h - 44 - 28]);
+            expect([read.mode, read.end]).toEqual(["overlay", [read.w - 44, 44, 44, read.h - 44 - 28]]);
+            expect(read.main).toEqual([44, 44, read.w - 88, read.h - 44 - 28]);
             expect(read.body).toEqual(read.main);
         });
 

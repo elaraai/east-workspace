@@ -9,8 +9,8 @@
  * frame and the colours the canvas draws with; the freshness chip's dot (the
  * chip, a toolbar item, is the shared `chip`); the canvas filling main (lane
  * bands, node cards, H/V links), scrolling both ways in its own box and
- * selecting no text — a drag on it is a gesture — but its editors'; and the
- * 38px derived-count footer in the frame's footer, its rule its own, the
+ * selecting no text — a drag on it is a gesture — but its editors'; and its
+ * footer, every builder's rail (`builderFooter`, east-workspace#1748), the
  * shared loading line at its trailing end (#1502). Node cards are 116×40 r6
  * with a mono 12/700 code line and a 10.5px muted label. It has no hover card
  * (#1250): the inspector (`flowchartInspector`) shows what is selected. The
@@ -66,8 +66,6 @@ import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { conflictRing } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { oneLineBox } from "../one-line-box.js";
-import { refusedTone } from "../refused-mark.js";
-import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 /** Where a drop is taken, and not refused (#1249): the stage the canvas's marks show on. */
@@ -154,7 +152,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "dropLane", "dropSeam",
         "legend", "legendRows", "legendTitle", "legendRow", "legendMark", "legendFigure", "legendGroups", "legendTags", "legendTagList",
         "minimap",
-        "footer", "footerStrong", "footerMessage", "footerSplit",
         "empty",
         "pane",
     ],
@@ -839,32 +836,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             padding: "6px",
             lineHeight: 0,
         },
-
-        /* ── footer — 38px, derived counts, in the frame's footer; the shared
-         *    loading line at its trailing end, fitted to what it leaves (#1502) ── */
-        footer: {
-            ...FOOTER_FIT,
-            height: "38px",
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "1.5",
-            paddingX: "3",
-            borderTopWidth: "1px",
-            borderColor: "border.subtle",
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            /* A phone's: every count in sight, on as many lines as they take. */
-            "[data-phone] &": { height: "auto", minHeight: "38px", flexWrap: "wrap", rowGap: "1", paddingY: "2", whiteSpace: "normal" },
-        },
-        footerStrong: { color: "fg", fontWeight: "700" },
-        /* Why a gesture was refused — a card's ⏎ (#1249), a row whose key another holds, a transition drawn where there is
-         * one (east-workspace#1709): in the danger ink, taking the rail's slack, cut short before the split. */
-        footerMessage: { flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...refusedTone },
-        footerSplit: { marginLeft: "auto", color: "fg.subtle", flexShrink: 0, "[data-phone] &": { marginLeft: "0" } },
 
         /* Nothing to draw, and no gesture to start one: the shared empty state, centred in main. */
         empty: {

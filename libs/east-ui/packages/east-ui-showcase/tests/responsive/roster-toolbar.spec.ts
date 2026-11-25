@@ -9,6 +9,7 @@
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
+import { legendLaid } from "./picker-legend";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
@@ -59,6 +60,8 @@ for (const theme of ["light", "dark"] as const) {
             await expect(legend.nth(i).locator(`[data-state="${state}"]`), `the legend's ${state} mark`).toHaveCount(1);
             expect(await fill(legend.nth(i).locator("[data-state]")), `the legend's ${state} mark as the day's`).toBe(await fill(day(state)));
         }
+        // Each mark 5px before its word, at the middle of its line.
+        expect(await legendLaid(legend)).toEqual(Array(3).fill({ gap: 5, centred: true }));
     });
 }
 

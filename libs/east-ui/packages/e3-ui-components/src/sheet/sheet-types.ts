@@ -22,7 +22,7 @@ import type { SheetCellRefusalWord, SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetSavedView } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetRegisterMemberValue, SheetSavedView } from "./values.js";
 
 /** What a row-space index holds: a row, a blank padding row, or a group summary. */
 export type SheetRowKind = "row" | "blank" | "group";
@@ -224,6 +224,20 @@ export interface SheetUiState {
      * places it, and so does the first move key, on the first row's first cell that edits in place; no other key acts.
      */
     ringless: boolean;
+    /** The press in hand that may be a click on its row (east-workspace#1727), until its release says; `null` with none. */
+    press: SheetPress | null;
+}
+
+/**
+ * A press that may be a click on its row (east-workspace#1727): a primary button's first press, on a cell or a row's
+ * number, that did nothing but place the ring — no step of a cell, no range, no ⇧. Released where it pressed, it is a
+ * click: `emit.rowClick`. It is let go of, clicking nothing, as the pointer drags the range into another cell.
+ */
+export interface SheetPress {
+    /** The row it pressed, in row space: it follows the row as the rows move under it. */
+    r: number;
+    /** The column it pressed; `null` for the row's number. */
+    c: number | null;
 }
 
 /** A commit direction — where the ring goes after a commit. */
@@ -231,12 +245,22 @@ export type CommitDir = "right" | "left" | "down" | "stay" | "blur" | "cancel";
 
 /** Every interaction the surface can report. */
 export type SheetEvent =
-    | { t: "cell.down"; r: number; c: number; shift: boolean }
+    /**
+     * A press on a cell. `click`: it may be a click on its row (east-workspace#1727) — the primary button's first press
+     * (its `detail` 1); absent, it is none.
+     */
+    | { t: "cell.down"; r: number; c: number; shift: boolean; click?: boolean | undefined }
+    /**
+     * The press in hand ends (east-workspace#1727): released `inside` the cell or the row's number it pressed — a click
+     * there, where it was one — or elsewhere, or with its release never heard, which clicks nothing.
+     */
+    | { t: "cell.up"; inside: boolean }
     | { t: "cell.dbl"; r: number; c: number }
     | { t: "cell.enter"; r: number; c: number; dragging: boolean }
     /** The pointer left the grid: no cell is hovered, and a strip that previews the hovered cell returns to the ring's (#1531). */
     | { t: "cell.leave" }
-    | { t: "row.pick"; r: number; shift: boolean }
+    /** A press on a row's number, or a pick of its box. `click`: a press that may be a click on its row, as `cell.down`'s; absent — a pick of the box among them — none. */
+    | { t: "row.pick"; r: number; shift: boolean; click?: boolean | undefined }
     | { t: "key"; key: string; shift: boolean; meta: boolean; alt: boolean }
     | { t: "editor.change"; val: string }
     | { t: "editor.key"; key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }
@@ -247,6 +271,8 @@ export type SheetEvent =
     | { t: "editor.pick"; label: string; key: string }
     /** A click in a link editor's half moves the caret there (the buffer resolves first). */
     | { t: "half.down"; side: 0 | 1 }
+    /** A chip's × in a link editor's half (east-workspace#1741): its member out of the cell — by its place in the flat list, From then To. */
+    | { t: "chip.remove"; i: number }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
     /** A key's move the component finishes (#860): the ring lands where a `seek.step` or `seek.edge` was headed once its window arrives — reported and scrolled to, as a key's move is. */
@@ -261,8 +287,18 @@ export type SheetEvent =
      * row space: an editor on it closes, since it would sit over another row
      * and its text would land there (#877); every other place keeps its
      * index, clamped. `undefined` where nothing is known of the row.
+     * `followed` says the same by each row's identity alone, whoever moved
+     * it — the sheet's own writes among them (east-workspace#1727's review):
+     * what a press in hand follows, and the ring with it where `ring` — a
+     * press placed it as it committed the open editor, from the layout this
+     * change leaves.
      */
-    | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
+    | {
+        t: "rows.changed";
+        moved?: ((r: number) => number | null | undefined) | undefined;
+        followed?: ((r: number) => number | null | undefined) | undefined;
+        ring?: boolean | undefined;
+    }
     /**
      * The columns the grid draws changed underneath: a phone's frame putting
      * the column it pins first, or back in its place; a column hidden or
@@ -331,8 +367,12 @@ export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
 
 /** Side effects, returned as data — never performed in the reducer. */
 export type SheetEffect =
-    /** Write one cell (`null` = blank) — the component turns it into a commit or an insert. */
-    | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string }
+    /**
+     * Write one cell (`null` = blank) — the component turns it into a commit or an insert. `follow`: a press's commit
+     * of the open editor (east-workspace#1727's review) — the ring stands where the press put it, and follows its row
+     * by identity as the write's rows land, never placed by the write.
+     */
+    | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string; follow?: true }
     /** Write several cells of one row — a fill taken (`fill`) or the whole row filled (`row`). */
     | { t: "write.many"; r: number; writes: readonly { c: number; cell: SheetCellValue }[]; source: EditSource }
     /** The writes before it are one gesture and the writes after it another (#1531): a press that commits an open editor, then steps the cell it lands on, is two undo steps. */
@@ -353,6 +393,8 @@ export type SheetEffect =
     | { t: "focus.editor"; selectAll: boolean }
     /** The ring moved — `onSelect`. */
     | { t: "emit.select"; r: number; c: number }
+    /** A click on a row (east-workspace#1727) — `onRowClick`: its row, and the column clicked, `null` for the row's number. */
+    | { t: "emit.rowClick"; r: number; c: number | null }
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
     /**
@@ -485,12 +527,16 @@ export interface LinkEditCtx {
     candidates: (text: string, groups: LinkGroups) => LinkCandidate[];
     /** The armed candidate. */
     candidateAt: (text: string, hi: number, groups: LinkGroups) => LinkCandidate | undefined;
+    /** The register's members the row is offered that the halves don't hold, in the vocabulary's order — what a phone's tags editor suggests (east-workspace#1741). */
+    offered: (groups: LinkGroups) => readonly SheetRegisterMemberValue[];
     /** What a buffer resolves to — the armed candidate when it completes the text, else the grammar. */
     resolve: (text: string, cand: LinkCandidate | undefined) => SheetMemberValue[];
     /** The predicted members for a half — the column's pending fill minus what the cell holds. */
     predicted: (side: 0 | 1, groups: LinkGroups, typed: string) => SheetMemberValue[];
     /** The cell for the halves — `null` when both are empty. */
     cell: (groups: LinkGroups) => SheetCellValue | null;
+    /** Whether the halves are the cell's own — its members, each half's in its order: what a commit writes nothing for. */
+    unchanged: (groups: LinkGroups) => boolean;
     /** The driver member's name, for the hop-into-a-locked-half message — `undefined` when the row names none (#861: the words say "this row"). */
     driverName: string | undefined;
 }
@@ -517,6 +563,7 @@ export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string 
         folds: folds === undefined || folds.size === 0 ? NO_FOLDS : folds,
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
         ringless,
+        press: null,
     };
 }
 

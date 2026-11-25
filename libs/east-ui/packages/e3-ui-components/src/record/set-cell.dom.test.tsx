@@ -1,0 +1,192 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A set cell's members edited whole (east-workspace#1741), over the Record's
+ * every-kind example deployed to e3 itself: in the open editor each chip's ×
+ * takes its member out, and Backspace with nothing typed picks the last member
+ * and a second takes it — never back into the editor as words to delete; on a
+ * phone the bottom container edits the cell in the form's tags editor, its
+ * members as tags and the register's others suggested as chips under it, never
+ * the browser's list — a phone's frame has no desktop-style popover — each tag
+ * typed, pressed or taken away written as the grid writes the cell, one step
+ * while it stays open. An editor opened and left as it was is no change: the
+ * history's Undo, Discard and Save stay off, as with no editor, and ⏎ writes
+ * nothing.
+ */
+
+import { describe, expect, test } from "vitest";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { editingMessages } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/record/record";
+import { settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
+import { touchFrame } from "../sheet/frame.test-utils.js";
+// The Record is an extension: its renderer registers as it loads.
+import "./index.js";
+
+const h = sheetHarness({ modules: { "record/record": ex }, frame: 2000 });
+
+/** Row `r`'s Certificates cell, a set. */
+const certificates = (container: HTMLElement, r: number) =>
+    container.querySelectorAll<HTMLElement>('[data-record] [data-slot="row"]')[r]!.querySelector<HTMLElement>('[data-slot="cell"][data-key="certificates"]')!;
+/** The members an element's chips name, in order — a cell's at rest, or its open editor's. */
+const named = (el: Element, picked = false) =>
+    [...el.querySelectorAll(`[data-slot="chip"]${picked ? "[data-picked]" : ""} [data-slot="chipText"]`)].map((chip) => chip.textContent);
+/** The editor open in a cell, if one is. */
+const editorIn = (cell: HTMLElement) => cell.querySelector<HTMLElement>('[data-slot="editor"]');
+
+/** The pointer pressed and let go on an element, and what it leads to settled. */
+async function pressOn(el: Element) {
+    fireEvent.mouseDown(el, { button: 0 });
+    fireEvent.click(el);
+    await settle();
+}
+
+/** A cell's editor opened, as ⏎ on its ring opens it, and its input once it is in. */
+async function openEditor(container: HTMLElement, cell: () => HTMLElement): Promise<() => HTMLInputElement> {
+    await pressOn(cell());
+    fireEvent.keyDown(container.querySelector('[data-record] [role="grid"]')!, { key: "Enter" });
+    await settle();
+    const input = () => cell().querySelector<HTMLInputElement>('[data-slot="editorInput"]')!;
+    await waitFor(() => expect(cell().querySelector('[data-slot="editorInput"]')).not.toBeNull());
+    return input;
+}
+
+/** The history's Undo — on a phone's frame in the toolbar's second row, where the history stands there. */
+const undoOf = (container: HTMLElement) =>
+    within(slot(container, "sessionRow") ?? slot(container, "toolbar")!).getByRole("button", { name: editingMessages.undo() });
+/** Whether the history's Undo, Discard and Save are on. */
+const lit = (container: HTMLElement) => [editingMessages.undo(), editingMessages.discard(), editingMessages.apply()]
+    .map((name) => !within(slot(container, "sessionRow") ?? slot(container, "toolbar")!).getByRole<HTMLButtonElement>("button", { name }).disabled);
+/** The members a phone's tags editor suggests, as the chips under it name them — and never a browser's list. */
+const suggestedIn = (editor: HTMLElement) => {
+    expect(editor.querySelector("datalist")).toBeNull();
+    return [...editor.querySelectorAll("[data-tags-suggestion]")].map((chip) => chip.textContent);
+};
+
+describe("a set cell's members, edited whole (east-workspace#1741)", () => {
+    test("in the open editor each chip's × takes its member out, the editor staying open on the rest; ⏎ writes what is left, and Undo puts it back", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-remove" });
+        const cell = () => certificates(container, 0);
+        expect(named(cell())).toEqual(["Forklift", "Confined space"]);
+        const input = await openEditor(container, cell);
+        expect(named(editorIn(cell())!)).toEqual(["Forklift", "Confined space"]);
+        await pressOn(within(editorIn(cell())!).getByRole("button", { name: "Remove Forklift" }));
+        expect(named(editorIn(cell())!)).toEqual(["Confined space"]);
+        expect(document.activeElement).toBe(input());
+        fireEvent.keyDown(input(), { key: "Enter" });
+        await settle();
+        expect(editorIn(cell())).toBeNull();
+        expect(named(cell())).toEqual(["Confined space"]);
+        await pressOn(undoOf(container));
+        expect(named(cell())).toEqual(["Forklift", "Confined space"]);
+    });
+
+    test("an editor opened and left as it was lights no history button, and ⏎ writes nothing; a member taken out lights Undo, Discard and Save, and put back, none", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-untouched" });
+        const user = userEvent.setup();
+        const cell = () => certificates(container, 0);
+        expect(lit(container)).toEqual([false, false, false]);
+        const input = await openEditor(container, cell);
+        expect(lit(container)).toEqual([false, false, false]);
+        await pressOn(within(editorIn(cell())!).getByRole("button", { name: "Remove Confined space" }));
+        expect(lit(container)).toEqual([true, true, true]);
+        await user.type(input(), "Confined space, ", { skipClick: true });
+        await settle();
+        expect(named(editorIn(cell())!)).toEqual(["Forklift", "Confined space"]);
+        expect(lit(container)).toEqual([false, false, false]);
+        fireEvent.keyDown(input(), { key: "Enter" });
+        await settle();
+        expect(editorIn(cell())).toBeNull();
+        expect([named(cell()), lit(container)]).toEqual([["Forklift", "Confined space"], [false, false, false]]);
+        expect(cell().closest('[data-slot="row"]')!.hasAttribute("data-draft")).toBe(false);
+    });
+
+    test("Backspace with nothing typed picks the last member, and a second takes it out whole — never into the editor as words to delete", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-backspace" });
+        const cell = () => certificates(container, 0);
+        const input = await openEditor(container, cell);
+        fireEvent.keyDown(input(), { key: "Backspace" });
+        await settle();
+        expect(named(editorIn(cell())!, true)).toEqual(["Confined space"]);
+        expect(named(editorIn(cell())!)).toEqual(["Forklift", "Confined space"]);
+        expect(input().value).toBe("");
+        fireEvent.keyDown(input(), { key: "Backspace" });
+        await settle();
+        expect(named(editorIn(cell())!)).toEqual(["Forklift"]);
+        expect(input().value).toBe("");
+        fireEvent.keyDown(input(), { key: "Enter" });
+        await settle();
+        expect(named(cell())).toEqual(["Forklift"]);
+    });
+
+    test("a member typed then `,` is a chip, and the space typed after the comma is the separator's: nothing is left to type over, so one Backspace picks the member just added", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-separator" });
+        const user = userEvent.setup();
+        const cell = () => certificates(container, 0);
+        const input = await openEditor(container, cell);
+        await user.type(input(), "First aid, ", { skipClick: true });
+        await settle();
+        expect(named(editorIn(cell())!)).toEqual(["Forklift", "Confined space", "First aid"]);
+        expect(input().value).toBe("");
+        fireEvent.keyDown(input(), { key: "Backspace" });
+        await settle();
+        expect(named(editorIn(cell())!, true)).toEqual(["First aid"]);
+    });
+
+    test("on a phone the bottom container edits it in the form's tags editor: its members as tags, the register's others suggested as chips; a tag typed, pressed or taken away is written as the grid writes the cell, and all are one step (SH10, SH10.1)", async () => {
+        const restore = touchFrame(390, { builder: true });
+        try {
+            const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-phone" });
+            const user = userEvent.setup();
+            const cell = () => certificates(container, 0);
+            await pressOn(cell());
+            const editor = () => container.querySelector<HTMLElement>('[data-record] [data-sheet-cell-editor="certificates"] [data-cell-tags]');
+            await waitFor(() => expect(editor()).not.toBeNull());
+            const tags = () => [...editor()!.querySelectorAll("[data-scope=tags-input][data-part=item-text]")].map((tag) => tag.textContent);
+            expect(tags()).toEqual(["Forklift", "Confined space"]);
+            expect(suggestedIn(editor()!)).toEqual(["First aid", "Working at height"]);
+            // Typed as in the cell: `first` is First aid, the candidate it starts.
+            const input = editor()!.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+            await user.click(input);
+            await user.type(input, "first{Enter}");
+            await settle();
+            await waitFor(() => expect(named(cell())).toEqual(["Forklift", "Confined space", "First aid"]));
+            expect(tags()).toEqual(["Forklift", "Confined space", "First aid"]);
+            expect(suggestedIn(editor()!)).toEqual(["Working at height"]);
+            // A suggestion pressed is taken, as the desktop's strip takes a chip.
+            await user.click(within(editor()!).getByRole("button", { name: "Working at height" }));
+            await settle();
+            await waitFor(() => expect(named(cell())).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]));
+            expect(suggestedIn(editor()!)).toEqual([]);
+            const forklift = [...editor()!.querySelectorAll("[data-scope=tags-input][data-part=item]")]
+                .find((item) => item.querySelector("[data-part=item-text]")?.textContent === "Forklift")!;
+            await act(async () => { fireEvent.click(forklift.querySelector("[data-part=item-delete-trigger]")!); });
+            await settle();
+            await waitFor(() => expect(named(cell())).toEqual(["Confined space", "First aid", "Working at height"]));
+            expect(tags()).toEqual(["Confined space", "First aid", "Working at height"]);
+            expect(suggestedIn(editor()!)).toEqual(["Forklift"]);
+            await pressOn(undoOf(container));
+            expect(named(cell())).toEqual(["Forklift", "Confined space"]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("on a phone an empty set's tags editor holds no tag and suggests every member", async () => {
+        const restore = touchFrame(390, { builder: true });
+        try {
+            const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-phone-empty" });
+            await pressOn(certificates(container, 1));
+            const editor = () => container.querySelector<HTMLElement>('[data-record] [data-sheet-cell-editor="certificates"] [data-cell-tags]');
+            await waitFor(() => expect(editor()).not.toBeNull());
+            expect(editor()!.querySelectorAll("[data-scope=tags-input][data-part=item]")).toHaveLength(0);
+            expect(suggestedIn(editor()!)).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]);
+        } finally {
+            restore();
+        }
+    });
+});

@@ -10,7 +10,7 @@
  * title, a person, a boolean, a toggle, a cycle, the time since a moment and
  * the last change the app kept. Every edit is a draft of the shared editing
  * session behind one history bar; Add drafts a record and Delete drafts a
- * removal.
+ * removal. The app hears the rows its select column ticks (`onTick`).
  *
  * Its rows come from one of two sources:
  * - `record`, an e3 record bound with its patch mutation: its entries, in key
@@ -20,6 +20,11 @@
  *   its rows, paged from it, the source's narrowing drawn over them. The
  *   record is handed beside it, `record`, as in the first form, and edits are
  *   committed through it (east-workspace#1622); without it, read only.
+ *
+ * Its columns from data read and write their cells at its day, and its ages in
+ * days and weeks count to it: the day the page sets, `day`, as the page gives
+ * it — else the viewer's own, the browser's local calendar date at UTC
+ * midnight, which turns over at their midnight (east-workspace#1746).
  *
  * The Record is an interface. Its payload holds the Sheet's root — the grid,
  * the rows and the session, built by the very code `<Sheet>` builds it with,
@@ -33,6 +38,7 @@
 import {
     ArrayType,
     BooleanType,
+    DateTimeType,
     East,
     Expr,
     OptionType,
@@ -42,6 +48,9 @@ import {
     some,
     type EastType,
     type ExprType,
+    type FunctionType,
+    type NullType,
+    type SetType,
     type StructType as StructTypeOf,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -52,8 +61,9 @@ import {
     createSheetPayload, SheetInspectorPaneType, SheetHistoryType,
     type SheetCommon, type SheetRecordHandle,
 } from "../sheet/sheet.js";
-import type { SheetOptions } from "../sheet/root.js";
-import type { RecordAgeColumn, RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import type { SheetOptions } from "../sheet/options.js";
+import type { RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import type { RecordAgeColumn } from "../sheet/record-columns.js";
 import type { RecordKeyField } from "../bind/record.js";
 import type { KindKeyBuilder } from "../utils/record-kind.js";
 import { groupMembers } from "../sheet/registers.js";
@@ -79,6 +89,7 @@ type SheetPayloadParts = ExprType<StructType<{
  * @property history - Over `record`, its commits; `none` over the rail's rows
  * @property missing - The entry's key while the record does not hold it — never, for a Record over the record's own entries
  * @property autosave - Whether its Autosave begins on
+ * @property day - The day its columns from data are read and written at, and its ages in days and weeks count to, as the page gives it; `none`, the viewer's own — the browser's local calendar date at UTC midnight
  * @property name - Names the Record, when a surface holds two
  */
 export const RecordPayloadType = StructType({
@@ -90,6 +101,7 @@ export const RecordPayloadType = StructType({
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     autosave: BooleanType,
+    day: OptionType(DateTimeType),
     name: OptionType(StringType),
 });
 
@@ -151,8 +163,11 @@ export interface RecordNounInput {
     plural: string;
 }
 
-/** The Sheet's options a Record takes as they are. */
-type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready";
+/**
+ * The Sheet's options a Record takes as they are — its selection among them: `onSelect` as the ring moves, `selection`
+ * to place it, and `onRowClick` (east-workspace#1727) for each click on a row, its key typed at the record's.
+ */
+type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready" | "onSelect" | "selection" | "onRowClick";
 
 /**
  * What every `<Record>` takes beside its rows and its columns.
@@ -182,8 +197,44 @@ export interface RecordCommon<R extends StructTypeOf, C> {
      * set and the Record, and stands over it.
      */
     autosave?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * The day the Record's columns from data read and write their cells at — each one's `read`, `write` and `mark`
+     * handed it as the page gives it, never rounded — and its ages in days and weeks count to: a value, or an
+     * expression, a reactive state's `read()` or a dataset's value, so a page plans as at a day that is not the
+     * viewer's today. As it changes, every row's cells from data are read again at the new day, with no remount, and
+     * the drafts stay: a draft is the row's field, so a drafted field shows as read at the new day, Undo takes back
+     * each edit whatever day it was made at, and Save commits the fields. An edit open as it changes — a cell's editor,
+     * or the inspector with the keyboard — keeps the day it was opened on: the cells read that day until it closes,
+     * and its text is saved at it. Left out, the viewer's own day: the browser's
+     * local calendar date at UTC midnight, which turns over at their midnight. An age in hours counts to the browser's
+     * clock either way. The Record draws nothing for the day: the page shows the day it sets, and lets a person change
+     * it if it wants to.
+     */
+    day?: SubtypeExprOrValue<DateTimeType>;
     /** Names the Record — needed only when one surface holds two. */
     name?: string;
+}
+
+/**
+ * What a Record's app hears of the rows its select column ticks (east-workspace#1737).
+ *
+ * @typeParam K - The record's key type
+ */
+export interface RecordTickOptions<K extends EastType> {
+    /**
+     * The ticked rows' keys, after each change of the ticks: a row's box ticked or unticked, the header's box ticking
+     * every row shown or unticking them, and the ticks the Record lets go itself — Delete's, Discard's, a new search's or
+     * filter's, a row Details deletes, a row an Undo or a Redo takes away, and every tick as the select column goes — in
+     * a phone's frame — and as the Record is let go. Each change is one call with the whole Set as it now stands, at the
+     * record's key type, a ticked row a paged record has scrolled away from among it, a ticked row an edit moves under
+     * another key (`rowKey`) under the key it stands under now — an Undo putting it back — and a ticked new row the
+     * drafts' carry-over gives another key, another Save having taken its own, under that key. The Record starts with
+     * none ticked, and calls it then for nothing. Given, the select column shows — Delete on or off, read only too — as
+     * it does wherever Delete is on; with neither, the Record has none, and on a phone it has none. Passed through
+     * untouched, never called at build: an East function over `SetType(K)`, or a bare lambda, which is built at that
+     * type — on `<Record slice>` alone, which says nothing else of K, an East function at the `rows` source's key type.
+     */
+    onTick?: SubtypeExprOrValue<FunctionType<[SetType<K>], NullType>>;
 }
 
 // ============================================================================
@@ -196,6 +247,8 @@ type RecordAnyProps = {
     title?: string;
     noun?: RecordNounInput;
     columnGroups?: readonly RecordColumnGroupInput<string>[];
+    onTick?: unknown;
+    day?: SubtypeExprOrValue<DateTimeType>;
 } & Record<string, unknown>;
 
 /** The Sheet's props a Record has no use for, each with what the Record does instead. */
@@ -230,11 +283,11 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `rowKey` on a Record handed no record, beside `newKey`, that builds no key of its key's type, or that reads the field `keyField` names; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; an `onTick` over anything but a Set of the record's keys; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `rowKey` on a Record handed no record, beside `newKey`, that builds no key of its key's type, or that reads the field `keyField` names; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
-    const { title, noun, columnGroups, ...sheet } = props as RecordAnyProps;
+    const { title, noun, columnGroups, onTick, day, ...sheet } = props as RecordAnyProps;
     for (const [prop, instead] of Object.entries(NOT_A_RECORD_PROP)) {
         if (prop in sheet) throw new Error(`Record: takes no \`${prop}\` — ${instead}`);
     }
@@ -268,7 +321,8 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
     let built: SheetPayloadParts;
     try {
         // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
-        built = createSheetPayload({ ...sheet, blanks: 0, ...(titleKey !== undefined && { narrow: { pin: titleKey } }) }, { recordKinds: true }) as unknown as SheetPayloadParts;
+        // The rows its select column ticks reach the app at the record's key type, read back from their ids as the Sheet's root reads a key (east-workspace#1737).
+        built = createSheetPayload({ ...sheet, blanks: 0, ...(titleKey !== undefined && { narrow: { pin: titleKey } }) }, { recordKinds: true, ...(onTick !== undefined ? { onTick } : {}) }) as unknown as SheetPayloadParts;
     } catch (e) {
         throw new Error(`Record: ${(e as Error).message.replace(/^Sheet: /, "")}`);
     }
@@ -276,6 +330,7 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
     const own = {
         title: title === undefined ? none : some(title),
         noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
+        day: day === undefined ? none : some(day),
     };
     const startsAt = new Map((columnGroups ?? []).map((group) => [group.columnKeys[0]!, group]));
     const GroupsType = RecordPayloadType.fields.columnGroups;
@@ -330,7 +385,8 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
  * `record` by key (east-workspace#1622). Where the rows hold their own key in
  * a field, `keyField` names it, and a record the Record adds holds its key
  * there. Where the app builds a row's key from the row, `rowKey` does, and a row
- * stands under the key it builds.
+ * stands under the key it builds. `onTick` hears the keys of the rows its select
+ * column ticks, after each change of the ticks.
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
@@ -355,20 +411,23 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
         rowKey?: KindKeyBuilder<R, K>;
         slice?: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
+    } & RecordCommon<R, C> & RecordTickOptions<K> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 /**
  * `<Record slice={{ slice }} columns={{ … }} />`
  * — the rows of the record the `rows` source of `slice` narrows, paged from
  * it, each row's id its record key: the rail draws its narrowing over them.
  * Handed no record, the Record is read only: with `record`, the record the
- * source reads, it saves (the form above).
+ * source reads, it saves (the form above). Nothing else this form is given
+ * says the rows' key type, so its `onTick` is an East function at the `rows`
+ * source's key type, `East.function([SetType(K)], NullType, …)`: a bare
+ * lambda would hear a Set of no key type.
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
         slice: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
+    } & RecordCommon<R, C> & RecordTickOptions<K> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 export function RecordTag(props: { columns: unknown }): UIElement {
     return RecordComponent.Root(createRecordPayload(props as { columns: unknown } & { [prop: string]: unknown }));

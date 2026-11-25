@@ -35,7 +35,7 @@ import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
 import { useSheetEditing, type LocalLayer, type SheetRowsRead } from "./use-editing.js";
 import { useCellsFromData } from "./cells-from-data.js";
-import { useSheetDay } from "./day.js";
+import { useEditDay, useSheetDay } from "./day.js";
 import { draftChanges, draftPresentation, type DraftPresentation } from "./draft-state.js";
 import { normalizeDraft } from "./draft-values.js";
 import { entryBreaches, sheetBoundsOf, type SheetBreach } from "./bounds.js";
@@ -183,8 +183,10 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const inlinePositions = useMemo(() => decodedRows?.map((_r, i) => i), [decodedRows]);
     const sourcePositions: readonly number[] = inlinePositions ?? (lensDrawn ? lens.positions : paging.positions);
     // Each row's cells from data and every column's marks, read at the day (#1559): over its entry here, over its draft
-    // once it has one (the layer, below) — the source's rows carry none of them.
-    const day = useSheetDay(value.cellsAt.type === "some");
+    // once it has one (the layer, below) — the source's rows carry none of them. The day holds while an edit is open on
+    // the sheet (east-workspace#1746): an editor's text is typed against the cells as its day read them.
+    const landingRoot = useRef<HTMLDivElement | null>(null);
+    const day = useEditDay(useSheetDay(value.cellsAt.type === "some"), ui.edit !== null, host.frame ?? landingRoot);
     const fromData = useCellsFromData(value, day, words.m.marksUnread());
     // The entry each row drawn was read with (#1599): its own window's — the pages', or the lens's — whatever revision
     // the source has moved to since. Rows held whole are read from as they are.
@@ -258,7 +260,6 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // (`use-assembled.tsx`, once the rows and their versions are read); while the call is out the sheet holds its lock:
     // no cell, row or field edit, no drop, no history action. The landing and the highlight are measured over the frame
     // the sheet is laid in.
-    const landingRoot = useRef<HTMLDivElement | null>(null);
     const landing = useLanding(landingRoot);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => sheetOptimiseTypes(host.optimise), [host.optimise]);

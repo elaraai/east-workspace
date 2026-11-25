@@ -403,7 +403,8 @@ describeEast("Sheet", (test) => {
         }, {
             id: "id",
             driver: Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name }),
-            registers: { stations: members },
+            // A register given whole: its members, keyed by String.
+            registers: { stations: { members, keyType: StringType } },
         }));
         const cells = $.let(sheet.rows.unwrap("inline").get(0n).cells);
         const direct = $.let(cells.get("stations").unwrap("Link"));
@@ -432,10 +433,10 @@ describeEast("Sheet", (test) => {
         const rows = $.const([{ id: "1", start: none, activity: "", qty: none, stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
         const canonical = $.let(Sheet.Root(rows, {
             machines: Sheet.column.set(PlanRowType, "stations", { header: "Machines", store: "canonical" }),
-        }, { id: "id", registers: { stations: labelled } }));
+        }, { id: "id", registers: { stations: { members: labelled, keyType: StringType } } }));
         const asTyped = $.let(Sheet.Root(rows, {
             machines: Sheet.column.set(PlanRowType, "stations", { header: "Machines" }),
-        }, { id: "id", registers: { stations: labelled } }));
+        }, { id: "id", registers: { stations: { members: labelled, keyType: StringType } } }));
         const row = $.const({
             id: "1", owned: false,
             cells: new Map([["machines", variant("Link", { from: [variant("identified", { key: "R2140" })], to: [variant("counted", { n: 4n, key: "CNC router" })] })]]),
@@ -924,7 +925,10 @@ describeEast("Sheet", (test) => {
         }, {
             id: "id",
             driver: Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name }),
-            registers: { statuses: Sheet.register.members(East.value(["PLANNED", "RELEASED"], ArrayType(StringType)), { kind: "status", key: s => s, label: s => s }), stations: East.value(MEMBERS, Sheet.Types.RegisterMembers) },
+            registers: {
+                statuses: Sheet.register.members(East.value(["PLANNED", "RELEASED"], ArrayType(StringType)), { kind: "status", key: s => s, label: s => s }),
+                stations: { members: East.value(MEMBERS, Sheet.Types.RegisterMembers), keyType: StringType },
+            },
         }));
         $(Assert.equal(root.columns.get(0n).kind.unwrap("lookup").options.hasTag("some"), true));
         const link = $.let(root.columns.get(2n).kind.unwrap("link"));
@@ -943,7 +947,7 @@ describeEast("Sheet", (test) => {
             rows: [], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext)).hasTag("none"), true));
         // Without a rule the kinds carry none.
-        const plain = $.let(Sheet.Root(rows, { status: Sheet.column.enum(RuleRowType, "s") }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }));
+        const plain = $.let(Sheet.Root(rows, { status: Sheet.column.enum(RuleRowType, "s") }, { id: "id", registers: { s: { members: East.value(MEMBERS, Sheet.Types.RegisterMembers), keyType: StringType } } }));
         $(Assert.equal(plain.columns.get(0n).kind.unwrap("enum").options.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });
@@ -1071,7 +1075,9 @@ describe("Sheet refusals", () => {
         const keys = East.function([Sheet.Types.DraftContext(RuleRowType)], OptionType(ArrayType(StringType)), () => East.value(none, OptionType(ArrayType(StringType))));
         assert.throws(() => Sheet.Root(ruleRows, { code: Sheet.column.text(RuleRowType, { options: keys } as never) }, { id: "id" }), /an `options` rule narrows an enum, lookup or link column/);
         const asyncKeys = East.asyncFunction([Sheet.Types.DraftContext(RuleRowType)], OptionType(ArrayType(StringType)), () => East.value(none, OptionType(ArrayType(StringType))));
-        assert.throws(() => Sheet.Root(ruleRows, { status: Sheet.column.enum(RuleRowType, "s", { options: asyncKeys as never }) }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }), /options rule must be synchronous/);
+        assert.throws(() => Sheet.Root(ruleRows, { status: Sheet.column.enum(RuleRowType, "s", { options: asyncKeys as never }) }, {
+            id: "id", registers: { s: { members: East.value(MEMBERS, Sheet.Types.RegisterMembers), keyType: StringType } },
+        }), /options rule must be synchronous/);
         assert.throws(() => Sheet.Root(ruleRows, { start: Sheet.column.date(RuleRowType, { actual: ((r: ExprType<typeof RuleRowType>) => r.code) as never }) }, { id: "id" }), /`actual` rule returning String/);
     });
     // Loose rows between the groups (#846).

@@ -36,14 +36,18 @@
  *   the other half's chips are clickable to move the caret. Existing content
  *   is chips; the buffer resolves to chips on `,` / ⏎ / a hop; ⇧← / ⇧→ select
  *   whole chips. Focus moving between the two halves is not leaving the cell.
+ *   A member leaves whole (east-workspace#1741): its chip's × removes it, and
+ *   Backspace with nothing typed picks the half's last chip, a second removing
+ *   it. A half keeps to its one line, scrolling sideways so what is typed — or
+ *   a picked chip — stays in view.
  *
  * The editor stops keyboard propagation: the sheet owns every other key.
  */
 
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type InputEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent, type ChangeEvent, type FocusEvent, type InputEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, Combobox as ChakraCombobox, Input as ChakraInput, NumberInput as ChakraNumberInput, Portal, chakra, createListCollection, useCombobox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRightLong, faChevronDown, faChevronUp, faMinus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRightLong, faChevronDown, faChevronUp, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
@@ -133,6 +137,8 @@ export interface SheetEditorProps {
     onKey: (e: EditorKey) => boolean;
     onBlur: () => void;
     onHalfDown: (side: 0 | 1) => void;
+    /** A chip's × (east-workspace#1741): its member out of the cell, by its place in the flat list, From then To. */
+    onChipRemove: (i: number) => void;
 }
 
 const NO_OPTIONS: readonly EditorOption[] = [];
@@ -179,13 +185,23 @@ function forwards(kind: SheetKind, key: string): boolean {
     return true;
 }
 
+/**
+ * Scrolls a half of a link editor sideways by the least it must for an element in it to show whole — its end, where it
+ * is wider than the half: what is typed ends at the caret.
+ */
+function showInHalf(half: HTMLElement, el: HTMLElement): void {
+    const end = el.offsetLeft + el.offsetWidth;
+    if (end > half.scrollLeft + half.clientWidth) half.scrollLeft = end - half.clientWidth;
+    else if (el.offsetLeft < half.scrollLeft) half.scrollLeft = el.offsetLeft;
+}
+
 /** The date field's editable segments, in order. */
 function segmentsOf(root: HTMLElement | null): HTMLElement[] {
     return root === null ? [] : [...root.querySelectorAll<HTMLElement>('[role="spinbutton"]')];
 }
 
 /** Renders the overlay editor. */
-export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, onBrowse, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
+export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, onBrowse, whenLevel, onChange, onKey, onBlur, onHalfDown, onChipRemove }: SheetEditorProps) {
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
     // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852) — and the editor speaks the sheet's words (#861).
@@ -196,6 +212,8 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     const lastFocus = useRef("");
     const hopAt = useRef(0);
     const seeded = useRef(false);
+    // Each half of a link editor, From and To: what keeps its one line in view.
+    const halfRefs = useRef<[HTMLElement | null, HTMLElement | null]>([null, null]);
     const isDate = link === undefined && kind === "date";
     const isCombobox = link === undefined && isComboboxKind(kind);
     // The combobox over the machine's candidates: the list is
@@ -252,6 +270,20 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
             if (isCombobox) requestAnimationFrame(() => { if (document.activeElement === el) el.select(); });
         } else el.setSelectionRange(el.value.length, el.value.length);
     }, [focusKey, focus.selectAll, link, isDate, isCombobox, seed]);
+
+    // A half keeps to its one line (east-workspace#1741): a picked chip in view where it stands, else what is typed in the
+    // active half — the members predicted after it showing as the room left allows — as the chips, the pick and the
+    // buffer change.
+    useLayoutEffect(() => {
+        if (link === undefined) return;
+        const halves = halfRefs.current;
+        const pickedIn = halves.find((el) => el?.querySelector("[data-picked]") != null) ?? null;
+        const picked = pickedIn?.querySelector<HTMLElement>("[data-picked]") ?? null;
+        if (pickedIn !== null && picked !== null) { showInHalf(pickedIn, picked); return; }
+        const active = halves[link.side];
+        const field = active?.querySelector<HTMLElement>('[data-slot="editorInput"]')?.parentElement ?? null;
+        if (active !== null && field !== null) showInHalf(active, field);
+    }, [link, value]);
 
     const forward = (e: KeyboardEvent<HTMLElement>, atEnd: boolean): boolean =>
         onKey({ key: e.key, shift: e.shiftKey, meta: e.metaKey || e.ctrlKey, alt: e.altKey, atEnd });
@@ -339,9 +371,13 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     };
     const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-    /** The typed buffer with the ghost mirror — the register kinds and the link halves. */
+    /**
+     * The typed buffer with the ghost mirror — the register kinds and the link halves. In a half it is never narrower
+     * than what it holds, typed and ghost, so a half crowded with chips scrolls rather than hide the words under the
+     * caret: the characters it holds are its geometry, the recipe's width.
+     */
     const typed = (side: 0 | 1 | undefined) => (
-        <Box css={styles.editorField} style={link !== undefined ? { flex: "1", minWidth: "24px", height: "22px" } : undefined}>
+        <Box css={styles.editorField} style={link !== undefined ? { "--editor-typed": String(value.length + ghost.length) } as CSSProperties : undefined}>
             <Box css={styles.editorMirror} aria-hidden="true">
                 <span style={{ visibility: "hidden" }}>{value}</span>
                 <Box as="span" css={styles.editorGhost} data-slot="editorGhost">{ghost}</Box>
@@ -479,14 +515,13 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         };
         return (
             <Box
+                ref={(el: HTMLElement | null) => { halfRefs.current[side] = el; }}
                 css={styles.half}
                 data-half={key}
                 data-active={active ? "" : undefined}
                 data-locked={!state.live ? "" : undefined}
-                style={{ position: "relative", minHeight: "34px", alignItems: "center", padding: side === 0 ? "7px 3px 7px 0" : "7px 0 7px 3px", justifyContent: "flex-start" }}
                 onMouseDown={onDown}
             >
-                {active && <Box aria-hidden="true" style={{ position: "absolute", left: side === 0 ? 0 : 3, right: side === 0 ? 3 : 0, bottom: 4, height: "1.5px", background: "var(--chakra-colors-brand-solid)", pointerEvents: "none" }} />}
                 {!state.live && state.lock !== "" && (
                     <Box as="span" css={warn ? styles.lockWarn : styles.lockTag} data-slot={warn ? "lockWarn" : "lockTag"}
                         title={warn ? m.editorLocked({ half: key }) : undefined}>
@@ -500,7 +535,12 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
                     return (
                         <Box key={i} as="span" css={picked ? styles.chipPicked : memberIsDashed(member) ? styles.chipDashed : styles.chip}
                             data-slot="chip" data-member={member.type} data-picked={picked ? "" : undefined}>
-                            {memberLabel(member)}
+                            <Box as="span" css={styles.chipText} data-slot="chipText">{memberLabel(member)}</Box>
+                            <chakra.button type="button" css={styles.chipRemove} data-slot="chipRemove" aria-label={m.chipRemove({ member: memberLabel(member) })}
+                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                onClick={(e) => { e.stopPropagation(); onChipRemove(n); }}>
+                                <FontAwesomeIcon icon={faXmark} />
+                            </chakra.button>
                         </Box>
                     );
                 })}

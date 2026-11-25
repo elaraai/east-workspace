@@ -5,8 +5,8 @@
 
 /**
  * A sheet's columns from data, read into its rows (#1559). Each row's cells
- * from data, and every column's marks, are read by the sheet's `cellsAt` at
- * the day: over the row's entry — the one its window read with it, where the
+ * from data, every column's marks, and each meter's max and tone
+ * (east-workspace#1730) are read by the sheet's `cellsAt` at the day: over the row's entry — the one its window read with it, where the
  * sheet's windows carry theirs (#1599), else as the source holds it (`readEntry`)
  * — and over its draft once a gesture has made one. The source's rows carry none of these
  * cells, so its projection stays pure, as it does for an age cell's count. A
@@ -16,9 +16,16 @@
  * (#1560).
  *
  * A lock never lifts for a read that can't see it: over a draft not yet whole —
- * a field empty, or holding text no column reads — the row's marks are not
- * read, and the last read's stand; and a row whose read fails keeps every
+ * a field empty, or holding text no column reads — the row's marks, and its
+ * meters' max and tone, are not read, and the last read's stand; and a row whose read fails keeps every
  * marked cell locked, its words saying it couldn't be read, the console why.
+ * Each meter is read apart: one whose max or tone throws over a row holds why
+ * under its max, drawing no share, the console saying so once — and the row's
+ * marks and its other meters read all the same. A mark, or a column from data,
+ * that throws over a row fails the row's read so — its marks locked, the
+ * console why once — but for its meters, each read apart, which stand all the
+ * same (east-workspace#1734's review): the read says why under its unread
+ * cell (`SHEET_UNREAD_CELL`) where a throw that left it lost them too.
  *
  * @packageDocumentation
  */
@@ -26,7 +33,7 @@
 import { useMemo } from "react";
 import { encodeBeast2For, fromEastTypeValue, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import type { SheetReadFromType } from "@elaraai/e3-ui/internal";
+import { SHEET_UNREAD_CELL, type SheetReadFromType } from "@elaraai/e3-ui/internal";
 import { normalizeDraft } from "./draft-values.js";
 import type { EntryVersion } from "./transactions.js";
 import type { LocalLayer } from "./use-editing.js";
@@ -64,21 +71,34 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
     return useMemo((): SheetCellsFromData => {
         if (cellsAt.type === "none") return NOTHING_READ;
         const cellsOf = cellsAt.value;
-        // The cells a read writes: each column from data's, and every column's marks — each mark's two cells.
+        // The cells a read writes: each column from data's, every column's marks — each mark's two cells — and each meter's
+        // max and tone; the last two over the whole row alone.
         const readKeys = new Set<string>();
         const marks: { readonly words: string; readonly lock: string }[] = [];
+        const meters: string[] = [];
+        // Each meter's max cell, by its column: where the app's max or tone threw over the row, it holds why.
+        const maxes: { readonly column: string; readonly key: string }[] = [];
         for (const column of columns) {
             if (getSomeorUndefined(column.from) !== undefined) readKeys.add(column.key);
             const mark = getSomeorUndefined(column.mark);
             if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); marks.push(mark); }
+            if (column.kind.type === "meter") {
+                meters.push(column.kind.value.max);
+                maxes.push({ column: column.key, key: column.kind.value.max });
+                const tone = getSomeorUndefined(column.kind.value.tone);
+                if (tone !== undefined) meters.push(tone);
+            }
         }
-        const markKeys = new Set(marks.flatMap((mark) => [mark.words, mark.lock]));
+        for (const key of meters) readKeys.add(key);
+        const wholeKeys = new Set([...marks.flatMap((mark) => [mark.words, mark.lock]), ...meters]);
         const draftType = fromEastTypeValue(editing.draftType) as EastType;
         const encodeDraft = encodeBeast2For(editing.draftType) as (draft: unknown) => Uint8Array;
         // Whether a draft is whole: every field it needs set and read, so the marks over the row read too.
         const whole = (draft: unknown, id: string): boolean => normalizeDraft(draftType, draft, id).domain !== undefined;
-        // An app's read or mark that throws leaves the row its own cells, every marked one locked, and is said once.
+        // An app's read or mark that throws leaves the row its own cells, every marked one locked, and is said once; a
+        // meter's max or tone that throws, once too.
         let said = false;
+        let saidMeter = false;
         const locked = (row: SheetRowValue): SheetRowValue => {
             if (marks.length === 0) return row;
             const out = new Map(row.cells);
@@ -94,9 +114,31 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
                 said = true;
                 return locked(row);
             }
+            for (const meter of saidMeter ? [] : maxes) {
+                const held = cells.get(meter.key);
+                if (held?.type !== "String") continue;
+                console.error(`[Sheet] the meter "${meter.column}" could not read its max or tone:`, held.value);
+                saidMeter = true;
+                break;
+            }
+            // A mark or a column from data that threw over the row, why under its unread cell: the row keeps its own cells,
+            // every marked one locked, as a read that fails whole leaves it — and its meters, each read apart, stand over
+            // them as a read's do: what this one wrote, or over a draft not yet whole, which reads none, the last read's.
+            const failed = cells.get(SHEET_UNREAD_CELL);
+            if (failed?.type === "String") {
+                if (!said) console.error("[Sheet] a column from data or a mark could not be read:", failed.value);
+                said = true;
+                const out = new Map(locked(row).cells);
+                for (const key of meters) {
+                    const cell = cells.get(key);
+                    if (cell !== undefined) out.set(key, cell);
+                    else if (marked) out.delete(key);
+                }
+                return { ...row, cells: out };
+            }
             // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes; but over a
-            // draft not yet whole, whose marks it can't read, the last read's marks stay.
-            const kept = (key: string): boolean => !readKeys.has(key) || cells.has(key) || (!marked && markKeys.has(key));
+            // draft not yet whole, whose marks and meters it can't read, the last read's stay.
+            const kept = (key: string): boolean => !readKeys.has(key) || cells.has(key) || (!marked && wholeKeys.has(key));
             const stale = [...row.cells.keys()].some((key) => !kept(key));
             if (cells.size === 0 && !stale) return row;
             const out = new Map([...row.cells].filter(([key]) => kept(key)));
