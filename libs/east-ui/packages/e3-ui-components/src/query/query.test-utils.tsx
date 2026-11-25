@@ -76,6 +76,15 @@ const librarySources = () => ({
     },
 });
 
+/**
+ * The same source under a page's scope: the saved queries of its tags alone, through the index it reads by, which the
+ * rail narrows no further — a narrowing beside a scope reads through an index the scope's field leads, and the
+ * examples' record has none led by its tags then another field.
+ */
+const scopedSources = (scope: NonNullable<LibraryOptions["scope"]>) => ({
+    rows: { source: Data.bindPaged(ex.queries, { indexes: ["queries_by_tag"] }), label: "Queries", scope: { tags: [...scope.tags] } },
+});
+
 /** The rail, as a test writes it: the same source under the library's key, its controls as the toolbar's chips use them. */
 const libraryRailChrome = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({ slice: Slice.bindRecords(LIBRARY_RAIL, librarySources()) }))),
     getRegisteredPlatformImplementations());
@@ -257,6 +266,8 @@ export interface LibraryOptions {
     readonly marked?: boolean;
     /** Under the page's drag layer, as a surface whose cards drag is. */
     readonly drag?: boolean;
+    /** The page's scope of the saved queries: those of these tags alone, which is no choice of the viewer's (#1621). */
+    readonly scope?: { readonly tags: readonly string[] };
 }
 
 /** What a query test reads, writes and mounts through: e3, the saved queries on it, and the builders and libraries over them. */
@@ -305,9 +316,10 @@ export interface QueryHarness extends E3Harness {
      * sources, under a line saying what it last told the host was asked for
      * (`told Big orders`), which the surface holds as its open query; with the
      * builder beside it, sharing its id and shown that query, when asked;
-     * under a drag layer when asked.
+     * under a drag layer when asked; its saved queries under the page's
+     * scope, given one.
      *
-     * @param options - The id, the builder, the drag layer
+     * @param options - The id, the builder, the drag layer, the page's scope
      * @returns The render
      */
     mountLibrary(options?: LibraryOptions): Promise<RenderResult>;
@@ -441,7 +453,9 @@ export function queryHarness(options: { readonly measure?: boolean } = {}): Quer
                     })));
                 }));
                 // The saved queries, read a window at a time through the record's indexes, and the rail that narrows them.
-                const slice = $.let(Slice.bindRecords(LIBRARY_RAIL, librarySources()));
+                const slice = $.let(options.scope === undefined
+                    ? Slice.bindRecords(LIBRARY_RAIL, librarySources())
+                    : Slice.bindRecords(LIBRARY_RAIL, scopedSources(options.scope)));
                 const shelf = $.let(options.marked === false
                     ? Query.Library({ datasets: { orders, customers }, onOpen, slice: { slice }, ...named })
                     : Query.Library({ datasets: { orders, customers }, query: open.read(), onOpen, slice: { slice }, ...named }));

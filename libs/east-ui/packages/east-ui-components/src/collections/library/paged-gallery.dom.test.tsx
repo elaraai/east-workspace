@@ -5,14 +5,16 @@
  *
  * A paged gallery (east-workspace#1761): a paged palette's reads drawn as the
  * Library's gallery cards in a responsive grid — as many across as fit at the
- * cards' least width between its margins, and one at least; each line of the
- * grid one virtual row, so a gallery over ten thousand rows reads the pages its
- * view needs and mounts a screenful; a card the Library's own — its media, its
- * name, its status, its note, its facts and its foot, its press and its keys;
- * and, with no row, its host's words — a narrowing's with Clear filters.
+ * cards' least width between its margins, and one at least, as its root
+ * measures through every narrowing and after it held no row
+ * (east-workspace#1772); each line of the grid one virtual row, so a gallery
+ * over ten thousand rows reads the pages its view needs and mounts a
+ * screenful; a card the Library's own — its media, its name, its status, its
+ * note, its facts and its foot, its press and its keys; and, with no row, its
+ * host's words — a narrowing's with Clear filters.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant, type option } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
@@ -21,11 +23,39 @@ import { system } from "../../theme/index.js";
 import type { LibraryItemValue } from "./index.js";
 import { PAGED_LIBRARY_PAGE, PagedGallery, type LibraryPageSource, type PagedLibraryGallery } from "./paged.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+/** Each element observed, and the observers that hear it: a browser tells an observer of the elements it watches, while they are drawn. */
+const observing = new Map<Element, Set<ResizeObserverStub>>();
+class ResizeObserverStub {
+    private readonly watched = new Set<Element>();
+    private readonly callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+    observe(el: Element) {
+        this.watched.add(el);
+        let heard = observing.get(el);
+        if (heard === undefined) { heard = new Set(); observing.set(el, heard); }
+        heard.add(this);
+    }
+    unobserve(el: Element) { this.watched.delete(el); observing.get(el)?.delete(this); }
+    disconnect() { for (const el of this.watched) observing.get(el)?.delete(this); this.watched.clear(); }
+    /** Tells it that an element it watches was resized, as a browser does: the element's boxes as they are now. */
+    tell(el: Element) {
+        const box = el.getBoundingClientRect();
+        const size = [{ inlineSize: box.width, blockSize: box.height }];
+        this.callback([{ target: el, contentRect: box, borderBoxSize: size, contentBoxSize: size, devicePixelContentBoxSize: size }] as unknown as ResizeObserverEntry[],
+            this as unknown as ResizeObserver);
+    }
+}
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
 
 // jsdom lays nothing out: the gallery gets a viewport, as a frame's main gives it one — 480 tall, and as wide as the test says.
 let width = 1000;
+/** The gallery's frame resized: each observer of an element still drawn told, as a browser tells them — and none of one let go. */
+function resize(px: number) {
+    width = px;
+    act(() => {
+        for (const [el, heard] of [...observing]) if (el.isConnected) for (const observer of [...heard]) observer.tell(el);
+    });
+}
 const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
 const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!;
 const boundingBox = HTMLElement.prototype.getBoundingClientRect;
@@ -91,7 +121,7 @@ describe("a paged gallery (east-workspace#1761)", () => {
     test("its rows' cards in a grid, as many across as fit at their least width between its margins — three in 1000px, in order, a line the grid's row", async () => {
         render(view(source(trees(7))));
         await waitFor(() => expect(lines().flat()).toHaveLength(7));
-        // 1000 wide inside its scrollbar's gutter, 20 and 8 at its sides, 12 between: 300 + 12 + 300 + 12 + 300 fits, a fourth does not.
+        // 1000 wide, 20 in from each side and 12 between: 300 + 12 + 300 + 12 + 300 fits, a fourth does not.
         expect(across()).toBe("3");
         expect(lines()).toEqual([["tree-0", "tree-1", "tree-2"], ["tree-3", "tree-4", "tree-5"], ["tree-6"]]);
         const line = document.querySelector<HTMLElement>("[data-library-gallery] [data-library-across]")!;
@@ -109,6 +139,31 @@ describe("a paged gallery (east-workspace#1761)", () => {
         render(view(source(trees(3))));
         await waitFor(() => expect(lines().flat()).toHaveLength(3));
         expect([across(), lines()]).toEqual(["1", [["tree-0"], ["tree-1"], ["tree-2"]]]);
+    });
+
+    test("its columns follow its frame through a new narrowing — its lines drawn again under it — as they did before (east-workspace#1772)", async () => {
+        const rows = trees(7);
+        const narrowed = (query: string): LibraryPageSource<Tree> => ({ ...source(rows), query: () => query });
+        const { rerender } = render(view(narrowed("all")));
+        await waitFor(() => expect(lines().flat()).toHaveLength(7));
+        const before = document.querySelector("[data-library-gallery] [data-virtual-extent]");
+        rerender(view(narrowed("tall")));
+        await waitFor(() => expect(document.querySelector("[data-library-gallery] [data-virtual-extent]")).not.toBe(before));
+        expect(across()).toBe("3");
+        resize(700);
+        expect([across(), lines()]).toEqual(["2", [["tree-0", "tree-1"], ["tree-2", "tree-3"], ["tree-4", "tree-5"], ["tree-6"]]]);
+        resize(1400);
+        expect(across()).toBe("4");
+    });
+
+    test("its columns follow its frame once its first rows come after it held none (east-workspace#1772)", async () => {
+        const { rerender } = render(view(source([])));
+        expect(document.querySelector("[data-library-empty]")).not.toBeNull();
+        rerender(view(source(trees(4))));
+        await waitFor(() => expect(lines().flat()).toHaveLength(4));
+        expect(across()).toBe("3");
+        resize(700);
+        expect([across(), lines()]).toEqual(["2", [["tree-0", "tree-1"], ["tree-2", "tree-3"]]]);
     });
 
     test("over ten thousand rows it reads the pages its view needs, and mounts a screenful", async () => {

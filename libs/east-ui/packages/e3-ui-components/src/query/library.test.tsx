@@ -23,25 +23,35 @@
  *   record moves.
  * - **New query and the rail** (L11): a menu of the bound data sources, or the
  *   one data source the rail narrows to; the rail narrows the cards and their
- *   count, and a narrowing that leaves none says so, with Clear filters.
+ *   count, and a narrowing that leaves none says so, with Clear filters — a
+ *   page's scope, no choice of the viewer's, none.
+ * - **A press works out no card again** (east-workspace#1772): what the library
+ *   says of a query is worked out once a row, as the open query moves.
  */
 
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import {
     StringType, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
-import { system } from "@elaraai/east-ui-components";
+import { formatters, system } from "@elaraai/east-ui-components";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { ReactiveDatasetCache } from "../platform/index.js";
 import { slot } from "../e3-web-mount.test-utils.js";
+import { queryAbout, whenWords } from "./about.js";
 import { queryRoot } from "./one-shot.js";
 import { CustomersType, savedQuery } from "./fixture.test-utils.js";
 import { act, firstQuery, hostQuery, libraryRail, queryHarness, settle, sharedEntry } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
+
+// What the library says of each query, counted as it is worked out (east-workspace#1772): the library's own, unchanged.
+vi.mock("./about.js", async (importOriginal) => {
+    const about = await importOriginal<typeof import("./about.js")>();
+    return { ...about, queryAbout: vi.fn(about.queryAbout) };
+});
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -127,6 +137,25 @@ async function mount(options: Parameters<typeof h.mountLibrary>[0] = {}) {
     return mounted;
 }
 
+// ─── When ─────────────────────────────────────────────────────────────────────
+
+describe("when a query was saved, in a card's words (#1063)", () => {
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    test("today its time, within six days its weekday, this year its month and day, else its date", () => {
+        // A fixed moment, read in UTC: a card's byline says when, in the viewer's time.
+        vi.stubEnv("TZ", "UTC");
+        const now = new Date("2026-10-01T12:00:00Z");
+        const f = formatters("en-US");
+        expect([
+            whenWords(new Date("2026-10-01T09:30:00Z"), now, f),
+            whenWords(new Date("2026-09-29T10:00:00Z"), now, f),
+            whenWords(new Date("2026-09-12T10:00:00Z"), now, f),
+            whenWords(new Date("2025-12-01T10:00:00Z"), now, f),
+        ]).toEqual(["09:30", "Tue", "Sep 12", "Dec 1, 2025"]);
+    });
+});
+
 // ─── The frame ───────────────────────────────────────────────────────────────
 
 describe("<Query.Library> — its frame (#1761)", () => {
@@ -138,7 +167,8 @@ describe("<Query.Library> — its frame (#1761)", () => {
         expect(within(toolbar).getByRole("button", { name: "New query" })).toBeTruthy();
         // The rail counts its rows while it narrows them, and says nothing of them while it does not.
         expect(toolbarSays(container)).not.toContain("queries");
-        expect(slot(container, "main").querySelector("[data-library-gallery]")).not.toBeNull();
+        // What it keeps is under the library's own key, the payload given no name (`queryKeys`).
+        expect(slot(container, "main").querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("query.library");
         // No pane, and nothing to save: the library writes nothing.
         expect([container.querySelector('[data-frame-slot="start"]'), container.querySelector('[data-frame-slot="end"]')]).toEqual([null, null]);
         expect(screen.queryAllByRole("tab")).toEqual([]);
@@ -219,8 +249,20 @@ describe("<Query.Library> — opening a query (#1761)", () => {
         expect([told(), marked(container)]).toEqual(["told Big orders", []]);
     });
 
+    test("a press works out no card again: what the library says of a query is worked out once a row, the open mark alone moving (east-workspace#1772)", async () => {
+        const { container } = await mount();
+        const worked = vi.mocked(queryAbout);
+        worked.mockClear();
+        await press(cardOf(container, BIG.name));
+        await press(cardOf(container, COUNT.name));
+        expect([told(), marked(container)]).toEqual(["told Customer count", [COUNT.name]]);
+        expect(worked).not.toHaveBeenCalled();
+    });
+
     test("a builder its host shows the open query in — a surface of its own — opens the query the library asks for, with “Opened …”, and runs it", async () => {
         const { container } = await mount({ id: "top", builder: true });
+        // Named, it keeps what it keeps under its name: two libraries on a surface keep theirs apart (`queryKeys`).
+        expect(container.querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("query.library.top");
         const builder = document.querySelector<HTMLElement>("[data-query-builder]")!;
         const ran = h.oneShots().length;
         await press(cardOf(container, BIG.name));
@@ -311,5 +353,13 @@ describe("<Query.Library> — New query and the rail (#1761 L11)", () => {
         expect(empty.textContent).toContain("No queries match the filters");
         await press(within(empty).getByRole("button", { name: /Clear filters/ }));
         await vi.waitFor(() => expect(names(container)).toEqual(NAMES));
+    });
+
+    test("a page's scope is no choice of the viewer's: one that leaves no query says there are none yet, and offers no Clear filters, which would keep it (east-workspace#1772)", async () => {
+        const { container } = await h.mountLibrary({ scope: { tags: ["finance"] } });
+        await vi.waitFor(() => expect(container.querySelector("[data-library-empty]")).not.toBeNull());
+        const empty = container.querySelector<HTMLElement>("[data-library-empty]")!;
+        expect(empty.textContent).toContain("No queries yet");
+        expect(within(empty).queryByRole("button", { name: /Clear filters/ })).toBeNull();
     });
 });

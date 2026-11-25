@@ -43,7 +43,10 @@ import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { StringType, equalFor, equivalentFor, fromEastTypeValue, isValueOf, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryLibraryComponent, QueryLibraryPayloadType, SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import { BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, type LibraryItemValue, type ToolbarItem } from "@elaraai/east-ui-components";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { useSlotStyles, type PagedLibraryGallery, type SlotStyles } from "@elaraai/east-ui-components/internal";
+import { useEquivalent } from "../shared/equivalent.js";
+import { entryRow } from "../shared/records/entry-row.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { tellHost } from "../shared/open.js";
 import { LibraryNewButton, SliceGallery, libraryCardMarks, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
@@ -61,6 +64,13 @@ type QueryLibraryValue = ValueTypeOf<typeof QueryLibraryComponent.schema>;
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryLibraryPayloadType);
+/**
+ * Who the host tells, and the slice's chrome, by the same equivalence: each kept while a new payload's is equivalent
+ * (`useEquivalent`), so a press — which moves the open query alone — makes neither again, nor the cards, the rail and
+ * the reads over them.
+ */
+const onOpenEquivalent = equivalentFor(QueryLibraryPayloadType.fields.onOpen);
+const sliceEquivalent = equivalentFor(QueryLibraryPayloadType.fields.slice);
 const nameEqual = equalFor(StringType);
 
 /** The saved query's field that holds the names of the data sources it reads: what the rail's Data source filter narrows by. */
@@ -180,14 +190,15 @@ export const EastChakraQueryLibrary = memo(function EastChakraQueryLibrary({ val
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 /**
- * A page's row, as the saved queries' source reads it: the saved query its entry joins, checked of its type.
+ * A page's row, as the saved queries' source reads it: the saved query its entry holds — the row it joins, or the one
+ * its index carries (`entryRow`) — checked of its type.
  *
  * @param entry - An entry of a page of the `rows` source
- * @returns The saved query; `undefined` for an entry that joins none
+ * @returns The saved query; `undefined` for an entry that holds none, or a row of another type
  */
-function savedRow(entry: unknown): SavedQuery | undefined {
-    const row = (entry as { row?: option<unknown> }).row;
-    return row?.type === "some" && isValueOf(row.value, SavedQueryType) ? row.value as SavedQuery : undefined;
+function savedRow(entry: RecordSliceEntry): SavedQuery | undefined {
+    const row = entryRow(entry);
+    return isValueOf(row, SavedQueryType) ? row as SavedQuery : undefined;
 }
 
 /** New query (L11): on the one data source the rail narrows to, or a menu of the bound data sources. */
@@ -228,7 +239,8 @@ const CardWireframe = memo(function CardWireframe({ about }: { about: QueryAbout
 /**
  * The gallery's cards: each saved query the Library's gallery card ({@link queryItem}), its media the query's
  * wireframe. A press on one tells the host its query, in a turn of its own; one that can't open here takes none, and
- * says why in the warning tone. What the library says of a query is worked out once a row.
+ * says why in the warning tone. What the library says of a query is worked out once a row, and kept as the open query
+ * moves: a press marks another card, and works out none again.
  *
  * @param root - The bound data sources
  * @param words - The words
@@ -237,15 +249,17 @@ const CardWireframe = memo(function CardWireframe({ about }: { about: QueryAbout
  * @returns The gallery the paged gallery draws
  */
 function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryOpen>, onOpen: QueryLibraryValue["onOpen"]): PagedLibraryGallery<SavedQuery> {
-    return useMemo((): PagedLibraryGallery<SavedQuery> => {
+    const aboutOf = useMemo(() => {
         const abouts = new WeakMap<SavedQuery, QueryAbout>();
-        const aboutOf = (saved: SavedQuery): QueryAbout => {
+        return (saved: SavedQuery): QueryAbout => {
             const held = abouts.get(saved);
             if (held !== undefined) return held;
             const about = queryAbout(saved, root, words);
             abouts.set(saved, about);
             return about;
         };
+    }, [root, words]);
+    return useMemo((): PagedLibraryGallery<SavedQuery> => {
         const isOpen = (saved: SavedQuery) => open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, saved.name);
         return libraryGallery({
             item: (saved) => queryItem(saved, aboutOf(saved), isOpen(saved), words),
@@ -257,7 +271,7 @@ function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryO
             clicks: (saved) => aboutOf(saved).refusal === undefined,
             onOpen: (name) => tellHost(onOpen, variant("saved", name)),
         });
-    }, [root, words, open, onOpen]);
+    }, [aboutOf, words, open, onOpen]);
 }
 
 /** The library over its root: the frame's one toolbar — the rail, then New query — over the cards. */
@@ -266,8 +280,10 @@ function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibr
     const styles = useSlotStyles("queryLibrary");
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => queryKeys(id), [id]);
-    const onOpen = value.onOpen;
-    const chrome = value.slice;
+    // Who to tell, and the slice: each the payload's last one while a new payload's is equivalent — the same function, the
+    // same captures — so a press, which moves the open query alone, makes neither again.
+    const onOpen = useEquivalent(value.onOpen, onOpenEquivalent);
+    const chrome = useEquivalent(value.slice, sliceEquivalent);
     const rows = useMemo(() => sourcePart(chrome, "rows"), [chrome]);
     const icons = useMemo(() => new Map(root.entries.map((entry) => [entry.name, sourceKind(fromEastTypeValue(entry.type)).icon])), [root]);
     const facts = useMemo((): QueryLibraryFacts => ({ root, words, styles, onOpen, icons }), [root, words, styles, onOpen, icons]);

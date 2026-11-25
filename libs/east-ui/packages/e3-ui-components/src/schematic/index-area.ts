@@ -49,7 +49,8 @@ import { READING, type Reading } from "./area.js";
 import { drawnItem, type DetailsRoles, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
-import { entryRow, type KindRows } from "./kind-rows.js";
+import { entryRow } from "../shared/records/entry-row.js";
+import type { KindRows } from "./kind-rows.js";
 import { RowMaking, type StoredRows } from "./made-rows.js";
 
 /** A kind's source of the slice. */

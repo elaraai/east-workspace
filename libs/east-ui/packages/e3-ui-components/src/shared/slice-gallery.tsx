@@ -26,7 +26,7 @@ import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { StringType, none, parseFor, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { RecordSliceWhereType, recordSliceChosen, type RecordSliceBindType, type RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordSliceChosen, type RecordSliceBindType, type RecordSliceEntry, type RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type ToolbarItem } from "@elaraai/east-ui-components";
 import {
     PagedGallery, recordSlicePage, recordSliceRevision, useRecordSlicesToolbarItems, useSlotStyles, type LibraryPageSource, type PagedLibraryGallery,
@@ -86,8 +86,8 @@ export interface SliceGalleryProps<T> {
     readonly id: string;
     /** Its cards, and the grid they stand in. */
     readonly gallery: PagedLibraryGallery<T>;
-    /** A row of a page, as the source reads it, made the gallery's row; `undefined` drops one that is none. Keep it stable: the page source is made again as it changes. */
-    readonly decode: (entry: unknown) => T | undefined;
+    /** An entry of a page, as the source reads it, made the gallery's row — its row read through `entryRow`; `undefined` drops one that is none. Keep it stable: the page source is made again as it changes. */
+    readonly decode: (entry: RecordSliceEntry) => T | undefined;
     /** What it says while the source holds no row, in its host's words. Keep it stable. */
     readonly empty: LibraryEmpty;
     /** What it says while the rail's choices leave the source no row, in its host's words, over Clear filters. Keep it stable. */
@@ -109,7 +109,7 @@ export function SliceGallery<T>({ part, id, gallery, decode, empty, narrowed }: 
         page: (offset, limit) => {
             const entries = recordSlicePage(part, { where: part.read().where, area: none }, offset, limit);
             if (entries.type === "none") return none;
-            return some(entries.value.flatMap((entry) => {
+            return some((entries.value as RecordSliceEntry[]).flatMap((entry) => {
                 const row = decode(entry);
                 return row === undefined ? [] : [row];
             }));
