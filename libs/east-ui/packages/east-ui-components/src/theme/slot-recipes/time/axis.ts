@@ -26,8 +26,14 @@ export const timeRulerBase = {
         whiteSpace: "nowrap", overflow: "visible", borderLeftWidth: "1px", borderColor: "border.subtle",
         "&:first-child": { borderLeftWidth: 0 },
         // The Plan's ruler (#1735): each period's line its last pixel, as the plot's day rules are, the renderer placing
-        // the ticks on whole pixels — the last period's line the track's own edge.
-        "[data-plan-ruler] > &": { borderLeftWidth: 0, borderRightWidth: "1px", "&:last-child": { borderRightWidth: 0 } },
+        // the ticks on whole pixels — the last period's line the track's own edge, but where the canvas has the right
+        // axis's rail after it (#1750): there the track ends before the canvas does, and its last line parts it from
+        // the rail's blank cell, as the plots' last day's rule does below it.
+        "[data-plan-ruler] > &": {
+            borderLeftWidth: 0,
+            borderRightWidth: "1px",
+            "&:last-child": { borderRightWidth: 0, "[data-plan-railed] &": { borderRightWidth: "1px" } },
+        },
         "&[data-align='start']": { justifyContent: "flex-start" },
         "&[data-align='end']": { justifyContent: "flex-end" },
         "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },

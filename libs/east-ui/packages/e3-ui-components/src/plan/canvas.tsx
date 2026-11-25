@@ -2424,6 +2424,10 @@ export function usePlanCanvas({
             data-plan-bounded={frameFills ? "" : undefined}
             // The narrow layout is in charge (its recipe rules key on it).
             data-plan-narrow={narrow ? "" : undefined}
+            // The right axis's rail is after every plot (#1750): the plot no longer ends at the canvas's edge, so the
+            // recipe draws its last day's rule, and the ruler its last period's line, where they part it from the rail.
+            // A phone's cards have none.
+            data-plan-railed={rail && !narrow ? "" : undefined}
             // The gutter's width, where the rows' template and its rule read it.
             style={GUTTER_STYLE(gutterW)}
             // The source is not exhausted: the counts across this body

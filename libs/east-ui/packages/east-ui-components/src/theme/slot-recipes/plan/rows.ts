@@ -253,6 +253,20 @@ export const rowsBase = {
         "& > svg": { display: "block", fill: "none", strokeWidth: 1, shapeRendering: "crispEdges" },
         "& [data-plan-day-rules]": { stroke: "{colors.border.subtle}" },
         "& [data-plan-lane-rules]": { stroke: "color-mix(in srgb, {colors.border.subtle} 50%, {colors.bg.surface})" },
+        // The last day's rule, on the plot's last pixel as every day's is, where the canvas has the right axis's rail
+        // after its plots (#1750): the plot's edge is no longer the canvas's, and the rule parts it from the rail. With
+        // no rail the edge is the canvas's own, and nothing draws it.
+        "[data-plan-railed] &": {
+            "&::after": {
+                content: '""',
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                right: 0,
+                width: "1px",
+                background: "border.subtle",
+            },
+        },
         "[data-axis='dim'] &": { opacity: 0.4 },
         "[data-axis='off'] &": { display: "none" },
     },

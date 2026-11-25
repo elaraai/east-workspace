@@ -179,7 +179,7 @@ test.describe("Plan chart page (#1753) @desktop", () => {
         expect([spark.gridlines > 0, spark.left, spark.right]).toEqual([true, [], []]);
     });
 
-    test("planCharts: its Plan declares the right axis's rail — every row's plot ends at one edge, the date ruler's track with them, and a right axis reads its numbers in the rail after it, inside the canvas; on a phone, which has no rail, a card reads them inside its plot (#1750, ruled 25 Nov 2026)", async ({ page }) => {
+    test("planCharts: its Plan declares the right axis's rail — every row's plot ends at one edge, its last day's rule on it and the date ruler's last line over it, and a right axis reads its numbers in the rail after it, inside the canvas; on a phone, which has no rail, a card reads them inside its plot (#1750, ruled 25 Nov 2026)", async ({ page }) => {
         const entry = await openExample(page, "planCharts", PLAN_CHART_EXAMPLES);
         const canvas = await entry.evaluate((root) => {
             const box = (el: Element) => el.getBoundingClientRect();
@@ -199,6 +199,23 @@ test.describe("Plan chart page (#1753) @desktop", () => {
         expect(canvas.rails.every(([left, width]) => same(left!, edge) && same(width!, 40)), JSON.stringify(canvas.rails)).toBe(true);
         expect(canvas.numbers.length).toBeGreaterThan(0);
         expect(canvas.numbers.every(([left, right]) => left! >= edge - 0.5 && right! <= canvas.rows + 0.5), JSON.stringify(canvas.numbers)).toBe(true);
+        // The last day's rule, as the mock draws it: on every plot's last pixel, and the ruler's last period's line in each
+        // of its bands over it — in the rule's ink, where nothing drew a line with no rail.
+        const rule = await token(page, "border-subtle");
+        const lines = await entry.evaluate((root) => ({
+            railed: root.querySelector("[data-plan-body]")!.hasAttribute("data-plan-railed"),
+            plots: [...root.querySelectorAll("[data-plan-row] [data-plan-gridsep]")].map((sep) => {
+                const last = getComputedStyle(sep, "::after");
+                return [last.width, last.backgroundColor, sep.getBoundingClientRect().right] as const;
+            }),
+            ruler: [...root.querySelectorAll("[data-plan-ruler] > :last-child")].map((tick) => {
+                const style = getComputedStyle(tick);
+                return [style.borderRightWidth, style.borderRightColor, tick.getBoundingClientRect().right] as const;
+            }),
+        }));
+        expect([lines.railed, lines.plots.length > 0, lines.ruler.length]).toEqual([true, true, 2]);
+        expect([...lines.plots, ...lines.ruler].every(([width, ink, right]) => width === "1px" && ink === rule && same(right, edge)),
+            JSON.stringify(lines)).toBe(true);
         // A phone's width: cards, its chart rows under Measures.
         await sizeBox(page, planBox(entry), 360);
         await entry.getByRole("tab", { name: /Measures/ }).click();
@@ -208,7 +225,8 @@ test.describe("Plan chart page (#1753) @desktop", () => {
             const numbers = [...el.querySelectorAll("[data-plan-tick-right]")].map((t) => t.getBoundingClientRect());
             return { numbers: numbers.length, inside: numbers.every((b) => b.left >= plot.left - 0.5 && b.right <= plot.right + 0.5) };
         });
-        expect([card, await entry.locator("[data-plan-rail]").count()]).toEqual([{ numbers: 5, inside: true }, 0]);
+        expect([card, await entry.locator("[data-plan-rail]").count(), await entry.locator("[data-plan-body][data-plan-railed]").count()])
+            .toEqual([{ numbers: 5, inside: true }, 0, 0]);
     });
 
     test("planCharts: each stroke as its layer gives it — its width, its dash and its strength — and a dot at every point where a layer asks for them; a reading with none either side drawn as its dot", async ({ page }) => {
