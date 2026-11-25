@@ -41,6 +41,7 @@ import {
     type ChangeEvent, type FocusEvent, type KeyboardEvent, type MouseEvent, type SyntheticEvent,
 } from "react";
 import { Box, Button, Kbd, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { composingKey } from "@elaraai/east-ui-components";
 import {
     completeJq, lexJq,
     type CheckJqResult, type CompleteJqOptions, type EastType, type JqCompletion, type JqCompletionKind, type JqTokenKind,
@@ -411,7 +412,7 @@ export const JqEditor = memo(function JqEditor({ text, checked, root, summaries,
         setOpen(undefined);
     }, []);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (event.nativeEvent.isComposing) return;
+        if (composingKey(event)) return;
         const area = event.currentTarget;
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             // ⌘⏎ runs: the builder's. The completions close.

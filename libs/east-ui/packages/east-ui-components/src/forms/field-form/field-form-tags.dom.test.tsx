@@ -11,7 +11,9 @@
  * tags field's box is a tag as the keyboard leaves it, told its host as an
  * edit of the field, never left in the box unsaid, where a host that commits
  * by a button of its own (a Save) would pass it by. A box left empty is no
- * edit, and a tag the field holds already is held once.
+ * edit, and a tag the field holds already is held once. Esc puts back what is
+ * typed, as it does every typed edit: the box is emptied, and no edit is told
+ * as the keyboard leaves it.
  */
 
 import { afterEach, expect, test } from "vitest";
@@ -93,6 +95,18 @@ test("a box left empty is no edit, and a tag the field holds already is held onc
     expect(f.told).toEqual([]);
     await user.click(f.box("finishes"));
     await user.type(f.box("finishes"), "oiled");
+    await user.click(f.elsewhere());
+    await settle();
+    expect(f.told).toEqual([]);
+});
+
+test("Esc puts back a tag typed and not Entered: the box is emptied, and leaving it tells no edit (#1758)", async () => {
+    const f = form();
+    const user = userEvent.setup();
+    await user.click(f.box("finishes"));
+    await user.type(f.box("finishes"), "urgnet");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(f.box("finishes").value).toBe(""));
     await user.click(f.elsewhere());
     await settle();
     expect(f.told).toEqual([]);

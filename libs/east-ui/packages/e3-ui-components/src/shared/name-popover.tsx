@@ -18,9 +18,11 @@
  * hint shows and loading while the write runs. ⏎ in the name commits, as a
  * field its host adds does: by submitting the form (`requestSubmit`), through
  * its commit — said by the field, so it holds however many fields its host
- * puts under the name, and a key that ends an input method's composition is
- * the composition's. Esc, ×, a click outside and Cancel close it. It is never a modal: the design system's one modal is
- * a confirmation step, not a form.
+ * puts under the name. A key that is an input method's — pressed while it
+ * composes, or ending its composition — is the composition's, and ⌘ or Ctrl ⏎
+ * its host's, left as it came: a query builder runs its query on it. Esc, ×, a
+ * click outside and Cancel close it. It is never a modal: the design system's
+ * one modal is a confirmation step, not a form.
  *
  * It says no words of its own: its host passes each one, from its own message
  * table. Its layout is the `sliceEdit` recipe's `form` and `field` slots, and
@@ -34,7 +36,7 @@
 
 import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { SliceEditPopover, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
+import { SliceEditPopover, composingKey, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -100,9 +102,10 @@ export function NamePopover(props: NamePopoverProps) {
 
     const trimmed = name.trim();
     const isTaken = trimmed !== "" && taken.has(trimmed);
-    // ⏎ in the name submits the form, whose commit checks the name.
+    // ⏎ in the name submits the form, whose commit checks the name. An input method's key is its own, and ⌘ or Ctrl ⏎
+    // its host's.
     const onNameKey = (e: KeyboardEvent<HTMLInputElement>) => {
-        if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+        if (e.key !== "Enter" || e.metaKey || e.ctrlKey || composingKey(e)) return;
         e.preventDefault();
         e.currentTarget.form?.requestSubmit();
     };

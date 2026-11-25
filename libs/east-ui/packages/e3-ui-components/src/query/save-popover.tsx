@@ -22,7 +22,8 @@
  *   field, a word or two each, the tags the other saved queries hold suggested
  *   as one is typed. ⏎ in it adds the tag typed.
  * - **Cancel** and **Save**. ⏎ saves from the name, and from the description
- *   unless Shift is held — Shift ⏎ is a new line; Esc cancels.
+ *   unless Shift is held — Shift ⏎ is a new line; Esc cancels. ⌘ or Ctrl ⏎
+ *   is the builder's, which runs the query on it, from any of its fields.
  *
  * Save hands its host the name, the description — `none` while it is the
  * generated sentence, or cleared; the text as edited and trimmed once it is the author's —
@@ -46,7 +47,7 @@ import { memo, useCallback, useId, useMemo, useRef, useState, type ChangeEvent, 
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { OptionType, SetType, StringType, StructType, equalFor, equivalentFor, none, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
-import { FieldForm, useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
+import { FieldForm, composingKey, useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 import { NamePopover } from "../shared/name-popover.js";
 import { DESCRIPTION_MAX } from "./model/step-words.js";
 import { useQueryWords } from "./words.js";
@@ -66,7 +67,9 @@ const TagsType = SetType(StringType);
 type Tags = ValueTypeOf<typeof TagsType>;
 /** What the popover's typed form edits: the tags. */
 const TagsFormType = StructType({ tags: TagsType });
-/** Whether the tags changed — what re-syncs the field, and the memo's comparison of them. */
+/** The memo's comparison of two sets of tags. */
+const tagsEquivalent = equivalentFor(TagsType);
+/** Whether the tags changed — what re-syncs the field. */
 const tagsEqual = equalFor(TagsType);
 
 /** Props of {@link QuerySavePopover}: what it hangs from — the toolbar's Save… (`trigger`), which its host renders, or the ⋯ chip (`anchor`) — and the rest. */
@@ -144,10 +147,10 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
         setDraft(some(e.target.value));
     }, []);
     // ⏎ saves, as it does from the name: it submits the popover's form, whose
-    // commit checks the name. Shift ⏎ is a new line, and a key that ends an
-    // input method's composition is the composition's.
+    // commit checks the name. Shift ⏎ is a new line, an input method's key is
+    // the composition's, and ⌘ or Ctrl ⏎ the builder's.
     const onDescriptionKey = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+        if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || composingKey(e)) return;
         e.preventDefault();
         e.currentTarget.form?.requestSubmit();
     }, []);
@@ -203,6 +206,6 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
 }, (prev, next) =>
     prev.open === next.open && prev.name === next.name && prev.generated === next.generated
     && descriptionEquivalent(prev.description, next.description)
-    && tagsEqual(prev.tags, next.tags) && Object.is(prev.knownTags, next.knownTags)
+    && tagsEquivalent(prev.tags, next.tags) && Object.is(prev.knownTags, next.knownTags)
     && Object.is(prev.taken, next.taken) && Object.is(prev.trigger, next.trigger) && Object.is(prev.anchor, next.anchor)
     && Object.is(prev.onOpenChange, next.onOpenChange) && Object.is(prev.onSave, next.onSave) && prev.phone === next.phone && prev.pending === next.pending);

@@ -16,6 +16,7 @@ import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
 import { escapeTakenWithin, layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { composingKey } from "../../editing/shortcuts.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -309,7 +310,7 @@ export function SliceEditPopover({
     useLayoutEffect(() => {
         if (!open || !floats) return undefined;
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
-            if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+            if (event.key !== "Escape" || composingKey(event) || event.defaultPrevented) return;
             if (layerOpenOver(contentRef.current, anchored ? anchorRef.current : triggerRef.current)) return;
             if (escapeTakenWithin(event, contentRef.current)) return;
             event.preventDefault();
