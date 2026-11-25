@@ -13,7 +13,7 @@
 
 import { describe, test, expect } from "vitest";
 import { variant } from "@elaraai/east";
-import { initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
+import { editUnchanged, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
 import type { SheetNotice } from "./sheet-types.js";
 import { noticeText, SHEET_WORDS, sheetWords } from "./words.js";
@@ -399,6 +399,7 @@ describe("the store", () => {
 // ── The link editor (B§4.4 — Sheet Spec §5 row 7) ─────────────────────────
 
 import type { LinkEditCtx, LinkGroups } from "./sheet-state.js";
+import { sameHalves } from "./link/context.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { SheetMemberValue } from "./values.js";
 
@@ -433,6 +434,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         resolve,
         predicted: () => [],
         cell: (groups) => (groups[0].length + groups[1].length === 0 ? null : cell("Link", { from: groups[0], to: groups[1] })),
+        unchanged: (groups) => sameHalves(groups, initial),
         driverName: "Routing",
     };
     return ctxOf({
@@ -512,6 +514,36 @@ describe("the link editor", () => {
         const blurred = run(resolved.state, [{ t: "editor.blur" }], ctx);
         expect(blurred.state.edit).toBeNull();
         expect(blurred.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140"), txt("mystery")], to: [] }), text: "" });
+    });
+
+    test("a link editor closed as it opened writes nothing, however it closes, and reads unchanged; a member out, in or typed reads changed, and put back as it was, unchanged again", () => {
+        const ctx = linkCtxOf("both", [[id("R2140")], [id("A7301")]]);
+        const writes = (t: { effects: SheetEffect[] }) => t.effects.filter((e) => e.t === "write");
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(editUnchanged(open.edit!, ctx)).toBe(true);
+        for (const event of [ekey("Enter"), ekey("Tab"), { t: "editor.blur" } as SheetEvent, { t: "cell.down", r: 2, c: 1, shift: false } as SheetEvent]) {
+            const closed = run(open, [event], ctx);
+            expect(closed.state.edit).toBeNull();
+            expect(writes(closed)).toEqual([]);
+        }
+        // It still moves the way a commit does.
+        expect(run(open, [ekey("Enter")], ctx).state.sel).toEqual({ r: 1, c: 0 });
+        // A member out: changed, and its commit writes what is left.
+        const removed = run(open, [{ t: "chip.remove", i: 1 }], ctx).state;
+        expect(editUnchanged(removed.edit!, ctx)).toBe(false);
+        expect(writes(run(removed, [ekey("Enter")], ctx))).toEqual([{ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140")], to: [] }), text: "" }]);
+        // Typed, not yet a chip: what a commit would write is what counts.
+        expect(editUnchanged(run(open, [{ t: "editor.change", val: "r2145" }], ctx).state.edit!, ctx)).toBe(false);
+        // Taken out and put back as it was: the cell's own again.
+        const back = run(removed, [{ t: "editor.change", val: "A7301, " }], ctx).state;
+        expect(editUnchanged(back.edit!, ctx)).toBe(true);
+        expect(writes(run(back, [ekey("Enter")], ctx))).toEqual([]);
+        // The same members in another order are another cell.
+        const swapped = linkCtxOf("to", [[], [id("R2140"), id("A7301")]]);
+        const reordered = run(initialSheetState(), [key("Enter"), { t: "chip.remove", i: 0 }, { t: "editor.change", val: "R2140, " }], swapped).state;
+        expect(editUnchanged(reordered.edit!, swapped)).toBe(false);
+        // An empty cell's editor, opened and closed: nothing to write, as an empty text cell's.
+        expect(writes(run(initialSheetState(), [key("Enter"), ekey("Tab"), ekey("Tab")], linkCtxOf("both")))).toEqual([]);
     });
 
     test("⌫ with nothing typed picks the half's last chip, and a second ⌫ removes it whole — never back into the buffer (east-workspace#1741); an empty To crosses back to From; an empty link commits a blank", () => {

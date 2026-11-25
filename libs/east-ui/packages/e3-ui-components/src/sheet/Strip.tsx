@@ -27,7 +27,8 @@
  * whole, never cut — judged from each part's width as the page lays it out,
  * to the fraction of a pixel, and with a pixel to spare before keys that gave
  * way come back, so the choice holds still at any width — and a coarse
- * pointer, which has no keys to press, shows none. Where an armed candidate's
+ * pointer, which has no keys to press, shows none: nor the `⌥]` an armed
+ * candidate's label leads with, the key that steps to the next. Where an armed candidate's
  * keys don't show, its place among the candidates — `2 of 9`, which the keys
  * lead with — stands where they would: a count, never a key.
  */
@@ -81,6 +82,8 @@ export interface StripChip {
 export interface StripModel {
     on: boolean;
     label: string;
+    /** The label with no key in it, where `label` leads with one — an armed candidate's `⌥]`: what a coarse pointer's strip says. */
+    bare?: string | undefined;
     chips: StripChip[];
     meta: string;
     keys: string;
@@ -199,6 +202,7 @@ export function buildStrip(input: StripInput): StripModel {
             return {
                 on: true,
                 label: m.stripArmed({ header, many }),
+                bare: m.stripArmed({ header, many: false }),
                 chips,
                 meta: memberMeta,
                 keys: m.stripKeysTake({ many, index: words.number(hi + 1), total: words.number(list.length) }),
@@ -286,6 +290,7 @@ function buildLinkStrip(header: string, val: string, link: StripLinkInput, singl
         return {
             on: true,
             label: m.stripArmed({ header: half, many }),
+            bare: m.stripArmed({ header: half, many: false }),
             chips,
             meta: armed?.meta ?? "",
             keys: m.stripKeysLinkTake({ many, index: words.number(hi + 1), total: words.number(list.length), single }),
@@ -419,7 +424,7 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
     const chipStyle = (ch: StripChip) => (ch.flat ? styles.stripChipFlat : ch.on ? styles.stripChipOn : styles.stripChip);
     return (
         <Box css={styles.strip} data-slot="strip" data-paged={paged ? "" : undefined}>
-            <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{model.label}</Box>
+            <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{coarse ? model.bare ?? model.label : model.label}</Box>
             <Box ref={rowRef} css={styles.stripChips} data-slot="stripChips">
                 {model.chips.slice(from, to).map((ch) => ch.flat
                     ? <Box key={ch.key} as="span" css={styles.stripChipFlat} data-slot="stripChip" data-flat="">{ch.label}</Box>

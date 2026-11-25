@@ -9,8 +9,10 @@
  * it, a scrim with them, before the button lifts — the release lands there,
  * where the press was, and clicks the row; and on a phone a tap on a row's cell
  * reaches the app's `onRowClick` as a click does on a desktop, in a phone's
- * frame at 390 and in a 294px parent. The panel beside `recordRowClick`'s
- * Record says the press clicked and the column.
+ * frame at 390 and in a 294px parent. The line over `recordRowClick`'s
+ * Record says the press clicked and the column — and each example's builder
+ * keeps its box as that line changes its words: a click moves and resizes
+ * nothing of it.
  *
  * Run: `pnpm exec playwright test record-row-click`.
  */
@@ -53,7 +55,28 @@ test("a tap on a row's cell clicks its row, in a phone's frame and in a 294px pa
     await settled(page);
     await expect(entry.getByText("Clicked P-02 · hall")).toBeVisible();
     await sizeBuilder(page, entry, ROOT, 294);
-    await cellOf(entry, "P-03", "hall").tap();
+    // Another column's cell: the first tap opened the phone's editor under the rows, which move up to clear it, so the
+    // next row's Hall cell comes to stand where the first tap landed — and a second tap there, soon after, is a double
+    // tap, the second press of which is no click.
+    await cellOf(entry, "P-03", "booked").tap();
     await settled(page);
-    await expect(entry.getByText("Clicked P-03 · hall")).toBeVisible();
+    await expect(entry.getByText("Clicked P-03 · booked")).toBeVisible();
 });
+
+// What a click writes is the page's own line: it stood beside the builder once, which then gave way to its words.
+for (const example of [
+    { route: "e3/record/record-row-click/recordRowClick", rest: "Click a press", press: (entry: Locator) => cellOf(entry, "P-04", "booked"), said: "Clicked P-04 · booked" },
+    { route: "e3/record/record-row-click/recordRowClickInteger", rest: "Click a bench", press: (entry: Locator) => cellOf(entry, "7", "holds"), said: "Bench 7 holds Beech tops" },
+    { route: "e3/sheet/sheet-row-click/sheetRowClickGrouped", rest: "Click an order or a step", press: (entry: Locator) => entry.locator('[data-slot="row"]').nth(2).locator('[data-slot="cell"][data-key="task"]'), said: "Clicked SO-4401 · step 2" },
+]) {
+    test(`${example.route}: the builder keeps its box as the page's line changes its words — a click moves and resizes nothing of it @desktop`, async ({ page }) => {
+        const entry = await visitBuilder(page, example.route, ROOT, "light");
+        const frame = entry.locator(ROOT).first();
+        await expect(entry.getByText(example.rest, { exact: true })).toBeVisible();
+        const before = await frame.boundingBox();
+        await example.press(entry).click();
+        await settled(page);
+        await expect(entry.getByText(example.said, { exact: true })).toBeVisible();
+        expect(await frame.boundingBox()).toEqual(before);
+    });
+}

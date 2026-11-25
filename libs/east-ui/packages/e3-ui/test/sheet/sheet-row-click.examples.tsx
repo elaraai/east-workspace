@@ -9,11 +9,11 @@
  * A click on a grouped Sheet's row (east-workspace#1727): `onRowClick` hears
  * `Sheet.Types.RowClick(K)` — the group's key at the record's key type, the
  * clicked line's place among the group's lines (`none` on the group's own
- * band), and the column — and the page keeps it for a panel beside the sheet.
+ * band), and the column — and the page keeps it for a line over the sheet.
  */
 
 import { ArrayType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, example, none, some } from "@elaraai/east";
-import { Box, HStack, Reactive, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -44,7 +44,7 @@ export const sheetRowClickOrders = e3.record("sheet_row_click_orders", DictType(
 
 export const sheetRowClickGrouped = example({
     keywords: ["Sheet", "onRowClick", "row click", "click", "Sheet.Types.RowClick", "RowClick", "group", "Sheet.group", "line", "index", "band", "key", "State", "State.bind"],
-    description: "A grouped Sheet whose row clicks the page hears: a click on an order's band gives the order's key; a click on one of its steps gives the order's key and the step's place among its steps, which the panel beside the sheet counts from one",
+    description: "A grouped Sheet whose row clicks the page hears: a click on an order's band gives the order's key; a click on one of its steps gives the order's key and the step's place among its steps, which the line over the sheet counts from one",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders = $.let(Record.bind(sheetRowClickOrders));
@@ -56,8 +56,9 @@ export const sheetRowClickGrouped = example({
                 $2(clicked.write(some(East.str`${click.key} · ${where}`)));
             }));
             return (
-                <HStack gap="4" align="stretch">
-                    <Box height="420px" flex="1">
+                <VStack gap="3" align="stretch">
+                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => "Click an order or a step" })}</Text>
+                    <Box height="420px">
                         <Sheet
                             record={orders}
                             group={Sheet.group(RowClickOrder, "steps", { title: "customer", noun: { singular: "order", plural: "orders" } })}
@@ -69,8 +70,7 @@ export const sheetRowClickGrouped = example({
                             name="sheetRowClickGrouped"
                         />
                     </Box>
-                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => "Click an order or a step" })}</Text>
-                </HStack>
+                </VStack>
             );
         }}</Reactive>
     )),

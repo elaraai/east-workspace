@@ -945,7 +945,7 @@ export const sheetWorkshop = example({
                             qty:      Sheet.column.quantity(WorkshopOperation, WorkshopActivity, { header: "Qty", sub: "unit per activity",
                                           width: "104px", uom: a => a.uom, format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQuantity, shiftQuantity] }),
                             machines: Sheet.column.link(WorkshopOperation, WorkshopActivity, "machines", {
-                                          header: "Work centres", sub: "from → to · 2 x edge bander", width: "300px",
+                                          header: "Work centres", sub: "from → to · 2 x edge bander", width: "340px",
                                           members: [{ kind: "machine", identified: true },
                                                     { kind: "bay", countable: true, resolvesTo: "machine" },
                                                     { kind: "family", countable: true, resolvesTo: "machine" }],

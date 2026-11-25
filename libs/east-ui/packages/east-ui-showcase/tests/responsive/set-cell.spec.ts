@@ -7,9 +7,11 @@
  * A set cell on one line, its members removed whole (east-workspace#1741): in
  * the Record's every-kind example and in the Sheet's workshop, each half of
  * its link column, every chip line stands on one line inside its row — each
- * chip whole, or, alone and wider than its room, shortened with "…" — and a
- * `+N` stands for the members past its room, its hover naming them and its
- * count theirs; hovering a Record's set cell puts every member in the strip.
+ * chip whole, or, alone and wider than its room, shortened with "…", its hover
+ * then saying its whole words — and a `+N` stands for the members past its
+ * room, its hover naming them and its count theirs; hovering a Record's set
+ * cell puts every member in the strip. The workshop's own rows shorten none,
+ * with a tenth to spare: a platform whose text runs wider draws them whole too.
  * A set cell's line is as wide as its cell's room, so members a narrow cell
  * folded show again once a wider one holds them; Details draws every member,
  * on as many lines as they take. In the open editor the members keep one
@@ -85,6 +87,8 @@ function linesOf(entry: Locator): Promise<LineDrawn[]> {
         const alone = line.hasAttribute("data-alone");
         const chips = parts.filter((part) => part.getAttribute("data-slot") === "chip");
         if (alone && chips.length !== 1) faults.push(`alone with ${chips.length} chips`);
+        // Shortened, it says its whole words on hover: without them the hover is its half's, which says only which half it is.
+        if (alone && (line.getAttribute("title") ?? "") === "") faults.push("shortened, with no hover to say its words");
         chips.forEach((chip, i) => {
             const words = chip.querySelector<HTMLElement>('[data-slot="chipText"]');
             if (words === null || words.scrollWidth <= words.clientWidth + 0.5) return;
@@ -155,6 +159,48 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
             expect(await faultsOf(entry)).toEqual([]);
         });
     }
+
+    test("a member alone wider than its half is shortened, and its hover says its whole words, where its half's would say only which half it is @desktop", async ({ page }) => {
+        const entry = await open(page, WORKSHOP);
+        // The first operation's cell, its destination one machine: narrowed until the chip no longer fits its half.
+        const cell = entry.locator('[data-slot="row"] [data-slot="cell"][data-key="machines"]').first();
+        const line = cell.locator('[data-half="to"] [data-slot="chipLine"]');
+        const words = await line.locator('[data-slot="chip"] [data-slot="chipText"]').first().textContent();
+        await expect(line).not.toHaveAttribute("data-alone", "");
+        await cell.locator('[data-slot="linkCell"]').evaluate((grid) => { grid.style.flex = "none"; grid.style.width = "90px"; });
+        await expect(line).toHaveAttribute("data-alone", "");
+        await settled(page);
+        expect([await line.getAttribute("title"), await cell.locator('[data-half="to"]').getAttribute("title")]).toEqual([words, "To"]);
+        expect(await faultsOf(entry)).toEqual([]);
+    });
+
+    test("the workshop's own rows shorten no chip, with a tenth to spare: each half's chips, a tenth wider, still fit their line @desktop", async ({ page }) => {
+        const entry = await open(page, WORKSHOP);
+        // The rows are drawn a window at a time: each window down the sheet, to its foot.
+        const tight = new Set<string>();
+        const scroller = entry.locator('[data-builder-frame] [role="grid"]').first();
+        for (let step = 0; step < 40; step++) {
+            const read = await entry.evaluate((root) => [...root.querySelectorAll<HTMLElement>('[data-slot="cell"][data-key="machines"] [data-slot="chipLine"]:not([data-wrap])')].map((line) => {
+                const row = line.closest<HTMLElement>('[data-slot="row"]');
+                const half = line.closest("[data-half]")?.getAttribute("data-half");
+                const chips = [...line.querySelectorAll<HTMLElement>(':scope > [data-slot="chip"], :scope > [data-slot="chipMore"]')];
+                const gap = parseFloat(getComputedStyle(line).columnGap) || 0;
+                // Each chip at its natural width: its words' and its meta's, never the width a short line cut it to.
+                const natural = chips.reduce((sum, chip) => sum + Math.max(chip.scrollWidth, chip.getBoundingClientRect().width), 0) + gap * Math.max(0, chips.length - 1);
+                return { at: `${row?.getAttribute("data-row-id") ?? "?"}:${half}`, natural, room: line.getBoundingClientRect().width, alone: line.hasAttribute("data-alone"), more: line.querySelector('[data-slot="chipMore"]') !== null };
+            }));
+            for (const line of read) if (line.alone || line.more || line.natural * 1.1 > line.room) tight.add(`${line.at}: ${Math.round(line.natural)} in ${Math.round(line.room)}`);
+            const more = await scroller.evaluate((el) => {
+                const sc = [el, ...el.querySelectorAll<HTMLElement>("*")].find((x) => x.scrollHeight > x.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(x).overflowY)) ?? el;
+                const before = sc.scrollTop;
+                sc.scrollTop = before + Math.max(40, sc.clientHeight - 80);
+                return sc.scrollTop > before;
+            });
+            if (!more) break;
+            await settled(page);
+        }
+        expect([...tight]).toEqual([]);
+    });
 
     test("the open editor keeps its members on one line under what is typed, which stays in view; a chip's × takes its member out, the editor open on the rest; at rest a +N names those past the cell's room, and the hover puts every member in the strip @desktop", async ({ page }) => {
         const entry = await open(page, EVERY_KIND);

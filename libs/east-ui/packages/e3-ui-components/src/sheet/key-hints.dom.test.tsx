@@ -9,8 +9,9 @@
  * strip name only the keys nobody would guess — the footer at rest its
  * `⌘C / ⌘V`, a link editor's strip its `⇥ take` — and a coarse pointer, which
  * has no keys to press, names none: not the Sheet's footer, not its strip in a
- * frame wide enough to edit in place, and not the Record's strip, a cycle's
- * own keys included. What a hint says that is no key stays: with whole rows
+ * frame wide enough to edit in place — its label included, which on a fine
+ * pointer leads with `⌥]`, the key that steps the armed candidate — and not
+ * the Record's strip, a cycle's own keys included. What a hint says that is no key stays: with whole rows
  * selected, a coarse pointer's footer still says how many.
  */
 
@@ -30,6 +31,8 @@ const footerHints = (container: HTMLElement) =>
     [...container.querySelectorAll('[data-slot="footerHint"] [data-footer-unit]')].map((unit) => unit.textContent);
 /** The strip's keys, or `undefined` where it names none. */
 const stripKeys = (container: HTMLElement) => container.querySelector('[data-slot="strip"] [data-slot="stripKeys"]')?.textContent;
+/** The strip's label, as it reads. */
+const stripLabel = (container: HTMLElement) => container.querySelector('[data-slot="strip"] [data-slot="stripLabel"]')?.textContent;
 
 /** The workshop's first Machines cell with its editor open, and a member's first letters typed: the strip offers candidates. */
 async function typedInMachines(container: HTMLElement) {
@@ -58,6 +61,8 @@ describe("the Sheet's key hints (east-workspace#1743)", () => {
         expect(footerHints(container)).toEqual(["⌘C / ⌘V round-trips with Excel"]);
         await typedInMachines(container);
         expect(stripKeys(container)).toContain("⇥ take");
+        // Several candidates: the label leads with the key that steps the armed one.
+        expect(stripLabel(container)).toBe("⌥] WORK CENTRES · to");
     });
 
     test("on a coarse pointer, in a frame wide enough to edit in place, neither the footer nor the strip names a key", async () => {
@@ -68,6 +73,7 @@ describe("the Sheet's key hints (east-workspace#1743)", () => {
             expect(footerHints(container)).toEqual([]);
             await typedInMachines(container);
             expect(stripKeys(container)).toBeUndefined();
+            expect(stripLabel(container)).toBe("WORK CENTRES · to");
         } finally {
             restore();
         }

@@ -535,6 +535,8 @@ export interface LinkEditCtx {
     predicted: (side: 0 | 1, groups: LinkGroups, typed: string) => SheetMemberValue[];
     /** The cell for the halves — `null` when both are empty. */
     cell: (groups: LinkGroups) => SheetCellValue | null;
+    /** Whether the halves are the cell's own — its members, each half's in its order: what a commit writes nothing for. */
+    unchanged: (groups: LinkGroups) => boolean;
     /** The driver member's name, for the hop-into-a-locked-half message — `undefined` when the row names none (#861: the words say "this row"). */
     driverName: string | undefined;
 }

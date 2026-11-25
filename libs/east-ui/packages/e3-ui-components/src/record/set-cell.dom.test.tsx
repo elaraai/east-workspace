@@ -12,7 +12,9 @@
  * members as tags and the register's others suggested as chips under it, never
  * the browser's list — a phone's frame has no desktop-style popover — each tag
  * typed, pressed or taken away written as the grid writes the cell, one step
- * while it stays open.
+ * while it stays open. An editor opened and left as it was is no change: the
+ * history's Undo, Discard and Save stay off, as with no editor, and ⏎ writes
+ * nothing.
  */
 
 import { describe, expect, test } from "vitest";
@@ -56,6 +58,9 @@ async function openEditor(container: HTMLElement, cell: () => HTMLElement): Prom
 /** The history's Undo — on a phone's frame in the toolbar's second row, where the history stands there. */
 const undoOf = (container: HTMLElement) =>
     within(slot(container, "sessionRow") ?? slot(container, "toolbar")!).getByRole("button", { name: editingMessages.undo() });
+/** Whether the history's Undo, Discard and Save are on. */
+const lit = (container: HTMLElement) => [editingMessages.undo(), editingMessages.discard(), editingMessages.apply()]
+    .map((name) => !within(slot(container, "sessionRow") ?? slot(container, "toolbar")!).getByRole<HTMLButtonElement>("button", { name }).disabled);
 /** The members a phone's tags editor suggests, as the chips under it name them — and never a browser's list. */
 const suggestedIn = (editor: HTMLElement) => {
     expect(editor.querySelector("datalist")).toBeNull();
@@ -78,6 +83,26 @@ describe("a set cell's members, edited whole (east-workspace#1741)", () => {
         expect(named(cell())).toEqual(["Confined space"]);
         await pressOn(undoOf(container));
         expect(named(cell())).toEqual(["Forklift", "Confined space"]);
+    });
+
+    test("an editor opened and left as it was lights no history button, and ⏎ writes nothing; a member taken out lights Undo, Discard and Save, and put back, none", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-untouched" });
+        const user = userEvent.setup();
+        const cell = () => certificates(container, 0);
+        expect(lit(container)).toEqual([false, false, false]);
+        const input = await openEditor(container, cell);
+        expect(lit(container)).toEqual([false, false, false]);
+        await pressOn(within(editorIn(cell())!).getByRole("button", { name: "Remove Confined space" }));
+        expect(lit(container)).toEqual([true, true, true]);
+        await user.type(input(), "Confined space, ", { skipClick: true });
+        await settle();
+        expect(named(editorIn(cell())!)).toEqual(["Forklift", "Confined space"]);
+        expect(lit(container)).toEqual([false, false, false]);
+        fireEvent.keyDown(input(), { key: "Enter" });
+        await settle();
+        expect(editorIn(cell())).toBeNull();
+        expect([named(cell()), lit(container)]).toEqual([["Forklift", "Confined space"], [false, false, false]]);
+        expect(cell().closest('[data-slot="row"]')!.hasAttribute("data-draft")).toBe(false);
     });
 
     test("Backspace with nothing typed picks the last member, and a second takes it out whole — never into the editor as words to delete", async () => {

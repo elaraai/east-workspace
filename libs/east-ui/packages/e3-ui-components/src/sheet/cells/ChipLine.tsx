@@ -6,7 +6,10 @@
 /**
  * A cell's members on one line (east-workspace#1741) — a set cell's, and each
  * half of a link cell's: the chips that fit whole, then `+n` for the rest,
- * whose hover names them. Measured as the page lays them out, as a ruler's
+ * whose hover names them; a member alone wider than its line is shortened,
+ * and the line's hover says its whole words, as the `+n`'s says the rest's —
+ * without it the hover is its half's, which says only which half it is.
+ * Measured as the page lays them out, as a ruler's
  * labels are (`shared/time/use-ruler-fit.ts`): while it measures, every chip
  * draws at its natural width and the `+n` at its widest; `fitChips` then
  * decides from them which show. It measures before the browser paints — when
@@ -73,9 +76,11 @@ export const ChipLine = memo(function ChipLine({ styles, chips, end, wrap }: Chi
     const shown = wrap === true || measuring || fit === undefined ? chips.length : fit.shown;
     const hidden = chips.slice(shown);
     const moreText = (n: number) => m.chipsMore({ n, count: number(n) });
+    // The first chip, wider than the line, shown alone and shortened.
+    const alone = wrap !== true && !measuring && fit?.alone === true;
     return (
         <Box ref={lineRef} css={styles.chipLine} data-slot="chipLine" data-end={end === true ? "" : undefined} data-wrap={wrap === true ? "" : undefined}
-            data-alone={wrap !== true && !measuring && fit?.alone === true ? "" : undefined}>
+            data-alone={alone ? "" : undefined} title={alone ? chips[0]?.words : undefined}>
             {chips.slice(0, shown).map((chip, i) => <Fragment key={i}>{chip.node}</Fragment>)}
             {measuring
                 ? <Box as="span" css={styles.chipMore} data-slot="chipMore" data-measure="" aria-hidden="true">{moreText(chips.length)}</Box>

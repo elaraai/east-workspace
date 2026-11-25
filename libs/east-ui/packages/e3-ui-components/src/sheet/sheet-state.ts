@@ -43,7 +43,9 @@
  *   `seek.edge`) — the ring lands once it arrives.
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
- *   never touched — so opening a cell and pressing ⏎ never changes it.
+ *   never touched — so opening a cell and pressing ⏎ never changes it. A
+ *   link's or a set's editor is unchanged while its halves are the cell's
+ *   own and nothing typed adds to them.
  * - **A register member is typed in the words its cell shows** (#1536): the
  *   editor opens on its label; a member a gesture chooses — the cell's own as
  *   it opens, a menu option, a strip chip, a candidate ⇥ or ⌘→ takes —
@@ -216,15 +218,20 @@ export function provisionalCell(edit: EditBuffer, ctx: SheetMachineCtx): SheetCe
 /**
  * Whether the open editor holds nothing to write (#852): closed on the text it opened with, nothing changed — an
  * untouched editor (its buffer as it opened, no candidate cycled) taking no ghost it was not asked for — or, holding a
- * chosen member, holding the cell's own (#1536). What a commit writes nothing for, and what the history's buttons
- * light for no more than for no editor (#1680's review). A link editor's commit always writes.
+ * chosen member, holding the cell's own (#1536) — or, a link's or a set's, its halves with what is typed resolved into
+ * them the cell's own members, each half's in its order. What a commit writes nothing for, and what the history's
+ * buttons light for no more than for no editor (#1680's review).
  *
  * @param edit - The open editor
  * @param ctx - The sheet as the machine sees it
  * @returns Whether a commit of it would write nothing
  */
 export function editUnchanged(edit: EditBuffer, ctx: SheetMachineCtx): boolean {
-    if (edit.link !== undefined || edit.opened === undefined) return false;
+    if (edit.link !== undefined) {
+        const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+        return linkCtx !== undefined && linkCtx.unchanged(withBuffer(edit, linkCtx));
+    }
+    if (edit.opened === undefined) return false;
     if (edit.pick !== undefined) {
         const own = ctx.memberAt?.(edit.r, edit.c);
         return own !== undefined && stringEqual(edit.pick, own);
@@ -251,11 +258,12 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     if (edit.r >= ctx.rowCount) return { state: { ...s, edit: null }, effects: [] };
     if (edit.link !== undefined) {
         // The buffer resolves into the active half (the ghost taken); the cell is
-        // the two halves. Typed entry is never blocked, so a link always commits.
+        // the two halves. Typed entry is never blocked, so a link always commits — and writes, but where its halves
+        // are the cell's own (#852): closed as it opened, the cell keeps its value and the history takes no step.
         const linkCtx = ctx.linkAt?.(edit.r, edit.c);
         if (linkCtx === undefined) return { state: { ...s, edit: null }, effects: [{ t: "focus.sheet" }] };
         const groups = withBuffer(edit, linkCtx);
-        const effects: SheetEffect[] = [{ t: "write", r: edit.r, c: edit.c, cell: linkCtx.cell(groups), text: "" }];
+        const effects: SheetEffect[] = linkCtx.unchanged(groups) ? [] : [{ t: "write", r: edit.r, c: edit.c, cell: linkCtx.cell(groups), text: "" }];
         let next: SheetUiState = { ...s, edit: null, armed: null };
         if (dir !== "blur") effects.push({ t: "focus.sheet" });
         next = moveAfterCommit(next, dir, ctx, effects);

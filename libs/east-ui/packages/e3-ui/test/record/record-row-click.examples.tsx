@@ -9,18 +9,19 @@
  * A click on a Record's row (east-workspace#1727): the app hears it through
  * `onRowClick`, an East function over `Record.Types.RowClick(K)` — the row's key
  * at the record's own key type, and the column clicked — and keeps what it
- * needs in the page's state for a panel beside the Record to read. Once over a
- * record keyed by text, and once over one keyed by Integer, whose key arrives
+ * needs in the page's state for a line over the Record to read: over it, never
+ * beside it, where the Record's width would follow the line's words. Once over
+ * a record keyed by text, and once over one keyed by Integer, whose key arrives
  * as an Integer.
  */
 
 import { DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some } from "@elaraai/east";
-import { Box, HStack, Reactive, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // ============================================================================
-// Example 1 — the clicked row's key, kept for a panel beside the Record
+// Example 1 — the clicked row's key, kept for a line over the Record
 // ============================================================================
 
 /** A press: its name, the hall it stands in and the hours booked on it this week. */
@@ -42,7 +43,7 @@ export const recordRowClickPresses = e3.record("record_row_click_presses", DictT
 
 export const recordRowClick = example({
     keywords: ["Record", "onRowClick", "row click", "click", "Record.Types.RowClick", "RowClick", "key", "column", "State", "State.bind", "picked", "panel", "detail"],
-    description: "A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too, on its name, which opens its Details too — writes the press's code and the column clicked into the page's state, which a panel beside the Record reads. A click that ticks the row's box, a drag across the cells and a key never does",
+    description: "A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too, on its name, which opens its Details too — writes the press's code and the column clicked into the page's state, which a line over the Record reads. A click that ticks the row's box, a drag across the cells and a key never does",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(recordRowClickPresses));
@@ -54,8 +55,9 @@ export const recordRowClick = example({
                 $2(picked.write(some(East.str`${click.key} · ${column}`)));
             }));
             return (
-                <HStack gap="4" align="stretch">
-                    <Box height="420px" flex="1">
+                <VStack gap="3" align="stretch">
+                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => "Click a press" })}</Text>
+                    <Box height="420px">
                         <Record
                             record={presses}
                             title="Presses"
@@ -70,8 +72,7 @@ export const recordRowClick = example({
                             name="recordRowClick"
                         />
                     </Box>
-                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => "Click a press" })}</Text>
-                </HStack>
+                </VStack>
             );
         }}</Reactive>
     )),
@@ -90,7 +91,7 @@ export const recordRowClickBenches = e3.record("record_row_click_benches", DictT
     initial: new Map([
         [1n, { name: "Assembly bench 1", holds: "Door frames" }],
         [2n, { name: "Assembly bench 2", holds: "Drawer boxes" }],
-        [7n, { name: "Finishing bench", holds: "Oak tops" }],
+        [7n, { name: "Finishing bench", holds: "Beech tops" }],
     ]),
     mutations: (mutation) => ({
         // The benches' patch door — every Save commits through it.
@@ -112,8 +113,12 @@ export const recordRowClickInteger = example({
                 $2(picked.write(some(click.key)));
             }));
             return (
-                <HStack gap="4" align="stretch">
-                    <Box height="420px" flex="1">
+                <VStack gap="3" align="stretch">
+                    <Text>{shown.match({
+                        some: (_$2, key) => rows.has(key).ifElse((_$3) => East.str`Bench ${key} holds ${rows.get(key).holds}`, (_$3) => East.str`Bench ${key}, not saved yet`),
+                        none: (_$2) => "Click a bench",
+                    })}</Text>
+                    <Box height="420px">
                         <Record
                             record={benches}
                             title="Benches"
@@ -126,11 +131,7 @@ export const recordRowClickInteger = example({
                             name="recordRowClickInteger"
                         />
                     </Box>
-                    <Text>{shown.match({
-                        some: (_$2, key) => rows.has(key).ifElse((_$3) => East.str`Bench ${key} holds ${rows.get(key).holds}`, (_$3) => East.str`Bench ${key}, not saved yet`),
-                        none: (_$2) => "Click a bench",
-                    })}</Text>
-                </HStack>
+                </VStack>
             );
         }}</Reactive>
     )),
