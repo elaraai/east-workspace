@@ -251,6 +251,18 @@ describe("VirtualRows draws a row's box only as the row moves (east-workspace#17
             expect(heard.slice(reported), "the dwell's read, at rest").toContain(false);
             act(() => { vi.advanceTimersByTime(400); });
             expect(boxes).toEqual([]);
+
+            // A step shorter than a row, which brings none in: the frame hears it, dwells and settles as before, and
+            // draws no row's box at all.
+            const rows = mounted();
+            act(() => {
+                scroller.scrollTop = 3 * ROW_H + 4;
+                fireEvent.scroll(scroller);
+            });
+            act(() => { vi.advanceTimersByTime(INTENT_DWELL_MS); });
+            act(() => { vi.advanceTimersByTime(400); });
+            expect(mounted()).toEqual(rows);
+            expect(boxes).toEqual([]);
         } finally {
             Element.prototype.getBoundingClientRect = originalRect;
         }
