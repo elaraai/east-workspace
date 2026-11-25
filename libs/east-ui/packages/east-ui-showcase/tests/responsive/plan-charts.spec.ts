@@ -78,11 +78,18 @@ async function inksOf(page: Page): Promise<Readonly<Record<(typeof INKS)[number]
     return Object.fromEntries(await Promise.all(INKS.map(async (name) => [name, await token(page, name)] as const))) as Record<(typeof INKS)[number], string>;
 }
 
-/** The row under the pointer's readout, its pointer at a share of its plot's width: its title, and each line's name and value. */
+/**
+ * The row under the pointer's readout, its pointer at a share of its plot's width: its title, and each line's name and
+ * value. A scroll closes the readout, and bringing a row lower down into view scrolls the page — the readout a pointer
+ * opened while the page still moved closed after it, and nothing moved the pointer again. So the plot comes into view
+ * and the page to rest first; the hover then checks the point is the plot's, as a person's pointer would find it.
+ */
 async function readoutAt(page: Page, row: Locator, at: number): Promise<{ title: string; names: string[]; values: string[] }> {
-    await row.scrollIntoViewIfNeeded();
-    const plot = (await row.locator("[data-plan-plot]").boundingBox())!;
-    await page.mouse.move(plot.x + plot.width * at, plot.y + plot.height / 2);
+    const plot = row.locator("[data-plan-plot]");
+    await plot.scrollIntoViewIfNeeded();
+    await settled(page);
+    const box = (await plot.boundingBox())!;
+    await plot.hover({ position: { x: box.width * at, y: box.height / 2 } });
     const tip = page.locator("[data-plan-tooltip][data-open]");
     await expect(tip).toHaveCount(1);
     return tip.evaluate((el) => ({
