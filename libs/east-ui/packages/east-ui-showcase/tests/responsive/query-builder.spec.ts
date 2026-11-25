@@ -17,7 +17,8 @@
  * Run's keys, then Copy jq to its icon, then Copy jq and Save… into the ⋯
  * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
- * opens the 320px save popover with the name and the description. The history
+ * opens the 320px save popover with the name, the description and the tags
+ * (#1758). The history
  * item's Save shows the drafts it saves until the record reads back, never the
  * query as it was before them. Two steps added and the first of them removed
  * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
@@ -245,16 +246,26 @@ test.describe("Query builder (#940)", () => {
         })).toBe(true);
     });
 
-    test("Save… opens the 320px save popover, with the query's name and its description", async ({ page }) => {
+    test("Save… opens the 320px save popover, with the query's name, its description and its tags", async ({ page }) => {
         const builder = await openBuilder(page);
         await builder.locator("[data-query-save-open]").click();
         const dialog = page.getByRole("dialog");
         await expect(dialog).toBeVisible();
         await expect.poll(() => dialog.evaluate((d) => ({
             w: Math.round(d.getBoundingClientRect().width),
-            fields: [...d.querySelectorAll("input, textarea")].map((e) => e.getAttribute("aria-label")),
+            // Each field a person fills, by what names it: its own label, else the label it is labelled by — the tags' box
+            // by its field's, whose own `for` reaches only the hidden input that carries the tags.
+            fields: [...d.querySelectorAll("input:not([hidden]), textarea")]
+                .map((field) => field.getAttribute("aria-label") ?? document.getElementById(field.getAttribute("aria-labelledby") ?? "")?.textContent ?? null),
             name: (d.querySelector("input") as HTMLInputElement).value,
-        }))).toEqual({ w: 320, fields: ["Query name", "What the query answers, in one sentence"], name: "Top shipped orders, 2026" });
+            // The open query's tags (#1758), each a chip in their field, which is as wide as the name's.
+            tags: [...d.querySelectorAll("[data-query-tags] [data-scope=tags-input][data-part=item-text]")].map((chip) => chip.textContent),
+            tagsAsWide: Math.round(d.querySelector("[data-query-tags] [data-scope=tags-input][data-part=control]")!.getBoundingClientRect().width)
+                === Math.round(d.querySelector("input")!.getBoundingClientRect().width),
+        }))).toEqual({
+            w: 320, fields: ["Query name", "What the query answers, in one sentence", "Tags"], name: "Top shipped orders, 2026",
+            tags: ["sales", "weekly"], tagsAsWide: true,
+        });
     });
 
     test("the history item's Save: every state the steps pass through, from its click until the record reads back, is the drafts it saves — never the query as it was before them", async ({ page }) => {
@@ -412,6 +423,7 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         await view.locator("[data-query-save-open]").click(); await settled(page);
         const save = frame.locator("[data-frame-view]");
         await expect(save.getByText("Description", { exact: true })).toBeVisible();
+        await expect(save.getByText("Tags", { exact: true })).toBeVisible();
         const halves = await save.locator("[data-part], button").filter({ hasText: /^(Cancel|Save)$/ }).evaluateAll((els) => els.map((b) => Math.round(b.getBoundingClientRect().width)));
         expect(halves[0]).toBe(halves[1]);
         await nothingFloats(page);

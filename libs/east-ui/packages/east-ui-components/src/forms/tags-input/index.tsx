@@ -10,6 +10,7 @@ import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFieldNaming } from "../../hooks/useFieldNaming";
 import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
@@ -57,6 +58,9 @@ export interface EastChakraTagsInputProps {
 /**
  * Renders an East UI TagsInput value using Chakra UI TagsInput component.
  * A tag's delete is Font Awesome's xmark, never Chakra's own icon (#1263).
+ * Inside a Field with no label of its own, the box a tag is typed in is named
+ * by the field's label and described by its help (#1758): the field's label is
+ * `for` the hidden input that carries the tags, which no one focuses.
  */
 export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: EastChakraTagsInputProps) {
     const [props, setProps] = useState(toChakraTagsInput(value));
@@ -97,6 +101,8 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     const suggestions = useMemo(() => getSomeorUndefined(value.suggestions), [value.suggestions]);
     const listId = useId();
     const hasSuggestions = suggestions !== undefined && suggestions.length > 0;
+    // The box's name where it draws no label of its own: its field's.
+    const naming = useFieldNaming();
 
     return (
         <ChakraTagsInput.Root
@@ -117,7 +123,7 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
                         </ChakraTagsInput.Item>
                     ))}
                 </ChakraTagsInput.Context>
-                <ChakraTagsInput.Input placeholder={placeholder} list={hasSuggestions ? listId : undefined} />
+                <ChakraTagsInput.Input placeholder={placeholder} list={hasSuggestions ? listId : undefined} {...(label === undefined ? naming : {})} />
             </ChakraTagsInput.Control>
             {hasSuggestions && (
                 <datalist id={listId}>

@@ -10,6 +10,7 @@ import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFieldNaming } from "../../hooks/useFieldNaming";
 import { useValueSync } from "../../hooks/useValueSync";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import {
@@ -466,10 +467,7 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     // and the time, its help describes them, and its read-only holds them
     // (#1147). Outside one, the input is as its value says.
     const field = useFieldContext();
-    const labelled = field === undefined ? {} : {
-        "aria-labelledby": field.ids.label,
-        ...(field.ariaDescribedby !== undefined && { "aria-describedby": field.ariaDescribedby }),
-    };
+    const labelled = useFieldNaming();
     const readOnly = props.disabled || field?.readOnly === true;
 
     // Handle date change

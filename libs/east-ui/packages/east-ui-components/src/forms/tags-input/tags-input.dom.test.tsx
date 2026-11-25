@@ -8,11 +8,15 @@
  * native <datalist> linked to the text input via its `list` attribute, so the
  * browser offers autocomplete while free entry still works. No suggestions ⇒
  * no datalist and no `list` link.
+ *
+ * Its name (#1758): inside a Field, the box a tag is typed in is named by the
+ * field's label and described by its help — the label is `for` the hidden
+ * input that carries the tags — and outside one it carries neither.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
+import { render, cleanup, screen } from "@testing-library/react";
+import { ChakraProvider, Field } from "@chakra-ui/react";
 import { some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { EastChakraTagsInput, type TagsInputValue } from "./index.js";
@@ -62,5 +66,34 @@ describe("TagsInput suggestions (#131)", () => {
         const { container } = ui(tagsValue());
         expect(container.querySelector("datalist")).toBeNull();
         expect(container.querySelector("input[list]")).toBeNull();
+    });
+});
+
+describe("TagsInput in a Field (#1758)", () => {
+    /** The box a tag is typed in. */
+    const box = (container: HTMLElement) => container.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+
+    test("the box a tag is typed in is named by its field's label and described by its help, which the label's own `for` does not reach", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <Field.Root>
+                    <Field.Label>Finishes</Field.Label>
+                    <EastChakraTagsInput value={tagsValue(["matte", "gloss"])} />
+                    <Field.HelperText>A word or two each.</Field.HelperText>
+                </Field.Root>
+            </ChakraProvider>,
+        );
+        const label = container.querySelector("label")!;
+        // The label is for the hidden input that carries the tags: the box a person types in is another element.
+        expect(label.getAttribute("for")).not.toBe(box(container).id);
+        expect(box(container).getAttribute("aria-labelledby")).toBe(label.id);
+        expect(screen.getByRole("combobox", { name: "Finishes" })).toBe(box(container));
+        const help = document.getElementById(box(container).getAttribute("aria-describedby") ?? "");
+        expect(help?.textContent).toBe("A word or two each.");
+    });
+
+    test("outside a Field it names nothing: the input is as its value says", () => {
+        const { container } = ui(tagsValue());
+        expect([box(container).getAttribute("aria-labelledby"), box(container).getAttribute("aria-describedby")]).toEqual([null, null]);
     });
 });
