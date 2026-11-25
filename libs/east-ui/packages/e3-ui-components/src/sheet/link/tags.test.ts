@@ -79,6 +79,27 @@ describe("a set cell as tags (east-workspace#1741)", () => {
         expect(setMembersOf(["Working at height", "w"], [], ctxOf(undefined))).toEqual([identified("Working at height"), identified("WAH-2")]);
     });
 
+    test("a tag that is an offered member's own key is that member — a suggestion tapped, a key typed whole — whatever longer name its words begin", () => {
+        // Members that count, `Bay 2` listed before `Bay`: typed in the cell, `Bay` arms `Bay 2`, whose name it begins.
+        const bay = (key: string): SheetRegisterMemberValue => ({ key, label: key, kind: "bay", aliases: [], meta: none, parent: none, tone: none }) as SheetRegisterMemberValue;
+        const bays = indexColumns([{
+            key: "bays", header: "Bays", sub: none, width: none,
+            kind: variant("set", {
+                register: "bays", members: [{ kind: "bay", identified: false, countable: true, resolvesTo: none, ranged: false }],
+                multiple: none, store: variant("asTyped", null),
+            }),
+            dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
+        }] as never).list[0]!;
+        const bayVocab = linkVocabulary(bays, [bay("Bay 2"), bay("Bay")]);
+        const ctx = linkEditCtx({ vocab: bayVocab, offer: bayVocab, current: undefined, halves: SET, predicted: () => undefined, driverName: undefined, words: SHEET_WORDS });
+        expect(setSuggestions(ctx, [])).toEqual(["Bay 2", "Bay"]);
+        expect(setMembersOf(["Bay"], [], ctx)).toEqual([identified("Bay")]);
+        expect(setMembersOf(["bay"], [], ctx)).toEqual([identified("Bay")]);
+        expect(setMembersOf(["Bay", "Bay 2"], [], ctx)).toEqual([identified("Bay"), identified("Bay 2")]);
+        // Words that are no member's key are read as typed still: `ba` arms the first member it begins.
+        expect(setMembersOf(["ba"], [], ctx)).toEqual([identified("Bay 2")]);
+    });
+
     test("typed words resolve against the whole register, past the members the row is offered", () => {
         const ctx = ctxOf(undefined, new Set(["Forklift"]));
         expect(setMembersOf(["Working at height"], [], ctx)).toEqual([identified("Working at height")]);

@@ -10,9 +10,14 @@
  * chip whole, or, alone and wider than its room, shortened with "…" — and a
  * `+N` stands for the members past its room, its hover naming them and its
  * count theirs; hovering a Record's set cell puts every member in the strip.
- * In the open editor the members keep one line, scrolling under what is
- * typed, which stays in view, and a chip's × takes its member out, the editor
- * open on the rest. On a phone the bottom container edits a set cell in the
+ * A set cell's line is as wide as its cell's room, so members a narrow cell
+ * folded show again once a wider one holds them; Details draws every member,
+ * on as many lines as they take. In the open editor the members keep one
+ * line, scrolling under what is typed, which stays in view, and a chip's ×
+ * takes its member out, the editor open on the rest — on a touch screen a
+ * 34px target of its own at the chip's end, never over the chip's words. A
+ * box a tag is typed into keeps to its field, a placeholder longer than the
+ * field cut inside it. On a phone the bottom container edits a set cell in the
  * form's tags editor, its chips the design system's touch size: 34 tall, each
  * × a 34 square at its end; the register's other members are suggested as
  * touch chips under it — never the browser's list, a phone having no
@@ -27,7 +32,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { visitBuilder } from "./builder-page";
+import { sizeBuilder, visitBuilder } from "./builder-page";
 import { settled } from "./settle";
 
 const ROOT = "[data-builder-frame]";
@@ -44,14 +49,15 @@ interface LineDrawn {
 }
 
 /**
- * Every chip line in an example, each with what breaks its invariants: one line, inside its row and its line, its
- * chips whole but a lone one too wide, which "…" shortens, and its `+N` naming as many members as it counts.
+ * Every one-line chip line in an example — a cell's, never Details', which wraps — each with what breaks its
+ * invariants: one line, inside its row and its line, its chips whole but a lone one too wide, which "…" shortens, and
+ * its `+N` naming as many members as it counts.
  *
  * @param entry - The example's entry
  * @returns Each line, in the page's order
  */
 function linesOf(entry: Locator): Promise<LineDrawn[]> {
-    return entry.evaluate((root) => [...root.querySelectorAll<HTMLElement>('[data-slot="chipLine"]')].map((line): LineDrawn => {
+    return entry.evaluate((root) => [...root.querySelectorAll<HTMLElement>('[data-slot="chipLine"]:not([data-wrap])')].map((line): LineDrawn => {
         const row = line.closest<HTMLElement>('[data-slot="row"], [data-slot="stickyLine"]');
         const from = line.closest("[data-half]")?.getAttribute("data-half") === "from";
         const at = `${row?.getAttribute("data-row-id") ?? "?"}/${line.closest('[data-slot="cell"]')?.getAttribute("data-key") ?? "?"}${from ? ":from" : ""}`;
@@ -66,6 +72,15 @@ function linesOf(entry: Locator): Promise<LineDrawn[]> {
             const b = part.getBoundingClientRect();
             if (b.top < rowBox.top - 0.5 || b.bottom > rowBox.bottom + 0.5) faults.push(`"${part.textContent}" past its row`);
             if (b.left < box.left - 0.5 || b.right > box.right + 0.5) faults.push(`"${part.textContent}" cut by its line`);
+        }
+        // A set's half is its cell's own child: as wide as the cell's room, so its line is fitted again as the cell's width changes.
+        const cell = line.closest<HTMLElement>('[data-slot="cell"]');
+        const half = line.closest<HTMLElement>("[data-half]");
+        if (cell !== null && half !== null && half.parentElement === cell) {
+            const style = getComputedStyle(cell);
+            const room = cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            const wide = half.getBoundingClientRect().width;
+            if (Math.abs(wide - room) > 0.5) faults.push(`its half ${wide} wide in a cell with room for ${room}`);
         }
         const alone = line.hasAttribute("data-alone");
         const chips = parts.filter((part) => part.getAttribute("data-slot") === "chip");
@@ -100,6 +115,23 @@ async function open(page: Page, route: string): Promise<Locator> {
 
 /** A Record's cell, by its row's key and its column's. */
 const recordCell = (entry: Locator, id: string, key: string) => entry.locator(`[data-record] [data-slot="row"][data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`);
+
+/**
+ * A tags input's box under a placeholder longer than its field — four hundred characters, set as the renderer sets a
+ * placeholder's length — as drawn: whether the box keeps inside its control's padding, and the control holds what it
+ * lays out.
+ */
+const longPlaceholderOf = (control: Locator) => control.evaluate(async (el) => {
+    const input = el.querySelector<HTMLInputElement>('[data-scope="tags-input"][data-part="input"]')!;
+    input.placeholder = "x".repeat(400);
+    input.style.setProperty("--tags-typed", "400ch");
+    await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    const inside = { left: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft), right: box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight) };
+    const typed = input.getBoundingClientRect();
+    return { inField: typed.left >= inside.left - 0.5 && typed.right <= inside.right + 0.5, held: el.scrollWidth <= el.clientWidth };
+});
 
 /** A tags editor's box as drawn: whether its placeholder's words fit inside its padding whole, and whether its face is mono. */
 const typedBoxOf = (editor: Locator) => editor.evaluate((el) => {
@@ -288,5 +320,127 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
         await settled(page);
         const grown = await landing();
         expect({ top: grown.row[0], editorFoot: grown.editorFoot }).toEqual({ top: true, editorFoot: [true, true, true] });
+    });
+
+    test("a set cell's members are fitted again as its cell gets wider: those a narrow cell folded into +N show once the cell holds them", async ({ page }) => {
+        const entry = await open(page, EVERY_KIND);
+        const line = async () => (await linesOf(entry)).find((l) => l.at === "P-0401/certificates");
+        // A phone's frame, its columns slots of the view: narrow, the cell holds one member and +1.
+        await sizeBuilder(page, entry, ROOT, 390);
+        const narrow = await line();
+        expect([narrow?.chips, narrow?.more?.names]).toEqual([["Forklift"], ["Confined space"]]);
+        // Wider, still a phone's: the slot holds both.
+        await sizeBuilder(page, entry, ROOT, 540);
+        const wide = await line();
+        expect([wide?.chips, wide?.more]).toEqual([["Forklift", "Confined space"], undefined]);
+        expect(await faultsOf(entry)).toEqual([]);
+    });
+
+    test("Details draws a set's every member, on as many lines as they take inside its field: never a +N @desktop", async ({ page }) => {
+        // Wide enough for the frame to pin its inspector beside the grid.
+        await page.setViewportSize({ width: 1600, height: 1200 });
+        const entry = await open(page, EVERY_KIND);
+        const cell = recordCell(entry, "P-0401", "certificates");
+        await cell.dblclick();
+        const input = cell.locator('[data-slot="editorInput"]');
+        await expect(input).toBeFocused();
+        await input.pressSequentially("First aid, Working at height, Rigging and slinging, Welding inspection");
+        await input.press("Enter");
+        await input.press("Enter");
+        await expect(cell.locator('[data-slot="editor"]')).toHaveCount(0);
+        await recordCell(entry, "P-0401", "name").click();
+        const field = entry.locator('[data-frame-slot="end"] [role="tabpanel"]:not([hidden]) [data-inspector-link="certificates"]');
+        await expect(field).toBeVisible();
+        await settled(page);
+        const drawn = await field.evaluate((el) => {
+            const line = el.querySelector<HTMLElement>('[data-slot="chipLine"]')!;
+            const box = el.getBoundingClientRect();
+            const chips = [...line.querySelectorAll<HTMLElement>('[data-slot="chip"]')];
+            const boxes = chips.map((chip) => chip.getBoundingClientRect());
+            const words = (chip: HTMLElement) => chip.querySelector<HTMLElement>('[data-slot="chipText"]');
+            return {
+                chips: chips.map((chip) => words(chip)?.textContent ?? ""),
+                more: line.querySelectorAll('[data-slot="chipMore"]').length,
+                lines: new Set(boxes.map((b) => Math.round(b.top))).size > 1,
+                outside: chips.filter((_, i) => boxes[i]!.left < box.left - 0.5 || boxes[i]!.right > box.right + 0.5).map((chip) => words(chip)?.textContent ?? ""),
+                cut: chips.filter((chip) => { const w = words(chip); return w !== null && w.scrollWidth > w.clientWidth + 0.5; }).map((chip) => words(chip)?.textContent ?? ""),
+            };
+        });
+        expect(drawn).toEqual({
+            chips: ["Forklift", "Confined space", "First aid", "Working at height", "Rigging and slinging", "Welding inspection"],
+            more: 0, lines: true, outside: [], cut: [],
+        });
+        // The row's own cell keeps its one line.
+        expect(await faultsOf(entry)).toEqual([]);
+    });
+
+    test("on a touch screen wider than a phone's, a chip's × in the open editor is a 34px target of its own at the chip's end, no part of it over the chip's words: a touch on the words takes no member, one on the ×'s corner takes its own @mobile", async ({ page }) => {
+        // A tablet's width: the cell's own editor, where a phone's frame edits a set in its bottom container.
+        await page.setViewportSize({ width: 1024, height: 900 });
+        const entry = await open(page, EVERY_KIND);
+        await expect(entry.locator(ROOT).first()).not.toHaveAttribute("data-phone", "");
+        const cell = recordCell(entry, "P-0401", "certificates");
+        await cell.dblclick();
+        const half = cell.locator('[data-slot="editor"] [data-half="to"]');
+        await expect(half.locator('[data-slot="chip"] [data-slot="chipText"]')).toHaveText(["Forklift", "Confined space"]);
+        expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), "a coarse pointer").toBe(true);
+        const drawn = await half.evaluate((el) => [...el.querySelectorAll<HTMLElement>('[data-slot="chip"]')].map((chip) => {
+            // The half scrolls sideways to keep the caret in view: each chip is read where it shows whole.
+            chip.scrollIntoView({ block: "nearest", inline: "nearest" });
+            const words = chip.querySelector<HTMLElement>('[data-slot="chipText"]')!;
+            const remove = chip.querySelector<HTMLElement>('[data-slot="chipRemove"]')!;
+            const w = words.getBoundingClientRect();
+            const x = remove.getBoundingClientRect();
+            const c = chip.getBoundingClientRect();
+            const hit = (px: number, py: number) => {
+                const at = document.elementFromPoint(px, py);
+                return at === null ? "nothing" : remove.contains(at) ? "remove" : words.contains(at) ? "words" : chip.contains(at) ? "chip" : "elsewhere";
+            };
+            const midY = (w.top + w.bottom) / 2;
+            const midX = (x.left + x.right) / 2;
+            return {
+                target: [Math.round(x.width), Math.round(x.height)],
+                // The words, at their start, their middle and their last pixel.
+                words: [hit(w.left + 1, midY), hit((w.left + w.right) / 2, midY), hit(w.right - 1, midY)],
+                // The ×'s own box: its four edges, a pixel in.
+                remove: [hit(x.left + 1, midY), hit(x.right - 1, midY), hit(midX, x.top + 1), hit(midX, x.bottom - 1)],
+                // Clear of the words, and ending at its chip's end: never over the next chip.
+                clear: x.left >= w.right - 0.5,
+                atEnd: Math.abs(x.right - c.right) < 0.5,
+            };
+        }));
+        expect(drawn).toEqual(Array(2).fill({
+            target: [34, 34], words: ["words", "words", "words"], remove: ["remove", "remove", "remove", "remove"], clear: true, atEnd: true,
+        }));
+        // A touch on the words takes no member — at their middle: a browser gives a touch within a finger's reach of a
+        // control to the control, as it does beside any — and one on the ×'s corner, far from its mark, takes its own.
+        const forklift = half.locator('[data-slot="chip"]').first();
+        const middle = await forklift.locator('[data-slot="chipText"]').evaluate((el) => {
+            el.parentElement!.scrollIntoView({ block: "nearest", inline: "nearest" });
+            const b = el.getBoundingClientRect();
+            return { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 };
+        });
+        await page.touchscreen.tap(middle.x, middle.y);
+        await expect(half.locator('[data-slot="chip"] [data-slot="chipText"]')).toHaveText(["Forklift", "Confined space"]);
+        const corner = await forklift.locator('[data-slot="chipRemove"]').evaluate((el) => {
+            el.parentElement!.scrollIntoView({ block: "nearest", inline: "nearest" });
+            const b = el.getBoundingClientRect();
+            return { x: b.right - 3, y: b.top + 3 };
+        });
+        await page.touchscreen.tap(corner.x, corner.y);
+        await expect(half.locator('[data-slot="chip"] [data-slot="chipText"]')).toHaveText(["Confined space"]);
+    });
+
+    test("a box a tag is typed into keeps to its field: a placeholder longer than the field is cut inside the box, which never passes the field's edge", async ({ page }) => {
+        const entry = await visitBuilder(page, "forms/tags-input/tagsInputBasic", '[data-scope="tags-input"][data-part="control"]', "light");
+        expect(await longPlaceholderOf(entry.locator('[data-scope="tags-input"][data-part="control"]').first())).toEqual({ inField: true, held: true });
+    });
+
+    test("on a phone the tags editor's box keeps to its field too, under a placeholder longer than it @mobile", async ({ page }) => {
+        const entry = await open(page, EVERY_KIND);
+        await recordCell(entry, "P-0408", "certificates").click();
+        const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
+        await expect(editor).toBeVisible();
+        expect(await longPlaceholderOf(editor.locator('[data-scope="tags-input"][data-part="control"]'))).toEqual({ inField: true, held: true });
     });
 });

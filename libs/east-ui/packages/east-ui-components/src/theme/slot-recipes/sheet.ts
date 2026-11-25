@@ -1277,8 +1277,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // A half on one line (#1741): never a second line past its row. At rest its chips fit their line (`chipLine`); in the
         // open editor they scroll sideways under what is typed, which stays in view — the active half underlined 1.5px in
-        // brand, 4px over its foot, by its background, which stays where it is as the half scrolls under it.
+        // brand, 4px over its foot, by its background, which stays where it is as the half scrolls under it. A link's halves
+        // are tracks of its grid; a set's one half is its cell's own flex item, and fills the cell's room whatever it
+        // holds, so the width its line is fitted to — and fitted again by, as it changes — is the cell's, never its chips'.
         half: {
+            flex: "1 1 0%",
             minWidth: "0",
             display: "flex",
             flexWrap: "nowrap",
@@ -1295,7 +1298,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 justifyContent: "flex-start",
                 paddingY: "7px",
                 overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
-                "& > [data-slot=chip]": { flexShrink: "0" },
+                // A chip keeps its width, and on a touch screen lets its × out over and under it (`chipRemove`): its words
+                // shorten in their own box, never by the chip's clip.
+                "& > [data-slot=chip]": { flexShrink: "0", _coarse: { overflow: "visible" } },
                 "&[data-half=from]": { paddingLeft: "0", paddingRight: "3px", justifyContent: "flex-start" },
                 "&[data-half=to]": { paddingLeft: "3px", paddingRight: "0" },
                 "&[data-active]": {
@@ -1403,7 +1408,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // A cell's members on one line (#1741): the chips that fit whole, then `+n` for the rest — never a second line past
         // the row, nor a chip cut mid-word. A chip of a line keeps its natural width, so the fit measures what it needs,
         // not the line's width a cap would hand it; the first chip, too wide on its own, is the one capped at the line,
-        // and shortens with "…" (`data-alone`). A from-half's chips run to its end.
+        // and shortens with "…" (`data-alone`). A from-half's chips run to its end. Details' line wraps instead
+        // (`data-wrap`): every member on as many lines as they take, 4px apart, each chip capped at the line.
         chipLine: {
             flex: "1 1 0%",
             minWidth: "0",
@@ -1415,6 +1421,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& > [data-slot=chip]": { maxWidth: "none" },
             "&[data-alone] > [data-slot=chip]:first-of-type": { flexShrink: "1", minWidth: "0", maxWidth: "100%" },
             "&[data-end]": { justifyContent: "flex-end" },
+            "&[data-wrap]": { flexWrap: "wrap", "& > [data-slot=chip]": { flexShrink: "1", minWidth: "0", maxWidth: "100%" } },
         },
         // The count of the members past a line's room: a chip's box, in the subtler ink on no fill.
         chipMore: {
@@ -1433,7 +1440,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // A chip's × in the open editor (east-workspace#1741): its member out of the cell, whole. Font Awesome's xmark in
-        // the chip's subtler ink, the danger ink on hover — and a picked chip's contrast — a 44px touch target by its halo.
+        // the chip's subtler ink, the danger ink on hover — and a picked chip's contrast. On a touch screen it is a
+        // target of its own, never a halo: a halo centred on it lay over the chip's words, which a touch near their end
+        // then removed. The design system's touch chip's 34px square at the chip's very end — over its padding and its
+        // edge, and the half's whole height over and under the chip, which keeps its own — begins where the words' gap ends.
         chipRemove: {
             display: "inline-flex",
             alignItems: "center",
@@ -1447,7 +1457,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontSize: "8px",
             cursor: "pointer",
-            ...coarseHitArea({ position: true }),
+            _coarse: { width: "34px", height: "34px", marginBlock: "-10px", marginInlineEnd: "-5px" },
             _hover: { color: "fg.danger" },
             "[data-slot=chip][data-picked] &": { color: "brand.contrast" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },

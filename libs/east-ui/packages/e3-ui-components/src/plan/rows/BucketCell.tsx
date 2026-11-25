@@ -20,10 +20,10 @@
  *
  * The fold is chosen before the browser paints, from widths the cell measured
  * with every tile drawn whole beside a stand-in chip, as a docked pane's tab
- * row folds its tabs (#1210): when the cell mounts, when its tiles change,
- * when fonts arrive, and when its room changes — taken in the ResizeObserver's
- * delivery, as the shared toolbar takes one, so no frame paints a fold the
- * cell does not rest on. While it measures again the chip keeps the last fold,
+ * row folds its tabs (#1210), by the clock every measured fold shares
+ * (`useMeasureAgain`): when the cell mounts, when its tiles change, when
+ * fonts arrive, and when its room changes — taken in the ResizeObserver's
+ * delivery, so no frame paints a fold the cell does not rest on. While it measures again the chip keeps the last fold,
  * so an open menu stays open (#1235). A context strip's cell (R2) never folds.
  *
  * A cell with no room for one tile, its padding given way (#1276), draws none
@@ -42,11 +42,11 @@
  */
 
 import {
-    useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
+    useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { Box, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
-import { FrameMenuLayer } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, useMeasureAgain } from "@elaraai/east-ui-components/internal";
 import { usePlanGeometry } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
 import { rowKeyOf } from "../row-key.js";
@@ -129,38 +129,14 @@ export function BucketCell(props: BucketCellProps) {
     const keptIndex = keptKey === undefined ? -1 : tiles.findIndex((tile) => tile.key === keptKey);
 
     // ── The fold, measured before paint ──
-    const [measuring, setMeasuring] = useState(folds);
+    // Other tiles, a cell that folds again, a change of its room and fonts arriving measure again. The box is as wide as
+    // the cell leaves it, whatever it holds, so folding never changes what is observed.
+    const { measuring, measured: tilesMeasured } = useMeasureAgain(boxRef, signature, folds);
     // What the cell measured, and its own width: a chip it draws across itself has that room (#1276).
     const [measure, setMeasure] = useState<(TileCellMeasure & { readonly cell: number }) | undefined>(undefined);
-    // Other tiles, or a cell that folds again, measure again.
-    useLayoutEffect(() => { if (folds) setMeasuring(true); }, [signature, folds]);
-    // So does a change of the room, before the cell paints at it. The box is
-    // as wide as the cell leaves it, whatever it holds, so folding never
-    // changes what it observes.
     useLayoutEffect(() => {
         const box = boxRef.current;
-        if (!folds || box === null || typeof ResizeObserver === "undefined") return undefined;
-        let room = box.getBoundingClientRect().width;
-        const ro = new ResizeObserver(() => {
-            const now = box.getBoundingClientRect().width;
-            if (Math.abs(now - room) < 0.01) return;
-            room = now;
-            flushSync(() => setMeasuring(true));
-        });
-        ro.observe(box);
-        return () => ro.disconnect();
-    }, [folds]);
-    // Fonts arriving change the tiles' widths, not the room.
-    useEffect(() => {
-        const fonts = typeof document === "undefined" ? undefined : document.fonts;
-        if (!folds || fonts === undefined) return undefined;
-        const again = () => setMeasuring(true);
-        fonts.addEventListener("loadingdone", again);
-        return () => fonts.removeEventListener("loadingdone", again);
-    }, [folds]);
-    useLayoutEffect(() => {
-        const box = boxRef.current;
-        if (!folds || !measuring || box === null) return;
+        if (!measuring || box === null) return;
         const width = (el: Element | null) => (el === null ? 0 : el.getBoundingClientRect().width);
         const gap = Number.parseFloat(getComputedStyle(box).columnGap) || 0;
         // The room is the box's own width, measured, never rounded: a tile a
@@ -175,8 +151,8 @@ export function BucketCell(props: BucketCellProps) {
             least: geometry.tileLeastWidth,
             cell: width(box.parentElement),
         });
-        setMeasuring(false);
-    }, [measuring, folds, signature, geometry.tileMinWidth, geometry.tileLeastWidth]);
+        tilesMeasured();
+    }, [measuring, tilesMeasured, signature, geometry.tileMinWidth, geometry.tileLeastWidth]);
     // The fold the last measure gave; the cell draws every tile whole while it
     // measures again, and the chip keeps that fold meanwhile, so an open menu
     // stays open (#1235).
@@ -229,9 +205,9 @@ export function BucketCell(props: BucketCellProps) {
         >
             {/* The tiles, in the room the cell gives them: a tile's floor is that room's (#1266). */}
             <Box ref={boxRef} css={styles.cellTiles} data-plan-cell-tiles=""
-                data-tile-measure={folds && measuring ? "" : undefined}>
+                data-tile-measure={measuring ? "" : undefined}>
                 {tiles.map((tile, i) => tile.draw(shown !== undefined && !shown.has(i)))}
-                {folds && measuring && (
+                {measuring && (
                     // The chip's stand-in, measured beside the tiles drawn whole: beside the
                     // chip, never in its place, so an open menu stays open (#1235).
                     <Box as="span" css={styles.tileMore} data-tile-more-measure="" aria-hidden>
