@@ -153,7 +153,8 @@ export const FOOTER_RAIL = {
  *   - spacer: the slack between the counts and a legend at the rail's end.
  *   - legend: a legend fitted as units (`data-footer-units`): its items, the rail's gap apart.
  *   - notices: live notices taking the rail's slack, wrapping within themselves item by item where they are narrow
- *     (`data-builder-narrow`).
+ *     (`data-builder-narrow`). They clip sideways alone: a notice's Retry keeps its touch halo and its focus ring,
+ *     which reach over and under its line.
  */
 export const builderFooterSlotRecipe = defineSlotRecipe({
     className: "elara-builder-footer",
@@ -225,7 +226,7 @@ export const builderFooterSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             gap: "var(--builder-footer-gap)",
-            overflow: "hidden",
+            overflowX: "clip",
             // Narrow: its notices wrap within it, item by item, and a notice wider than it its own words.
             "&[data-builder-narrow]": {
                 flexWrap: "wrap", paddingBlock: "6px", rowGap: "2px", columnGap: "10px",

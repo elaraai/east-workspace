@@ -6,7 +6,8 @@
 /**
  * The footer (B§9), on every builder's rail (`builderFooter`,
  * east-workspace#1748): the host's counts · a state-sensitive key hint — the
- * keys nobody would guess, and none on a coarse pointer (east-workspace#1743) · a
+ * keys nobody would guess, and none on a coarse pointer, which keeps what the
+ * hint says that is no key: how many rows are selected (east-workspace#1743) · a
  * right-aligned `aria-live` message for every action — in the danger tone
  * where it says a gesture was refused (`refusal.ts`) · and over a paged
  * source the shared loading line at its trailing end (#1398, CL3): what is
@@ -46,6 +47,8 @@ export interface SheetFooterProps {
     /** The sheet's own count line before the host's items — a grouped sheet's `3 plans · 14 lines` (#740, G12). */
     summary?: string | undefined;
     hint: string;
+    /** What the hint says that is no key — `3 rows selected`, which it leads with: all a coarse pointer's footer says of it. */
+    said?: string | undefined;
     message: string;
     /** Whether the message says a gesture was refused (east-workspace#1709): it says so in the danger tone. */
     refused?: boolean | undefined;
@@ -70,7 +73,7 @@ const HINT_SEPARATOR = " · ";
 const NO_RETRY = () => undefined;
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ items, summary, hint, message, refused, loading, noun, onRetry, saved, recordSlice, optimise }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ items, summary, hint, said, message, refused, loading, noun, onRetry, saved, recordSlice, optimise }: SheetFooterProps) {
     // The loading line, in the sheet's words and the app's locale (#850, #861), on the sheet's one reveal clock (CL4):
     // its frame's `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const words = useSheetWords();
@@ -80,9 +83,10 @@ export const SheetFooter = memo(function SheetFooter({ items, summary, hint, mes
     const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
-    // A coarse pointer has no keys to press: its footer names none (east-workspace#1743).
+    // A coarse pointer has no keys to press: its footer names none (east-workspace#1743), and says what the hint says
+    // that is no key.
     const coarse = useCoarsePointer();
-    const hints = coarse || hint === "" ? [] : hint.split(HINT_SEPARATOR);
+    const hints = coarse ? (said === undefined || said === "" ? [] : [said]) : hint === "" ? [] : hint.split(HINT_SEPARATOR);
     const legend = optimise?.legend === true;
     const units = hints.length + (legend ? 1 : 0);
     // A run's line takes the slot, at once: a run is not a read.

@@ -24,8 +24,12 @@
  *
  * Its keys name only what nobody would guess (east-workspace#1743), and give
  * way first: they show only where every chip fits on one page beside them,
- * whole, never cut — and a coarse pointer, which has no keys to press, shows
- * none.
+ * whole, never cut — judged from each part's width as the page lays it out,
+ * to the fraction of a pixel, and with a pixel to spare before keys that gave
+ * way come back, so the choice holds still at any width — and a coarse
+ * pointer, which has no keys to press, shows none. Where an armed candidate's
+ * keys don't show, its place among the candidates — `2 of 9`, which the keys
+ * lead with — stands where they would: a count, never a key.
  */
 
 import { memo, useLayoutEffect, useRef, useState } from "react";
@@ -80,6 +84,8 @@ export interface StripModel {
     chips: StripChip[];
     meta: string;
     keys: string;
+    /** Where the armed candidate stands among them — `2 of 9` — which the keys lead with: shown where the keys are not. */
+    count?: string | undefined;
 }
 
 const OFF: StripModel = { on: false, label: "", chips: [], meta: "", keys: "" };
@@ -196,6 +202,7 @@ export function buildStrip(input: StripInput): StripModel {
                 chips,
                 meta: memberMeta,
                 keys: m.stripKeysTake({ many, index: words.number(hi + 1), total: words.number(list.length) }),
+                count: many ? m.stripCount({ index: words.number(hi + 1), total: words.number(list.length) }) : undefined,
             };
         }
         case "date": {
@@ -282,6 +289,7 @@ function buildLinkStrip(header: string, val: string, link: StripLinkInput, singl
             chips,
             meta: armed?.meta ?? "",
             keys: m.stripKeysLinkTake({ many, index: words.number(hi + 1), total: words.number(list.length), single }),
+            count: many ? m.stripCount({ index: words.number(hi + 1), total: words.number(list.length) }) : undefined,
         };
     }
     // Nothing to offer is still worth a line: the grammar, and the arity check.
@@ -320,6 +328,8 @@ export interface SheetStripProps {
 const PAGER_PX = 84;
 /** The gap between chips (the recipe's `stripChips` gap). */
 const GAP_PX = 4;
+/** The room keys that gave way need to spare before they show again: at the width they just fit, they stay as they are. */
+const KEYS_BACK_PX = 1;
 
 /** What a set of chips is, for the page cut — their keys, labels and which is armed. */
 const chipSignature = (chips: readonly StripChip[]): string =>
@@ -360,21 +370,25 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
     // Cut the chips into pages by their measured widths: one page when they all fit, else the pager's width set aside on every page.
     // The keys give way first (east-workspace#1743): they show only where every chip fits on one page beside them. Both are
     // judged from the row's room without the keys — the row as laid out now, and the keys as drawn now — which is the same
-    // whether they show or not, so the choice holds still.
+    // whether they show or not: each width as the page lays it out, never rounded, as a sum of rounded widths is a pixel
+    // more with the keys gone than with them drawn, and a choice made on it showed and hid them by turns.
     useLayoutEffect(() => {
         const row = rowRef.current;
         const measure = measureRef.current;
-        const rowPx = row === null ? 0 : row.clientWidth;
-        if (!on || row === null || measure === null || rowPx <= 0) { setStarts([0]); setKeysShown(true); return; }
-        const widths = Array.from(measure.querySelectorAll<HTMLElement>(":scope > [data-measure-chip]"), (k) => k.offsetWidth);
+        if (!on || row === null || measure === null) { setStarts([0]); setKeysShown(true); return; }
+        const exact = (el: Element): number => el.getBoundingClientRect().width;
+        const widths = Array.from(measure.querySelectorAll<HTMLElement>(":scope > [data-measure-chip]"), exact);
         const total = widths.reduce((a, w) => a + w, 0) + GAP_PX * Math.max(0, widths.length - 1);
         // A key's room is its width and the strip's gap before it.
         const gap = Number.parseFloat(getComputedStyle(row.parentElement ?? row).columnGap) || 0;
         const drawn = keysRef.current;
-        const bare = rowPx + (drawn === null ? 0 : drawn.offsetWidth + gap);
+        const bare = exact(row) + (drawn === null ? 0 : exact(drawn) + gap);
+        // Nothing laid out yet. A row its label, its meta and its keys leave no room is laid out all the same: its room is
+        // the keys', which give way to it.
+        if (bare <= 0) { setStarts([0]); setKeysShown(true); return; }
         const copy = keysMeasureRef.current;
-        const need = keys === "" || copy === null ? 0 : copy.offsetWidth + gap;
-        const show = need > 0 && total + need <= bare;
+        const need = keys === "" || copy === null ? 0 : exact(copy) + gap;
+        const show = need > 0 && total + need + (keysShown ? 0 : KEYS_BACK_PX) <= bare;
         setKeysShown(show);
         const room = show ? bare - need : bare;
         if (total <= room) { setStarts([0]); return; }
@@ -448,7 +462,10 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
                 {keys !== "" && <Box ref={keysMeasureRef} as="span" css={styles.stripKeys}>{keys}</Box>}
             </Box>
             <Box as="span" css={styles.stripMeta} data-slot="stripMeta" title={model.meta}>{model.meta}</Box>
-            {keys !== "" && keysShown && <Box ref={keysRef} as="span" css={styles.stripKeys} data-slot="stripKeys">{keys}</Box>}
+            {keys !== "" && keysShown
+                ? <Box ref={keysRef} as="span" css={styles.stripKeys} data-slot="stripKeys">{keys}</Box>
+                // The keys lead with the armed candidate's place: where they don't show, it stands alone.
+                : model.count !== undefined && model.count !== "" && <Box as="span" css={styles.stripKeys} data-slot="stripCount">{model.count}</Box>}
         </Box>
     );
 });
