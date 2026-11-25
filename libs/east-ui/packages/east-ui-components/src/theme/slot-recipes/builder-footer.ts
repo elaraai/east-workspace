@@ -272,7 +272,8 @@ const FOOTER_VOICE = {
 /**
  * The footer's loading line (#1398, CL3; the design's `.ldl`): one line in its
  * own slot at the rail's trailing end, taking only the room the rail leaves it
- * and at most 64% of it. An 8px `--brand` dot with the live pulse, then the
+ * and at most 64% of it. An 8px `--brand` dot with the live pulse, on whole
+ * rows of the rail's room — ten over it and nine under — then the
  * line's words in the footer's voice — mono 10.5 `--ink-3`, tabular — the
  * range or the period 600 `--ink`. A failed read's dot is `--neg` and still,
  * its words `--neg-text`, then `·` and Retry, the footer's link (`--brand-d`
@@ -321,6 +322,10 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             flex: "none",
             width: "8px",
             height: "8px",
+            // An even dot in the line's odd 15px — and, alone, in the rail's odd room — is centred at half a row, which a
+            // page paints a row higher or lower by where it stands the rail. A pixel over it stands it on whole rows, a
+            // row under the room's middle: where the rail's other even marks stand, a legend's swatch.
+            marginTop: "1px",
             borderRadius: "full",
             background: "brandMark",
             // The live pulse: the dot's copy grows and fades — the line's one motion.

@@ -18,7 +18,9 @@
  *   narrower frame but where the legend itself is cut — then its short form,
  *   the fit's last rule; the rail as tall as at rest, nothing past its edge; its
  *   dot the brand's mark, its words the footer's voice, what it names the
- *   strong ink.
+ *   strong ink; its dot on whole rows of the rail's room, a row from its
+ *   middle at most, as a legend's swatch stands — never at half a row, which
+ *   a page paints a row higher or lower by where it stands the rail.
  * - Once a read fails, the line says so at once — its words the danger ink,
  *   its dot `status.neg` — then "· Retry", the brand's link; its floor is the
  *   dot and Retry, "● Retry".
@@ -41,6 +43,7 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { marksOffCentre } from "./bar-capitals";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
@@ -155,7 +158,8 @@ interface LineAt {
     readonly rail: { readonly height: number; readonly wrap: string; readonly overflow: number };
     /** Whether the line sits inside the rail's content box. */
     readonly inside: boolean;
-    readonly dot: { readonly width: number; readonly height: number; readonly color: string };
+    /** Its dot: its size, its colour, and the rows of the rail's room — under its rule — over it and under it, to the 64th of a pixel the page lays out in. */
+    readonly dot: { readonly width: number; readonly height: number; readonly color: string; readonly over: number; readonly under: number };
     readonly text: Part;
     readonly short: Part;
     /** The ink of what the full text names, where it names a range or a period. */
@@ -182,6 +186,9 @@ function lineAt(rail: Locator): Promise<LineAt> {
         };
         const dot = line.querySelector<HTMLElement>(":scope > [data-line-dot]")!;
         const dotBox = dot.getBoundingClientRect();
+        const roomTop = box.top + Number.parseFloat(css.borderTopWidth);
+        const roomFoot = box.bottom - Number.parseFloat(css.borderBottomWidth);
+        const sixtyFourths = (n: number) => Math.round(n * 64) / 64;
         const strong = line.querySelector<HTMLElement>(":scope > [data-line-text] b");
         const sep = [...line.children].find((child) => child.textContent === "·");
         const retry = line.querySelector(":scope > [data-line-retry]");
@@ -196,7 +203,10 @@ function lineAt(rail: Locator): Promise<LineAt> {
             live: line.getAttribute("aria-live"),
             rail: { height: box.height, wrap: css.flexWrap, overflow: el.scrollWidth - el.clientWidth },
             inside: lineBox.left >= box.left + Number.parseFloat(css.paddingLeft) - 0.5 && lineBox.right <= box.right - Number.parseFloat(css.paddingRight) + 0.5,
-            dot: { width: dotBox.width, height: dotBox.height, color: getComputedStyle(dot).backgroundColor },
+            dot: {
+                width: dotBox.width, height: dotBox.height, color: getComputedStyle(dot).backgroundColor,
+                over: sixtyFourths(dotBox.top - roomTop), under: sixtyFourths(roomFoot - dotBox.bottom),
+            },
             text: part("[data-line-text]"),
             short: part("[data-line-short]"),
             strong: strong === null ? null : getComputedStyle(strong).color,
@@ -205,6 +215,15 @@ function lineAt(rail: Locator): Promise<LineAt> {
             color: getComputedStyle(line).color,
         };
     });
+}
+
+/**
+ * What is wrong with where the line's dot stands in its rail's room: at a fraction of a row, or further off the room's
+ * middle than its height must — the rule every mark of a bar is held to (`marksOffCentre`).
+ */
+function dotOff(at: LineAt): string[] {
+    return marksOffCentre([{ part: "its dot", height: at.dot.height, over: at.dot.over, under: at.dot.under }])
+        .map((mark) => `its dot ${mark.over} rows under the rail's rule and ${mark.under} over its foot`);
 }
 
 /** The rail's height at rest: one line, as `builder-footer-line.spec.ts` holds it. */
@@ -222,6 +241,7 @@ function faults(at: LineAt, rest: number, inks: Inks, failed: boolean): string[]
     if (!at.inside) bad.push("the line runs past the rail's content box");
     if (Math.round(at.dot.width) !== 8 || Math.round(at.dot.height) !== 8) bad.push(`its dot ${at.dot.width}×${at.dot.height}`);
     if (at.dot.color !== (failed ? inks.neg : inks.mark)) bad.push(`its dot ${at.dot.color}`);
+    bad.push(...dotOff(at));
     if (at.color !== inks.muted) bad.push(`its voice ${at.color}`);
     switch (at.form) {
         case "full":
@@ -373,7 +393,7 @@ for (const theme of LAYOUT_THEMES) {
     });
 }
 
-test("in a phone's frame a failed read says so in the band laid over main's foot, main as tall as before the read, its Retry a 44px tap target by its halo, and a tap on it reads again (ruled 7 Nov 2026) @mobile", async ({ page }) => {
+test("in a phone's frame a failed read says so in the band laid over main's foot, main as tall as before the read, its dot on whole rows, its Retry a 44px tap target by its halo, and a tap on it reads again (ruled 7 Nov 2026) @mobile", async ({ page }) => {
     await installE3Faults(page);
     await page.setViewportSize(PAGE);
     const reader = READERS[0]!;
@@ -393,6 +413,8 @@ test("in a phone's frame a failed read says so in the band laid over main's foot
     });
     expect(at.main, "main's height").toBeCloseTo(rest, 0);
     expect([Math.abs(at.foot) < 1, at.top > 0]).toEqual([true, true]);
+    // Its dot on whole rows of the band, as in a wider frame's rail.
+    expect(dotOff(await lineAt(entry.locator(reader.rail).first())), "the band's dot").toEqual([]);
     await expect(entry.locator("[data-frame-slot='sessionRow'] [data-footer-line]")).toHaveCount(0);
     const retry = line.locator("[data-line-retry]");
     await retry.scrollIntoViewIfNeeded();
