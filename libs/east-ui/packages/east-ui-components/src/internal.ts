@@ -70,6 +70,9 @@ export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 export { DropHint, type DropHintProps } from "./dnd/drop-hint.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
+// A combobox's text, held by React, committed at once, so Zag's write of it never lands over a later key — the Sheet's
+// enum and person editor (east-workspace#1779).
+export { commitTypedText } from "./primitives/typed-text.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 // The editing session's parts: its bar, a draft's presentation and checks, its words, and the data set it belongs to.
 export { HistoryBar } from "./editing/HistoryBar.js";

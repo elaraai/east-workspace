@@ -21,6 +21,8 @@
 export { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "./testing/drag-layer.js";
 export { ICON_GLYPHS, faIcons, foreignIcons, loneGlyphs, markOf } from "./testing/icons.js";
 export { declaredStyle } from "./testing/styles.js";
+// Keys as a loaded machine sends them: what a box whose text React holds is typed into, to show it loses none.
+export { LOADED_MS, underLoad } from "./testing/typing.js";
 export { integerField, sliceConfig, stringField, type SliceFieldSpec } from "./testing/slice.js";
 export { setVirtualRowsMeasureProbe } from "./collections/virtual-rows.js";
 export { editingMessages } from "./editing/messages.js";

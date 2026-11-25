@@ -49,7 +49,7 @@ import { Box, Combobox as ChakraCombobox, Input as ChakraInput, NumberInput as C
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faChevronDown, faChevronUp, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { DateValue } from "@internationalized/date";
-import { CompoundDateField, CompoundDateInput, CompoundDateSegment, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
+import { CompoundDateField, CompoundDateInput, CompoundDateSegment, commitTypedText, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit, splitTimeToken, type WhenLevel } from "./parse/date.js";
 import { formatNumberBare, typedQuantity } from "./parse/quantity.js";
@@ -237,7 +237,9 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         // No dismissable layer: the sheet owns esc and the outside press (the layer would take esc at the document before the machine hears it).
         disableLayer: true,
         positioning: { placement: "bottom-start", gutter: 4, sameWidth: false },
-        onInputValueChange: (d) => { if (d.inputValue !== value) onChange(d.inputValue); },
+        // The buffer committed at once: Zag writes the input from it after the render, and a later key must not land
+        // before it (`commitTypedText`, east-workspace#1779).
+        onInputValueChange: (d) => { if (d.inputValue !== value) commitTypedText(() => onChange(d.inputValue)); },
         onValueChange: (d) => { const o = items.find((x) => x.key === d.value[0]); if (o !== undefined) onPick?.(o); },
     });
     const focusKey = `${focus.seq}:${link?.hop ?? 0}:${link?.side ?? -1}`;
