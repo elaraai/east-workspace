@@ -784,6 +784,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                     storageKey={keys.frame}
                     loading={!data.ready && data.error === undefined}
                     busy={data.loading || narrowingBusy}
+                    liveFooter
                     toolbar={items}
                     toolbarRef={toolbarRef}
                     banners={banners}

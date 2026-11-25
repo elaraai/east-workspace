@@ -10,7 +10,8 @@
  * `⌘C / ⌘V`, a link editor's strip its `⇥ take` — and a coarse pointer, which
  * has no keys to press, names none: not the Sheet's footer, not its strip in a
  * frame wide enough to edit in place, and not the Record's strip, a cycle's
- * own keys included.
+ * own keys included. What a hint says that is no key stays: with whole rows
+ * selected, a coarse pointer's footer still says how many.
  */
 
 import { describe, expect, test } from "vitest";
@@ -45,6 +46,12 @@ async function typedInMachines(container: HTMLElement) {
     await waitFor(() => expect(container.querySelectorAll('[data-slot="strip"] [data-slot="stripChip"]').length).toBeGreaterThan(0));
 }
 
+/** Ticks the first row's checkbox: whole rows selected. */
+async function tickFirstRow(container: HTMLElement) {
+    fireEvent.click(container.querySelector<HTMLElement>('[data-slot="row"] [data-slot="checkbox"]')!);
+    await settle();
+}
+
 describe("the Sheet's key hints (east-workspace#1743)", () => {
     test("on a fine pointer the footer at rest names ⌘C / ⌘V alone, and a link editor's strip its ⇥ take", async () => {
         const { container } = await h.mount(exSheet.sheetWorkshop, { storageKey: "key-hints-fine" });
@@ -61,6 +68,29 @@ describe("the Sheet's key hints (east-workspace#1743)", () => {
             expect(footerHints(container)).toEqual([]);
             await typedInMachines(container);
             expect(stripKeys(container)).toBeUndefined();
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("whole rows selected: how many is no key (east-workspace#1743)", () => {
+    test("on a fine pointer the footer says how many, then the keys that act on them", async () => {
+        const { container } = await h.mount(exSheet.sheetWorkshop, { storageKey: "key-hints-rows-fine" });
+        await tickFirstRow(container);
+        const hints = footerHints(container);
+        expect(hints[0]).toMatch(/^\d+ rows? selected$/);
+        expect(hints.slice(1)).toEqual([" · ⌫ deletes them", " · ⌘C copies"]);
+    });
+
+    test("on a coarse pointer the footer says how many, and names no key", async () => {
+        const restore = touchFrame(1024);
+        try {
+            const { container } = await h.mount(exSheet.sheetWorkshop, { storageKey: "key-hints-rows-coarse" });
+            await tickFirstRow(container);
+            const hints = footerHints(container);
+            expect(hints).toHaveLength(1);
+            expect(hints[0]).toMatch(/^\d+ rows? selected$/);
         } finally {
             restore();
         }

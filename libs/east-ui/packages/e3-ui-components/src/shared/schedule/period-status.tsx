@@ -13,7 +13,7 @@
 
 import { Box } from "@chakra-ui/react";
 
-/** A builder's recipe: the parts these draw with are its `pickerDot`, `pickerLegend`, `legendItem` and `status`. */
+/** A builder's recipe: the parts these draw with are its `pickerDot`, `pickerLegend`, `pickerLegendItem` and `status`. */
 type Styles = Record<string, Record<string, unknown>>;
 
 /** The picker's marks, each beside its word in its legend. */
@@ -37,7 +37,7 @@ export function PickerDot({ styles, mark }: { styles: Styles; mark: string }) {
  */
 export function PickerLegend({ styles, scope }: { styles: Styles; scope: "roster" | "allocation" }) {
     return <Box as="span" css={styles.pickerLegend}>{PICKER_MARKS.map(({ mark, word }) =>
-        <Box as="span" key={mark} css={styles.legendItem} {...{ [`data-${scope}-picker-legend`]: mark }}><PickerDot styles={styles} mark={mark} />{word}</Box>)}</Box>;
+        <Box as="span" key={mark} css={styles.pickerLegendItem} {...{ [`data-${scope}-picker-legend`]: mark }}><PickerDot styles={styles} mark={mark} />{word}</Box>)}</Box>;
 }
 
 /**

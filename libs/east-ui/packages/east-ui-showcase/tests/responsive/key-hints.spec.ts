@@ -62,12 +62,15 @@ function keysOf(strip: Locator): Promise<KeysDrawn> {
 const footerHints = (entry: Locator) => entry.locator('[data-slot="footerHint"] [data-footer-unit]').allTextContents();
 
 test.describe("The key hints (east-workspace#1743)", () => {
-    test("on a phone neither strip nor footer names a key: the workshop's footer, its strip at a cell, and the crew's strip at a cycle @mobile", async ({ page }) => {
+    test("on a phone the workshop names no key: not its footer, nor its strip at a cell @mobile", async ({ page }) => {
         const workshop = await open(page, WORKSHOP);
         expect(await footerHints(workshop)).toEqual([]);
         await workshop.locator('[data-slot="row"] [data-slot="cell"]').first().click();
         await settled(page);
         expect(await workshop.locator('[data-slot="stripKeys"]').count()).toBe(0);
+    });
+
+    test("on a phone the crew's strip names no key at a cycle @mobile", async ({ page }) => {
         const crew = await open(page, CREW);
         await crew.locator('[data-record] [data-slot="row"] [data-slot="cell"][data-key="forklift"]').first().click();
         await settled(page);

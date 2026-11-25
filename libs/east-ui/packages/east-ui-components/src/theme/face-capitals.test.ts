@@ -13,6 +13,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { brotliDecompressSync } from "node:zlib";
 import { describe, expect, test } from "vitest";
 import { FACE_METRICS, capitalsBox, centredCapitals, faceRows, type FaceMetrics, type FaceName } from "./face-capitals.js";
@@ -82,7 +83,7 @@ const FILES: Readonly<Record<FaceName, string>> = {
 
 describe("a face's metrics", () => {
     test.each(Object.entries(FILES) as [FaceName, string][])("%s's are its font file's own: its em, its typographic ascender and descender, its capitals", (face, file) => {
-        const read = woff2Metrics(new URL(`../../node_modules/@fontsource-variable/${file}`, import.meta.url).pathname);
+        const read = woff2Metrics(fileURLToPath(new URL(`../../node_modules/@fontsource-variable/${file}`, import.meta.url)));
         expect({ unitsPerEm: read.unitsPerEm, ascender: read.ascender, descender: read.descender, capHeight: read.capHeight }).toEqual(FACE_METRICS[face]);
         // A browser lays its lines out by these alone: the face says to use them, and its `hhea` table's are the same.
         expect(read.typographic).toBe(true);
@@ -200,6 +201,11 @@ describe("the bars' words", () => {
         for (const part of ["count", "message"]) expect(words(slot(footer, part)), part).toEqual(centredCapitals("mono", "label.md", RAIL_ROOM));
         // The status line's echo, on a phone and where the toolbar cuts it, keeps the message's words.
         for (const form of ["&[data-band]", "[data-phone] &"]) expect(words(slot(footer, "message", "&[data-echo]", form)), form).toEqual(words({}));
+    });
+
+    test("the rail's notices clip sideways alone: a notice's Retry keeps its touch halo and its focus ring, which reach over and under its line", () => {
+        const notices = slot(footer, "notices") as Readonly<Record<string, unknown>>;
+        expect([notices["overflow"], notices["overflowX"], notices["overflowY"]]).toEqual([undefined, "clip", undefined]);
     });
 
     test("an odd mark beside an item's words — the Record's legend chip, the Calendar's event icon — stands at the rail's middle, as the words do", () => {

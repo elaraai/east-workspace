@@ -5,7 +5,8 @@
 
 /**
  * What is said of the ring's cell: the copilot's fills and proposals for it, its detail, the strip's model, what the grid
- * tells assistive tech of its rows and its active cell, and the footer's key hint.
+ * tells assistive tech of its rows and its active cell, and the footer's key hint — with what it says that is no key,
+ * how many rows are selected, which the footer keeps where it names no key.
  *
  * @packageDocumentation
  */
@@ -36,7 +37,7 @@ import type { SheetOpenEditor } from "./use-open-editor.js";
  * @param sheetBody - The body, the row space and the cells at each place
  * @param sheetMachine - The machine's context and dispatch
  * @param sheetOpenEditor - The styles and the open editor
- * @returns The strip, the grid's counts and active cell, and the hint
+ * @returns The strip, the grid's counts and active cell, the hint, and what it says that is no key
  */
 export function useSheetRing(sheetDecode: SheetDecode, sheetSession: SheetSession, sheetBody: SheetBody,
     sheetMachine: SheetMachine, sheetOpenEditor: SheetOpenEditor) {
@@ -172,6 +173,8 @@ export function useSheetRing(sheetDecode: SheetDecode, sheetSession: SheetSessio
     const ringKind = ui.ringless ? undefined : ctx.rowKindAt?.(ui.sel.r);
     const ringSubRows = ringKind === "row" ? ctx.lineSubRowsAt?.(ui.sel.r) : undefined;
     const picked = wr !== null ? wr.r1 - wr.r0 + 1 : 0;
+    // How many rows are selected is no key: the hint leads with it, and the footer says it alone where it names no key.
+    const said = ui.gsel === null && wr !== null ? words.m.hintRowsSelected({ n: picked, count: words.number(picked) }) : "";
     const hint = ui.gsel !== null
         ? words.m.hintProposal()
         : ringKind === "group" && wr === null
@@ -187,7 +190,7 @@ export function useSheetRing(sheetDecode: SheetDecode, sheetSession: SheetSessio
                     ? words.m.hintSuggestedRows()
                     : words.m.hintDefault();
     return {
-        activeCell, anchorR, ariaRowCount, hint, nextTarget, previewed, ringCellRef, ringCol, ringItem, strip,
+        activeCell, anchorR, ariaRowCount, hint, nextTarget, previewed, ringCellRef, ringCol, ringItem, said, strip,
         suggested, unreadRuns, wr,
     };
 }
