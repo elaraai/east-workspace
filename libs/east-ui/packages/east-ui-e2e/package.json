@@ -1,0 +1,44 @@
+{
+  "name": "@elaraai/east-ui-e2e",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "description": "e3-ui surfaces end to end over a real e3: a repository on disk, served by e3's own server, drawn by a page as an app draws a deployed ui() task",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@chakra-ui/react": "^3.0.0",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/east-ui-components": "workspace:*",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*",
+    "@elaraai/e3-ui-components": "workspace:*",
+    "@emotion/react": "^11.14.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@elaraai/e3-api-server": "workspace:*",
+    "@elaraai/e3-cli": "workspace:*",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "eslint": "^9.34.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-7": "npm:typescript@7.0.2",
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
