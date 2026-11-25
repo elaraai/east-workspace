@@ -91,11 +91,12 @@ function tabRowsOf(frame: Locator) {
         const row = pane.firstElementChild!;
         const toggle = row.querySelector(":scope > button[aria-expanded]");
         const r = row.getBoundingClientRect();
-        // The tabs' room: the row, less its collapse control — at its start on a pane pinned to the start, else at its end.
+        // The tabs' room: the row, less its collapse control — at its start on a pane pinned to the start, else at its end
+        // — and, where the control leads, less the row's own padding at its end: the tabs' box ends there.
         const leads = toggle !== null && row.firstElementChild === toggle;
         const t = toggle?.getBoundingClientRect();
         const start = leads ? t!.right : r.left;
-        const end = t === undefined || leads ? r.right : t.left;
+        const end = t === undefined ? r.right : leads ? (row.querySelector("[data-dock-tabs]") ?? row).getBoundingClientRect().right : t.left;
         const tabs = [...row.querySelectorAll('[role="tab"]')];
         const more = row.querySelector("[data-dock-more]");
         const past: string[] = [];

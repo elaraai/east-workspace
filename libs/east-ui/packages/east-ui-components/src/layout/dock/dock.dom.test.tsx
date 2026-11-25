@@ -25,7 +25,12 @@
  *     ends a tray's row and its collapsed row, after its rail — and a press on
  *     the open row's own room collapses the pane, as a press anywhere on the
  *     rail expands it; a tab, the control and a pane that never collapses
- *     take none (the browser measures where it stands: `dock.spec.ts`).
+ *     take none (the browser measures where it stands: `dock.spec.ts`), nor
+ *     does a phone's drawer's head, nor the second click of a double-click;
+ *   - a pane that never collapses has no control's side, and keeps its row's
+ *     own inset; the keyboard's focus follows the control as it toggles; and
+ *     a sidebar hands its rail's size to its styles, which inset the control
+ *     by it, open or on the rail.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -39,6 +44,7 @@ import { Dock, Text, State, Reactive, UIComponentType } from "@elaraai/east-ui/i
 import { system } from "../../theme/index.js";
 import { EastChakraComponent } from "../../component.js";
 import { DockPane } from "./index.js";
+import { FrameDrawer } from "../builder-frame/drawer-context.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -274,7 +280,7 @@ describe("DockPane — the control stands where the rail's does, and the row and
 
     test("a press on the open row's own room collapses the pane — its name too; a tab opens itself and leaves the pane open", async () => {
         initializeStore(new UIStore());
-        const { container, getByRole, getByText } = mountPane({ storageKey: "dock-row-press", tabs: TABS });
+        const { container, getByRole } = mountPane({ storageKey: "dock-row-press", tabs: TABS });
         const pane = paneOf(container);
         await act(async () => { fireEvent.click(getByRole("tab", { name: "Pages" })); });
         expect(getByRole("tab", { name: "Pages" }).getAttribute("aria-selected")).toBe("true");
@@ -285,7 +291,73 @@ describe("DockPane — the control stands where the rail's does, and the row and
         const named = mountPane({ storageKey: "dock-name-press", body: "BODY" });
         await act(async () => { fireEvent.click(named.getByText("Components")); });
         expect(paneOf(named.container).hasAttribute("data-collapsed")).toBe(true);
-        expect(getByText).toBeTruthy();
+    });
+
+    test("a double-click toggles once: its second click, on the row the first opened or on the rail the first left, does nothing", async () => {
+        initializeStore(new UIStore());
+        const { container, getByRole } = mountPane({ storageKey: "dock-double-click", tabs: TABS, defaultCollapsed: true });
+        const pane = paneOf(container);
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Expand Components" }).parentElement!, { detail: 1 }); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(false);
+        await act(async () => { fireEvent.click(pane.firstElementChild!, { detail: 2 }); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(false);
+        await act(async () => { fireEvent.click(pane.firstElementChild!, { detail: 1 }); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(true);
+        await act(async () => { fireEvent.click(pane.firstElementChild!, { detail: 2 }); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(true);
+    });
+
+    test("in a phone's drawer the head takes no press: a tap beside a tab leaves the drawer open, and its control still closes it", async () => {
+        initializeStore(new UIStore());
+        const told: boolean[] = [];
+        const { container, getByRole } = render(
+            <ChakraProvider value={system}>
+                <FrameDrawer.Provider value={true}>
+                    <DockPane storageKey="dock-drawer-head" label="Library" surface="shell" orientation="vertical" side="end" tabs={TABS}
+                        onCollapsedChange={(next) => { told.push(next); }} />
+                </FrameDrawer.Provider>
+            </ChakraProvider>,
+        );
+        const pane = paneOf(container);
+        expect(pane.firstElementChild!.hasAttribute("data-toggles")).toBe(false);
+        await act(async () => { fireEvent.click(pane.firstElementChild!); });
+        await act(async () => { fireEvent.click(pane.querySelector("[role=tablist]")!); });
+        expect([pane.hasAttribute("data-collapsed"), told]).toEqual([false, []]);
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Collapse Library" })); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(true);
+    });
+
+    test("the keyboard's focus follows the control as it toggles the pane: on the control before, on the control after", async () => {
+        initializeStore(new UIStore());
+        const { getByRole } = mountPane({ storageKey: "dock-focus", tabs: TABS });
+        const collapse = getByRole("button", { name: "Collapse Components" });
+        collapse.focus();
+        await act(async () => { fireEvent.click(collapse); });
+        expect(document.activeElement).toBe(getByRole("button", { name: "Expand Components" }));
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Expand Components" })); });
+        expect(document.activeElement).toBe(getByRole("button", { name: "Collapse Components" }));
+    });
+
+    test("a press on the row takes no focus to the control: only the control's own toggle hands it on", async () => {
+        initializeStore(new UIStore());
+        const { container } = mountPane({ storageKey: "dock-focus-row", tabs: TABS });
+        const pane = paneOf(container);
+        await act(async () => { fireEvent.click(pane.firstElementChild!); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(true);
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    test("a sidebar hands its rail's size to its styles, which inset the control by it; a tray's bar keeps its own, and so does a rail its host sizes", () => {
+        initializeStore(new UIStore());
+        const side = mountPane({ storageKey: "dock-rail-size", railSize: "60px", body: "BODY" });
+        expect(paneOf(side.container).style.getPropertyValue("--dock-rail")).toBe("60px");
+        cleanup();
+        const tray = mountPane({ storageKey: "dock-rail-tray", orientation: "vertical", side: "end", railSize: "60px", body: "BODY" });
+        expect(paneOf(tray.container).style.getPropertyValue("--dock-rail")).toBe("");
+        cleanup();
+        // A share of its host's room is the rail's width only while the pane is collapsed: none is handed on.
+        const framed = mountPane({ storageKey: "dock-rail-share", railSize: "100%", body: "BODY" });
+        expect(paneOf(framed.container).style.getPropertyValue("--dock-rail")).toBe("");
     });
 
     test("collapsed, a press anywhere on the rail expands the pane: on its bar beside the control, and on what it shows", async () => {
@@ -299,10 +371,12 @@ describe("DockPane — the control stands where the rail's does, and the row and
         expect(pane.hasAttribute("data-collapsed")).toBe(false);
     });
 
-    test("a pane that never collapses takes no press on its row", async () => {
+    test("a pane that never collapses takes no press on its row, and has no control's side", async () => {
         initializeStore(new UIStore());
         const { container } = mountPane({ storageKey: "dock-row-fixed", collapsible: false, body: "STEPS" });
         const pane = paneOf(container);
+        // No control, so no control's side: its row keeps its own inset, its name 16px from the pane's edge.
+        expect(pane.hasAttribute("data-dock-control")).toBe(false);
         expect(pane.firstElementChild!.hasAttribute("data-toggles")).toBe(false);
         await act(async () => { fireEvent.click(pane.firstElementChild!); });
         expect(pane.hasAttribute("data-collapsed")).toBe(false);
@@ -592,6 +666,17 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
         // Back on Rows, the row folds around it again: Columns returns to the menu.
         await act(async () => { fireEvent.click(view.getByRole("tab", { name: "Rows 11" })); });
         expect(rowOf(view)).toEqual({ fold: "folded", tabs: ["Rows 11"], more: ["+2", "2 more tabs"], measuring: false });
+    });
+
+    test("a press on the row with its +n menu open is the menu's, which it closes: the pane stays open (the page shows the menu go, and the next press collapse the pane: `dock.spec.ts`)", async () => {
+        initializeStore(new UIStore());
+        room = 160;
+        const view = mountLibrary();
+        await openMenu(view, "2 more tabs");
+        const pane = view.container.querySelector<HTMLElement>("[data-surface]")!;
+        const row = pane.firstElementChild!;
+        await act(async () => { fireEvent.pointerDown(row); fireEvent.click(row); });
+        expect(pane.hasAttribute("data-collapsed")).toBe(false);
     });
 
     test("the open tab never folds: a host's open tab at the row's end takes its place first", () => {

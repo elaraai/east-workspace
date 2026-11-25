@@ -6,9 +6,10 @@
  *
  * A press on a part's own room (`own-room.ts`): a row's words and its empty
  * room are the row's; a button, a tab, a field, a link and a menu's item in it
- * — or anything inside one — press themselves; what a portal draws is never on
- * the row; and the end of a drag that selected the row's words presses
- * nothing. A part inside a button presses itself as a part does: only what
+ * — or anything inside one, and every other element or role that takes a
+ * press — press themselves; what a portal draws is never on the row; and the
+ * end of a drag that selected the row's words, or of a selection extended into
+ * them, presses nothing. A part inside a button presses itself as a part does: only what
  * takes a press within it counts.
  */
 
@@ -65,6 +66,35 @@ describe("a press on a part's own room", () => {
         range.selectNodeContents(at("portalled")!);
         document.getSelection()!.addRange(range);
         expect(pressedOwnRoom(part, at("words"))).toBe(true);
+    });
+
+    test("every element and role that takes a press presses itself: a role's button, link, checkbox, switch, radio, option and menu choices, a label, a summary and what is typed into", () => {
+        document.body.innerHTML = `
+            <div id="part">
+                <div role="button" id="role-button"><span id="in-role-button">Chip</span></div>
+                <span role="link" id="role-link">more</span>
+                <span role="checkbox" id="role-checkbox"></span>
+                <span role="switch" id="role-switch"></span>
+                <span role="radio" id="role-radio"></span>
+                <div role="option" id="role-option">One</div>
+                <div role="menuitemcheckbox" id="role-menu-check">Show</div>
+                <div role="menuitemradio" id="role-menu-radio">Day</div>
+                <label id="label"><span id="in-label">Name</span></label>
+                <details><summary id="summary">More</summary></details>
+                <div contenteditable="true" id="typed-into"><span id="in-typed-into">text</span></div>
+                <div contenteditable="false" id="fixed">fixed</div>
+            </div>`;
+        const part = at("part")!;
+        const own = ["role-button", "in-role-button", "role-link", "role-checkbox", "role-switch", "role-radio", "role-option", "role-menu-check", "role-menu-radio",
+            "label", "in-label", "summary", "typed-into", "in-typed-into"];
+        for (const id of own) expect(pressedOwnRoom(part, at(id)), id).toBe(false);
+        expect(pressedOwnRoom(part, at("fixed"))).toBe(true);
+    });
+
+    test("a selection extended into the part presses nothing: anchored outside it, ending in its words", () => {
+        const part = row();
+        document.getSelection()!.setBaseAndExtent(at("portalled")!.firstChild!, 0, at("words")!.firstChild!, 3);
+        expect(pressedOwnRoom(part, at("words"))).toBe(false);
     });
 
     test("a part inside a button: only what takes a press within the part counts", () => {

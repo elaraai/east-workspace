@@ -13,7 +13,8 @@
  * stood at rest, to the 64th of a pixel: across, and down but on a tray pinned
  * to the end, whose row rides the tray's edge. Before the fix a sidebar pinned
  * to the start drew its control at the end of its open row and at the top of
- * its rail, 200px apart on a 264px pane, and only the rail took a press.
+ * its rail, 200px apart on a 264px pane, and only the rail took a press. A
+ * press that closes the row's own `+n` menu is the menu's: the pane stays open.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test dock --project desktop`.
@@ -52,4 +53,36 @@ test.describe("a Dock's control stands still as it collapses and expands, and it
             });
         });
     }
+
+    test("a press on the row that closes its `+n` menu is the menu's: the menu goes and the pane stays open; the next press on the row collapses it", async ({ page }) => {
+        await page.goto("/?theme=light#layout/dock/dockTabs");
+        await page.waitForSelector("header", { timeout: 20_000 });
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#layout/dock/dockTabs"]') });
+        await entry.scrollIntoViewIfNeeded();
+        await settled(page);
+        const pane = entry.locator("[data-orientation][data-side][data-surface]").first();
+        // Narrowed until its tabs fold into the menu.
+        await pane.evaluate((el) => { (el as HTMLElement).style.width = "180px"; });
+        const more = pane.locator("[data-dock-more]");
+        await expect(more).toBeVisible();
+        await more.click();
+        await expect(page.locator('[role="menu"]')).toBeVisible();
+        // The row's own room: a point on it that is no button's.
+        const room = async () => pane.evaluate((root) => {
+            const row = root.firstElementChild!;
+            const r = row.getBoundingClientRect();
+            for (let x = r.left + 2; x < r.right - 2; x += 2) {
+                const hit = document.elementFromPoint(x, r.top + r.height / 2);
+                if (hit !== null && row.contains(hit) && hit.closest("button") === null) return { x, y: r.top + r.height / 2 };
+            }
+            throw new Error("the row has no room of its own");
+        });
+        const at = await room();
+        await page.mouse.click(at.x, at.y);
+        await expect(page.locator('[role="menu"]')).toBeHidden();
+        await expect(pane).not.toHaveAttribute("data-collapsed", "");
+        const again = await room();
+        await page.mouse.click(again.x, again.y);
+        await expect(pane).toHaveAttribute("data-collapsed", "");
+    });
 });
