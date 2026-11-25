@@ -139,6 +139,15 @@ export interface PlanGeometry {
     /** The right axis's rail (#1750): the column after every row's plot where the Plan declares one, which a chart row's
      *  right axis reads its numbers in. */
     railWidth: number;
+    // ── A time axis's columns (#1740): the period is the finest offered whose column holds the floor ──
+    /** The column floor: the narrowest column a period is picked at — a tile at its floor
+     *  ({@link PlanGeometry.tileMinWidth}) inside its day's rules, so a day picked always has room for one tile. */
+    columnMinWidth: number;
+    /** The squeeze floor: the narrowest a change of the plot's width alone leaves a column before its period is picked
+     *  again. */
+    columnSqueezeWidth: number;
+    /** The width a period's preset fills its columns at. */
+    columnPresetWidth: number;
 }
 
 const DEFAULT: PlanGeometry = {
@@ -165,6 +174,8 @@ const DEFAULT: PlanGeometry = {
     barPadWidth: 7, barPadLockedWidth: 4, barGapWidth: 4, lockWidth: 8, barGlyphWidth: 7,
     // The rail, ruled 25 Nov 2026: room for a right axis's three or four figures beside the plot.
     railWidth: 40,
+    // A time axis's columns, agreed 24 Nov 2026: the floor is a tile's floor, its inset each side and its day's rule.
+    columnMinWidth: 25, columnSqueezeWidth: 10, columnPresetWidth: 50,
 };
 
 /** The two densities' tables. Dense tightens the shared row — the heat row
