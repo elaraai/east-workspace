@@ -13,8 +13,8 @@
  *
  *   - Toolbar: the title, mono 10/600 at 0.14em in ink, and the count after
  *     it on `bg.subtle`, inset on a phone's row as its pager is; the status
- *     line, mono 11 in `fg.muted`, right-aligned and one line — in the danger
- *     ink while it says a gesture was refused; Add and Delete,
+ *     line, the toolbar's words in `fg.muted`, right-aligned and one line — in
+ *     the danger ink while it says a gesture was refused; Add and Delete,
  *     the outline buttons, Delete off in `fg.faint` until rows are ticked.
  *   - Header: the group row 24 tall, each group's label mono 9.5/600 at 0.14em
  *     over a `border.strong` rule inset 6 at each end, cut with an ellipsis
@@ -74,6 +74,7 @@ import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { refusedRow, refusedTone } from "../refused-mark.js";
+import { TOOLBAR_WORDS, TOOLBAR_WORDS_LINE } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
@@ -186,19 +187,22 @@ export const recordSlotRecipe = defineSlotRecipe({
 
         /* The toolbar's lead: the title, then the count — on a phone's row, which pads none of its items, inset as the pager is. */
         title: { flex: "none", display: "flex", alignItems: "center", gap: "8px", "[data-builder-frame][data-phone] &": { paddingInlineStart: "16px" } },
+        /* Its words stand in the row with no box of their own: on the row's own line (`toolbar-row.ts`), level with the
+           count's after them. */
         titleText: {
             fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
-            color: "fg", whiteSpace: "nowrap",
+            lineHeight: TOOLBAR_WORDS_LINE, color: "fg", whiteSpace: "nowrap",
         },
         titleCount: {
             ...oneLineBox(16, 0), boxSizing: "border-box", display: "inline-flex", alignItems: "center", paddingInline: "4px",
             borderRadius: "sm", background: "bg.subtle", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600,
             fontFeatureSettings: '"tnum" 1', color: "fg.strong",
         },
-        /* The last gesture's words, one line, at the right of the slack. */
+        /* The last gesture's words, one line, at the right of the slack: the toolbar's words (`toolbar-row.ts`), on the
+           baseline of the rail's chips. */
         status: {
-            display: "block", width: "100%", minWidth: "0", textAlign: "right", fontFamily: "mono", fontSize: "label.lg",
-            color: "fg.muted", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            display: "block", width: "100%", minWidth: "0", textAlign: "right", ...TOOLBAR_WORDS,
+            color: "fg.muted", overflow: "hidden", textOverflow: "ellipsis",
             ...refusedTone,
         },
         actions: { flex: "none", display: "flex", alignItems: "center", gap: "8px" },

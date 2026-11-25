@@ -18,6 +18,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { oneLineBox } from "../one-line-box.js";
+import { TOOLBAR_WORDS_LINE } from "../toolbar-row.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
@@ -225,7 +226,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         footerItem: builderFooterItem,
         toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" },
-        toolbarText: shellBase.footerItem,
+        // The toolbar's count and what its window holds: the footer's small caps, with no box of their own in the row, on
+        // the row's own line (`toolbar-row.ts`).
+        toolbarText: { ...shellBase.footerItem, lineHeight: TOOLBAR_WORDS_LINE },
         form: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { textStyle: "body.sm", padding: "16px", color: "fg.muted" },

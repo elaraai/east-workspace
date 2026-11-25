@@ -7,7 +7,8 @@
  * Edit history slot recipe — the editing session's Undo / Redo / Discard /
  * Apply bar (#879), shared by every editable collection. It sits in its
  * host's toolbar, beside the search, not in a row of its own: a status line
- * (mono 11px `fg.muted`), the issues button (hidden, keeping its place, while
+ * (the toolbar's words, `toolbar-row.ts`, in `fg.muted`: on the baseline of
+ * the chips beside it), the issues button (hidden, keeping its place, while
  * there are none; its icon in the warn tone while warnings stand beside the
  * issues, #1585), the history buttons (the `iconButton` recipe: on a coarse
  * pointer they keep their size and take a 44px touch target from its halo,
@@ -71,12 +72,16 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { wholeOrNone } from "../../style/whole-or-none.js";
-import { centredLine } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { ELARA_RING } from "../elara-ring.js";
+import { TOOLBAR_WORDS } from "../toolbar-row.js";
 
 /** A square of a phone's second row, and the gap between the row's items, in px (FR6: the designer's measures). */
 const SQUARE = 44;
 const GAP = 4;
+
+/** The line a phone's row says its count on, and what a Save is doing in its place, in px: the height of the count's box. */
+const COUNT_LINE = 24;
 
 /** A phone's second row, as `BuilderFrame` marks it: the container its items ask its width (`session-row`). */
 const ROW = "[data-frame-slot=sessionRow]";
@@ -187,14 +192,15 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             "&:has([data-history-save])": { gap: "{spacing.1}" },
             "[data-history-form=phone] > &": { display: "contents" },
         },
+        /* What a Save is doing: the toolbar's words (`toolbar-row.ts`), on the chips' baseline. In a phone's row they stand
+         * where the drafts' count stands, as it does: its face's size, on the line of its box. */
         status: {
             flex: "none",
-            whiteSpace: "nowrap",
-            fontFamily: "mono",
-            fontSize: "label.lg",
+            ...TOOLBAR_WORDS,
             color: "fg.muted",
             // Its words keep their 8 before the squares.
             [`${SPLIT} &`]: { marginInlineEnd: "{spacing.1}" },
+            "[data-history-form=phone] &": { fontSize: "label.lg", ...oneLineBox(COUNT_LINE, 0) },
         },
         button: {
             flexShrink: "0",
@@ -331,7 +337,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         /* A phone's row: what a Save is doing, else the drafts' count, taking what the buttons leave — whole, or, where
          * they leave too little, a Save's words not at all and the count its number alone. */
         summary: {
-            order: -1, flex: "1 1 auto", minWidth: "0", ...wholeOrNone("24px"),
+            order: -1, flex: "1 1 auto", minWidth: "0", ...wholeOrNone(`${COUNT_LINE}px`),
             /* Where the row holds the six squares and is short of its count beside them, the count gives way (ruled 11 Nov
              * 2026): a pixel wide, so every word of it wraps under the clip, whole, as one too wide for its box does, and
              * still read to whoever hears the page; drawn back by its pixel and its gap, so it takes none of the row — the
@@ -339,15 +345,17 @@ export const editHistorySlotRecipe = defineSlotRecipe({
              * does. */
             ...whereRowHoldsNoCount("&", { flex: "none", width: "1px", marginInlineStart: `-${GAP + 1}px`, marginInlineEnd: "auto" }),
         },
+        /* The count's words on the line of its box, a chip or not: a line they inherit is centred in it at a fraction of a pixel. */
         changes: {
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "500", color: "fg.subtle", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+            lineHeight: `${COUNT_LINE}px`,
             /* Each word whole or gone, the number first, so a row with little room still counts: `1 change`, then `1`. The
              * number is the box's first item, on its one line however narrow the box, so it has no line-holder before it to
              * wrap away from, and the gap is the noun's: a gap between items sent the `1` under the clip in a 26px box. */
             /* The chip itself whole or gone: no narrower than its number and its padding — the figures its count says it
              * holds — so in a box short of that it wraps under the row's clip, whole, never a number cut by it. */
             "&[data-changes]": {
-                ...wholeOrNone("24px"), "&::before": { display: "none" }, lineHeight: "24px", maxWidth: "100%",
+                ...wholeOrNone(`${COUNT_LINE}px`), "&::before": { display: "none" }, maxWidth: "100%",
                 minWidth: "calc(var(--history-figures, 1) * 1ch + 2 * {spacing.1.5})", boxSizing: "border-box", paddingX: "{spacing.1.5}", borderRadius: "sm",
                 background: "brandTint", color: "brandPressed", fontWeight: "600",
                 "& [data-changes-noun]": { marginInlineStart: "0.6ch" },

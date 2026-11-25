@@ -7,9 +7,12 @@
  * The rule the box rows hold (#1638), read in the page over what it has drawn: each run of words, the nearest box
  * around it that paints an edge, a fill or an inset ring, where that box stands at most {@link TALLEST} tall and
  * is a part its component names — and whether the words start a whole number of pixels under the box's top edge,
- * to the 64th of a pixel the browser lays out in. What is not read: a box under a zoom, words their box cuts, and a
- * bare box of an author's own making. `box-rows.spec.ts` reads every example's preview at rest with it; a spec that
- * opens a part — an inspector, a popover, an editor — reads the part as it opens it.
+ * to the 64th of a pixel the browser lays out in. A toolbar's row is such a box, though it paints nothing (#1775):
+ * words with no control around them stand in it among its controls' boxes, and a fraction between the row's top and
+ * the words puts them a row higher or lower beside those boxes by where the page stands the row. What is not read: a
+ * box under a zoom, words their box cuts, and a bare box of an author's own making. `box-rows.spec.ts` reads every
+ * example's preview at rest with it; a spec that opens a part — an inspector, a popover, an editor — or holds a
+ * toolbar as it is not at rest (`toolbar-words.spec.ts`) reads the part as it does.
  *
  * @packageDocumentation
  */
@@ -91,13 +94,14 @@ export function boxWords(root: Element, tallest: number): { boxed: number; held:
         if (words === undefined || words.width === 0 || words.height === 0) continue;
         const style = getComputedStyle(parent);
         if (style.visibility === "hidden" || Number(style.opacity) === 0) continue;
-        // The nearest box around the words that paints an edge, a fill or an inset ring.
+        // The nearest box around the words that paints an edge, a fill or an inset ring — or the toolbar's row they
+        // stand in with no control around them, level with the boxes of its controls.
         let box: Element | null = parent;
         for (; box !== null && root.contains(box); box = box.parentElement) {
             const s = getComputedStyle(box);
             const edge = parseFloat(s.borderTopWidth) > 0 && s.borderTopStyle !== "none" && !clear(s.borderTopColor);
             const fill = !clear(s.backgroundColor) || s.backgroundImage !== "none";
-            if (edge || fill || /inset/.test(s.boxShadow)) break;
+            if (edge || fill || /inset/.test(s.boxShadow) || box.hasAttribute("data-toolbar")) break;
         }
         if (box === null || !root.contains(box) || !(box instanceof HTMLElement)) continue;
         const at = box.getBoundingClientRect();

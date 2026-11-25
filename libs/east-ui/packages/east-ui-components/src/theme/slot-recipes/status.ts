@@ -14,7 +14,9 @@
  * fraction of a pixel under its edge, and the page then paints the word a row
  * higher or lower by where it stands the row. A row an even number of pixels
  * tall over its 1px rule has an odd room, where an odd line leaves a whole
- * number of pixels over the word.
+ * number of pixels over the word. A toolbar's row is an even number of pixels
+ * tall with no rule: there the word takes the row's own line (`toolbar-row.ts`),
+ * which has nothing to centre.
  *
  * Variant `status` aligns with the East UI IR's StatusType tags
  * (`success | warning | danger | info | neutral`) so the renderer can
@@ -24,6 +26,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { ON_TOOLBAR_LINE } from "../toolbar-row.js";
 
 export const statusSlotRecipe = defineSlotRecipe({
     className: "elara-status",
@@ -60,6 +63,7 @@ export const statusSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.muted",
             lineHeight: "13px",
+            ...ON_TOOLBAR_LINE,
         },
     },
     variants: {
