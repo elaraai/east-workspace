@@ -164,4 +164,5 @@ What each step built, where it differs from the above.
   - **L11 holds:** New query follows the rail.
   - The library and a query builder are surfaces of their own, a `ui()` each. The library pages the saved queries, a surface that pages a record never loads it whole, and the builder reads them whole.
   - The grid is the shared paged gallery (`PagedGallery`, beside the paged palette a builder's Backlog tab draws), so another library of cards pages the same way.
-  - The page library (step 4) is as designed until ruled otherwise.
+  - The query builder's drop target for a card dragged from the gallery went with it (§7): no card is dragged, and the library is another surface.
+  - The page library (step 4) is the same concept (ruled 25 Nov 2026): one toolbar, the rail and New page, over a grid of the pages' cards.
