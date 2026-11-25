@@ -178,7 +178,7 @@ export { DrawerContent, type DrawerContentProps, type DrawerOpenInputValue } fro
 // Schematic's Index (#1389) — its search box and its empty state.
 export { LibraryCard, LibraryEmptyState, LibrarySearchBox } from "./collections/library/index.js";
 // Its page — what a host whose figures swap with its rows waits on, the Calendar's Backlog count (#1424).
-export { PagedLibrary, PAGED_LIBRARY_PAGE, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+export { PagedGallery, PagedLibrary, PAGED_LIBRARY_PAGE, type LibraryPageSource, type PagedLibraryGallery, type PagedLibrarySearch } from "./collections/library/paged.js";
 // What a search of a record through its source's part reads, the rail's choices kept: a paged tab's, and the
 // Schematic's Index's over a kind read by area (#1393).
 export { pagedSearchFields, pagedSearchTarget, pagedSearchWhere, type PagedSearchTarget } from "./collections/library/paged-search.js";

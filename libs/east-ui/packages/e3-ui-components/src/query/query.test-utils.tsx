@@ -36,9 +36,11 @@
 
 import { StrictMode, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { fireEvent, screen, within, type RenderResult } from "@testing-library/react";
-import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, toEastTypeValue, variant } from "@elaraai/east";
-import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    Reactive, RecordSlicesChromeType, Slice, Stack, State, Text, UIComponentType, recordSlicesChrome, type RecordSliceBindType,
+} from "@elaraai/east-ui/internal";
+import { StateRuntime, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Query, QueryOpenType, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { datasetGetStatus, oneShotExecute, splitCallExplain, splitCallStatus } from "@elaraai/e3-api-client";
@@ -61,6 +63,31 @@ import "./library.js";
 
 /** The `act` the query tests take: each scope its test's work, until it closes (#1280). */
 export { act, settle };
+
+/** The key of the rail the surface {@link QueryHarness.mountLibrary} mounts narrows its saved queries by. */
+export const LIBRARY_RAIL = "query-library.rail";
+
+/** That rail's one source: the saved queries, read a window at a time through the record's indexes. */
+const librarySources = () => ({
+    rows: {
+        source: Data.bindPaged(ex.queries, { indexes: ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] }),
+        label: "Queries", range: "saved_at" as const, search: ["name", "sources", "tags"] as const,
+        fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } },
+    },
+});
+
+/** The rail, as a test writes it: the same source under the library's key, its controls as the toolbar's chips use them. */
+const libraryRailChrome = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({ slice: Slice.bindRecords(LIBRARY_RAIL, librarySources()) }))),
+    getRegisteredPlatformImplementations());
+
+/**
+ * The `rows` source's part of the mounted library's rail: what a test chooses a field's values through, as a chip does.
+ *
+ * @returns Its controls
+ */
+export function libraryRail(): ValueTypeOf<RecordSliceBindType> {
+    return libraryRailChrome().slice.parts.find((part) => part.source === "rows")!.slice;
+}
 
 /**
  * The State a query library's `onOpen` writes what it was told to, in the
@@ -222,9 +249,9 @@ export interface BuilderOptions {
 
 /** How the query library is mounted. */
 export interface LibraryOptions {
-    /** The name the library and the builder share: its cards' drag source, and their recent runs. */
+    /** The name the library and the builder beside it are given. */
     readonly id?: string;
-    /** Mounts the builder beside it, sharing its id and shown the same open query. */
+    /** Mounts the builder too, as a surface of its own beside the library's, sharing its id and shown the same open query. */
     readonly builder?: boolean;
     /** Gives it no open query to mark: `false`; the surface's open query unless given. */
     readonly marked?: boolean;
@@ -346,10 +373,12 @@ export interface QueryHarness extends E3Harness {
  * Installs the harness around each test of the file: e3 with the query
  * examples deployed, started once, and a workspace of its own for each test.
  *
+ * @param options - `measure`: whether the builders' viewports and rows are measured as a browser lays them — what the
+ *   query library's table, read a window at a time, draws its rows by; `false` unless given, as the builder measures none
  * @returns The harness
  */
-export function queryHarness(): QueryHarness {
-    const h = e3Harness({ "query/query": ex }, { measure: false });
+export function queryHarness(options: { readonly measure?: boolean } = {}): QueryHarness {
+    const h = e3Harness({ "query/query": ex }, { measure: options.measure === true });
     const mountOver = h.mount;
     /** The page around the builder: under `StrictMode` when asked, and in the host's own providers, inside e3's. */
     const paged = ({ strict, host }: BuilderOptions) => ({
@@ -396,13 +425,11 @@ export function queryHarness(): QueryHarness {
             const named = options.id === undefined ? {} : { id: options.id };
             const withBuilder = options.builder === true;
             const library = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                const saved = $.let(Record.bind(ex.queries, ["patch"]));
                 const orders = $.let(Data.bindPaged(ex.orders));
                 const customers = $.let(Data.bind(ex.customers));
                 // The surface holds the open query, as a host does: told of another, it writes it, and says what it was told.
                 const open = $.let(State.bind([QueryOpenType], OPEN, firstQuery("orders")));
                 const told = $.let(State.bind([StringType], TOLD, "nothing"));
-                const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
                 const onOpen = $.const(East.function([QueryOpenType], NullType, ($2, next) => {
                     $2(open.write(next));
                     $2(told.write(next.match({
@@ -413,15 +440,27 @@ export function queryHarness(): QueryHarness {
                         }),
                     })));
                 }));
+                // The saved queries, read a window at a time through the record's indexes, and the rail that narrows them.
+                const slice = $.let(Slice.bindRecords(LIBRARY_RAIL, librarySources()));
                 const shelf = $.let(options.marked === false
-                    ? Query.Library({ queries: saved, datasets: { orders, customers }, onOpen, ...named })
-                    : Query.Library({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen, ...named }));
+                    ? Query.Library({ datasets: { orders, customers }, onOpen, slice: { slice }, ...named })
+                    : Query.Library({ datasets: { orders, customers }, query: open.read(), onOpen, slice: { slice }, ...named }));
                 const said = $.let(Text.Root(East.str`told ${told.read()}`));
-                return withBuilder
-                    ? Stack.VStack([said, shelf, Query.Builder({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen: go, ...named })])
-                    : Stack.VStack([said, shelf]);
+                return Stack.VStack([said, shelf]);
             }))) };
-            return mountOver(library, { drag: options.drag === true, storageKey: "query-library" });
+            // The builder is a surface of its own, as a host's is (#1761): the library pages the saved queries, which a
+            // surface that pages a record never loads whole (#1199), and the builder reads them whole. The two share the
+            // open query, which the host's State holds.
+            const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                const saved = $.let(Record.bind(ex.queries, ["patch"]));
+                const orders = $.let(Data.bindPaged(ex.orders));
+                const customers = $.let(Data.bind(ex.customers));
+                const open = $.let(State.bind([QueryOpenType], OPEN, firstQuery("orders")));
+                const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
+                return Query.Builder({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen: go, ...named });
+            }))) };
+            const mounted = mountOver(library, { drag: options.drag === true, storageKey: "query-library" });
+            return withBuilder ? mounted.then(async (shelf) => { await mountOver(builder, { drag: false, storageKey: "query-builder" }); return shelf; }) : mounted;
         },
         refuseRuns: () => h.e3.fail(isRun, { status: 500, type: "internal", message: "the test refused the run" }),
         oneShots: () => h.requests("one-shot").map((request) => readOneShot(sent(request))),

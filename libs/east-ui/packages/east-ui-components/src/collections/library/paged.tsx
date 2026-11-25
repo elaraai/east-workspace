@@ -29,14 +29,21 @@
  * until they land again. Only the first read, and rows scrolled into view, draw
  * the pending rows.
  *
+ * {@link PagedGallery} (east-workspace#1761) is the same reads drawn as a
+ * gallery: its host's own cards in a responsive grid — as many columns as fit
+ * at the cards' least width, one at least, each line of the grid one virtual
+ * row — so a gallery over ten thousand rows reads and mounts a screenful, as
+ * the list does.
+ *
  * @packageDocumentation
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { none, type option, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSliceFieldType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { BannerView } from "../../feedback/banner/index.js";
+import { useContainerWidth } from "../../contracts/adaptive.js";
 import { useFormatters } from "../../format/index.js";
 import { Toolbar } from "../../toolbar/index.js";
 import { SEARCH_DELAY_MS } from "../../slice/record/index.js";
@@ -82,6 +89,21 @@ export interface PagedLibrarySearch<T> {
     readonly part: ValueTypeOf<RecordSliceBindType>;
     /** A page of what a narrowing holds, as the palette's rows: the part's `pageWhere`, its entries the palette's. */
     readonly page: (where: Where, offset: bigint, limit: bigint) => option<T[]>;
+}
+
+/**
+ * A paged palette as a gallery (east-workspace#1761): its host's own cards in a responsive grid, in place of the
+ * Library's compact cards a row each — the query library's.
+ *
+ * @typeParam T - The palette's rows
+ */
+export interface PagedLibraryGallery<T> {
+    /** The narrowest a card stands, px: the grid holds as many columns as fit at it, and one at least. */
+    readonly least: number;
+    /** A card's height, px: every card of the gallery stands as tall. */
+    readonly cardPx: number;
+    /** A row's card, which fills its place in the grid: its host's own, with its own press and its own keys. */
+    card(row: T): ReactNode;
 }
 
 /** @internal A paged palette reuses Library's card, empty state, search box and theme. */
@@ -195,8 +217,55 @@ export function PagedLibrary<T>(props: PagedLibraryProps<T>) {
     );
 }
 
-/** Props of {@link PagedRows}. */
-interface PagedRowsProps<T> extends PagedLibraryProps<T> {
+/**
+ * The gap between a gallery's cards, px, and the margin its lines keep each side of them: 20 at the start, and 8 at the
+ * end, which the 12px scrollbar gutter its frame reserves there makes 20 too.
+ */
+const GALLERY_GAP = 12;
+const GALLERY_MARGINS = 20 + 8;
+
+/** @internal A paged gallery's props: its source, its cards, and what it says with no row. */
+export interface PagedGalleryProps<T> {
+    source: LibraryPageSource<T>;
+    id: string;
+    /** Its cards: its host's own, and the grid they stand in. */
+    gallery: PagedLibraryGallery<T>;
+    /** What it says while its source holds no row, in its host's words (`No queries yet`). */
+    empty?: LibraryEmpty | undefined;
+    /** While its host's narrowing — a builder's rail — pages its source: what it says when that leaves no row, and the Clear filters it offers. */
+    narrowing?: LibraryNarrowing | undefined;
+}
+
+/**
+ * A paged palette as a gallery (east-workspace#1761): {@link PagedLibrary}'s reads — a window at a time, the rows in
+ * view and their neighbours, the rows that last landed standing in while a new narrowing's are read — drawn as its
+ * host's own cards in a responsive grid. It has no search of its own: its host's rail narrows it.
+ * @param props - The paged source, the cards and their grid, and what it says with no row
+ * @returns A virtualized gallery of the host's cards
+ * @internal
+ */
+export function PagedGallery<T>({ source, id, gallery, empty, narrowing }: PagedGalleryProps<T>) {
+    const styles = useSlotRecipe({ key: "library" })() as Styles;
+    // The narrowing its rows belong to, which starts the viewport again when it moves (#1354).
+    const readNarrowed = useCallback(() => source.query?.() ?? "", [source]);
+    const { result } = useTrackedEvaluation(readNarrowed);
+    return (
+        <Box css={[styles.root, styles.pagedRoot]} data-library={id} data-library-paged="" data-library-gallery="" data-scrollable="">
+            <PagedRows source={source} id={id} gallery={gallery} empty={empty} narrowing={narrowing}
+                identity={`${source.id}|${result.ok ? result.value : ""}|`} query="" styles={styles} onShowAll={noShowAll} />
+        </Box>
+    );
+}
+
+/** A gallery has no search of its own, so nothing to show all of. */
+const noShowAll = (): void => {};
+/** A card of a palette given no `onOpen`: a gallery's, whose cards are its host's. */
+const noOpen = (): void => {};
+
+/** Props of {@link PagedRows}: a palette's, its cards the Library's compact ones or — with a `gallery` — its host's own. */
+type PagedRowsProps<T> = Omit<PagedLibraryProps<T>, "item" | "onOpen"> & Partial<Pick<PagedLibraryProps<T>, "item" | "onOpen">> & {
+    /** A gallery's cards and grid; `undefined` for the Library's compact cards, a row each. */
+    gallery?: PagedLibraryGallery<T> | undefined;
     /** The narrowing its rows are of — its source, the rail's narrowing and the tab's own search's text — as one. */
     identity: string;
     /** The tab's own search's text, as it reads; empty, none. */
@@ -205,7 +274,7 @@ interface PagedRowsProps<T> extends PagedLibraryProps<T> {
     styles: Styles;
     /** Clears the tab's search: its footer's Show all. */
     onShowAll: () => void;
-}
+};
 
 /** One read of a palette's rows: its count, its rows by place, and what its search read. */
 interface RowsRead<T> {
@@ -241,8 +310,12 @@ function landedAt<T>(read: RowsRead<T>, range: { readonly start: number; readonl
  * new revision of the same narrowing, or a new count at the same revision, keeps its view, the last read standing in
  * until the rows in view land at it.
  */
-function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
+function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, gallery, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
     const words = useFormatters();
+    // A gallery's columns: as many as fit at its cards' least width between its margins, one at least — and one until it is measured.
+    const rowsRef = useRef<HTMLElement | null>(null);
+    const width = useContainerWidth(rowsRef as RefObject<HTMLElement | null>);
+    const across = gallery === undefined ? 1 : Math.max(1, Math.floor((width - GALLERY_MARGINS + GALLERY_GAP) / (gallery.least + GALLERY_GAP)));
     // The rows in view and the narrowing they are of: a new narrowing reads from its start.
     const [viewed, setViewed] = useState<{ readonly identity: string; readonly start: number; readonly end: number }>({ identity, ...FIRST_ROWS });
     const range = viewed.identity === identity ? viewed : FIRST_ROWS;
@@ -294,11 +367,13 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narr
         || (result.value.count !== undefined && result.value.count !== last.read.count));
     // The narrowing the rows shown are of: its view is its own, so the swap starts the new one's at its start.
     const shownIdentity = standing ? last.identity : identity;
+    // The rows in view: a gallery's lines hold `across` of them each.
     const onRangeChange = useCallback((next: { startIndex: number; endIndex: number }, scrolling: boolean) => {
         if (scrolling) return;
-        setViewed(old => old.identity === shownIdentity && old.start === next.startIndex && old.end === next.endIndex + 1
-            ? old : { identity: shownIdentity, start: next.startIndex, end: next.endIndex + 1 });
-    }, [shownIdentity]);
+        const from = next.startIndex * across, to = (next.endIndex + 1) * across;
+        setViewed(old => old.identity === shownIdentity && old.start === from && old.end === to ? old : { identity: shownIdentity, start: from, end: to });
+    }, [shownIdentity, across]);
+    const estimate = useCallback(() => (gallery === undefined ? estimateSize() : gallery.cardPx + GALLERY_GAP), [gallery]);
     if (!result.ok) return <BannerView status="error" title={result.error instanceof Error ? result.error.message : "The list could not be read"} />;
     // A read again of the rows it showed — the same narrowing, revision and count, or its count not read yet, its windows
     // let go meanwhile — keeps what landed of them until they land again: the same rows at the same places, never the
@@ -320,15 +395,29 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narr
         <>
             {count === 0 ? (retained === undefined ? <LibraryEmptyState said={said} onClear={onClear} />
                 : <Box {...retained}><LibraryEmptyState said={said} onClear={onClear} /></Box>) : (
-                <VirtualRows key={shownIdentity} height={undefined} maxHeight={undefined} fillParent count={count ?? 8} estimateSize={estimateSize}
-                    onRangeChange={onRangeChange} rootProps={retained}
+                <VirtualRows key={shownIdentity} height={undefined} maxHeight={undefined} fillParent count={Math.ceil((count ?? 8) / across)} estimateSize={estimate}
+                    onRangeChange={onRangeChange} rootProps={retained} rowsRef={rowsRef}
+                    header={gallery === undefined ? undefined : <Box css={styles.pagedGalleryHead} />}
                     renderRow={index => {
+                        if (gallery !== undefined) {
+                            // One line of the grid: its cards, each at its place, a pending row a skeleton of a card's size.
+                            const places = Array.from({ length: across }, (_, column) => index * across + column).filter(at => count === undefined || at < count);
+                            return <Box css={styles.pagedGalleryRow} style={{ gridTemplateColumns: `repeat(${across}, minmax(0, 1fr))`, height: `${gallery.cardPx + GALLERY_GAP}px` }}
+                                data-library-position={index} data-library-across={across}>
+                                {places.map(at => {
+                                    const row = rows.get(at);
+                                    return <Box key={at} css={styles.pagedGalleryCell} data-library-place={at}>
+                                        {row === undefined ? <Skeleton css={styles.pagedGallerySkeleton} aria-label="Loading record" /> : gallery.card(row)}
+                                    </Box>;
+                                })}
+                            </Box>;
+                        }
                         const row = rows.get(index);
-                        const card = row === undefined ? undefined : item(row);
+                        const card = row === undefined ? undefined : item?.(row);
                         return <Box css={styles.pagedRow} data-library-position={index}>
                             {card === undefined ? <Skeleton css={styles.pagedSkeleton} aria-label="Loading record" /> :
                                 <LibraryCard libraryId={id} item={card} dimOrder={EMPTY_DIMS} activeDims={EMPTY_DIMS}
-                                    filtered={card.filtered} styles={styles} onCardClick={onOpen} onCardEnter={onEnter} />
+                                    filtered={card.filtered} styles={styles} onCardClick={onOpen ?? noOpen} onCardEnter={onEnter} />
                             }
                         </Box>;
                     }} />

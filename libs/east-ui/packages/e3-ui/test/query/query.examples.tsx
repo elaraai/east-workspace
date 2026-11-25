@@ -19,7 +19,7 @@ import {
     ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
     StructType, VariantType, compareFor, example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Query, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -797,27 +797,46 @@ export const queryBuilderSteps = example({
 
 export const queryLibrary = example({
     keywords: [
-        "Query", "Query.Library", "query library", "saved queries", "gallery", "wireframe", "Open in builder", "New query",
-        "search", "sort", "grid", "list", "recent", "Record.bind", "Data.bind", "onOpen", "query", "Query.Types.Open", "Query.open.saved",
-        "State.bind", "navigate",
+        "Query", "Query.Library", "query library", "saved queries", "cards", "gallery", "grid", "wireframe", "New query",
+        "slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "rail", "filter", "tags", "Data.bind", "onOpen", "query",
+        "Query.Types.Open", "Query.open.saved", "State.bind", "navigate",
     ],
-    description: "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which tells the surface in `onOpen`: the surface writes the open query it holds, which the builder above shows and whose card is marked",
+    description: "The query library over the same record and data sources: one toolbar — the rail, which narrows the saved queries by data source, tag, when they were saved and the start of a name, and New query, which follows it — over the seven saved queries as a grid of cards, as many across as fit, read a window at a time through the record's indexes: a card a wireframe of its steps with its name, its description, its tags, and what it reads and gives and when it was saved. A card and New query tell the surface in `onOpen`: the surface writes the open query it holds, that query's card is marked, and this page — which has no builder to show it in — says what it was asked to open",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const saved = $.let(Record.bind(queries));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
-            // The open query is the surface's: the builder above shows it. A host with routes navigates here instead.
+            // The open query is the surface's, which the library tells of another in `onOpen`. A host shows it in its builder, on
+            // a page of its own: it navigates there, or its builder reads this state. This page has no builder, so it says
+            // what it was asked to open — a saved query, a new query on a data source, or one begun as a recent run.
             const open = $.let(State.bind([Query.Types.Open], "ex.query.open", Query.open.saved("Top shipped orders, 2026")));
             const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+            const asked = $.let(open.read().match({
+                saved: (_$2, name) => East.str`Asked to open in the builder: the saved query “${name}”`,
+                new: (_$2, started) => started.from.match({
+                    some: (_$3, run) => East.str`Asked to open in the builder: a new query, begun as the recent run “${run.name}”`,
+                    none: (_$3) => East.str`Asked to open in the builder: a new query on ${started.source}`,
+                }),
+            }));
+            // The saved queries, read a window at a time through the record's indexes, and the rail that narrows them.
+            const rows = $.let(Data.bindPaged(queries, { indexes: ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] }));
+            const slice = $.let(Slice.bindRecords("ex.query.library", {
+                rows: {
+                    source: rows, label: "Queries", range: "saved_at", search: ["name", "sources", "tags"],
+                    fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } },
+                },
+            }));
             return (
-                <Box height="720px">
-                    <Query.Library queries={saved} query={open.read()} onOpen={go} id="top"
-                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
-                </Box>
+                <VStack gap="2" align="stretch">
+                    <Text color="fg.muted">{asked}</Text>
+                    <Box height="720px">
+                        <Query.Library query={open.read()} onOpen={go} id="top" slice={{ slice }}
+                            datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),

@@ -121,7 +121,7 @@ export interface QueryTypes {
 export interface QueryNamespace {
     /** `<Query.Builder>` — the query builder: the open query's steps or its jq, beside its results. */
     Builder: typeof QueryBuilder;
-    /** `<Query.Library>` — every saved query, as a gallery of wireframes, and where new queries start. */
+    /** `<Query.Library>` — every saved query, as a card in a grid its rail narrows, and where new queries start. */
     Library: typeof QueryLibrary;
     /** The saved queries record's value: the queries a solution ships in it, by name, each checked against the data sources it may read ({@link savedQueriesValue}). */
     value: typeof savedQueriesValue;

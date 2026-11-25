@@ -884,6 +884,13 @@ export interface QueryMessages {
     allQueries: () => string;
     /** A card's action. */
     openInBuilder: () => string;
+    /** The mark, on its card in the query library, of the query open in the builder. */
+    openNow: () => string;
+    /** The name of New query's menu, in the query library: the bound data sources a new query may start on. */
+    newQueryMenu: () => string;
+    /** What the query library says where the rail's choices leave no query, and what to do about it. */
+    noQueriesMatch: () => string;
+    changeFilters: () => string;
     /**
      * A card's byline — `orders · 5 steps · up to 10 shipped orders · saved
      * Tue`: what it starts from, its steps (none for a program that is not

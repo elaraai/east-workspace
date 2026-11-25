@@ -729,6 +729,10 @@ export const queryMessages: QueryMessages = {
     dataSources: () => "Data sources",
     allQueries: () => "All queries",
     openInBuilder: () => "Open in builder →",
+    openNow: () => "Open",
+    newQueryMenu: () => "Start a new query on",
+    noQueriesMatch: () => "No queries match the filters",
+    changeFilters: () => "Change or clear the filters to see more queries.",
     libraryByline: ({ source, steps, gives, when, run }) => [
         source,
         steps === undefined ? "jq" : `${steps.count} ${steps.n === 1 ? "step" : "steps"}`,

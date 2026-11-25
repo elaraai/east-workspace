@@ -4,51 +4,44 @@
  *
  * @vitest-environment jsdom
  *
- * `<Query.Library>` (#1063, `Query Editor Spec.md` §5, §7 L1–L7), rendered
- * through its carrier over the saved queries record and the query examples'
- * orders and customers on e3 (#1376), at a fixed moment in UTC:
+ * `<Query.Library>` (#1063, #1761), rendered through its carrier over the
+ * saved queries record and the query examples' orders and customers on e3
+ * (#1376):
  *
- * - **L1**: headerless, with one toolbar row — the search, Sort, Grid · List, a
- *   rule and New query — and no border; the gallery draws no toolbar of its own.
- * - **L2**: the pane — All queries and each bound data source with its count
- *   of the saved queries that start from it, Recent at its foot; a click shows
- *   a data source's queries, or the recent runs.
- * - **L3**: the gallery — each card a wireframe of its query, its name, its
- *   description and its byline; a query with problems here, and one whose data
- *   sources aren't bound here, which says why instead of opening.
- * - **L4**: the search, Sort and Grid · List; the empty states, each marked
- *   by Font Awesome's open box (#1263).
- * - **L5**: Recent — this viewer's runs, newest first, a run of a saved query
- *   opening the saved query.
- * - **L6**: Open in builder → and New query on — the host told the query
- *   asked for, which it holds and gives back to be placed; a builder the host
- *   shows it in opens it, with its notice; nothing written for a builder to
- *   read (#1668).
- * - **L7**: it reads no dataset; its cards drag under the library's id.
+ * - **The frame**: one `BuilderFrame` — its toolbar holding the rail and New
+ *   query, over the cards — with no pane, no history bar, and no search, Sort
+ *   or layout switch of its own.
+ * - **The cards**: a card a saved query, in the order e3 pages them — a
+ *   wireframe of its query, its name, its description, its tags, and what it
+ *   reads and gives and when it was saved; one whose data sources aren't bound
+ *   here says why, in the warning tone, and opens nothing; the query the host
+ *   says is open is marked.
+ * - **Opening**: a press on a card, or ⏎ or Space on it, tells the host its
+ *   query and does nothing else.
+ * - **What it reads**: its rows a window at a time through the record's
+ *   indexes — never the record whole, and no dataset — and again when the
+ *   record moves.
+ * - **New query and the rail** (L11): a menu of the bound data sources, or the
+ *   one data source the rail narrows to; the rail narrows the cards and their
+ *   count, and a narrowing that leaves none says so, with Clear filters.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { describe, test, expect, beforeEach, vi } from "vitest";
+import { fireEvent, screen, within } from "@testing-library/react";
 import {
-    OptionType, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    StringType, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
-import { formatters, system } from "@elaraai/east-ui-components";
-import { markOf } from "@elaraai/east-ui-components/testing";
+import { system } from "@elaraai/east-ui-components";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { ReactiveDatasetCache } from "../platform/index.js";
-import { whenWords } from "./about.js";
+import { slot } from "../e3-web-mount.test-utils.js";
 import { queryRoot } from "./one-shot.js";
 import { CustomersType, savedQuery } from "./fixture.test-utils.js";
-import { act, firstQuery, hostQuery, queryHarness, settle, sharedEntry } from "./query.test-utils.js";
+import { act, firstQuery, hostQuery, libraryRail, queryHarness, settle, sharedEntry } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
-import { keptName } from "@elaraai/east-ui-components/internal";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
-
-/** The moment the tests run at: a Thursday, noon UTC. */
-const NOW = new Date("2026-10-01T12:00:00Z");
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -66,7 +59,7 @@ const REGIONS_ROOT = queryRoot([{ name: "regions", path: [variant("field", "inpu
 /** Orders read at another path. */
 const ARCHIVE: TreePath = [variant("field", "inputs"), variant("field", "archive"), variant("field", "orders")];
 
-const TOP: SavedQuery = { ...savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM), saved_at: new Date("2026-09-29T10:00:00Z") };
+const TOP: SavedQuery = { ...savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM), tags: new Set(["sales", "weekly"]), saved_at: new Date("2026-09-29T10:00:00Z") };
 const BIG: SavedQuery = { ...savedQuery("Big orders", ".orders\n| map(select(.total >= 1000))", some("Orders of 1,000 or more.")), saved_at: new Date("2026-10-01T09:30:00Z") };
 const COUNT: SavedQuery = { ...savedQuery("Customer count", ".customers\n| length"), saved_at: new Date("2026-09-12T10:00:00Z") };
 const MISSING: SavedQuery = { ...savedQuery("Customers by region", ".regions\n| length", none, REGIONS_ROOT), saved_at: new Date("2025-12-01T10:00:00Z") };
@@ -75,83 +68,47 @@ const ELSEWHERE: SavedQuery = { ...savedQuery("Archived orders", ".orders\n| len
 const CANCELLED: SavedQuery = { ...savedQuery("Cancelled orders", ".orders\n| map(select(.status.type == \"cancelled\"))\n| length"), saved_at: new Date("2026-10-01T11:00:00Z") };
 const BIG_RUN: SavedQuery = { ...BIG, saved_at: new Date("2026-10-01T10:00:00Z") };
 
-const printSaved = printFor(SavedQueryType);
-const fromEqual = equalFor(OptionType(SavedQueryType));
+/** The saved queries' names, in the order e3 pages them: the record's key order. */
+const NAMES = ["Archived orders", "Big orders", "Customer count", "Customers by region", "Top shipped orders, 2026"];
 
-/** This viewer's recent runs, the most recent first, as the builder keeps them in the browser. */
-function remember(...runs: SavedQuery[]) {
-    localStorage.setItem(keptName(queryKeys(undefined).recent), JSON.stringify(runs.map((run) => printSaved(run))));
-}
+const printName = printFor(StringType);
 
-const h = queryHarness();
+// The cards are read a window at a time into a measured view: the harness measures one.
+const h = queryHarness({ measure: true });
 
 beforeEach(async () => {
-    // A fixed moment, read in UTC: a card's byline says when, in the viewer's time.
-    vi.stubEnv("TZ", "UTC");
-    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
-    vi.setSystemTime(NOW);
     await h.seed([TOP, BIG, COUNT, MISSING, ELSEWHERE]);
-});
-afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
 });
 
 // ─── What the library shows ──────────────────────────────────────────────────
 
-/** The query library. */
-const library = () => document.querySelector<HTMLElement>("[data-query-library]")!;
-/** Its pane's rows: what each shows, its words and count, and whether it is the one shown. */
-const paneRows = () => [...library().querySelectorAll<HTMLElement>("[data-query-library-shows]")]
-    .map((row) => [row.getAttribute("data-query-library-shows"), row.textContent, row.hasAttribute("data-active")]);
-/** The gallery's cards, in their order. */
-const cards = () => [...library().querySelectorAll<HTMLElement>("[data-library-card]")];
-/** A card by its key: a saved query's name, or `recent:<n>`. */
-const card = (key: string) => cards().find((c) => c.getAttribute("data-library-card") === key)!;
-/** A card's face: its name, its description and its foot. */
-const face = (c: HTMLElement) => c.querySelector("[data-library-media]")!.nextElementSibling!;
-/** A card's name. */
-const nameOf = (c: HTMLElement) => face(c).firstElementChild!.firstElementChild!.textContent;
-/** The names of the cards, in their order. */
-const names = () => cards().map(nameOf);
-/** A card's description, under its name. */
-const descriptionOf = (c: HTMLElement) => [...face(c).children].find((el) => el.tagName === "SPAN")?.textContent ?? null;
-/** A card's byline. */
-const bylineOf = (c: HTMLElement) => c.querySelector("[data-library-foot]")!.firstElementChild!.textContent;
-/** A card's action. */
-const actionOf = (c: HTMLElement) => c.querySelector("[data-library-action]")?.textContent ?? null;
-/** A card's trailing glyph: what it says, and its tone. */
-const glyphOf = (c: HTMLElement) => {
-    const glyph = c.querySelector("[role=img][aria-label]");
-    return glyph === null ? null : [glyph.getAttribute("aria-label"), glyph.getAttribute("data-tone")];
-};
+/** The cards, in order. */
+const cards = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-library-gallery] [data-library-card]")];
+/** The cards' queries' names, in order. */
+const names = (container: HTMLElement) => cards(container).map((card) => card.getAttribute("data-library-card"));
+/** A query's card. */
+const cardOf = (container: HTMLElement, name: string) => cards(container).find((card) => card.getAttribute("data-library-card") === name)!;
+/** A part of a query's card, as it reads; `undefined` where the card draws none. */
+const partOf = (container: HTMLElement, name: string, part: string) => cardOf(container, name).querySelector(`[data-query-library-${part}]`)?.textContent;
 /** A card's wireframe: what it draws, and its lines. */
-const wireframeOf = (c: HTMLElement) => {
-    const frame = c.querySelector<HTMLElement>("[data-query-wireframe]")!;
-    return [frame.getAttribute("data-query-wireframe"), [...frame.children].map((line) => line.textContent)];
+const wireOf = (card: HTMLElement) => {
+    const wire = card.querySelector<HTMLElement>("[data-query-wireframe]")!;
+    return [wire.getAttribute("data-query-wireframe"), [...wire.children].map((line) => line.textContent)];
 };
-/** Clicks something, and lets the writes and the renders settle. */
-async function click(el: Element) {
+/** A card's tags. */
+const tagsOf = (container: HTMLElement, name: string) => [...cardOf(container, name).querySelectorAll("[data-query-library-tags] > *")].map((tag) => tag.textContent);
+/** The cards the host's open query marks. */
+const marked = (container: HTMLElement) => cards(container).filter((card) => card.hasAttribute("data-open")).map((card) => card.getAttribute("data-library-card"));
+/** What the surface says its `onOpen` was told. */
+const told = () => screen.getByText(/^told /).textContent;
+/** The toolbar's words. */
+const toolbarSays = (container: HTMLElement) => slot(container, "toolbar").textContent ?? "";
+
+/** A press on an element, and what it leads to settled. */
+async function press(el: Element) {
     await act(async () => { fireEvent.click(el); });
     await settle();
 }
-/** Shows a pane row. */
-const show = (at: string) => click(library().querySelector(`[data-query-library-shows="${at}"]`)!);
-/** Types in the search. */
-async function search(text: string) {
-    await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Search queries" }), { target: { value: text } }); });
-    await settle();
-}
-/** The open query the surface holds: what the query library told it was asked for, a new query on orders until it is told. */
-const opened = hostQuery;
-/** The empty state: its mark (each Font Awesome icon it draws, then any text), its title and hints. */
-const emptyState = () => {
-    const empty = library().querySelector<HTMLElement>("[data-query-library-empty]");
-    if (empty === null) return null;
-    const title = within(empty).getByRole("heading");
-    return [markOf(title.parentElement!.previousElementSibling), title.textContent, [...empty.querySelectorAll("li")].map((li) => li.textContent)];
-};
-
 /** Opens a menu from the keyboard, then arrows down to an item and picks it — Zag's pointer handling needs a real pointer. */
 async function pickFromMenu(trigger: HTMLElement, name: string) {
     await act(async () => { trigger.focus(); fireEvent.keyDown(trigger, { key: "ArrowDown" }); });
@@ -162,219 +119,118 @@ async function pickFromMenu(trigger: HTMLElement, name: string) {
     await act(async () => { fireEvent.keyDown(menu, { key: "Enter" }); });
     await settle();
 }
+/** Mounts the library, and waits for its first cards. */
+async function mount(options: Parameters<typeof h.mountLibrary>[0] = {}) {
+    const mounted = await h.mountLibrary(options);
+    await vi.waitFor(() => expect(cards(mounted.container).length).toBeGreaterThan(0));
+    await settle();
+    return mounted;
+}
 
-describe("when a query was saved, in a card's words (#1063)", () => {
-    test("today its time, within six days its weekday, this year its month and day, else its date", () => {
-        const f = formatters("en-US");
-        expect([
-            whenWords(new Date("2026-10-01T09:30:00Z"), NOW, f),
-            whenWords(new Date("2026-09-29T10:00:00Z"), NOW, f),
-            whenWords(new Date("2026-09-12T10:00:00Z"), NOW, f),
-            whenWords(new Date("2025-12-01T10:00:00Z"), NOW, f),
-        ]).toEqual(["09:30", "Tue", "Sep 12", "Dec 1, 2025"]);
-    });
-});
+// ─── The frame ───────────────────────────────────────────────────────────────
 
-// ─── L1–L2 ───────────────────────────────────────────────────────────────────
-
-describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
-    test("L1: headerless, with one toolbar row — the search counting the saved queries, Sort · Recent, Grid · List, a rule and New query on the first data source; the gallery draws no toolbar of its own, and the library no border", async () => {
-        await h.mountLibrary();
-        expect(library().firstElementChild!.getAttribute("data-slot")).toBe("toolbar");
-        expect(library().querySelectorAll("[data-toolbar]")).toHaveLength(1);
-        const items = [...library().firstElementChild!.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
-        expect(items).toEqual(["search", "sort", "layout", "rule", "new"]);
-        expect(screen.getByRole("textbox", { name: "Search queries" }).getAttribute("placeholder")).toBe("Search 5 queries…");
-        expect(screen.getByRole("button", { name: "Sort · Recent" })).toBeTruthy();
-        expect(screen.getByRole("radiogroup", { name: "Layout" })).toBeTruthy();
-        expect(screen.getByRole("button", { name: "New query on orders" }).textContent).toBe("New query on orders");
-        expect(library().querySelector("[data-library] [data-toolbar]")).toBeNull();
+describe("<Query.Library> — its frame (#1761)", () => {
+    test("one BuilderFrame: the toolbar holding the rail's fields and New query, over the cards — with no pane, no history bar, and no search, Sort or layout switch of its own", async () => {
+        const { container } = await mount();
+        expect(container.querySelectorAll("[data-builder-frame]")).toHaveLength(1);
+        const toolbar = slot(container, "toolbar");
+        expect([...toolbar.querySelectorAll("[data-record-slice-field]")].map((field) => field.textContent)).toEqual(["Name", "Data source", "Tag", "Saved"]);
+        expect(within(toolbar).getByRole("button", { name: "New query" })).toBeTruthy();
+        // The rail counts its rows while it narrows them, and says nothing of them while it does not.
+        expect(toolbarSays(container)).not.toContain("queries");
+        expect(slot(container, "main").querySelector("[data-library-gallery]")).not.toBeNull();
+        // No pane, and nothing to save: the library writes nothing.
+        expect([container.querySelector('[data-frame-slot="start"]'), container.querySelector('[data-frame-slot="end"]')]).toEqual([null, null]);
+        expect(screen.queryAllByRole("tab")).toEqual([]);
+        expect([screen.queryByRole("button", { name: "Save" }), screen.queryByRole("button", { name: "Undo" })]).toEqual([null, null]);
+        expect(screen.queryByRole("textbox", { name: "Search queries" })).toBeNull();
+        expect(container.querySelector("[data-query-library-sort]")).toBeNull();
+        expect(screen.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
+        // Its recipe frames nothing: what it styles is what a card adds, its wireframe and its glyphs.
         const recipe = system.getSlotRecipe("queryLibrary") as { base: Record<string, Record<string, unknown>> };
-        expect(Object.keys(recipe.base["root"]!).filter((k) => /^border/i.test(k) || /^(outline|boxShadow)$/.test(k))).toEqual([]);
-    });
-
-    test("L2: All queries and each bound data source with the count of saved queries that start from it, Recent at the foot with its count; a click shows a data source's queries — New query starting on it — or the recent runs", async () => {
-        remember(CANCELLED, BIG_RUN);
-        await h.mountLibrary();
-        // Customers by region reads regions, which isn't bound here: it counts in All queries alone.
-        expect(paneRows()).toEqual([
-            ["all", "All queries5", true], ["source:orders", "orders3", false], ["source:customers", "customers1", false], ["recent", "Recent2", false],
-        ]);
-        expect(names()).toEqual(["Big orders", "Archived orders", "Top shipped orders, 2026", "Customer count", "Customers by region"]);
-        await show("source:customers");
-        expect(paneRows().map(([at, , active]) => [at, active])).toEqual([["all", false], ["source:orders", false], ["source:customers", true], ["recent", false]]);
-        expect(names()).toEqual(["Customer count"]);
-        expect(screen.getByRole("button", { name: "New query on customers" })).toBeTruthy();
-        await show("source:orders");
-        expect(names()).toEqual(["Big orders", "Archived orders", "Top shipped orders, 2026"]);
-        await show("recent");
-        expect(cards().map((c) => c.getAttribute("data-library-card"))).toEqual(["recent:0", "recent:1"]);
-        expect(names()).toEqual(["Cancelled orders", "Big orders"]);
-        // Recent starts a new query on the first data source.
-        expect(screen.getByRole("button", { name: "New query on orders" })).toBeTruthy();
-        await show("all");
-        expect(names()).toHaveLength(5);
+        expect(Object.keys(recipe.base)).not.toContain("root");
     });
 });
 
-// ─── L3 ──────────────────────────────────────────────────────────────────────
+// ─── The cards ───────────────────────────────────────────────────────────────
 
-describe("<Query.Library> — its gallery (#1063 L3)", () => {
-    test("L3: three across, each card a wireframe of its query — its source and a bar per step, the rest counted — with its name, the author's description or the generated sentence, its byline and Open in builder →", async () => {
-        await h.mountLibrary();
-        const grid = library().querySelector<HTMLElement>("[data-library] [data-layout]")!;
-        expect([grid.getAttribute("data-layout"), grid.getAttribute("data-media"), grid.style.getPropertyValue("--library-columns")]).toEqual(["grid", "top", "3"]);
-        expect(wireframeOf(card(TOP.name))).toEqual(["steps", ["orders", "Keep rows where", "Look up from another dataset", "Show only these fields", "+2 more"]]);
-        expect(wireframeOf(card(BIG.name))).toEqual(["steps", ["orders", "Keep rows where"]]);
-        expect(descriptionOf(card(TOP.name))).toMatch(/^Top 10 orders by total where status is shipped/);
-        expect(descriptionOf(card(BIG.name))).toBe("Orders of 1,000 or more.");
-        // What it gives is the builder's shape: Show only these fields leaves the rows unnarrowed.
-        expect(bylineOf(card(TOP.name))).toBe("orders · 5 steps · up to 10 orders · saved Tue");
-        expect(bylineOf(card(BIG.name))).toBe("orders · 1 step · many orders · saved 09:30");
-        expect(bylineOf(card(COUNT.name))).toBe("customers · 1 step · one whole number · saved Sep 12");
-        expect([actionOf(card(TOP.name)), actionOf(card(BIG.name))]).toEqual(["Open in builder →", "Open in builder →"]);
-        expect([glyphOf(card(TOP.name)), glyphOf(card(BIG.name))]).toEqual([null, null]);
+describe("<Query.Library> — its cards (#1761)", () => {
+    test("a card a saved query, in the order e3 pages them: a wireframe of its query, its name, its description — the author's, else the sentence from its steps — its tags, and what it reads and gives and when it was saved", async () => {
+        const { container } = await mount();
+        expect(names(container)).toEqual(NAMES);
+        expect(wireOf(cardOf(container, TOP.name))).toEqual(["steps", ["orders", "Keep rows where", "Look up from another dataset", "Show only these fields", "+2 more"]]);
+        expect(wireOf(cardOf(container, BIG.name))).toEqual(["steps", ["orders", "Keep rows where"]]);
+        expect(partOf(container, BIG.name, "description")).toBe("Orders of 1,000 or more.");
+        expect(partOf(container, TOP.name, "description")).toMatch(/^Top 10 orders by total where status is shipped/);
+        expect([tagsOf(container, TOP.name), tagsOf(container, BIG.name)]).toEqual([["sales", "weekly"], []]);
+        expect(partOf(container, TOP.name, "byline")).toMatch(/^orders · 5 steps · up to 10 orders · saved /);
+        expect(partOf(container, COUNT.name, "byline")).toMatch(/^customers · 1 step · one whole number · saved /);
+        expect(cardOf(container, BIG.name).querySelector("[data-library-action]")!.textContent).toBe("Open in builder →");
     });
 
-    test("L3: a query with problems here draws their count, dashed, and why; one whose data sources aren't bound here carries the reason in the warning tone, has no action, and its click says why in a notice instead of opening", async () => {
-        await h.mountLibrary();
-        expect(wireframeOf(card(MISSING.name))).toEqual(["problems", ["1 problem", "Reads regions, which isn't here"]]);
-        expect(bylineOf(card(MISSING.name))).toBe("regions · jq · 1 problem · saved Dec 1, 2025");
-        expect([glyphOf(card(MISSING.name)), glyphOf(card(ELSEWHERE.name))]).toEqual([
-            ["Reads regions, which isn't here", "warning"],
-            [`Reads ${pathToString(ARCHIVE)}, not this builder's orders`, "warning"],
+    test("a query whose data sources aren't bound here says why on its card, in the warning tone, and a press on it asks for nothing", async () => {
+        const { container } = await mount();
+        expect([partOf(container, MISSING.name, "refusal"), partOf(container, ELSEWHERE.name, "refusal"), partOf(container, BIG.name, "refusal")]).toEqual([
+            "Reads regions, which isn't here", `Reads ${pathToString(ARCHIVE)}, not this builder's orders`, undefined,
         ]);
-        expect([actionOf(card(MISSING.name)), actionOf(card(ELSEWHERE.name))]).toEqual([null, null]);
-        await click(card(ELSEWHERE.name));
-        expect(library().querySelector("[data-query-library-notice]")!.textContent).toBe(`Reads ${pathToString(ARCHIVE)}, not this builder's orders`);
-        // The host is told nothing, and holds the query it began with.
-        expect([opened(), screen.getByText(/^told /).textContent]).toEqual([firstQuery("orders"), "told nothing"]);
-        // Another view clears it.
-        await show("source:orders");
-        expect(library().querySelector("[data-query-library-notice]")).toBeNull();
+        expect(wireOf(cardOf(container, MISSING.name))).toEqual(["problems", ["1 problem", "Reads regions, which isn't here"]]);
+        const refused = cardOf(container, MISSING.name);
+        expect([refused.querySelector("[data-library-action]"), refused.getAttribute("aria-disabled"), refused.querySelector("[role=img]")!.getAttribute("data-tone")]).toEqual([null, "true", "warning"]);
+        await press(refused);
+        expect([told(), hostQuery()]).toEqual(["told nothing", firstQuery("orders")]);
+        const recipe = system.getSlotRecipe("queryLibrary") as { base: Record<string, Record<string, unknown>> };
+        expect(recipe.base["cardRefusal"]!["color"]).toBe("fg.warning");
     });
 });
 
-// ─── L4 ──────────────────────────────────────────────────────────────────────
+// ─── Opening ─────────────────────────────────────────────────────────────────
 
-describe("<Query.Library> — search, sort, layout and the empty states (#1063 L4)", () => {
-    test("L4: the search narrows the cards by name, description and data source, and Esc clears it; Sort · Name orders them by name; List lays them out a row each", async () => {
-        await h.mountLibrary();
-        await search("big");
-        expect(names()).toEqual(["Big orders"]);
-        await search("1,000 or more");
-        expect(names()).toEqual(["Big orders"]);
-        // By its data source alone: Customers by region reads regions.
-        await search("regions");
-        expect(names()).toEqual(["Customers by region"]);
-        // Top shipped orders looks up customers, as its description says.
-        await search("customers");
-        expect(names()).toEqual(["Top shipped orders, 2026", "Customer count", "Customers by region"]);
-        await act(async () => { fireEvent.keyDown(screen.getByRole("textbox", { name: "Search queries" }), { key: "Escape" }); });
+describe("<Query.Library> — opening a query (#1761)", () => {
+    test("a press on a card tells the host its query, and writes nothing itself; the query the host says is open is marked on its card", async () => {
+        const { container } = await mount();
+        expect(marked(container)).toEqual([]);
+        await press(cardOf(container, BIG.name));
+        expect([told(), hostQuery(), marked(container)]).toEqual(["told Big orders", variant("saved", "Big orders"), [BIG.name]]);
+        expect(cardOf(container, BIG.name).querySelector("[data-query-library-open]")!.textContent).toBe("Open");
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("⏎ and Space on a card, the keyboard on it, each tell the host its query", async () => {
+        const { container } = await mount();
+        const card = cardOf(container, COUNT.name);
+        expect([card.getAttribute("role"), card.tabIndex]).toEqual(["button", 0]);
+        await act(async () => { card.focus(); fireEvent.keyDown(card, { key: "Enter" }); });
         await settle();
-        expect(names()).toHaveLength(5);
-
-        await pickFromMenu(screen.getByRole("button", { name: "Sort · Recent" }), "Name");
-        expect(names()).toEqual(["Archived orders", "Big orders", "Customer count", "Customers by region", "Top shipped orders, 2026"]);
-        expect(screen.getByRole("button", { name: "Sort · Name" })).toBeTruthy();
-
-        await click(screen.getByRole("radio", { name: "List view" }));
-        expect(library().querySelector("[data-library] [data-layout]")!.getAttribute("data-layout")).toBe("list");
-        expect(screen.getByRole("radio", { name: "List view" }).getAttribute("aria-checked")).toBe("true");
+        expect(told()).toBe("told Customer count");
+        const other = cardOf(container, TOP.name);
+        await act(async () => { other.focus(); fireEvent.keyDown(other, { key: " " }); });
+        await settle();
+        expect([told(), marked(container)]).toEqual(["told Top shipped orders, 2026", [TOP.name]]);
     });
 
-    test("L4: nothing matching the search says so, with what to try — every query's search, or a filter's; no recent runs; no queries yet", async () => {
-        await h.mountLibrary();
-        await search("zzz");
-        expect(emptyState()).toEqual(["fas box-open", "No queries match “zzz”", ["Check the spelling", "Search by query name, description or data source"]]);
-        await show("source:orders");
-        expect(emptyState()).toEqual(["fas box-open", "No queries match “zzz”", ["Check the spelling", "Clear the filter to search every query"]]);
-        await search("");
-        await show("recent");
-        expect(emptyState()).toEqual(["fas box-open", "No recent runs", ["Run a query in the builder to see it here"]]);
-        cleanup();
-        await h.seed([]);
-        await h.mountLibrary();
-        expect(emptyState()).toEqual(["fas box-open", "No queries yet", ["Save a query in the builder"]]);
-        expect(screen.getByRole("textbox", { name: "Search queries" }).getAttribute("placeholder")).toBe("Search 0 queries…");
-    });
-});
-
-// ─── L5–L6 ───────────────────────────────────────────────────────────────────
-
-describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
-    test("L6: Open in builder → tells the host the query asked for, and writes nothing itself; the query the host says is open is placed", async () => {
-        await h.mountLibrary();
-        expect(cards().filter((c) => c.hasAttribute("data-placed"))).toEqual([]);
-        await click(card(BIG.name));
-        expect(opened()).toEqual(variant("saved", "Big orders"));
-        expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
-        expect(cards().filter((c) => c.hasAttribute("data-placed")).map(nameOf)).toEqual(["Big orders"]);
-        expect(sharedEntry()).toBeUndefined();
+    test("given no open query it marks no card, and a card's press still tells its host", async () => {
+        const { container } = await mount({ marked: false });
+        await press(cardOf(container, BIG.name));
+        expect([told(), marked(container)]).toEqual(["told Big orders", []]);
     });
 
-    test("L6: given no open query it places none, and a card's click still tells its host", async () => {
-        await h.mountLibrary({ marked: false });
-        await click(card(BIG.name));
-        expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
-        expect(cards().filter((c) => c.hasAttribute("data-placed"))).toEqual([]);
-        expect(sharedEntry()).toBeUndefined();
-    });
-
-    test("L6: New query on the data source the pane shows tells the host a new query on it — its own, each press", async () => {
-        await h.mountLibrary();
-        await show("source:customers");
-        await click(screen.getByRole("button", { name: "New query on customers" }));
-        const open = opened();
-        if (open?.type !== "new") throw new Error("expected a new query");
-        expect([open.value.source, open.value.from]).toEqual(["customers", none]);
-        expect(screen.getByText(/^told /).textContent).toBe("told a new query on customers");
-        await click(screen.getByRole("button", { name: "New query on customers" }));
-        const again = opened();
-        if (again?.type !== "new") throw new Error("expected a new query");
-        expect(again.value.id).not.toBe(open.value.id);
-    });
-
-    test("L5: a recent run of a saved query opens the saved query; one never saved opens as a new query begun as it — each byline saying when it ran, the open one placed", async () => {
-        remember(CANCELLED, BIG_RUN);
-        await h.mountLibrary();
-        await show("recent");
-        expect([bylineOf(card("recent:0")), bylineOf(card("recent:1"))]).toEqual([
-            "orders · 2 steps · one whole number · ran 11:00",
-            "orders · 1 step · many orders · ran 10:00",
-        ]);
-        await click(card("recent:1"));
-        expect(opened()).toEqual(variant("saved", "Big orders"));
-        await click(card("recent:0"));
-        const open = opened();
-        if (open?.type !== "new") throw new Error("expected a new query");
-        expect(open.value.source).toBe("orders");
-        expect(fromEqual(open.value.from, some(CANCELLED))).toBe(true);
-        expect(screen.getByText(/^told /).textContent).toBe("told Cancelled orders");
-        expect(cards().filter((c) => c.hasAttribute("data-placed")).map((c) => c.getAttribute("data-library-card"))).toEqual(["recent:0"]);
-    });
-
-    test("L6: a builder its host shows the open query in opens the query the library asks for — with “Opened …” — and runs it", async () => {
-        await h.mountLibrary({ id: "top", builder: true });
+    test("a builder its host shows the open query in — a surface of its own — opens the query the library asks for, with “Opened …”, and runs it", async () => {
+        const { container } = await mount({ id: "top", builder: true });
         const builder = document.querySelector<HTMLElement>("[data-query-builder]")!;
         const ran = h.oneShots().length;
-        await click(card(BIG.name));
+        await press(cardOf(container, BIG.name));
         expect(builder.getAttribute("data-query-open")).toBe(`query.saved:"Big orders"`);
         expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Opened “Big orders”."]);
         expect(h.oneShots()).toHaveLength(ran + 1);
-        await click(screen.getByRole("button", { name: "New query on orders" }));
-        expect(builder.getAttribute("data-query-open")).toMatch(/^query\.new:/);
-        expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Started a new query on orders."]);
     });
 });
 
-// ─── L7 ──────────────────────────────────────────────────────────────────────
+// ─── What it reads ───────────────────────────────────────────────────────────
 
-describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", () => {
-    test("L7: opening the library, and a query from it, reads the saved queries alone — no data source's value, bound or paged", async () => {
-        // A bound value and the record are read from the dataset cache, which also reads itself to say what it holds
-        // (`has`) — the page's polls of what the surface reads; a paged source's rows are read from e3, by page or by key,
-        // or several runs or keys at once (#1351).
+describe("<Query.Library> — what it reads (#1761)", () => {
+    test("opening the library and a query from it reads no dataset and never the saved queries whole — its cards are e3's pages", async () => {
+        // A bound value and a record read whole come from the dataset cache, which also reads itself to say what it holds
+        // (`has`) — the page's polls of what the surface reads.
         const read = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "read")!.value as ReactiveDatasetCache["read"];
         const has = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "has")!.value as ReactiveDatasetCache["has"];
         let holding = 0;
@@ -387,25 +243,68 @@ describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", ()
             if (holding === 0) surfaceReads.add(pathToString(path));
             return read.call(this, ws, path);
         });
-        remember(CANCELLED);
-        await h.mountLibrary();
-        await click(card(BIG.name));
-        await show("recent");
-        await click(card("recent:0"));
-        expect(surfaceReads).toEqual(new Set([`.records.${ex.queries.name}`]));
-        expect([h.requests("page"), h.requests("find"), h.requests("runs"), h.requests("rows")]).toEqual([[], [], [], []]);
+        const { container } = await mount();
+        await press(cardOf(container, BIG.name));
+        expect(told()).toBe("told Big orders");
+        expect(surfaceReads).toEqual(new Set());
+        // No read of the record whole, none of a data source's rows, and no write.
+        expect(h.requests("read").filter((request) => request.record === ex.queries.name)).toEqual([]);
+        expect([h.requests("rows"), h.requests("runs"), h.requests("mutate")]).toEqual([[], [], []]);
     });
 
-    test("L7: under a drag layer a saved query's card drags, from the library's id — its builder's — and a recent run's does not", async () => {
-        remember(CANCELLED);
-        await h.mountLibrary({ drag: true });
-        expect(library().querySelector("[data-library]")!.getAttribute("data-library")).toBe("query.library");
-        expect(cards().every((c) => c.hasAttribute("data-draggable"))).toBe(true);
-        await show("recent");
-        expect(cards().map((c) => c.hasAttribute("data-draggable"))).toEqual([false]);
-        cleanup();
-        await h.seed([BIG]);
-        await h.mountLibrary({ id: "top", drag: true });
-        expect(library().querySelector("[data-library]")!.getAttribute("data-library")).toBe("query.library.top");
+    test("a query saved meanwhile — in a builder, on another page — shows as the record moves", async () => {
+        const { container } = await mount();
+        expect(names(container)).toEqual(NAMES);
+        await act(async () => { await h.seed([TOP, BIG, COUNT, MISSING, ELSEWHERE, CANCELLED]); });
+        await vi.waitFor(() => expect(names(container)).toEqual(["Archived orders", "Big orders", "Cancelled orders", "Customer count", "Customers by region", "Top shipped orders, 2026"]));
+    });
+
+    test("with no saved query it says so, and what to do", async () => {
+        await h.seed([]);
+        const mounted = await h.mountLibrary();
+        await vi.waitFor(() => expect(mounted.container.querySelector("[data-library-empty]")).not.toBeNull());
+        expect(mounted.container.querySelector("[data-library-empty]")!.textContent).toContain("No queries yet");
+        expect(mounted.container.querySelector("[data-library-empty]")!.textContent).toContain("Save a query in the builder");
+    });
+});
+
+// ─── L11 ─────────────────────────────────────────────────────────────────────
+
+describe("<Query.Library> — New query and the rail (#1761 L11)", () => {
+    test("L11: with no data source chosen, New query opens a menu of the bound data sources, and a pick asks the host for a new query on it — its own, each pick", async () => {
+        const { container } = await mount();
+        await pickFromMenu(within(slot(container, "toolbar")).getByRole("button", { name: "New query" }), "customers");
+        const open = hostQuery();
+        if (open?.type !== "new") throw new Error("expected a new query");
+        expect([open.value.source, open.value.from, told()]).toEqual(["customers", none, "told a new query on customers"]);
+        await pickFromMenu(within(slot(container, "toolbar")).getByRole("button", { name: "New query" }), "customers");
+        const again = hostQuery();
+        if (again?.type !== "new") throw new Error("expected a new query");
+        expect(again.value.id).not.toBe(open.value.id);
+    });
+
+    test("L11: the rail narrowed to one data source, New query names it and starts on it, and the rail narrows the cards and their count; a data source not bound here offers the menu again", async () => {
+        const { container } = await mount();
+        await act(async () => { libraryRail().choose("sources", [printName("customers")]); });
+        await vi.waitFor(() => expect(names(container)).toEqual([COUNT.name, TOP.name]));
+        expect(toolbarSays(container)).toContain("2 of 5 queries");
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "New query on customers" }));
+        const open = hostQuery();
+        if (open?.type !== "new") throw new Error("expected a new query");
+        expect([open.value.source, told()]).toEqual(["customers", "told a new query on customers"]);
+        // A data source this surface does not bind is no place to start: New query offers its menu again.
+        await act(async () => { libraryRail().choose("sources", [printName("regions")]); });
+        await vi.waitFor(() => expect(names(container)).toEqual([MISSING.name]));
+        expect(within(slot(container, "toolbar")).getByRole("button", { name: "New query" })).toBeTruthy();
+    });
+
+    test("a narrowing that leaves no query says so, and its Clear filters brings every card back", async () => {
+        const { container } = await mount();
+        await act(async () => { libraryRail().choose("tags", [printName("nothing-tagged-so")]); });
+        await vi.waitFor(() => expect(container.querySelector("[data-library-empty]")).not.toBeNull());
+        const empty = container.querySelector<HTMLElement>("[data-library-empty]")!;
+        expect(empty.textContent).toContain("No queries match the filters");
+        await press(within(empty).getByRole("button", { name: /Clear filters/ }));
+        await vi.waitFor(() => expect(names(container)).toEqual(NAMES));
     });
 });
