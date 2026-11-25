@@ -3,10 +3,9 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { none, readBeast2Type, some, type ValueTypeOf } from '@elaraai/east';
+import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
-  FetchCostResultType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
@@ -124,25 +123,6 @@ export class HubClient {
   /** Unsubscribes one session; only its final subscription cancels the lease. */
   cancelLease(id: string, leaseId: string): Promise<ValueTypeOf<typeof CancelLeaseResultType>> {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases/${encodeURIComponent(leaseId)}/cancel`, { responseType: CancelLeaseResultType });
-  }
-  /**
-   * Of each rack the hub has served, or a lease of the scope wrote on: its
-   * link's rate, and which of these objects of the session's repository it
-   * holds.
-   * @param id - The session
-   * @param hashes - The objects
-   * @param scope - The scope the work's lease names, whose leases' outputs
-   *   the racks that wrote them hold; none unless given
-   * @returns Each rack's link and holdings
-   * @throws {RackHubError} When the hub refuses the request or does not answer
-   * @example
-   * ```ts
-   * const links = await client.fetchCosts(sessionId, closure, scope.id);
-   * ```
-   */
-  fetchCosts(id: string, hashes: readonly string[], scope?: string): Promise<ValueTypeOf<typeof FetchCostResultType>> {
-    return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType,
-      body: { hashes: [...hashes], scope: scope === undefined ? none : some(scope) }, responseType: FetchCostResultType });
   }
   /**
    * Ends a split task's scope the session's leases named: the racks it was

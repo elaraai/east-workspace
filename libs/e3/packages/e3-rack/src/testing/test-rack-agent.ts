@@ -23,8 +23,8 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
 import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_SCOPES_ENDED_HEADER,
-  RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
-  type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
+  RACK_HUB_KEY_HEADER, RACK_HUB_KEYED_SCOPES, RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackHubKey, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
+  type RackHello, type RackHubKey, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
 import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
   type RackTransferRetry } from '../protocol/task-envelope.js';
 
@@ -148,6 +148,11 @@ export interface TestRackAgentOptions {
    *  says ended ({@link TestRackAgent.scopesEnded}). It keeps every object in
    *  its store already, so a merge it runs reads its pieces there. */
   splitScopes?: boolean;
+  /** Says it keeps a hub's objects under the hub's key
+   *  ({@link RACK_HUB_KEYED_SCOPES}), and notes the key each heartbeat's
+   *  answer gives ({@link TestRackAgent.hubKeys}). Like a split scope's, what
+   *  it keeps is in its store already. */
+  hubKeyedScopes?: boolean;
 }
 
 /**
@@ -191,6 +196,9 @@ export class TestRackAgent {
   readonly faults: TestRackAgentFaults;
   /** What its object transfers came to so far. */
   readonly transfers: TestRackAgentTransfers = { peak: 0, busy: 0, retried: 0, resumed: 0 };
+  /** The objects it asked its source for, in the order asked: not those its
+   *  store held already. */
+  readonly fetched: string[] = [];
   /** The transfers its source serves it at once, as its hello said. */
   private sourceTransfers = RACK_TRANSFERS_AT_ONCE;
   /** What its source takes beyond the protocol, as its hello said. */
@@ -208,6 +216,9 @@ export class TestRackAgent {
   lastReport: RackReport | undefined;
   /** The split scopes its heartbeats' answers said ended, in the order said. */
   readonly scopesEnded: string[] = [];
+  /** The key of its source's own scope each heartbeat's answer gave, in the
+   *  order they came: undefined for an answer that gave none. */
+  readonly hubKeys: Array<RackHubKey | undefined> = [];
   /** The length of each ended-scopes header its heartbeats' answers carried,
    *  in bytes, in the order they came. */
   readonly scopesEndedHeaderBytes: number[] = [];
@@ -369,7 +380,7 @@ export class TestRackAgent {
     const tier = image === undefined ? undefined
       : { digest: image.digest, ...(this.sourceFeatures.includes(RACK_TIER_MANIFESTS) && { manifest: this.options.overTier! }) };
     return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER]),
-      ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : [])],
+      ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : []), ...(this.options.hubKeyedScopes === true ? [RACK_HUB_KEYED_SCOPES] : [])],
       ...(target !== null && { target }), ...(tier !== undefined && { tiers: Object.fromEntries(this.tiers.map((name) => [name, tier])) }),
       ...(all !== undefined && { resources: all, free: this.free(all) }) };
   }
@@ -418,6 +429,7 @@ export class TestRackAgent {
     const ended = sent.headers.get(RACK_SCOPES_ENDED_HEADER);
     if (ended !== null) this.scopesEndedHeaderBytes.push(Buffer.byteLength(ended));
     this.scopesEnded.push(...readRackScopesEnded(ended));
+    this.hubKeys.push(readRackHubKey(sent.headers.get(RACK_HUB_KEY_HEADER)));
     const response = decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await sent.arrayBuffer()));
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();
@@ -599,6 +611,7 @@ export class TestRackAgent {
       const need: string[] = [];
       for (const hash of hashes.slice(from, from + 256)) if (!await this.storage.objects.exists(this.repo, hash)) need.push(hash);
       if (need.length === 0) continue;
+      this.fetched.push(...need);
       const response = await this.storageRequest(lease, { need });
       await Promise.all(response.objects.map(async (object) => {
         const bytes = object.type === 'inline' ? object.value.data : await this.download(lease, object.value.hash, object.value.url, signal, of);

@@ -39,9 +39,10 @@
  *   whether to send the request again, the code why;
  * - a heartbeat carries what the rack is and has (its report), and a poll
  *   what it may be answered with (its offer);
- * - a lease is granted with its scope (a split task's execution, or a whole
- *   session's) only to a rack whose report names the feature, and the
- *   heartbeat's answer names the scopes of the rack's that ended.
+ * - a lease is granted with its scope (a split task's execution, or its
+ *   source's own, keyed scope) only to a rack whose report names the
+ *   feature; the heartbeat's answer names the scopes of the rack's that
+ *   ended, and gives a rack that keeps a keyed scope the scope's key.
  *
  * A rack token authenticates ONLY these routes — it is invisible to the
  * human `jwtAuthorizer`, so it can never reach the human/admin API.
@@ -83,7 +84,10 @@ import {
   RACK_MANIFESTS_WANTED_HEADER,
   readRackInlineMax,
   RACK_SCOPES_ENDED_HEADER,
+  RACK_HUB_KEY_HEADER,
+  rackHubKeyHeader,
   rackScopesEndedFitting,
+  type RackHubKey,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
@@ -109,7 +113,7 @@ import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackInlineRoom, RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackLeaseScope, readRackReason, readRackRetries,
+import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackReason, readRackRetries,
   type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
@@ -248,30 +252,34 @@ export interface RackRouteOptions {
    */
   wake?: (repo: string, run: RunnerRun) => Promise<boolean>;
   /**
-   * The scopes of the source's leases (`RackLeaseEvent.scope`): which
-   * rack is granted a lease with its scope, and the scopes that ended of
-   * those a rack holds. Absent, every lease is granted without its scope, and
-   * no answer names one.
+   * The scopes of the source's leases (`RackLeaseEvent.scope`): the scope a
+   * rack is granted a lease with, the scopes that ended of those a rack
+   * holds, and the key of the source's own scope. Absent, every lease is
+   * granted without a scope, and no answer names one or gives a key.
    */
-  splitScopes?: RackSplitScopes;
+  scopes?: RackScopes;
 }
 
 /**
  * Where the rack routes keep a source's scopes — a split task's execution, or
- * a whole session's: which rack holds a scope, and which of a rack's scopes
- * have ended.
+ * the source's own, keyed scope: which scope a rack is granted a lease with,
+ * which of a rack's scopes have ended, and the key a rack keeps the source's
+ * own scope under.
  */
-export interface RackSplitScopes {
+export interface RackScopes {
   /**
-   * Whether the rack is granted a lease with its scope: its report names
-   * `split-scopes`, and the scope has not ended. Told as the rack claims the
-   * lease, so a scope it answers true of is the rack's to be told the end of.
+   * The scope the rack is granted a lease with: the source's own, keyed
+   * scope to a rack whose report names `hub-keyed-scopes`, where the source
+   * keeps one; else the split scope the lease names, to a rack whose report
+   * names `split-scopes`, while it has not ended; else none. Told as the rack
+   * claims the lease, so a split scope it answers is the rack's to be told
+   * the end of.
    *
    * @param rackId - The rack that claimed the lease
-   * @param scope - The lease's scope
-   * @returns Whether the grant carries the scope
+   * @param event - The lease's event, as its session submitted it
+   * @returns The scope the grant carries; undefined for none
    */
-  granted(rackId: string, scope: RackLeaseScope): boolean;
+  granted(rackId: string, event: RackLeaseEvent): RackLeaseScope | undefined;
   /**
    * The scopes the rack was granted a lease of that have ended since its last
    * heartbeat, as many as one answer's header holds
@@ -282,6 +290,17 @@ export interface RackSplitScopes {
    * @returns The scopes' ids
    */
   ended(rackId: string): readonly string[];
+  /**
+   * The key of the source's own scope that the rack's heartbeat answer gives
+   * it (`x-e3-rack-hub-key`): to a rack whose report names
+   * `hub-keyed-scopes`, over a TLS listener a rack pins. Never logged,
+   * stored, or put in a lease's event. Absent, or undefined, no answer gives
+   * one, and the rack lets go of any keyed scope it kept.
+   *
+   * @param rackId - The rack whose heartbeat it is
+   * @returns The scope's id and the rack's key
+   */
+  key?(rackId: string): RackHubKey | undefined;
 }
 
 /** A committed route transition that waiters may observe. */
@@ -451,14 +470,14 @@ export function createRackRoutes(
   const e3Version = options?.e3Version;
   const { logs } = attempts;
   const app = new Hono<RackEnv>();
-  /** A lease's event as the rack that claimed it is granted it: with its
-   *  split scope only where the source keeps the rack's scopes and the rack
-   *  takes them, so an agent that does not is never told one. */
+  /** A lease's event as the rack that claimed it is granted it: with the
+   *  scope the source grants it, only where the source keeps the rack's
+   *  scopes and the rack takes them, so an agent that does not is never told
+   *  one. */
   const grantedEvent = (event: RackLeaseEvent, rackId: string): RackLeaseEvent => {
-    if (event.scope === undefined) return event;
-    const { scope: named, ...unscoped } = event;
-    const scope = readRackLeaseScope(named);
-    return scope !== undefined && options?.splitScopes?.granted(rackId, scope) === true ? { ...unscoped, scope } : unscoped;
+    const { scope: _named, ...unscoped } = event;
+    const scope = options?.scopes?.granted(rackId, event);
+    return scope === undefined ? unscoped : { ...unscoped, scope };
   };
 
   const auth = createRackAuth(identityStore, settingsStore, now);
@@ -809,8 +828,13 @@ export function createRackRoutes(
     // The split scopes of the rack's that ended: what it kept of them goes
     // A source's `ended` answers what fits one answer; one that answers more
     // has the rest cut here, which it does not tell again
-    const ended = rackScopesEndedFitting(options?.splitScopes?.ended(rackId) ?? []);
+    const ended = rackScopesEndedFitting(options?.scopes?.ended(rackId) ?? []);
     if (ended.length > 0) response.headers.set(RACK_SCOPES_ENDED_HEADER, JSON.stringify(ended));
+    // The key of the source's own scope, to a rack that keeps it: with every
+    // answer, so a rack that restarted has it again, and one whose source
+    // restarted learns the scope it kept is gone
+    const key = options?.scopes?.key?.(rackId);
+    if (key !== undefined) response.headers.set(RACK_HUB_KEY_HEADER, rackHubKeyHeader(key));
     return response;
   });
 

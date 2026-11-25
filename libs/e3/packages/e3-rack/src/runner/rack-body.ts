@@ -9,11 +9,8 @@ import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
 import { RACK_LEASE_VERSION, describeRackPhases, leaseReserve, readRackPhases, type RackLeaseEvent, type RackLeaseResources, type RackLeaseScope,
   type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
-import type { RackFetchCost } from '../protocol/placement.js';
-import { rackRanMs, weighFetch, type RackRunKind } from './fetch-cost.js';
-import type { SnapshotRack } from './capacity.js';
-import { RackPlacementReport, admitWork, awaitLease, fallbackReason, fitsHere, hereMs, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
-  wholeResources, type LocalReason, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
+import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
+  wholeResources, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
 
 /**
  * What a body's lease asks of a rack, and what the rack books for it.
@@ -65,25 +62,13 @@ function unitResources(reserve: number, verdict: RackVerdict): RackLeaseResource
  *
  * A unit of a split task names the task's execution it runs in, its scope
  * (`TaskBodyRequest.options.splitScope`), which the hub grants to a rack that
- * keeps what the scope's leases wrote for its later ones: a merge then reads
- * its pieces there rather than over the link. Under a policy that keeps it
- * for the session (`keep` `session`), every task and unit names the
- * session's own scope instead (`RackSession.sessionScope`), which feeds the
- * session's later work: a task's output a rack made is read there by the
- * run's later tasks, and by a watch's later runs. Every output still comes
- * here, whole, before its unit succeeds. A piece of a task whose merges its
- * policy keeps here feeds no later lease, so no rack keeps its output for
- * them. Work that names a scope is weighed for what it would fetch knowing
- * what the scope's leases wrote where.
- *
- * Work is weighed for what it would fetch once a rack could hold it, and
- * before its environment's layers are built for one, so work that runs here
- * builds none: a task by its task's runs, a piece by its task's pieces, a
- * merge by its task's merges. Work this machine could not run — it takes a
- * GPU, or expects more memory than the run's budget has — is never weighed
- * ({@link fitsHere}): it stays on a rack, however long its fetch. Work given
- * more cores there than the budget runs at once here is taken to run that
- * much longer here ({@link hereMs}).
+ * keeps what the scope's leases wrote for its later ones (`split-scopes`): a
+ * merge then reads its pieces there rather than over the link. A rack that
+ * keeps a hub's objects under the hub's key (`hub-keyed-scopes`) is granted
+ * every task's and unit's lease with the hub's own scope in its place, which
+ * the hub names, not the run: what such a rack fetched or made for any of the
+ * hub's work is read there by later work of any session, for as long as the
+ * hub runs. Every output still comes here, whole, before its unit succeeds.
  *
  * A unit of a split task is leased only to a rack that caps it at what its
  * lease asks (`rackCapsUnits`), which is the hub's rule for granting one
@@ -115,11 +100,11 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     };
     // A rack's result that gives its reason is placed by it: the reason's
     // code, and its cause or detail, are what the run prints.
-    const runLocal = async (reason: string, detail?: RackReason, said?: string, fetch?: RackFetchCost): Promise<ExecutionResult> => {
+    const runLocal = async (reason: string, detail?: RackReason, said?: string): Promise<ExecutionResult> => {
       leavingRack = true;
       await leaveLease(handle);
       const ids = handle === undefined ? request.ids : freshIds();
-      report.local(reason, detail, fetch);
+      report.local(reason, detail);
       // What went wrong is in the task's log: a rack's attempt, or the build
       // of its environment for a rack, in the build tool's own words.
       const line = reason.startsWith('fallback:') ? `e3: rack attempt failed on ${report.rackLabel}: ${reason.slice(9)} — running locally\n`
@@ -130,54 +115,26 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       }
       return local(ids);
     };
-    // The scope its lease names, while it has not ended: the session's own
-    // under a policy that keeps it for the session, else, of a unit, the
-    // split task's execution it runs in; a whole task then names none. A
-    // piece whose merges its policy keeps here feeds no later lease: no rack
-    // keeps its output for a merge that runs here
+    // The scope its lease names, while it has not ended: of a unit, the split
+    // task's execution it runs in; a whole task names none. The hub grants a
+    // rack that keeps its objects under its key its own scope in its place
     const unitScope = request.unit === undefined ? undefined : request.options.splitScope;
-    const feedsNoRack = unitScope?.feeds === true && request.unit?.merge === null && request.options.taskName !== undefined
-      && delegation.evaluator.keepsMergesHere(request.options.taskName);
-    const leaseScope = (): RackLeaseScope | undefined => delegation.keepsSession ? session.sessionScope(!feedsNoRack)
-      : unitScope === undefined ? undefined : session.scope(feedsNoRack ? { ...unitScope, feeds: false } : unitScope);
-    // What the work is, as its run time is weighed: its own task's, the one
-    // unit of a task that is one piece among them, else a piece or a merge
-    const kind: RackRunKind = request.unit === undefined || request.unit.own ? 'task' : request.unit.merge === null ? 'piece' : 'merge';
-    // Its closure, read once: what it is weighed by, and what its lease admits
+    const leaseScope = (): RackLeaseScope | undefined => unitScope === undefined ? undefined : session.scope(unitScope);
+    // Its closure, read once: what its lease admits
     let closed: Promise<string[]> | undefined;
     const closure = () => closed ??= taskClosure(request.storage, request.repo, request.taskHash, request.task,
       request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
-    // Work that would spend longer fetching what the racks do not hold of
-    // its closure than it last ran runs here; a first run of its kind follows
-    // its policy, and so does work this machine could not run. What its
-    // scope's leases wrote is held by the rack that wrote it
-    const weigh = async (asked: RackLeaseResources, racks: readonly SnapshotRack[]): Promise<LocalReason | null> => {
-      const { budget } = request.options;
-      // What it expects to need — a unit's reservation, a task's previous
-      // peak — not what its size books on a rack
-      if (!fitsHere({ gpu: asked.gpu, expectedBytes: request.options.expectedPeakBytes ?? 0 }, budget)) return null;
-      const ranMs = await delegation.runTimes.ranMs(request.storage, request.repo, request.taskHash, request.ids.inHash, kind);
-      if (ranMs === null) return null;
-      // A closure that does not read is no verdict here: its lease says so
-      let hashes: string[];
-      try { hashes = await closure(); } catch { return null; }
-      const scopeId = leaseScope()?.id;
-      const cost = await weighFetch({ links: (asking) => session.fetchCosts(asking, scopeId), racks: racks.map((rack) => rack.rackId),
-        storage: request.storage, repo: request.repo, hashes, ranMs, hereMs: hereMs(ranMs, asked.cores, budget), times: delegation.runTimes });
-      return cost === null ? null : { reason: 'fetch-bound', fetch: cost };
-    };
     // Whether the work is leased at all, and the fleet as it sees it. Process
     // settings its runner was configured with stay on the standard body, and
     // a unit whose cap would pass its rule's limit is not a rack's: a unit is
     // pure, and runs under the local budget instead.
     const admitted = await admitWork({ session, delegation, signal, storage: request.storage, repo: request.repo, unit: request.unit !== undefined,
       judge: () => delegation.evaluator.evaluate(request), hostBound: hostBound(request.options, request.options.extraEnv),
-      asks: (verdict, mostCores) => leaseResources(request, verdict, mostCores), onEnvironment: options.onEnvironment,
-      ...(delegation.weighsFetch && { weigh }) });
+      asks: (verdict, mostCores) => leaseResources(request, verdict, mostCores), onEnvironment: options.onEnvironment });
     // A run aborted while its work waited for a rack, or for its
     // environment's layers, starts nothing here either
     if (admitted.kind === 'aborted') return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
-    if (admitted.kind === 'local') return runLocal(admitted.why.reason, admitted.why.detail, admitted.why.said, admitted.why.fetch);
+    if (admitted.kind === 'local') return runLocal(admitted.why.reason, admitted.why.detail, admitted.why.said);
     const { verdict, fleet } = admitted;
     // What the lease asks: a unit its cap stopped asks more of its next lease.
     let resources: RackLeaseResources = admitted.resources;
@@ -307,10 +264,6 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       const state = result.state ?? (result.status === 'success' ? 'success' : (result.exitCode ?? 0) > 0 ? 'failed' : 'error');
       if (state === 'success') {
         if (result.outputHash === undefined || !await touchReachable(request.storage, request.repo, [result.outputHash])) return await runLocal('fallback:incomplete-output');
-        // How long it ran there, its fetch before its runner started not
-        // among it: what later work of its task is weighed by
-        const ranMs = rackRanMs(phases);
-        if (ranMs !== undefined) delegation.runTimes.ran(request.repo, request.taskHash, request.ids.inHash, kind, ranMs);
         return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: result.outputHash,
           exitCode: 0, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
       }

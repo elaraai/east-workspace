@@ -15,7 +15,6 @@ import { DEFAULT_RACK_POLICY, RACK_SIZES, RackPolicyError, RackPolicyType, loadP
 import { rackTierFor } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms } from './host-coupling.js';
 import { EligibilityEvaluator } from './eligibility.js';
-import { readDelegation } from '../runner/rack-lease.js';
 
 const REGISTRY = 'source = { registry = "https://pypi.org/simple" }';
 /** A workspace's member, `trainer`, that asks for the datascience platform
@@ -354,22 +353,7 @@ it('holds a rule\'s memory limit and its GPU, selects them with the task, and na
   });
 });
 
-it('says where a split task\'s merges run: its rule\'s merges, else the policy\'s default, a rack\'s unless set', async (t) => {
-  assert.equal(selectTask(DEFAULT_RACK_POLICY, 'rollup').merges, 'rack', 'where its pieces run, as before');
-  let policy = setRule({ ...DEFAULT_RACK_POLICY, defaultMerges: variant('local', null) }, 'rollup_*', 'rack');
-  policy = setRule(policy, 'heavy_*', 'rack', { merges: 'rack' });
-  assert.equal(selectTask(policy, 'rollup_sales').merges, 'local', 'a rule that names none takes the default');
-  assert.equal(selectTask(policy, 'heavy_join').merges, 'rack', 'a rule\'s own wins');
-  assert.equal(selectTask(setRule(DEFAULT_RACK_POLICY, 'rollup_*', 'rack', { merges: 'local' }), 'rollup_sales').merges, 'local');
-  // Setting a rule again replaces it whole: merges it does not name are the default's.
-  assert.equal(selectTask(setRule(policy, 'heavy_*', 'rack'), 'heavy_join').merges, 'local');
-  const repo = await mkdtemp(join(tmpdir(), 'e3r-'));
-  t.after(() => rm(repo, { recursive: true, force: true }));
-  await savePolicy(repo, policy);
-  assert.ok(equalFor(RackPolicyType)(await loadPolicy(repo), policy));
-});
-
-it('keeps a split task\'s merge units here when its merges are local, its pieces on a rack, under a command\'s flag too', async () => {
+it('judges a split task\'s pieces, its own one unit and its merges as the task, where its rule sends it', async () => {
   const storage = new InMemoryStorage();
   await storage.repos.create('repo');
   const program = await storage.objects.write('repo', encodeEastIR(East.function([IntegerType], IntegerType, ($, value) => value.add(1n)).toIR()));
@@ -381,36 +365,16 @@ it('keeps a split task\'s merge units here when its merges are local, its pieces
   };
   const hash = await storage.objects.write('repo', encodeBeast2For(TaskObjectType)(task));
   const ids = { inHash: 'a'.repeat(64), executionId: uuidv7(), startTime: Date.now() };
-  const unit = (merge: boolean, name = 'rollup'): TaskBodyRequest => ({ storage, repo: 'repo', taskHash: hash, task, inputHashes: merge ? ['merge'] : ['p'.repeat(64)], ids,
-    options: { taskName: name }, role: 'unit', logicalTaskHash: hash,
+  const unit = (merge: boolean): TaskBodyRequest => ({ storage, repo: 'repo', taskHash: hash, task, inputHashes: merge ? ['merge'] : ['p'.repeat(64)], ids,
+    options: { taskName: 'rollup' }, role: 'unit', logicalTaskHash: hash,
     unit: merge ? { inputs: ['merge'], merge: { parts: [], range: null }, own: false } : { inputs: ['p'.repeat(64)], merge: null, own: false } });
   const own: TaskBodyRequest = { ...unit(false), unit: { inputs: ['p'.repeat(64)], merge: null, own: true } };
   const onRack = { eligible: true, tier: 'node', size: 'large', timeoutMinutes: 1440, memoryLimit: null, gpu: false, environment: null };
-  const local = { eligible: false, reason: 'merges-local' };
-
-  // Today's behaviour: a merge goes where its pieces go
-  const before = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'rollup', 'rack'));
-  assert.deepEqual(await before.evaluate(unit(false)), onRack);
-  assert.deepEqual(await before.evaluate(unit(true)), onRack);
-
-  // Its merges local: a piece, and a task's own one unit, on a rack; a merge here, before or after its pieces
-  for (const policy of [setRule(DEFAULT_RACK_POLICY, 'rollup', 'rack', { merges: 'local' }), setRule({ ...DEFAULT_RACK_POLICY, defaultMerges: variant('local', null) }, 'rollup', 'rack')]) {
-    const evaluator = new EligibilityEvaluator(policy);
-    assert.deepEqual(await evaluator.evaluate(unit(true)), local, 'a merge judged first');
-    assert.deepEqual(await evaluator.evaluate(unit(false)), onRack);
-    assert.deepEqual(await evaluator.evaluate(own), onRack, 'a task\'s own unit is no merge');
-    assert.deepEqual(await evaluator.evaluate(unit(true)), local, 'and after its pieces\' verdict');
-    assert.deepEqual(await evaluator.evaluate({ ...unit(false), role: 'task', unit: undefined }), onRack, 'a whole task is no merge');
-  }
+  const evaluator = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'rollup', 'rack'));
+  for (const request of [unit(false), unit(true), own, { ...unit(false), role: 'task' as const, unit: undefined }]) assert.deepEqual(await evaluator.evaluate(request), onRack);
   // A task its policy keeps here is not selected, its merges with it
-  const notSelected = new EligibilityEvaluator(setRule({ ...DEFAULT_RACK_POLICY, defaultMerges: variant('local', null) }, 'rollup', 'local'));
+  const notSelected = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'rollup', 'local'));
   assert.deepEqual(await notSelected.evaluate(unit(true)), { eligible: false, reason: 'not-selected' });
-  // A command's flag selects the task, and its rule still says where its merges run, as it says its size
-  const flagged = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'rollup', 'local', { merges: 'local', size: 'small' }), { selected: true });
-  assert.deepEqual(await flagged.evaluate(unit(false)), { ...onRack, size: 'small' });
-  assert.deepEqual(await flagged.evaluate(unit(true)), local);
-  const flaggedDefault = new EligibilityEvaluator({ ...DEFAULT_RACK_POLICY, defaultMerges: variant('local', null) }, { selected: true });
-  assert.deepEqual(await flaggedDefault.evaluate(unit(true, 'unnamed')), local, 'no rule names it: the default says');
 });
 
 /** The policy release 1.0.107 stored: enabled, automatic, `train_*` on a rack
@@ -435,7 +399,7 @@ it('reads a policy an earlier release stored once the repository\'s upgrade has 
 
   // The local repository's own steps, in order, as an open applies them to a repository an earlier release wrote.
   const storage = new LocalStorage();
-  const names = ['rack-policy-limits', 'rack-policy-weigh-fetch', 'rack-policy-merges', 'rack-policy-keep'];
+  const names = ['rack-policy-limits', 'rack-policy-weigh-fetch', 'rack-policy-merges', 'rack-policy-keep', 'rack-policy-rules'];
   const steps = names.map((name) => storage.upgrades.find((upgrade) => upgrade.name === name));
   assert(steps.every((step) => step !== undefined), 'the local backend ships the steps');
   assert.deepEqual(storage.upgrades.map((upgrade) => upgrade.name).filter((name) => name.startsWith('rack-policy-')), names);
@@ -443,18 +407,14 @@ it('reads a policy an earlier release stored once the repository\'s upgrade has 
   await applyAll();
 
   const expected = { ...DEFAULT_RACK_POLICY, enabled: true, mode: variant('auto', null), defaultSize: variant('xlarge', null),
-    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: false, defaultMerges: variant('rack', null), keep: variant('split', null), rules: [
-      { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true, memoryLimit: none, gpu: false, merges: none },
-      { tasks: 'ingest_*', target: variant('local', null), size: none, timeoutMinutes: none, allowHostCoupled: false, memoryLimit: none, gpu: false, merges: none },
+    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, rules: [
+      { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true, memoryLimit: none, gpu: false },
+      { tasks: 'ingest_*', target: variant('local', null), size: none, timeoutMinutes: none, allowHostCoupled: false, memoryLimit: none, gpu: false },
     ] };
   const policy = await loadPolicy(repo);
-  assert.ok(equalFor(RackPolicyType)(policy, expected),
-    'every rule is kept as it was, with no memory limit, no GPU and no merges of its own; no fetch is weighed, merges run on a rack, and a rack keeps what work wrote for a split task alone');
-  assert.equal(selectTask(policy, 'train_model').merges, 'rack', 'a split task\'s merges run where they ran before the upgrade');
-  assert.equal(readDelegation({ policy }).keepsSession, false, 'and a rack keeps what it kept before the upgrade');
+  assert.ok(equalFor(RackPolicyType)(policy, expected), 'every rule and default is kept as it was, with no memory limit and no GPU');
   // What this release writes is what the last step wrote: its frozen form is this release's type.
-  const written = { ...policy, weighFetch: true, defaultMerges: variant('local', null), keep: variant('session', null),
-    rules: [{ ...policy.rules[0]!, merges: some(variant('rack', null)) }, policy.rules[1]!] };
+  const written = { ...policy, rules: [{ ...policy.rules[0]!, memoryLimit: some(8n * 1024n ** 3n), gpu: true }, policy.rules[1]!] };
   await savePolicy(repo, written);
   await applyAll();
   assert.ok(equalFor(RackPolicyType)(await loadPolicy(repo), written), 'a policy this release wrote is left as it is');

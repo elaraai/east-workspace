@@ -875,8 +875,6 @@ e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 \
 # activation or task readiness.
 e3 rack policy . set 'train_*' rack --size large --gpu
 e3 rack policy . set 'score_*' rack --memory-limit 8G
-e3 rack policy . set 'rollup_*' rack --merges local
-e3 rack policy . defaults --keep session
 e3 dataflow run . dev --rack
 e3 watch src/index.ts . dev --start --rack
 e3 rack list
@@ -917,29 +915,24 @@ of e3's estimate, as a local run reserves it, so it is as wide as a later run,
 and no piece runs first to measure the rest. `--memory-limit` is a ceiling on
 one piece's cap, never a request. `--gpu` asks for a rack's GPU (an `east-py`
 task's).
-A split task's merge and combine units run on the rack with its pieces unless
-its rule says `--merges local`, or the policy's `defaults --merges local` does
-for every rule that names none. Each piece's output comes back here as it
-ends, so a merge run here fetches nothing up the link, where one on the rack
-fetches every piece it merges; it runs under this machine's `-j` / `--memory`
-budget, as a spilled unit does. Keep `--merges rack` for a task whose merges
-need more memory or cores than this machine has. A merge kept here is never a
-rack's work: `--rack-only` and `e3 run --rack` leave it here too, and the run's
-summary does not count it among the work that ran locally.
-A rack that keeps a scope's objects keeps what a split task's pieces made for
-its merges, until the task ends. `e3 rack policy . defaults --keep session`
-keeps what every rack lease of the session made, for the session's later
-tasks: a session is one `e3 dataflow run`, or one `e3 watch --start --rack`
-across its re-runs. A task whose input a rack made earlier in the session is
-offered first to that rack (for up to 5 s) when that rack could run it — its
-tier, and enough cores, memory and GPU — reads its input there rather than
-over the link, and, under a policy that weighs fetches (`defaults
---weigh-fetch`, off unless you turn it on), is weighed as fetching none of it.
-The default is `split`.
-`session` keeps task data on a rack longer: until the run or the watch ends,
-or no lease has used it for an hour (a watch idle that long between edits
-loses the copies, and later work fetches as it would), within the rack's own
-bound on what it keeps; a rack's agent that keeps no scopes is given none.
+A split task's merge and combine units go where its pieces go.
+
+The policy is its rules and the defaults beside them (a size, a timeout,
+spill, the claim timeout, the retry of a task's failures here): what a rack
+keeps is no setting of it. A rack keeps what your hub's tasks read and write —
+the inputs it fetched for them, and what they made — for later tasks of any
+run, for as long as the hub runs (24 hours idle at most), within the rack's own
+bound on what it keeps, encrypted under a key only the running hub holds. So
+an input that did not change crosses the link once, and a task whose input a
+rack fetched or made earlier — in this run, a watch's earlier run, or another
+run of the same hub — is offered first to that rack (for up to 5 s) when that
+rack could run it, and reads its input there. Root on the running worker can
+read what it keeps while the hub runs, as it can a running task's inputs; its
+files, a disk image of it, and anything once the hub has stopped see
+ciphertext, and a restarted hub's racks start again from nothing. A rack whose
+agent keeps split scopes alone keeps a split task's pieces for its merges; one
+that keeps nothing fetches as it would. `--weigh-fetch`, `--merges` and
+`--keep` were removed from `e3 rack policy`, and are refused, saying so.
 `e3 rack list` shows each rack's cores, memory and GPUs, and what is free. A
 run says what happens, and sums its rack work up as it ends:
 

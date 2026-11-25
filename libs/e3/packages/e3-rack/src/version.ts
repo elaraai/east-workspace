@@ -21,6 +21,10 @@ export const E3_RACK_VERSION: string = E3_RELEASE;
  * rack holds; and ends a split scope a session's leases named, so the racks
  * that keep what its leases wrote are told to let it go (`scopes/end`). 7
  * configures the origins beside the advertised one over which a hub spreads
- * its data URLs (`HubConfigType`'s `dataOrigins`).
+ * its data URLs (`HubConfigType`'s `dataOrigins`). 8 answers no fetch cost
+ * (`fetch-costs` is gone: no work is weighed for what it would fetch), and a
+ * session names no scope of its own: a lease names its split task's
+ * execution, or none, and the hub grants a rack that keeps its objects under
+ * its key (`hub-keyed-scopes`) the hub's own scope in its place.
  */
-export const HUB_PROTOCOL = 7;
+export const HUB_PROTOCOL = 8;

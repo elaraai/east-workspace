@@ -26,6 +26,7 @@ import { repoInit } from './repository.js';
 import { RACK_POLICY_KEEP, RackPolicyWithKeepType, rackPolicyKeep } from './rack-policy-keep.js';
 import { RACK_POLICY_LIMITS, rackPolicyFile } from './rack-policy-limits.js';
 import { RACK_POLICY_MERGES, RackPolicyWithMergesType } from './rack-policy-merges.js';
+import { RACK_POLICY_RULES } from './rack-policy-rules.js';
 import { RACK_POLICY_WEIGH_FETCH } from './rack-policy-weigh-fetch.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 
@@ -77,8 +78,8 @@ describe('rack-policy-keep', () => {
   });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it('is the local backend\'s fourth step, after the merges', () => {
-    assert.deepEqual(LOCAL_REPOSITORY_UPGRADES.map(({ name }) => name), [RACK_POLICY_LIMITS, RACK_POLICY_WEIGH_FETCH, RACK_POLICY_MERGES, RACK_POLICY_KEEP]);
+  it('is the local backend\'s fourth step, after the merges and before the rules', () => {
+    assert.deepEqual(LOCAL_REPOSITORY_UPGRADES.map(({ name }) => name), [RACK_POLICY_LIMITS, RACK_POLICY_WEIGH_FETCH, RACK_POLICY_MERGES, RACK_POLICY_KEEP, RACK_POLICY_RULES]);
   });
 
   it('carries a policy in the form that says where merges run into this form, everything as it was, kept for a split task alone', async () => {

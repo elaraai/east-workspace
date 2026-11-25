@@ -1700,3 +1700,60 @@ Each wire changed under this rule, with the kind it is.
     feature, so an agent from before it is given every URL on the advertised
     origin, and an agent that names it, under a source from before it, is
     told of none and fetches from the source's origin alone.
+- **e3-rack's `RackPolicyType` loses `weighFetch`, `defaultMerges` and
+  `keep`, and `RackRuleType` `merges`; hub control protocol 8; and a rack's
+  `hub-keyed-scopes`** — three wires, none package-borne:
+  - Stored state, of a local repository's own layout: its rack policy,
+    `rack/policy.beast2`. The policy is its rules (`tasks`, `target`, `size`,
+    `timeoutMinutes`, `allowHostCoupled`, `memoryLimit`, `gpu`) and its
+    defaults (`enabled`, `mode`, `defaultSize`, `defaultTimeoutMinutes`,
+    `spill`, `claimTimeoutSeconds`, `retryTaskFailuresLocally`) alone. The
+    policy's header names the whole policy type, so one an earlier release
+    stored does not decode under the new type, and the release ships the
+    local backend's fifth step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+    `storage/local/rack-policy-rules.ts`): `rack-policy-rules` rewrites the
+    file in the form `rack-policy-keep` writes, which runs before it, into the
+    new one, every rule and default as it was, and lets the four fields go:
+    no work is weighed for what it would fetch, a split task's merges run
+    where its pieces do, and what a rack keeps is no policy's (below). The
+    four earlier steps are released and stay as they are, so a repository
+    release 1.0.107 wrote takes all five in order on its next open, and one
+    release 1.0.117 wrote takes this one alone. A repository with no policy
+    file is left without one; a file in no form the steps know is left as it
+    is, and a read refuses it as before, naming its reset. The step's written
+    form is frozen in e3-core (`RackPolicyRulesType`) and held to
+    `RackPolicyType` by the rack package's own test, over the policy release
+    1.0.107 stored, carried through every step; e3-core's own test carries a
+    policy of release 1.0.117's form through it too. An earlier release
+    refuses a repository that has had the step, naming this release. `e3 rack
+    policy` refuses `--weigh-fetch`, `--no-weigh-fetch`, `--merges` and
+    `--keep`, with any verb, saying each was removed, and `show` no longer
+    prints them.
+  - What a hub and the e3 processes of its machine exchange over its socket:
+    `POST /v1/sessions/:id/fetch-costs` and its types (`FetchCostRequestType`,
+    `FetchCostResultType`) are gone, and with them the hub's link meter; and a
+    session names no scope of its own on a lease (`RackSession.sessionScope`
+    is gone): a unit's lease names its split task's execution, and a whole
+    task's none. So hub control protocol moves from 7 to 8 (`HUB_PROTOCOL`), in
+    one step for both. It is negotiated exactly: an e3 that finds a hub of
+    protocol 7 asks it to drain and runs locally that once, as for any older
+    number. `POST /v1/sessions/:id/scopes/end` stays, for split scopes.
+  - What a rack's agent and its source exchange, as JSON, so rack protocol 3
+    keeps its number. A rack's report may name `hub-keyed-scopes`
+    (`RACK_HUB_KEYED_SCOPES`): it keeps a hub's objects for the hub's life,
+    encrypted under a key the hub gives it. To such a rack, over a TLS
+    listener, a hub grants every task's and unit's lease with its own scope
+    in the lease's `scope` (`{ "id", "feeds": true, "keyed": true }`, one id
+    for the hub's process; a call's lease names none), in place of any split
+    scope, and every heartbeat's answer carries the scope's key in
+    `x-e3-rack-hub-key` (`RACK_HUB_KEY_HEADER`: `{ "id", "key" }`, 32 bytes of
+    base64, the hub's in-memory secret's HMAC of the rack's id; read with
+    `readRackHubKey`). An answer with no key, or another id, tells the rack it
+    holds the key of no scope it kept, which it deletes. The key is never
+    logged, stored, or put in a lease's event. A rack that does not name the
+    feature is granted split scopes as before (`split-scopes`), or none; a
+    rack that names it, under a hub from before it, is never told a key or a
+    keyed scope, and keeps split scopes as before. `keyed` is a field a
+    reader from before it does not read, and only a rack that names the
+    feature is ever granted it. The hub's own scope is never named in
+    `x-e3-rack-scopes-ended`: it ends with the hub.

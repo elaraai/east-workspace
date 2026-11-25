@@ -332,7 +332,7 @@ program
       .option('--rack', 'Delegate eligible tasks to this machine\'s enrolled rack')
       .option('--no-rack', 'Run locally even when the repository rack policy is enabled')
       .option('--rack-only', 'Wait for rack capacity instead of spilling locally; an unhealthy rack is given two minutes, and a failed transfer one more lease, before work runs locally. ' +
-        'Work the policy keeps here, such as a split task\'s merges under --merges local, still runs here')
+        'Work the policy keeps here still runs here')
       .action(withDefaultRepo(startCommand))
   );
 
@@ -356,9 +356,8 @@ program
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr)")
   .option(...JOBS)
   .option(...MEMORY)
-  .option('--rack', "Run the task's body on this machine's enrolled rack, whatever the rack policy selects (a rule that names the task still sizes it, and a split task's merges run where its --merges says)")
-  .option('--rack-only', 'Wait for rack capacity instead of running locally when the racks are full; an unhealthy rack is given two minutes, and a failed transfer one more lease, before the task runs locally. ' +
-    'A split task\'s merges under --merges local still run here')
+  .option('--rack', "Run the task's body on this machine's enrolled rack, whatever the rack policy selects (a rule that names the task still sizes it)")
+  .option('--rack-only', 'Wait for rack capacity instead of running locally when the racks are full; an unhealthy rack is given two minutes, and a failed transfer one more lease, before the task runs locally')
   .action(runCommand);
 
 // ---------------------------------------------------------------------------
@@ -471,7 +470,7 @@ program
   .option('--start', 'Execute dataflow after each deploy')
   .option('--rack', 'Delegate eligible tasks to this machine\'s enrolled rack (requires --start)')
   .option('--no-rack', 'Run locally even when the repository rack policy is enabled')
-  .option('--rack-only', 'Wait for rack capacity instead of spilling locally (requires --start); work the policy keeps here, such as a split task\'s merges under --merges local, still runs here')
+  .option('--rack-only', 'Wait for rack capacity instead of spilling locally (requires --start); work the policy keeps here still runs here')
   .option(...SCHEMA)
   .option(...INPUTS)
   .option(...JOBS)
