@@ -347,7 +347,12 @@ export interface StudioNamespace {
     visual: typeof StudioVisuals;
     /** The pages record's value: every page and template a solution ships in it, each built as every write builds an entry ({@link studioPagesValue}). */
     value: typeof studioPagesValue;
-    /** The pages record's migration steps, in order: `migration.rows("cell_content", Studio.migrations.cellContent)`, then `migration.rows("entry_fields", Studio.migrations.entryFields)` ({@link StudioMigrations}). */
+    /**
+     * The pages record's migration steps ({@link StudioMigrations}). A record lists the ones it has not applied:
+     * `migration.rows("entry_fields", Studio.migrations.entryFields)` alone where it was first declared once a placement held
+     * content, and after `migration.rows("cell_content", Studio.migrations.cellContent)` where it lists that step or still
+     * holds the form before it.
+     */
     migrations: typeof StudioMigrations;
     /** `<Studio.Builder>` — the builder: the open page's canvas, the palette and the inspector beside it, and the publish preview. */
     Builder: typeof StudioBuilder;

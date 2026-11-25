@@ -17,7 +17,7 @@
 import { beforeEach } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import {
-    East, NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf,
+    East, NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, none, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";

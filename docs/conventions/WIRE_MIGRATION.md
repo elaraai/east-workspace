@@ -1734,11 +1734,15 @@ Each wire changed under this rule, with the kind it is.
   …)`, its types frozen copies (`e3-ui`'s `studio/migrations.ts`) — which a
   deploy runs, giving each entry its fields from its key and its layout and no
   tags. e3 runs the steps a record has not applied, by name, so a record lists
-  the step after the steps it listed before and no others: after
-  `cell_content` where it listed that step, and alone where it never listed
-  one. A record first declared once a placement held content has applied none,
-  and listing `cell_content` on it has the deploy refused: that step takes a
-  form the record never held. A record declared at the new type without the
+  the steps it has not applied and no others: `entry_fields` alone where it
+  was first declared once a placement held content, and after `cell_content`
+  where it lists that step or still holds the form before it, a placement a
+  component's key — a record whose solution skipped the release that shipped
+  `cell_content`. A record first declared at the content form has applied
+  none, and listing `cell_content` on it has the deploy refused: that step
+  takes a form the record never held. Listing `entry_fields` alone on a record
+  still at the form before it is refused the same way, the workspace keeping
+  what it held. A record declared at the new type without the
   step is refused, where it is declared if it lists `cell_content` alone, else
   at the deploy, the workspace keeping what it held. A seed
   written by hand writes the new form, or `Studio.value`, which builds it.

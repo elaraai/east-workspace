@@ -263,10 +263,9 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     // drafts in place).
     const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.draft.cells), [entry]);
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
-    // The open entry's name, as the record lists it: what the page library and the Pages tab show it by. The layouts
-    // the builder makes of it keep its layout's own title.
-    const title = entry === undefined ? "" : entry.title;
-    const layoutTitle = entry === undefined ? "" : entry.draft.title;
+    // The open page's title: its layout's, which every write of an entry keeps the entry's own title at (`studioEntry`).
+    // So what the preview names the page by is what its publish lists it under.
+    const title = entry === undefined ? "" : entry.draft.title;
 
     // ── The page's starting filters (#1673) ─────────────────────────────
     // What every reader of the page starts with, as its draft saved them, and as the builder draws them: one history over
@@ -724,9 +723,9 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const summary = useMemo(() => (entry === undefined ? undefined
         // A template is not published: it is given no published version, whatever its entry holds.
         : east.publishSummary(components, sourceNames, entry.kind.type === "template" ? none : entry.live,
-            { title: layoutTitle, cells: [...cells], filters: [...starting.drafted] }, { title: layoutTitle, cells: [...saved], filters: [...savedFilters] },
+            { title, cells: [...cells], filters: [...starting.drafted] }, { title, cells: [...saved], filters: [...savedFilters] },
             entry.kind.type === "template")),
-    [east, components, sourceNames, entry, layoutTitle, cells, saved, starting.drafted, savedFilters]);
+    [east, components, sourceNames, entry, title, cells, saved, starting.drafted, savedFilters]);
     const preview = useMemo(() => (summary === undefined ? undefined : {
         project: open.project,
         title,

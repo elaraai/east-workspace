@@ -42,9 +42,12 @@ import { Editing, Reactive, Text, UIComponentType } from "@elaraai/east-ui/inter
 import { Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
 import { Studio, StudioKeyType, StudioPagesType, nameWriteRefusal, publishRefusal } from "@elaraai/e3-ui/internal";
 
+import { assertEntry, pageEntry, tagged, templateEntry } from "./entries.js";
+
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
+type Page = ValueTypeOf<typeof Studio.Types.Page>;
 
 const keys = compareFor(StudioKeyType);
 const sameEntry = equalFor(Studio.Types.Entry);
@@ -74,22 +77,19 @@ const revenueTrendFn = East.function([], UIComponentType, (_$) => Text.Root("Rev
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" }, kpiRailFn);
 const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n }, revenueTrendFn);
 
+/** The Overview's layout: a KPI rail over a trend. */
+const OVERVIEW: Page = {
+    title: "Overview",
+    cells: [
+        { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+        { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+    ],
+    filters: [],
+};
+
 /** The pages record, holding the Overview — never published — and its one write. */
 const pages = e3.record("pages", StudioPagesType, {
-    initial: Studio.value([
-        {
-            key: OVERVIEW_KEY,
-            tags: ["weekly"],
-            draft: {
-                title: "Overview",
-                cells: [
-                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-                ],
-                filters: [],
-            },
-        },
-    ]),
+    initial: Studio.value([{ key: OVERVIEW_KEY, tags: ["weekly"], draft: OVERVIEW }]),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -166,7 +166,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal(published.live.value.version, 1n);
         assert.ok(sameLayout(published.live.value.page, published.draft));
         // A publish writes the published version alone: the page's fields are as its seed gave them.
-        assert.deepEqual([published.project, published.title, [...published.tags]], ["ops", "Overview", ["weekly"]]);
+        assertEntry(published, pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")), "the published page");
 
         // A save, then a revert back to version 1's layout.
         const edited: Entry = { ...published, draft: { ...published.draft, cells: published.draft.cells.slice(1) } };
@@ -327,13 +327,9 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal((await commit(newPage(await current(), detailKey, "Detail", some(templateKey)), "ana")).kind, "committed");
 
         const now = await current();
-        const template = now.get(templateKey)!;
-        const detail = now.get(detailKey)!;
-        if (template.kind.type !== "template" || detail.kind.type !== "page") assert.fail("expected a template and a page");
-        // Each holds its key's project and its layout's title, and neither the tags of the page it came from.
-        assert.deepEqual([template.project, template.title, [...template.tags], template.live.type], ["ops", "Overview layout", [], "none"]);
-        assert.deepEqual([detail.project, detail.title, [...detail.tags], detail.live.type], ["ops", "Detail", [], "none"]);
-        assert.ok(sameLayout(detail.draft, { title: "Detail", cells: template.draft.cells, filters: template.draft.filters }));
+        // Each holds its key's project and its layout's title, and neither the tags of the page it came from: the entry whole.
+        assertEntry(now.get(templateKey), templateEntry(templateKey, { title: "Overview layout", cells: OVERVIEW.cells, filters: [] }), "the template");
+        assertEntry(now.get(detailKey), pageEntry(detailKey, { title: "Detail", cells: OVERVIEW.cells, filters: [] }), "the page from it");
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, 3, "the deploy's commit and one each");
     });
 
@@ -375,13 +371,12 @@ describe("the pages record in e3 (#992)", () => {
         read = await current();
         assert.deepEqual(await create(handle, "Q3 review", some("Overview template")), none, "D5: made");
         const now = await current();
-        const template = now.get({ project: "ops", page: "Overview template" })!;
-        const overview = now.get(OVERVIEW_KEY)!;
-        const review = now.get({ project: "ops", page: "Q3 review" })!;
-        if (template.kind.type !== "template" || overview.kind.type !== "page" || review.kind.type !== "page") assert.fail("expected a template and two pages");
-        assert.ok(sameLayout(template.draft, { title: "Overview template", cells: overview.draft.cells, filters: overview.draft.filters }), "the page as last saved");
-        assert.ok(sameLayout(review.draft, { title: "Q3 review", cells: overview.draft.cells, filters: overview.draft.filters }));
-        assert.deepEqual([review.title, review.live.type], ["Q3 review", "none"]);
+        const reviewKey: Key = { project: "ops", page: "Q3 review" };
+        const review = now.get(reviewKey)!;
+        // The template is the page as last saved, and the page from it a page never published: each entry whole.
+        assertEntry(now.get({ project: "ops", page: "Overview template" }),
+            templateEntry({ project: "ops", page: "Overview template" }, { title: "Overview template", cells: OVERVIEW.cells, filters: [] }), "the template");
+        assertEntry(review, pageEntry(reviewKey, { title: "Q3 review", cells: OVERVIEW.cells, filters: [] }), "the page from it");
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => entry.commit.mutation).slice(0, 2), ["patch", "patch"], "one commit each");
 
