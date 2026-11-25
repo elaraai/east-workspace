@@ -16,7 +16,8 @@
  * - Each is the builder's own row: its surface and its rule, its gutter's rule
  *   and its columns' rules, as the rows it stands for draw them; once the
  *   reveal says so each cell takes its column's shape — the Sheet's by its
- *   column's kind, the Plan's a label bar and the plot's wash under its grid.
+ *   column's kind; the Plan's and the Calendar's a label bar, and one skeleton
+ *   bar across the plot under its grid (#1764).
  * - No caption sits in a gap: the run says nothing but the Sheet's real row
  *   numbers.
  * - Nothing moves when the rows land: the view, the rows' extent, and at the
@@ -63,14 +64,14 @@ const PAGED: readonly Paged[] = [
         // Two thousand presses paged two hundred a window, each a two-line row over the jobs' days.
         builder: "Plan", route: "e3/plan/plan-windows/planWindows", root: "[data-plan-frame]", head: "[data-plan-header]",
         row: "[data-plan-row]", gutter: '[role="rowheader"]', cell: "[data-plan-plot]",
-        shapes: ["label2", "wash"],
+        shapes: ["label2", "rowBar"],
     },
     {
         // The Calendar's timeline over the same two thousand presses, a row each over the jobs' weeks: its name in the
         // sticky resource column, its plot beside it.
         builder: "Calendar", route: "e3/calendar/calendar-windows/calendarWindows", root: "[data-calendar-frame]", head: "[data-calendar-header]",
         row: "[data-calendar-resource-row]", gutter: "[data-calendar-row-head]", cell: "[data-calendar-cell]",
-        shapes: ["label", "wash"],
+        shapes: ["label", "rowBar"],
     },
 ];
 
