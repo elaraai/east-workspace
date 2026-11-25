@@ -103,11 +103,10 @@ indexes: (index) => ({
     pages_by_kind_tag:     index.on(["kind", "tags"]),
     pages_by_kind_title:   index.on(["kind", "title"]),
 }),
-migrations: (migration) => [
-    migration.rows("cell_content", Studio.migrations.cellContent),
-    migration.rows("entry_fields", Studio.migrations.entryFields),
-],
+migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 ```
+
+A record lists the step after the steps it listed before, and no others: alone where it never listed one, and after `cell_content` where it listed that step. e3 runs the steps a record has not applied, so listing `cell_content` on a record that never did has the deploy refused.
 
 An index on a Set field files a row once under each of its values, as the Roster files a person under each skill.
 

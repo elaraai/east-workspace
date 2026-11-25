@@ -19,7 +19,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    East, SortedSet, StringType, applyFor, compareFor, equalFor, none, parseJq, printFor, some, variant,
+    East, SortedMap, SortedSet, StringType, applyFor, compareFor, equalFor, none, parseJq, printFor, some, variant,
     type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 
@@ -139,6 +139,21 @@ describe("Studio writes (#992)", () => {
         const renamed = Studio.value([{ key: OVERVIEW_KEY, draft: { ...EDITED, title: "Overview, drafted" }, live: { version: 1n, page: OVERVIEW } }]);
         assert.equal(renamed.get(OVERVIEW_KEY)?.title, "Overview, drafted");
         assertEntry(applyPages(renamed, revert(renamed, OVERVIEW_KEY)).get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW })));
+    });
+
+    test("#1759: a publish builds the entry whole, as every write that builds one does — a project and a title a writer of the solution's own left apart from the entry's key and its layout are put back", () => {
+        // An entry as a seed written by hand, or a reducer of the solution's own, may leave it: its title and its project
+        // no longer its layout's and its key's.
+        const apart = new SortedMap<Key, Entry>([
+            [OVERVIEW_KEY, { ...pageEntry(OVERVIEW_KEY, OVERVIEW, none, tagged("weekly")), project: "elsewhere", title: "An older name" }],
+        ], compareFor(Studio.Types.Key));
+        assertEntry(applyPages(apart, publish(apart, OVERVIEW_KEY)).get(OVERVIEW_KEY),
+            pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")), "its project is its key's and its title its layout's again");
+        // A revert builds it whole too.
+        const reverting = new SortedMap<Key, Entry>([
+            [OVERVIEW_KEY, { ...pageEntry(OVERVIEW_KEY, EDITED, some({ version: 1n, page: OVERVIEW })), project: "elsewhere" }],
+        ], compareFor(Studio.Types.Key));
+        assertEntry(applyPages(reverting, revert(reverting, OVERVIEW_KEY)).get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW })));
     });
 
     test("R2: a publish drafted before another landed no longer applies", () => {
@@ -353,6 +368,11 @@ describe("Studio.value (#1759)", () => {
         assertEntry(build(TEMPLATE_KEY, variant("template", null), KPIS, none, tagged()), templateEntry(TEMPLATE_KEY, KPIS));
     });
 
+    test("a template has no published version: one built with one is refused, naming it", () => {
+        assert.throws(() => build(TEMPLATE_KEY, variant("template", null), KPIS, some({ version: 1n, page: KPIS }), tagged()),
+            /\(project="ops", page="tpl-kpis"\) is a template, and a template has no published version/);
+    });
+
     test("the record a solution ships is each page and template it writes, by key: a page its draft, its published version and its tags; a template its layout", () => {
         assert.deepEqual([...PAGES.keys()], [OVERVIEW_KEY, TEMPLATE_KEY], "in key order");
         assertEntry(PAGES.get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, none, tagged("weekly")));
@@ -371,5 +391,14 @@ describe("Studio.value (#1759)", () => {
             /Studio\.value: \(project="ops", page="overview"\) has an empty tag — a tag is a word or two to find the entry by/);
         assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW }, { key: OVERVIEW_KEY, template: KPIS }]),
             /Studio\.value: \(project="ops", page="overview"\) is written twice/);
+    });
+
+    test("an entry is a page, with its draft, or a template, with its layout: one written as both, or a template with a published version, is refused — nothing of it is dropped unsaid", () => {
+        // @ts-expect-error — an entry with a `draft` is a page, and a page is written with no `template`
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW, template: KPIS }]),
+            /Studio\.value: \(project="ops", page="overview"\) is written as a page, with a `draft`, and as a template — an entry is one or the other/);
+        // @ts-expect-error — a template is written with no `live` version
+        assert.throws(() => Studio.value([{ key: TEMPLATE_KEY, template: KPIS, live: { version: 1n, page: KPIS } }]),
+            /Studio\.value: \(project="ops", page="tpl-kpis"\) is a template written with a `live` version — a template has no published version/);
     });
 });

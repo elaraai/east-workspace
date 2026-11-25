@@ -377,6 +377,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
         pages_by_kind_tag: index.on(["kind", "tags"]),
         pages_by_kind_title: index.on(["kind", "title"]),
     }),
+    // A record an earlier release wrote, its entries with no fields of their own, is carried by this step — listed
+    // alone: the record never listed one before it.
+    migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 });
 
 
@@ -458,6 +461,9 @@ export const studioConflictPages = e3.record("studio_conflict_pages", Studio.Typ
             }));
         })),
     }),
+    // A record an earlier release wrote, its entries with no fields of their own, is carried by this step — listed
+    // alone: the record never listed one before it.
+    migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 });
 
 /**
@@ -774,6 +780,9 @@ export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.P
         // The record's one write.
         patch: mutation.patch(),
     }),
+    // A record an earlier release wrote, its entries with no fields of their own, is carried by this step — listed
+    // alone: the record never listed one before it.
+    migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 });
 
 export const studioVisuals = example({
@@ -828,6 +837,9 @@ export const studioChartOptionPages = e3.record("studio_chart_option_pages", Stu
         // The record's one write.
         patch: mutation.patch(),
     }),
+    // A record an earlier release wrote, its entries with no fields of their own, is carried by this step — listed
+    // alone: the record never listed one before it.
+    migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 });
 
 export const studioChartOptions = example({
@@ -909,6 +921,9 @@ export const studioClickPages = e3.record("studio_click_pages", Studio.Types.Pag
         // The record's one write.
         patch: mutation.patch(),
     }),
+    // A record an earlier release wrote, its entries with no fields of their own, is carried by this step — listed
+    // alone: the record never listed one before it.
+    migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 });
 
 export const studioClicks = example({

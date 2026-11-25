@@ -1795,11 +1795,16 @@ Each wire changed under this rule, with the kind it is.
   own, declared at e3-ui's type, and one an earlier release wrote is carried
   by that record's own migration: the release ships the step,
   `Studio.migrations.entryFields` — listed as `migration.rows("entry_fields",
-  …)` after `cell_content`, its types frozen copies (`e3-ui`'s
-  `studio/migrations.ts`) — which a deploy runs, giving each entry its fields
-  from its key and its layout and no tags; a record declared at the new type
-  without it is refused, where it is declared if it lists `cell_content`
-  alone, else at the deploy, the workspace keeping what it held. A seed
+  …)`, its types frozen copies (`e3-ui`'s `studio/migrations.ts`) — which a
+  deploy runs, giving each entry its fields from its key and its layout and no
+  tags. e3 runs the steps a record has not applied, by name, so a record lists
+  the step after the steps it listed before and no others: after
+  `cell_content` where it listed that step, and alone where it never listed
+  one. A record first declared once a placement held content has applied none,
+  and listing `cell_content` on it has the deploy refused: that step takes a
+  form the record never held. A record declared at the new type without the
+  step is refused, where it is declared if it lists `cell_content` alone, else
+  at the deploy, the workspace keeping what it held. A seed
   written by hand writes the new form, or `Studio.value`, which builds it.
   The type travels in the builder's, the page library's and the page's
   payloads — the bound record's `read`, and the record's value a page is

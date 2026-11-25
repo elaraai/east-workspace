@@ -141,6 +141,17 @@ describe("the pages record's migration steps, as a record declares them (#1669, 
         assert.ok(isTypeEqual(pages.type, Studio.Types.Pages));
     });
 
+    test("a record that never listed the first step — one first declared once a placement held content — lists the second alone, which leaves the type the Studio reads", () => {
+        const pages = e3.record("pages_one_step", Studio.Types.Pages, {
+            initial: Studio.value([]),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+            migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
+        });
+        assert.ok(isTypeEqual(pages.type, Studio.Types.Pages));
+    });
+
     test("a record that lists the first step alone is refused where it is declared: that step leaves the type the release before read", () => {
         assert.throws(() => e3.record("pages_first_step", Studio.Types.Pages, {
             initial: Studio.value([]),

@@ -238,12 +238,12 @@ describe("<Studio.Library> — the surface (#997)", () => {
             }),
         });
         assert.deepEqual(Object.keys(pages.indexes).sort(), [...INDEXES]);
-        const surface = ui("library_rail_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const components = $.let([revenueTrend, kpiRail]);
-            const record = $.let(Record.bind(pages));
+        // What the rail narrows by is checked where it is built, against the entry's fields and the record's indexes —
+        // over the paged source alone: the record is read through its indexes, never whole beside them.
+        const rail = (search: readonly string[]) => () => East.function([], StringType, ($) => {
             const slice = $.let(Slice.bindRecords("library.rail", {
                 rows: {
-                    source: Data.bindPaged(pages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+                    source: Data.bindPaged(pages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: ["page"] }, search: [...search] as ("title" | "project" | "tags")[],
                     fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } },
                 },
                 templates: {
@@ -251,12 +251,11 @@ describe("<Studio.Library> — the surface (#997)", () => {
                     fields: { title: { label: "Name" } },
                 },
             }));
-            // What the rail narrows by is checked where the page is built, against the entry's fields and the record's indexes.
-            $(slice.key);
-            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
-            return Studio.Library({ pages: record, components, project: "ops", onOpen: go });
-        }))));
-        assert.deepEqual(surface.role.value!.records, ["library_rail_pages"]);
+            return slice.key;
+        });
+        assert.doesNotThrow(rail(["title", "project", "tags"]));
+        // A field no index is led by under the scope is refused there, naming it.
+        assert.throws(rail(["kind"]), /kind/);
     });
 
     test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project, the open page its host gives it and who it tells of another; no page given marks none", () => {
