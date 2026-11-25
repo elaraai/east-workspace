@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio and Query Libraries Spec</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600&family=Chivo+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column for prose, a wider track for tables and frame schematics; each schematic scrolls inside itself. */
+:root {
+  --bg: #F3F6F8; --surface: #FFFFFF; --sunk: #E9EEF2; --ink: #14202B; --muted: #566473; --line: #D2DAE1;
+  --accent: #0D6C68; --accent-soft: #DBEFED; --on-accent: #FFFFFF;
+  --gone: #AE382E; --gone-soft: #FBE8E5; --new: #1C7446; --new-soft: #E0F2E7; --warn: #7F5300; --warn-soft: #FAEFD6;
+  --code: #EEF2F5; --wf: #FAFBFC; --wf-line: #BFC9D2; --chip: #E4EAEF;
+  /* The East design system's own tokens, for the filter mocks only */
+  --d-ink: #111b22; --d-ink-3: #4a5f5f; --d-ink-4: #5d7171; --d-paper: #ffffff; --d-paper-2: #f8fafa; --d-paper-3: #f1f5f5;
+  --d-rule: #e2e8e8; --d-rule-strong: #cbd5d5; --d-brand-d: #3a7780; --d-brand-dd: #2b4b55; --d-brand-tint: #e8f6f7;
+  --d-body: "Inter Tight", system-ui, sans-serif; --d-mono: "Chivo Mono", ui-monospace, Menlo, Consolas, monospace;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --text: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E141A; --surface: #161F28; --sunk: #101820; --ink: #E6ECF1; --muted: #9AA8B5; --line: #2A3743;
+    --accent: #58C8C1; --accent-soft: #123E3C; --on-accent: #0E141A;
+    --gone: #F08C81; --gone-soft: #3D1C19; --new: #80D4A1; --new-soft: #143423; --warn: #E8BC62; --warn-soft: #382B0E;
+    --code: #101A22; --wf: #131C24; --wf-line: #384652; --chip: #223040;
+    --d-ink: #f1f5f5; --d-ink-3: #aec3c3; --d-ink-4: #96acac; --d-paper: #1a2626; --d-paper-2: #253333; --d-paper-3: #2e3f3f;
+    --d-rule: #374848; --d-rule-strong: #4a5f5f; --d-brand-d: #65b2bd; --d-brand-dd: #81ccd5; --d-brand-tint: #1f363d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E141A; --surface: #161F28; --sunk: #101820; --ink: #E6ECF1; --muted: #9AA8B5; --line: #2A3743;
+  --accent: #58C8C1; --accent-soft: #123E3C; --on-accent: #0E141A;
+  --gone: #F08C81; --gone-soft: #3D1C19; --new: #80D4A1; --new-soft: #143423; --warn: #E8BC62; --warn-soft: #382B0E;
+  --code: #101A22; --wf: #131C24; --wf-line: #384652; --chip: #223040;
+    --d-ink: #f1f5f5; --d-ink-3: #aec3c3; --d-ink-4: #96acac; --d-paper: #1a2626; --d-paper-2: #253333; --d-paper-3: #2e3f3f;
+    --d-rule: #374848; --d-rule-strong: #4a5f5f; --d-brand-d: #65b2bd; --d-brand-dd: #81ccd5; --d-brand-tint: #1f363d;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--text); font-size: 15px; line-height: 1.55; }
+.page { max-width: 1080px; margin: 0 auto; padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 44px; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(26px, 4.2vw, 38px); font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 23px; font-weight: 600; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0; max-width: 70ch; }
+ul.plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+.eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 17px; max-width: 66ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+
+/* Tables */
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); background: var(--sunk); }
+tr:last-child td { border-bottom: 0; }
+td.k { font-weight: 600; white-space: nowrap; }
+td.id { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+/* Code */
+pre { margin: 0; overflow-x: auto; background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
+pre .n { background: var(--new-soft); color: var(--new); border-radius: 3px; padding: 0 2px; }
+pre .c { color: var(--muted); }
+
+/* Frame schematics */
+.wf { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 14px; }
+.wf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.frame { min-width: 980px; border: 1px solid var(--wf-line); background: var(--wf); font-size: 11.5px; line-height: 1.3; color: var(--ink); }
+.tb { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--wf-line); min-height: 28px; }
+.sp { flex: 1; }
+.ctl, .chip, .find, .prim { display: inline-flex; align-items: center; height: 22px; white-space: nowrap; }
+.ctl { padding: 0 8px; border: 1px solid var(--wf-line); border-radius: 4px; background: var(--surface); }
+.prim { padding: 0 10px; border-radius: 4px; background: var(--accent); color: var(--on-accent); font-weight: 500; }
+.find { padding: 0 10px; border: 1px solid var(--wf-line); border-radius: 4px; background: var(--surface); color: var(--muted); min-width: 170px; }
+.chip { padding: 0 9px; border-radius: 11px; background: var(--chip); }
+.chip.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.src { font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding-left: 4px; }
+.count { color: var(--muted); padding: 0 4px; white-space: nowrap; }
+.fbody { display: flex; min-height: 280px; }
+.pane { width: 196px; flex: none; border-right: 1px solid var(--wf-line); display: flex; flex-direction: column; }
+.pane.end { border-right: 0; border-left: 1px solid var(--wf-line); width: 210px; }
+.tabs { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--wf-line); align-items: flex-end; }
+.tabs i { font-style: normal; padding: 4px 7px; color: var(--muted); border-bottom: 2px solid transparent; }
+.tabs i.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.tabs .col { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--muted); padding: 4px 4px 6px; }
+.plist { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.card { border: 1px solid var(--wf-line); border-radius: 4px; padding: 5px 7px; background: var(--surface); display: flex; gap: 7px; align-items: center; }
+.card small { display: block; color: var(--muted); font-size: 10.5px; }
+.thumb { width: 26px; height: 20px; border-radius: 3px; background: var(--chip); flex: none; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.trow { display: grid; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--wf-line); align-items: center; }
+.trow.h { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--sunk); }
+.trow.sel { background: var(--accent-soft); }
+.trow b { font-weight: 600; }
+.trow small { display: block; color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow > span { min-width: 0; }
+.cols-s { grid-template-columns: 2.4fr 1.2fr 1.5fr 0.9fr 1.1fr; }
+.cols-q { grid-template-columns: 2.4fr 1fr 0.6fr 1.4fr 0.9fr 1.1fr; }
+.tg { display: inline-flex; align-items: center; height: 17px; padding: 0 6px; border-radius: 4px; background: var(--chip); font-size: 10.5px; margin-right: 3px; }
+.act { color: var(--accent); font-weight: 500; white-space: nowrap; }
+.tfoot { margin-top: auto; padding: 5px 10px; border-top: 1px solid var(--wf-line); color: var(--muted); }
+.kv { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.kv div { display: flex; flex-direction: column; gap: 3px; }
+.kv small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); }
+.preview { height: 64px; border-radius: 4px; background: var(--chip); display: flex; flex-direction: column; gap: 4px; padding: 7px; justify-content: center; }
+.preview u { display: block; height: 7px; border-radius: 2px; background: var(--wf-line); text-decoration: none; }
+.num { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); color: var(--bg); font-family: var(--mono); font-size: 9.5px; font-weight: 500; flex: none; }
+ol.legend { margin: 0; padding-left: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 8px 22px; font-size: 13.5px; counter-reset: l; }
+ol.legend li { counter-increment: l; display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+ol.legend li::before { content: counter(l); display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--ink); color: var(--bg); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; }
+
+/* Decisions */
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.dec { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dec .id { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: 0.05em; }
+.dec p { font-size: 14px; }
+.rec { font-size: 13.5px; border-left: 3px solid var(--accent); padding-left: 10px; }
+.rec b { color: var(--accent); }
+ol.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 78ch; }
+ol.steps li { padding-left: 4px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Filter mocks: the design system's rail chip, popover, search pill, menu rows and segment group */
+.cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.cmpcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ds { background: var(--d-paper-2); border: 1px solid var(--d-rule-strong); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; color: var(--d-ink); font-family: var(--d-body); font-size: 13px; line-height: 1.3; min-width: 0; }
+.ds-k { font-family: var(--d-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--d-ink-4); }
+.ds-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ds-af { display: inline-flex; align-items: center; gap: 4px; color: var(--d-ink-4); }
+.ds-ch { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--d-rule-strong); border-radius: 4px; background: var(--d-paper); font-family: var(--d-mono); font-size: 11px; font-weight: 500; line-height: 1; color: var(--d-ink); white-space: nowrap; }
+.ds-ch.br { background: var(--d-brand-tint); border-color: var(--d-brand-d); color: var(--d-brand-dd); }
+.ds-ch .me { color: var(--d-ink-3); font-variant-numeric: tabular-nums; }
+.ds-ch .x { align-self: stretch; width: 20px; margin-right: -8px; display: inline-flex; align-items: center; justify-content: center; color: var(--d-brand-d); }
+.ds-pop { width: 100%; max-width: 320px; box-sizing: border-box; display: flex; flex-direction: column; background: var(--d-paper); border: 1px solid var(--d-rule-strong); border-radius: 6px; }
+.ds-pop .hd { display: flex; align-items: center; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--d-rule); font-family: var(--d-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; }
+.ds-pop .cls { margin-left: auto; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; color: var(--d-ink-3); font-size: 14px; }
+.ds-pop .bd { display: flex; flex-direction: column; gap: 12px; padding: 12px; min-width: 0; }
+.ds-pop .ft { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--d-rule); background: var(--d-paper-2); border-radius: 0 0 5px 5px; }
+.ds-hint { font-family: var(--d-mono); font-size: 10px; line-height: 1.4; color: var(--d-ink-3); }
+.ds-ecap { font-family: var(--d-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--d-ink-4); }
+.ds-sp { height: 28px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; border: 1px solid var(--d-rule-strong); border-radius: 6px; background: var(--d-paper); font-family: var(--d-mono); font-size: 11px; color: var(--d-ink); }
+.ds-sp svg { color: var(--d-ink-4); flex: none; }
+.ds-sp .q { flex: 1; min-width: 0; }
+.ds-sp .ph { color: var(--d-ink-4); }
+.ds-sp .kh { height: 20px; min-width: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; background: var(--d-paper-2); border: 1px solid var(--d-rule-strong); border-radius: 4px; color: var(--d-ink-3); }
+.ds-sp.fo { box-shadow: 0 0 0 3px color-mix(in oklch, var(--d-brand-d) 35%, transparent); }
+.ds-menu { border: 1px solid var(--d-rule-strong); border-radius: 6px; background: var(--d-paper); padding: 4px 0; margin-top: -8px; display: flex; flex-direction: column; }
+.ds-list { border: 1px solid var(--d-rule); border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
+.ds-mi { height: 32px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; }
+.ds-mi.hv { background: var(--d-paper-2); }
+.ds-mi .ct { margin-left: auto; font-family: var(--d-mono); font-size: 11px; color: var(--d-ink-3); font-variant-numeric: tabular-nums; }
+.ds-list .ds-mi + .ds-mi { border-top: 1px solid var(--d-rule); }
+.ds-list .more { padding: 6px 12px; border-top: 1px solid var(--d-rule); background: var(--d-paper-2); }
+.ds-bx { width: 14px; height: 14px; box-sizing: border-box; flex: none; border: 1px solid var(--d-rule-strong); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: var(--d-paper); color: var(--d-paper); }
+.ds-bx.on { background: var(--d-brand-d); border-color: var(--d-brand-d); }
+.ds-sg { display: inline-flex; height: 24px; box-sizing: border-box; border: 1px solid var(--d-rule-strong); border-radius: 6px; background: var(--d-paper); overflow: hidden; }
+.ds-sg span { display: inline-flex; align-items: center; padding: 0 8px; font-family: var(--d-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; line-height: 1; color: var(--d-ink-4); }
+.ds-sg span + span { border-left: 1px solid var(--d-rule-strong); }
+.ds-sg span.on { background: var(--d-brand-tint); color: var(--d-brand-dd); }
+.ds-gh { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--d-ink-3); }
+.ds-pop.lg { max-width: 360px; }
+.ds-pop .hd .ac { color: var(--d-brand-dd); }
+.ds-pop .bd.acc { gap: 0; padding: 8px 12px; }
+.ds-grp { display: flex; align-items: center; gap: 6px; padding: 4px 0 6px; font-family: var(--d-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--d-ink-4); }
+.ds-grp .ct { margin-left: auto; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--d-ink-3); }
+.ds-ar { display: flex; align-items: center; gap: 8px; min-height: 32px; border-top: 1px solid var(--d-rule); font-size: 12.5px; }
+.ds-ar svg { flex: none; color: var(--d-ink-4); }
+.ds-ar .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-ar .lb.on { font-weight: 500; }
+.ds-ch.cp { height: 18px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; padding: 0 6px; }
+.ds-ac { display: flex; flex-direction: column; gap: 10px; padding: 2px 0 12px 16px; min-width: 0; }
+.ds-stat { padding: 8px 0 2px; border-top: 1px solid var(--d-rule); }
+.ds-bt { height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--d-brand-d); color: var(--d-paper); font-size: 12.5px; font-weight: 500; }
+.ds-pop .ft .acts { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header style="display:flex;flex-direction:column;gap:14px">
+    <div class="eyebrow">e3-ui · design spec · approved 25 Nov 2026 · read against main v1.0.117</div>
+    <h1>The Studio and Query libraries: a table, the family's Library pane, and tags</h1>
+    <p class="lede"><code>&lt;Studio.Library&gt;</code> and <code>&lt;Query.Library&gt;</code> today are galleries of large cards beside a fixed pane. This version makes each one the table people already know from <code>&lt;Record&gt;</code>, with the same Library pane and rail every other builder-frame component has.</p>
+  </header>
+
+  <section>
+    <h2>Status</h2>
+    <ul class="plain">
+      <li><b>Approved 25 Nov 2026</b>, and built under one epic, in the order at the foot of this page. The rules and what each piece owes are in <code>Studio and Query Libraries Spec.md</code>, beside this file.</li>
+      <li><b>The left pane is the family's Library pane.</b> Tabs of cards, listed by a <code>library</code> prop, as in Roster, Calendar, Plan and Sheet. Project and Data source are fields on the rail and columns of the table, never lists in the pane.</li>
+      <li><b>The main area is a table, not a gallery.</b> One row a page or a query, read a window at a time. A gallery of wireframe cards shows eight or so at once and has nowhere to put what a person filters by.</li>
+      <li><b>Tags are a field to filter by</b>, and the rail's editor for a set field takes several values. Who created a page or a query is not in this design.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="wf-head"><h2>Studio.Library</h2><span class="muted">Schematic, not to scale</span></div>
+    <div class="wf"><div class="frame">
+      <div class="tb">
+        <span class="num">1</span><span class="src">Pages</span><span class="chip on">Project: Ops console</span><span class="chip on">Tag: weekly</span><span class="chip">Updated</span><span class="count">12 of 214 pages</span>
+        <span class="find">Search pages by title…</span>
+        <span class="sp"></span>
+        <span class="prim">+ New page</span>
+      </div>
+      <div class="fbody">
+        <div class="pane">
+          <div class="tabs"><span class="num">2</span><i class="on">Templates</i><span class="col">collapse</span></div>
+          <div class="plist">
+            <div class="find" style="min-width:0">Search 9 templates…</div>
+            <div class="card"><span class="thumb"></span><span>Blank grid</span></div>
+            <div class="card"><span class="thumb"></span><span>KPI board<small>KPI ×4 · Column chart</small></span></div>
+            <div class="card"><span class="thumb"></span><span>Weekly review<small>Summary table · Text</small></span></div>
+            <div class="card"><span class="thumb"></span><span>Region drill<small>Bar chart · Records</small></span></div>
+          </div>
+        </div>
+        <div class="main">
+          <div class="trow h cols-s"><span><span class="num">3</span> Name</span><span>Project</span><span>Tags</span><span>Updated</span><span></span></div>
+          <div class="trow cols-s sel"><span><b>Overview</b><small>7 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">exec</span></span><span>2 days ago</span><span class="act"><span class="num">5</span> Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Regions</b><small>4 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span>5 days ago</span><span class="act">Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Returns</b><small>5 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">quality</span></span><span>12 Nov</span><span class="act">Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Carrier scorecard</b><small>9 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span>3 Nov</span><span class="act">Open in builder</span></div>
+          <div class="tfoot">Rows 1 to 12 of 12</div>
+        </div>
+        <div class="pane end">
+          <div class="tabs"><span class="num">4</span><i class="on">Details</i><span class="col">collapse</span></div>
+          <div class="kv">
+            <div class="preview"><u style="width:45%"></u><u></u><u style="width:70%"></u></div>
+            <div><small>Title</small>Overview</div>
+            <div><small>Tags</small><span><span class="tg">weekly</span><span class="tg">exec</span><span class="tg">+ Add</span></span></div>
+            <div><small>Updated</small>2 days ago</div>
+            <div><span class="ctl" style="align-self:flex-start">Open in builder</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <ol class="legend">
+      <li><span><b>The rail</b> is the Slice's: Project, Tag and the Updated range as chips, each with its counts, and <code>N of M</code>. Search finds by the start of a title.</span></li>
+      <li><span><b>The Library pane</b> is the one every builder has. Its tabs are what <code>library</code> lists. Templates are things to start from: a click opens New page with that template picked.</span></li>
+      <li><span><b>The table</b> is the <code>&lt;Record&gt;</code> table: rows read a window at a time as it scrolls, counts from e3, and on a phone the Name column pinned.</span></li>
+      <li><span><b>Details</b> is the selected row: its layout's wireframe, its title and its tags, edited here and saved through the record. Shown when <code>inspector</code> is given.</span></li>
+      <li><span><b>Open in builder</b>, and Enter on a row, call <code>onOpen</code> and do nothing else. Clicking a row selects it.</span></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Query.Library</h2>
+    <div class="wf"><div class="frame">
+      <div class="tb">
+        <span class="src">Queries</span><span class="chip on">Data source: orders</span><span class="chip">Tag</span><span class="chip">Saved</span><span class="count">31 of 480 queries</span>
+        <span class="find">Search queries by name…</span>
+        <span class="sp"></span>
+        <span class="prim">+ New query on orders</span>
+      </div>
+      <div class="fbody">
+        <div class="pane">
+          <div class="tabs"><i class="on">Data sources</i><i>Recent</i><span class="col">collapse</span></div>
+          <div class="plist">
+            <div class="card"><span class="thumb"></span><span>orders<small>48,310 rows · 31 queries</small></span></div>
+            <div class="card"><span class="thumb"></span><span>customers<small>1,204 rows · 9 queries</small></span></div>
+            <div class="card"><span class="thumb"></span><span>forecast<small>one value · 8 queries</small></span></div>
+          </div>
+        </div>
+        <div class="main">
+          <div class="trow h cols-q"><span>Name</span><span>Data source</span><span>Steps</span><span>Tags</span><span>Saved</span><span></span></div>
+          <div class="trow cols-q"><span><b>Late lines</b><small>Order lines shipped after their promise date</small></span><span>orders</span><span>4</span><span><span class="tg">service</span></span><span>12 Nov</span><span class="act">Open in builder</span></div>
+          <div class="trow cols-q sel"><span><b>Revenue by channel</b><small>Total revenue for each channel</small></span><span>orders</span><span>2</span><span><span class="tg">finance</span><span class="tg">weekly</span></span><span>last week</span><span class="act">Open in builder</span></div>
+          <div class="trow cols-q"><span><b>Top shipped orders</b><small>The 20 largest orders shipped this year</small></span><span>orders</span><span>3</span><span><span class="tg">service</span></span><span>2 days ago</span><span class="act">Open in builder</span></div>
+          <div class="tfoot">Rows 1 to 31 of 31</div>
+        </div>
+        <div class="pane end">
+          <div class="tabs"><i class="on">Details</i><span class="col">collapse</span></div>
+          <div class="kv">
+            <div class="preview"><u style="width:40%"></u><u></u></div>
+            <div><small>Description</small>Total revenue for each channel</div>
+            <div><small>Tags</small><span><span class="tg">finance</span><span class="tg">weekly</span><span class="tg">+ Add</span></span></div>
+            <div><span class="ctl" style="align-self:flex-start">Open in builder</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <p>The same frame. The Data sources tab holds what a new query starts on: a click asks the host for a new query on that source. Recent holds this viewer's runs. A query whose data sources are not bound here still says why on its row, and does not open.</p>
+  </section>
+
+  <section>
+    <h2>Why a table</h2>
+    <ul class="plain">
+      <li><b>People know it.</b> It is the table every <code>&lt;Record&gt;</code> draws, with the same rail, the same search and the same Details pane. Nothing here is a control of the library's own.</li>
+      <li><b>It scales.</b> Rows are read a window at a time, so 20 pages and 20,000 behave alike, and the counts come from e3. Today both libraries read the whole record into the browser.</li>
+      <li><b>It has room for what you filter by.</b> Tags, the data source and the date sit in columns, where a card had a title and one line.</li>
+      <li><b>The wireframes are kept where they help:</b> on the Templates cards, and as the preview in Details.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Tags</h2>
+    <p>A tag is text a person gives a page or a query. Each row holds a set of them.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Part</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Stored</td><td><code>tags: Set&lt;String&gt;</code> on the page and on the saved query.</td></tr>
+          <tr><td class="k">Indexed</td><td><code>index.on(["tags"])</code>. An index on a Set field files a row once for each tag, the way the Roster files a person under each skill.</td></tr>
+          <tr><td class="k">Filtered</td><td>A Tag chip on the rail. Its editor is the next section: today's, and the one proposed.</td></tr>
+          <tr><td class="k">Shown</td><td>A Tags column in the table.</td></tr>
+          <tr><td class="k">Edited</td><td>In Details, and in the query builder's Save popover beside the name and description. A save is one patch through the record, like any other edit.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Who created a row is not in this design. If it is wanted later, e3 already records who made each commit; a row would need that written onto it to be filtered by.</p>
+  </section>
+
+  <section>
+    <div class="wf-head"><h2>The Tag filter: today and proposed</h2><span class="muted">Drawn with the design system's own tokens and parts</span></div>
+    <p>This is the rail's editor for any field that is a set: tags here, and a person's skills on the Roster. The change is to the shared rail, so every set field gets it.</p>
+    <div class="cmp">
+      <div class="cmpcol">
+        <div class="ds">
+          <span class="ds-k">Today · on the rail</span>
+          <div class="ds-line">
+            <span class="ds-af"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M1 2h10L7.5 6.5V10l-3 1V6.5z" fill="currentColor"/></svg><span class="ds-ch br">Tag <svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span>
+            <span class="ds-hint">reads "Tag includes weekly"</span>
+          </div>
+          <span class="ds-k">Today · its editor, with "we" typed</span>
+          <div class="ds-pop">
+            <div class="hd"><span>Tag</span><span class="cls">×</span></div>
+            <div class="bd">
+              <span class="ds-hint">Includes one value</span>
+              <span class="ds-sp fo"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="q">we</span><span class="kh">×</span></span>
+              <div class="ds-menu">
+                <span class="ds-mi hv">weekly<span class="ct">12</span></span>
+                <span class="ds-mi">weekend<span class="ct">3</span></span>
+                <span class="ds-mi">web<span class="ct">1</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <ul class="plain">
+          <li><b>One tag at a time.</b> Picking another replaces the first.</li>
+          <li><b>Nothing to browse.</b> The list shows only as you type, eight matches at most.</li>
+          <li>The × in the box clears the choice. There is no Clear row.</li>
+        </ul>
+      </div>
+      <div class="cmpcol">
+        <div class="ds">
+          <span class="ds-k">Proposed · on the rail</span>
+          <div class="ds-line">
+            <span class="ds-af"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M1 2h10L7.5 6.5V10l-3 1V6.5z" fill="currentColor"/></svg><span class="ds-ch br">Tag <svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span>
+            <span class="ds-hint">reads "Tag includes any of weekly, exec"</span>
+          </div>
+          <span class="ds-k">Proposed · its editor</span>
+          <div class="ds-pop">
+            <div class="hd"><span>Tag</span><span class="cls">×</span></div>
+            <div class="bd">
+              <div class="ds-line"><span class="ds-ch br">weekly<span class="x">×</span></span><span class="ds-ch br">exec<span class="x">×</span></span></div>
+              <div class="ds-line"><span class="ds-ecap">Match</span><span class="ds-sg"><span class="on">Any</span><span>All</span></span><span class="ds-hint">Includes any of 2 values</span></div>
+              <span class="ds-sp"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="q ph">Search tag…</span><span class="kh">/</span></span>
+              <div class="ds-list">
+                <span class="ds-mi"><span class="ds-bx on"><svg viewBox="0 0 12 10" width="9" height="8" aria-hidden="true"><path d="M1 5l3.5 3.5L11 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>exec<span class="ct">4</span></span>
+                <span class="ds-mi"><span class="ds-bx"></span>finance<span class="ct">9</span></span>
+                <span class="ds-mi"><span class="ds-bx"></span>quality<span class="ct">3</span></span>
+                <span class="ds-mi"><span class="ds-bx"></span>regional<span class="ct">5</span></span>
+                <span class="ds-mi"><span class="ds-bx on"><svg viewBox="0 0 12 10" width="9" height="8" aria-hidden="true"><path d="M1 5l3.5 3.5L11 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>weekly<span class="ct">12</span></span>
+                <span class="more ds-hint">5 of 20 tags · scroll for the rest</span>
+              </div>
+            </div>
+            <div class="ft"><span class="ds-gh">× Clear tag</span></div>
+          </div>
+        </div>
+        <ul class="plain">
+          <li><b>Several tags.</b> Each is a brand chip with its ×, the chip the rail already uses for a chosen value.</li>
+          <li><b>Any or All.</b> The rail's small segment switch, shown once two are chosen. Any is the default.</li>
+          <li><b>A list to browse.</b> Every tag with its count, read a window at a time as it scrolls. The search box narrows it.</li>
+          <li><b>Clear tag</b> at the foot, as every other field has.</li>
+        </ul>
+      </div>
+    </div>
+    <p>Nothing here is a new kind of control. The chip, the switch, the search box, the checkbox rows (the ones a phone's Filters view draws) and Clear are all parts the rail has now. A choice still applies as it is made, with no Apply button, and each count is still the rows that tag would give under the other fields' choices.</p>
+    <p>A set field whose values are listed as chips, rather than searched, gets the same: several chips can be on, with the same Any · All switch.</p>
+    <h3>In the combined popover</h3>
+    <p>When the toolbar is short of room the rail's chips fold into one Filters chip. It opens one popover with a row for each field, one open at a time, and the open row shows that field's own editor. A set field's editor goes there unchanged, so the proposal appears the same way.</p>
+    <div class="cmp">
+      <div class="cmpcol">
+        <div class="ds">
+          <span class="ds-k">Today · Filters, with Tag open</span>
+          <div class="ds-pop lg">
+            <div class="hd"><span>Narrowing · <span class="ac">2 active</span></span><span class="cls">×</span></div>
+            <div class="bd acc">
+              <div class="ds-grp"><span>Pages</span><span class="ct">12 of 214</span></div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb on">Project: Ops console</span><span class="ds-ch br cp">Applied</span></div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb on">Tag includes weekly</span><span class="ds-ch br cp">Applied</span></div>
+              <div class="ds-ac">
+                <span class="ds-hint">Includes one value</span>
+                <span class="ds-sp"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="q">weekly</span><span class="kh">×</span></span>
+              </div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb">Updated</span></div>
+            </div>
+            <div class="ft"><span class="ds-gh">× Clear all</span><span class="acts"><span class="ds-bt">Done</span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="cmpcol">
+        <div class="ds">
+          <span class="ds-k">Proposed · Filters, with Tag open</span>
+          <div class="ds-pop lg">
+            <div class="hd"><span>Narrowing · <span class="ac">2 active</span></span><span class="cls">×</span></div>
+            <div class="bd acc">
+              <div class="ds-grp"><span>Pages</span><span class="ct">16 of 214</span></div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb on">Project: Ops console</span><span class="ds-ch br cp">Applied</span></div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb on">Tag includes any of weekly, exec</span><span class="ds-ch br cp">Applied</span></div>
+              <div class="ds-ac">
+                <div class="ds-line"><span class="ds-ch br">weekly<span class="x">×</span></span><span class="ds-ch br">exec<span class="x">×</span></span></div>
+                <div class="ds-line"><span class="ds-ecap">Match</span><span class="ds-sg"><span class="on">Any</span><span>All</span></span></div>
+                <span class="ds-sp"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="q ph">Search tag…</span><span class="kh">/</span></span>
+                <div class="ds-list">
+                  <span class="ds-mi"><span class="ds-bx on"><svg viewBox="0 0 12 10" width="9" height="8" aria-hidden="true"><path d="M1 5l3.5 3.5L11 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>exec<span class="ct">4</span></span>
+                  <span class="ds-mi"><span class="ds-bx"></span>finance<span class="ct">9</span></span>
+                  <span class="ds-mi"><span class="ds-bx"></span>quality<span class="ct">3</span></span>
+                  <span class="more ds-hint">3 of 20 tags · scroll for the rest</span>
+                </div>
+                <div class="ds-line"><span class="ds-gh">× Clear tag</span></div>
+              </div>
+              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb">Updated</span></div>
+            </div>
+            <div class="ft"><span class="ds-gh">× Clear all</span><span class="acts"><span class="ds-bt">Done</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><b>The row</b> says what the field holds, as today: "Tag includes weekly" becomes "Tag includes any of weekly, exec", or "all of". A long list of tags is cut by the row, with the whole on hover, as any long label is now.</li>
+      <li><b>The list keeps to a few rows</b> and scrolls inside its section, so opening Tag does not push the other fields and the foot out of the popover.</li>
+      <li><b>No list drops over the popover.</b> Today the matches open as a dropdown on top of it; proposed, they are rows inside the section.</li>
+      <li><b>On a phone</b> the Filters view is the same model: one 44px row a field, reading "Tag · weekly, exec · Applied", with the editor under the open row. Its values are already drawn there as 44px checkbox rows, which is the list proposed here.</li>
+    </ul>
+
+    <h3>What it takes underneath</h3>
+    <ul class="plain">
+      <li><b>The narrowing holds several values and the match.</b> Today a set field holds one. A narrowing that is saved, such as a Sheet's saved views, is carried to the new form.</li>
+      <li><b>Reads that count a row once.</b> A row with two of the chosen tags sits under both in the index. Any merges the tags' rows so each comes once; All keeps the rows under every chosen tag. The <code>N of M</code> count is of those rows.</li>
+      <li><b>A field's values as a paged list.</b> Today the rail can ask for eight values by their start. The list needs every value with its count, a window at a time.</li>
+    </ul>
+    <p class="muted">These are changes to the shared record read, not to the libraries, so they are their own pieces of the epic.</p>
+  </section>
+
+  <section>
+    <h2>What you write</h2>
+    <p class="muted">Green is proposed. The rest is today's API, as the Roster and Record examples use it.</p>
+<pre><span class="c">// The page library</span>
+const pages     = $.let(Record.bind(d.pages));
+<span class="n">const rows      = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title", "pages_by_kind_updated_at"] }));</span>
+<span class="n">const slice = $.let(Slice.bindRecords("ops.library", {
+    rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, range: "updated_at", search: ["title", "project", "tags"],
+                 fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" }, updated_at: { label: "Updated" } } },
+    templates: { source: rows, label: "Templates", scope: { kind: ["template"] }, search: ["title"], fields: { title: { label: "Name" } } },
+}));</span>
+return &lt;Studio.Library <span class="n">id="ops"</span> pages={pages} <span class="n">slice={{ slice }}</span>
+    <span class="n">library={[Studio.library.templates()]}</span> <span class="n">inspector</span>
+    page={open.read()} onOpen={go} /&gt;;
+
+<span class="c">// The query library</span>
+const saved = $.let(Record.bind(d.queries));
+<span class="n">const rows  = $.let(Data.bindPaged(d.queries, { indexes: ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] }));</span>
+<span class="n">const slice = $.let(Slice.bindRecords("analysis.library", {
+    rows: { source: rows, label: "Queries", range: "saved_at", search: ["name", "sources", "tags"],
+            fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } } },
+}));</span>
+return &lt;Query.Library id="analysis" queries={saved} datasets={{ orders, customers, forecast }} <span class="n">slice={{ slice }}</span>
+    <span class="n">library={[Query.library.datasets(), Query.library.recent()]}</span> <span class="n">inspector</span>
+    query={open.read()} onOpen={go} /&gt;;</pre>
+    <p><code>library</code> and <code>inspector</code> are the family's props and mean what they mean there: the tabs listed, in order, and no pane when left out. <code>Studio.library.tab(rows, …)</code> and <code>Query.library.tab(rows, …)</code> add a tab of the app's own.</p>
+  </section>
+
+  <section>
+    <h2>The rules</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td class="id">L1</td><td>Each library is laid out by <code>BuilderFrame</code>: one toolbar, the Library pane, the table as main, Details as the end pane. It draws no border.</td></tr>
+          <tr><td class="id">L2</td><td><code>library</code> lists the Library pane's tabs. Left out or empty, there is no pane. <code>inspector</code> shows Details.</td></tr>
+          <tr><td class="id">L3</td><td>Each pane collapses to its rail, floats over the table in a narrow frame, and is a strip tab on a phone. The frame keeps the viewer's choice under <code>id</code>.</td></tr>
+          <tr><td class="id">L4</td><td><code>slice</code> is <code>Slice.bindRecords</code>. Its <code>rows</code> source is the table's rows; a source a tab names narrows that tab's cards.</td></tr>
+          <tr><td class="id">L5</td><td>Rows are read a window at a time, in the order e3 returns them. Counts come from e3.</td></tr>
+          <tr><td class="id">L6</td><td>Clicking a row selects it. Open in builder on the row or in Details, and Enter, call <code>onOpen</code> in a turn of its own and do nothing else.</td></tr>
+          <tr><td class="id">L7</td><td>A card of a tab starts something: a template a new page, a data source a new query, a recent run that run. Each tells the host through <code>onOpen</code>, once there is something to open.</td></tr>
+          <tr><td class="id">L8</td><td>Tags are edited in Details and saved through the record's patch.</td></tr>
+          <tr><td class="id">L9</td><td>Nothing in the page library says Live or Draft.</td></tr>
+          <tr><td class="id">L10</td><td>A new page, once it commits, is told to the host, so its builder opens it. Today it is not.</td></tr>
+          <tr><td class="id">L11</td><td>New query follows the rail. With one data source chosen it reads "New query on orders" and starts on it. With none or several chosen it reads "New query" and opens a menu of the bound data sources. Today it falls back to the first bound source.</td></tr>
+          <tr><td class="id">L12</td><td>New page follows the rail the same way: it names the one project chosen, and otherwise its popover asks for the project beside the name and the template.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the two records need</h2>
+    <p>The table's columns and the rail's fields are fields of the record's rows, and a field the rail filters by is one an index is led by. Neither record has them today.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Record</th><th>Today</th><th>Needs</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Saved queries</td><td>Rows are structs with <code>name</code>, <code>description</code>, <code>saved_at</code>. The data source is inside the query's <code>root</code> list.</td><td><code>sources</code>, the names of the data sources it reads, and <code>tags</code>: each a set of text.</td></tr>
+          <tr><td class="k">Pages</td><td>Each entry is a variant, <code>page</code> or <code>template</code>, keyed by <code>{ project, page }</code>. It has no fields to show in a column or to index.</td><td>Each entry a struct with <code>kind</code> (page or template), <code>project</code>, <code>title</code>, <code>tags</code> and <code>updated_at</code> (none until its first Save after the migration). Templates stay in this record, told apart by <code>kind</code>: a migration step changes one record, so a deploy could not move them into another.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Both are changes to a stored form. Each ships a migration step, and Studio and Query ship the index declarations an app adds to its record. The builders write these records too, so their writes change shape with them.</p>
+  </section>
+
+  <section>
+    <h2>What is lost</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Goes</th><th>What stands in its place</th></tr></thead>
+        <tbody>
+          <tr><td>The gallery of large wireframe cards</td><td>The table. The wireframe is in Details, and on the Templates cards.</td></tr>
+          <tr><td>The pane's Projects and Pages lists, and Data sources as a filter list</td><td>Project and Data source as chips on the rail and columns in the table.</td></tr>
+          <tr><td>Sort: Z to A, Recent first</td><td>The order e3 pages the rows in. The rail's Updated and Saved ranges find recent work.</td></tr>
+          <tr><td>Search over any part of a title, name or description</td><td>Search by the start of a title, a name, a project, a source or a tag.</td></tr>
+          <tr><td>Dragging a query's card onto the builder</td><td>Open in builder. A table row is not dragged.</td></tr>
+          <tr><td>Live and Draft in the page library</td><td>Nothing.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rulings</h2>
+    <ul class="plain">
+      <li>The table is the main area; the two records change, each with a migration step.</li>
+      <li>Live and Draft go from the page library only. The pages record keeps its draft and its live version, and the builder keeps Publish.</li>
+      <li>The Tag filter above is the rail's editor for every set field, and is part of the same epic.</li>
+      <li>Who created a page or a query is out.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>The epic, in the order it lands</h2>
+    <ol class="steps">
+      <li><b>The saved queries record.</b> <code>sources</code> and <code>tags</code> on a saved query, the index declarations, the migration step. The query builder's Save writes them, and its Save popover takes tags.</li>
+      <li><b>The pages record.</b> Each entry a struct with <code>kind</code>, <code>project</code>, <code>title</code>, <code>tags</code> and <code>updated_at</code>, the index declarations, the migration step. The Studio builder's writes follow.</li>
+      <li><b>The query library.</b> Swapped whole: the frame, the Library pane, the table, the rail, Details and tags.</li>
+      <li><b>The page library.</b> The same, with Live and Draft gone and a new page told to the host.</li>
+      <li><b>The set filter.</b> Several values with Any · All, the browsable list, and the reads under them, in the shared rail.</li>
+      <li><b>Examples and skills.</b> The examples, the e3-ui skill, the showcase.</li>
+    </ol>
+    <p class="muted">Each library is swapped in one step, once its record has the fields, so there is no stage where a library has lost its filters. Until step 5 the Tag chip works as today: one tag at a time. Steps 3 and 4 build on the Record table, so they follow the open Record pull requests rather than change the same files beside them.</p>
+  </section>
+
+</div>
+
+</body>
+</html>

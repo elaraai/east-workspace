@@ -9,7 +9,8 @@
  * patch, the data sources read off their bindings, the open query its host
  * gives it and who it tells of another (#1668) — and its surface's manifest,
  * which is the record, its patch and each bound source, and nothing of its
- * own (L7); and `Query.open`, which builds the open query a host holds.
+ * own (L7); `Query.open`, which builds the open query a host holds; and the
+ * rail a page narrows the saved queries by, over the record's indexes (#1758).
  */
 
 import { describe, test } from "node:test";
@@ -20,6 +21,7 @@ import {
     toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { DatasetStatusType, RecordCommitInfoType, TreePathType } from "@elaraai/e3-types";
+import { Slice } from "@elaraai/east-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { Data, Query, Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
@@ -181,8 +183,29 @@ describe("<Query.Library> (#1063)", () => {
         assert.ok(paths(manifest.paths, [ex.customers.path, recordPath]), "the value source, and the record");
     });
 
-    test("the public Query namespace is the two components a solution mounts, the queries it ships, the open query a host holds and their types; the carrier and its payload are the internal one's", () => {
-        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "value", "open", "Types"]);
+    test("#1758: the saved queries narrow through the record's indexes — a rail over Data source and Tag, the Saved range, and a search by the start of a name, a data source or a tag", () => {
+        const INDEXES = ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] as const;
+        assert.deepEqual(Object.keys(ex.queries.indexes).sort(), [...INDEXES].sort(), "the examples' record declares the four");
+        const railed = () => ui("query_library_rail", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const saved = $.let(Record.bind(ex.queries));
+            const orders = $.let(Data.bindPaged(ex.orders));
+            const slice = $.let(Slice.bindRecords("queries.library", {
+                rows: {
+                    source: Data.bindPaged(ex.queries, { indexes: [...INDEXES] }), label: "Queries", range: "saved_at", search: ["name", "sources", "tags"],
+                    fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } },
+                },
+            }));
+            // What the rail narrows by is checked where the page is built, against the record's fields and its indexes.
+            $(slice.key);
+            return Query.Library({ queries: saved, datasets: { orders }, onOpen: heard });
+        }))));
+        const manifest = railed().role.value!;
+        assert.deepEqual(manifest.records, ["queries"]);
+    });
+
+    test("the public Query namespace is the two components a solution mounts, the queries it ships, the open query a host holds, its record's migration steps and their types; the carrier and its payload are the internal one's", () => {
+        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "value", "open", "migrations", "Types"]);
+        assert.deepEqual(Object.keys(Query.migrations), ["sourcesAndTags"]);
         assert.ok(isTypeEqual(Query.Types.Open, QueryOpenType));
         assert.equal(QueryInternal.Library, Query.Library);
         assert.equal(QueryInternal.LibraryComponent, QueryLibraryComponent);

@@ -23,27 +23,19 @@
  * is refused where the record is declared, with no deploy: e3-ui's
  * `test/studio/migrations.spec.ts` holds it.
  *
- * e3 runs a record's program on the east-c it finds, else on east-node, which
- * this package holds; whichever it finds is held to this checkout's build
- * (`testing/runners.ts`).
+ * Each test deploys to a local repository of its own, on a runner held to this
+ * checkout's build (`testing/record-deploy.ts`).
  */
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import {
     DictType, Expr, SortedMap, compareFor, equalFor, none, some, variant,
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import type { RecordPlan } from '@elaraai/e3-types';
-import {
-    LocalStorage, LocalTaskRunner, RecordDeployRefusedError, packageImport, recordHistory, repoInit, workspaceCreate, workspaceDeploy, workspaceGetDataset,
-} from '@elaraai/e3-core';
 import { Studio } from '@elaraai/e3-ui';
-import { assertThisTreesRunner, runnerFile } from './testing/runners.js';
+import { assertRefusedWithoutStep, recordDeploy } from './testing/record-deploy.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
 
@@ -121,73 +113,24 @@ const withoutStep = () => e3.package('studio', '2.0.1', e3.record('pages', Studi
     mutations: (mutation) => ({ patch: mutation.patch() }),
 }));
 
-/** Where the spec's repositories are made: where e3 looks a runner up from, beside the working directory. */
-const REPO_AT = join(tmpdir(), 'e3-ui-studio-migration', 'repo');
-
 describe('the Studio\'s pages record through a deploy (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
-    const storage = new LocalStorage();
-    let scratch: string;
-    let repo: string;
-    let runner: LocalTaskRunner;
-    let made = 0;
-
-    before(() => {
-        // A record's program runs on the east-c e3 finds, else on east-node: each one it finds is this checkout's.
-        const node = runnerFile('east-node', REPO_AT);
-        if (node === null) assert.fail('e3 finds no east-node, which this package\'s node_modules/.bin holds: run the spec from the package');
-        assertThisTreesRunner('east-node', node, REPO_AT);
-        const c = runnerFile('east-c', REPO_AT);
-        if (c !== null) assertThisTreesRunner('east-c', c, REPO_AT);
-        scratch = mkdtempSync(join(tmpdir(), 'e3-ui-studio-migration-'));
-    });
-
-    after(() => {
-        if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
-    });
-
-    beforeEach(async () => {
-        repo = join(scratch, `repo-${made++}`);
-        mkdirSync(repo);
-        repoInit(repo);
-        runner = new LocalTaskRunner(repo);
-        await workspaceCreate(storage, repo, 'main');
-        await deploy(before1());
-    });
-
-    /** Export, import and deploy a package to the workspace, on the runner; the plan it made for each record. */
-    async function deploy(pkg: ReturnType<typeof before1> | ReturnType<typeof withStep>): Promise<RecordPlan[]> {
-        const zip = join(scratch, `${pkg.name}-${pkg.version}-${made}.zip`);
-        await e3.export(pkg, zip);
-        await packageImport(storage, repo, zip);
-        const plans: RecordPlan[] = [];
-        await workspaceDeploy(storage, repo, 'main', pkg.name, pkg.version, { runner, onRecordPlan: (plan) => plans.push(plan) });
-        return plans;
-    }
-
-    /** The names of the record's commits, newest first. */
-    const history = async () => (await recordHistory(storage, repo, 'main', 'pages')).map((entry) => entry.commit.mutation);
+    // A repository a test, its workspace on the release a workspace was on.
+    const suite = recordDeploy('studio-migration', before1);
 
     it('M1: a deploy carries the pages a workspace held — one step, one commit, every placement its component\'s content', async () => {
-        const plans = await deploy(withStep('2.0.0'));
+        const plans = await suite.deploy(withStep('2.0.0'));
         assert.deepEqual(plans, [{ record: 'records/pages', action: variant('migrate', { steps: ['cell_content'] }) }]);
-        assert.equal((await history())[0], '$migrate:cell_content');
+        assert.equal((await suite.history('pages'))[0], '$migrate:cell_content');
 
-        const carried = await workspaceGetDataset(storage, repo, 'main', pagesPath) as Pages;
+        const carried = await suite.read(pagesPath) as Pages;
         assert.ok(samePages(carried, CARRIED), 'every placement holds its component as content, in the drafts, the live version and the template, its layout and title as they were');
 
         // The step is applied once: the next deploy of the release keeps the record.
-        assert.deepEqual((await deploy(withStep('2.0.2'))).map((plan) => plan.action.type), ['keep']);
-        assert.ok(samePages(await workspaceGetDataset(storage, repo, 'main', pagesPath) as Pages, CARRIED));
+        assert.deepEqual((await suite.deploy(withStep('2.0.2'))).map((plan) => plan.action.type), ['keep']);
+        assert.ok(samePages(await suite.read(pagesPath) as Pages, CARRIED));
     });
 
     it('M2: the record at the new type without its step is refused, naming what changed, and the workspace keeps what it held', async () => {
-        const held = await history();
-        await assert.rejects(deploy(withoutStep()), (err: unknown) => {
-            assert.ok(err instanceof RecordDeployRefusedError);
-            assert.match(err.message, /record 'records\/pages' changed type with no migration/);
-            assert.match(err.message, /Declare a migration for it/);
-            return true;
-        });
-        assert.deepEqual(await history(), held, 'nothing was written');
+        await assertRefusedWithoutStep(suite, withoutStep(), 'pages');
     });
 });

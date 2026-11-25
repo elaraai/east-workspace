@@ -1764,3 +1764,24 @@ Each wire changed under this rule, with the kind it is.
   output is not stored state, and a column from data reads and writes a
   field the app's record already holds, as it holds it, so no repository
   upgrade step ships with it.
+- **e3-ui's saved queries hold the names of the data sources they read, and
+  their tags (#1758)** — an application's record, and package-borne.
+  `Query.Types.SavedQuery` gains `tags` after `description` and `sources`
+  after `root`, each a set of text: what a person tagged the query, and the
+  names of its root, which every write gives through one function. A saved
+  queries record is an application's own, declared at e3-ui's type, and one an
+  earlier release wrote is carried by that record's own migration, as with any
+  record whose type an application changes: the release ships the step,
+  `Query.migrations.sourcesAndTags` — listed as `migration.rows("sources_and_tags",
+  …)`, its types frozen copies (`e3-ui`'s `query/migrations.ts`) — which a
+  deploy runs, giving each query its root's names and no tags; a record
+  declared at the new type without it is refused at the deploy, the workspace
+  keeping what it held. The type travels in the query builder's and the query
+  library's payloads — the bound record's `read`, and `Query.Types.Open`, whose
+  `new` case holds a saved query — so a UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. What a browser kept
+  of the earlier form — this viewer's recent runs, each a saved query as East
+  prints it, and the open query of a builder that holds its own — does not
+  read under the new type, and is nothing kept: the recent runs start empty,
+  and such a builder opens a new query on its first data source.

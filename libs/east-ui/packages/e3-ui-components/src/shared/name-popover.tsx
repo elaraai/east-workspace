@@ -15,10 +15,11 @@
  * of its Save as cohort: the name field with its hint — help while the name
  * is missing, the field's error while its host holds it — and Cancel and
  * the named commit in the foot, both Default, the commit disabled while a
- * hint shows and loading while the write runs. ⏎ in the name commits — the
- * form's own submission, through its commit — and a field its host adds
- * commits by submitting the form (`requestSubmit`); Esc, ×, a click outside
- * and Cancel close it. It is never a modal: the design system's one modal is
+ * hint shows and loading while the write runs. ⏎ in the name commits, as a
+ * field its host adds does: by submitting the form (`requestSubmit`), through
+ * its commit — said by the field, so it holds however many fields its host
+ * puts under the name, and a key that ends an input method's composition is
+ * the composition's. Esc, ×, a click outside and Cancel close it. It is never a modal: the design system's one modal is
  * a confirmation step, not a form.
  *
  * It says no words of its own: its host passes each one, from its own message
@@ -31,7 +32,7 @@
  * @packageDocumentation
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { SliceEditPopover, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 
@@ -99,6 +100,12 @@ export function NamePopover(props: NamePopoverProps) {
 
     const trimmed = name.trim();
     const isTaken = trimmed !== "" && taken.has(trimmed);
+    // ⏎ in the name submits the form, whose commit checks the name.
+    const onNameKey = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        e.currentTarget.form?.requestSubmit();
+    };
     const submit = async () => {
         if (trimmed === "" || isTaken || busy) return;
         setBusy(true);
@@ -139,7 +146,7 @@ export function NamePopover(props: NamePopoverProps) {
                     <chakra.input id={`${id}-name`} css={input} value={name} placeholder={placeholder} aria-label={placeholder}
                         autoComplete="off" autoFocus aria-invalid={isTaken ? true : undefined}
                         aria-describedby={trimmed === "" || isTaken ? `${id}-hint` : undefined}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} />
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} onKeyDown={onNameKey} />
                     {trimmed === "" && <Box as="span" id={`${id}-hint`} css={edit.hint}>{missing}</Box>}
                     {isTaken && <Box as="span" id={`${id}-hint`} css={edit.hintError}>{nameTaken(trimmed)}</Box>}
                     {nameHelp !== undefined && trimmed !== "" && !isTaken && <Box as="span" css={edit.hint}>{nameHelp}</Box>}

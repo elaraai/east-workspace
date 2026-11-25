@@ -14,8 +14,9 @@ import { DataSourceType } from "../bind/sources.js";
 import { nameWriteRefusal } from "../studio/library.js";
 import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType, QueryResultViewType, QueryViewType } from "./builder.js";
 import { QueryLibrary, QueryLibraryComponent, QueryLibraryPayloadType } from "./library.js";
+import { QueryMigrations } from "./migrations.js";
 import { QueryOpenType, openOnSource, queryOpen } from "./open.js";
-import { QueriesHandleType, QueryRootBoundType, rootBound, saveQuery } from "./queries.js";
+import { QueriesHandleType, QueryRootBoundType, querySources, queryTags, rootBound, saveQuery } from "./queries.js";
 import { savedQueriesValue } from "./saved.js";
 import {
     QueryAggregateType,
@@ -55,10 +56,13 @@ export {
     QueriesHandleType,
     QueryRootBoundType,
     SavedQueriesPatchType,
+    querySources,
+    queryTags,
     rootBound,
     saveQuery,
     type QueriesHandle,
 } from "./queries.js";
+export { QueryMigrations, SavedQueryV1Type, sourcesAndTags, type QueryMigrationsNamespace } from "./migrations.js";
 export { savedQueriesValue, type SavedQueryInput } from "./saved.js";
 export {
     QueryBuilder,
@@ -123,6 +127,8 @@ export interface QueryNamespace {
     value: typeof savedQueriesValue;
     /** Builds the query open in a builder: `Query.open.saved(name)`, a saved query, or `Query.open.on(source)`, a new query on a data source ({@link queryOpen}). */
     open: typeof queryOpen;
+    /** The saved queries record's migration steps: `migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)` ({@link QueryMigrations}). */
+    migrations: typeof QueryMigrations;
     /** The query builder's East types. */
     Types: QueryTypes;
 }
@@ -150,15 +156,17 @@ const types: QueryTypes = {
 /**
  * The query builder and the query library — the components a solution mounts
  * (`<Query.Builder>`, `<Query.Library>`), and the East types it declares its
- * saved queries record with (`Query.Types`), and its value, the queries it
- * ships in it (`Query.value`), and the query open in a builder, which its
- * host holds (`Query.open`).
+ * saved queries record with (`Query.Types`), its value, the queries it
+ * ships in it (`Query.value`), the steps that carry a record an earlier
+ * release wrote (`Query.migrations`), and the query open in a builder, which
+ * its host holds (`Query.open`).
  */
 export const Query: QueryNamespace = {
     Builder: QueryBuilder,
     Library: QueryLibrary,
     value: savedQueriesValue,
     open: queryOpen,
+    migrations: QueryMigrations,
     Types: types,
 };
 
@@ -169,6 +177,10 @@ export const Query: QueryNamespace = {
 export interface QueryInternalNamespace extends Omit<QueryNamespace, "Types"> {
     /** Saves a query — the patch of the entries it writes ({@link saveQuery}). */
     save: typeof saveQuery;
+    /** The names of the data sources a saved query reads — what its `sources` holds ({@link querySources}). */
+    sources: typeof querySources;
+    /** A saved query's tags as they are kept: each without the spaces around it, and none empty ({@link queryTags}). */
+    tags: typeof queryTags;
     /** What refused a write under a new name — a save of a query never saved, or under another name. */
     nameWriteRefusal: typeof nameWriteRefusal;
     /** Whether a saved query's data sources are bound where it would open, and if not, why not ({@link rootBound}). */
@@ -203,7 +215,10 @@ export const QueryInternal: QueryInternalNamespace = {
     Library: QueryLibrary,
     value: savedQueriesValue,
     open: queryOpen,
+    migrations: QueryMigrations,
     save: saveQuery,
+    sources: querySources,
+    tags: queryTags,
     nameWriteRefusal,
     rootBound,
     openOn: openOnSource,

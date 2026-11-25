@@ -25,6 +25,7 @@ import {
     NullType,
     OptionType,
     PatchType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -82,6 +83,41 @@ export type QueriesHandle = ExprType<StructType<{
 }>>;
 
 // ============================================================================
+// The data sources a saved query reads, by name
+// ============================================================================
+
+/**
+ * The names of the data sources a saved query reads — what its `sources`
+ * holds (#1758): the names of its root, each once.
+ *
+ * @remarks
+ * Every write of a saved query gives its `sources` through this — the
+ * builder's save and `Query.value` — so they are never anything but the names
+ * of its `root`, and the record's index on them lists every saved query that
+ * reads a data source.
+ */
+export const querySources = East.function(
+    [ArrayType(QueryRootEntryType)],
+    SetType(StringType),
+    (_$, root) => root.toSet((_$2, entry) => entry.name),
+);
+
+/**
+ * A saved query's tags as they are kept (#1758): each without the spaces
+ * around it, once, and none that is empty.
+ *
+ * @remarks
+ * Every write of a saved query gives its `tags` through this — the builder's
+ * save and `Query.value` — so a tag typed with a space after it is the tag
+ * without it, and the record's index on them files a query under each once.
+ */
+export const queryTags = East.function(
+    [SetType(StringType)],
+    SetType(StringType),
+    (_$, tags) => tags.toSet((_$2, tag) => tag.trim()).filter((_$2, tag) => tag.notEqual("")),
+);
+
+// ============================================================================
 // A save
 // ============================================================================
 
@@ -110,7 +146,9 @@ const SavedQueryOpType = dictPatchOpsType(SavedQueryType) as VariantType<{
  * as `saved` holds it, so a save drafted on an entry another write changed or
  * removed since is a conflict naming it, and nothing is overwritten — every
  * save writes `saved_at`, so any save of the entry since is one. The patch is
- * always by name, never a replacement of the whole record.
+ * always by name, never a replacement of the whole record. `next` holds its
+ * `sources` as {@link querySources} gives them from its `root`, and its `tags`
+ * as {@link queryTags} keeps them.
  */
 export const saveQuery = East.function(
     [SavedQueriesType, OptionType(StringType), SavedQueryType],

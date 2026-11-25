@@ -21,6 +21,17 @@
  *     mutations: (mutation) => ({
  *         patch: mutation.patch(),
  *     }),
+ *     // What a page lists and narrows the saved queries by (#1758): each is
+ *     // an index led by the field, and a Set's index files a query once under
+ *     // each data source it reads and each tag it holds.
+ *     indexes: (index) => ({
+ *         queries_by_source: index.on(["sources"]),
+ *         queries_by_tag: index.on(["tags"]),
+ *         queries_by_name: index.on(["name"]),
+ *         queries_by_saved_at: index.on(["saved_at"]),
+ *     }),
+ *     // Carries a record an earlier release wrote (`Query.migrations`).
+ *     migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
  * });
  * ```
  *
@@ -40,6 +51,7 @@ import {
     JqType,
     OptionType,
     QueryErrorType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -125,19 +137,27 @@ export type QueryResultType = typeof QueryResultType;
  * @property name - Its name, which is its key in the record
  * @property description - One sentence, at most 140 characters; with none,
  *   the sentence generated from its steps shows instead
+ * @property tags - What a person tagged it (#1758): each a word or two, to
+ *   find it by. A record's index on it files the query once under each.
  * @property program - The program as written, checked against the whole root
  *   it was saved on: a query saves only once it checks. Its types are what
  *   checking it against its data sources gives, and are never stored.
  * @property root - The data sources it reads, in root order. It opens only
  *   where each is bound, by the same name and at the same path, so it never
  *   reads another page's dataset of the same name.
+ * @property sources - The names of the data sources it reads (#1758): the
+ *   names of `root`, and never anything else — every write gives them through
+ *   `querySources`. They are a field of their own so a record's index can be
+ *   led by them, which lists the saved queries that read a data source.
  * @property saved_at - When it was last saved
  */
 export const SavedQueryType = StructType({
     name: StringType,
     description: OptionType(StringType),
+    tags: SetType(StringType),
     program: JqType,
     root: ArrayType(QueryRootEntryType),
+    sources: SetType(StringType),
     saved_at: DateTimeType,
 });
 
@@ -147,7 +167,9 @@ export type SavedQueryType = typeof SavedQueryType;
 /**
  * The saved queries record's type — every saved query, by name. A solution
  * declares its record with it: `e3.record("queries", Query.Types.Saved, {
- * initial: new Map(), mutations: … })`, its one mutation a patch.
+ * initial: new Map(), mutations: … })`, its one mutation a patch, with the
+ * indexes a page lists it by and the migration steps that carry a record an
+ * earlier release wrote (the module docs).
  */
 export const SavedQueriesType = DictType(StringType, SavedQueryType);
 

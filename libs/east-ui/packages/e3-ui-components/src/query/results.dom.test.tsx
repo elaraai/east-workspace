@@ -43,7 +43,7 @@ import { prepareQuery, queryResultOf } from "./one-shot.js";
 import { act, isRun, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 import { runFailure } from "./results.js";
 import { planRun } from "./run.js";
-import { QUERY_HEADER_ID } from "./session.js";
+import { newHeader } from "./session.js";
 import { parseSteps } from "./steps/parse.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
@@ -230,7 +230,7 @@ function bannerFor(outcome: ExecuteResult["outcome"], stderr = ""): string {
     const parsed = parseSteps(program, ROOT.type);
     if ("error" in parsed) throw new Error(parsed.error.message);
     const plan = planRun({
-        view: "jq", header: { id: QUERY_HEADER_ID, name: COUNT.name, description: none, source: "orders", jq: none },
+        view: "jq", header: newHeader(COUNT.name, "orders"),
         query: parsed.query, checked: undefined, jqText: program, jqChecked: checkJq(program, ROOT.type, { root: true }),
     }, ROOT);
     const prepared = prepareQuery(plan.program, ROOT);

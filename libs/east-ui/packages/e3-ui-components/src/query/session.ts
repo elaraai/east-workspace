@@ -8,8 +8,8 @@
  * session (#879) holds it, one session per open query, as Studio's is one per
  * open page.
  *
- * - **Entries.** A query is its header — its name, its description, the data
- *   source it starts from, and its jq when it is not steps — and its steps, in
+ * - **Entries.** A query is its header — its name, its description, its tags,
+ *   the data source it starts from, and its jq when it is not steps — and its steps, in
  *   order, each drafted whole (`DraftField(QueryEntry)`), as Studio drafts a
  *   placement. The header's id is `$query`; a step's is its own.
  * - **The snapshot** is the saved query's header and its steps, or a new
@@ -28,7 +28,7 @@
  */
 
 import {
-    ArrayType, East, OptionType, SortedMap, StringType, StructType, VariantType, checkJq, compareFor, decodeBeast2For, encodeBeast2For,
+    ArrayType, East, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, checkJq, compareFor, decodeBeast2For, encodeBeast2For,
     equalFor, none, printJq, some, toEastTypeValue, variant,
     type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
@@ -63,6 +63,7 @@ export const QUERY_HEADER_ID = "$query";
  * @property id - Always {@link QUERY_HEADER_ID}
  * @property name - Its name: its key in the saved queries, once saved
  * @property description - Its description; `none` shows the generated sentence
+ * @property tags - What it is tagged (#1758)
  * @property source - The data source its steps start from
  * @property jq - The program as jq, when it is not steps — a program that
  *   does not start from a data source; its steps are then empty
@@ -71,6 +72,7 @@ export const QueryHeaderType = StructType({
     id: StringType,
     name: StringType,
     description: OptionType(StringType),
+    tags: SetType(StringType),
     source: StringType,
     jq: OptionType(StringType),
 });
@@ -118,6 +120,28 @@ export type SavedQuery = ValueTypeOf<typeof SavedQueryType>;
 export type SavedQueries = ValueTypeOf<typeof SavedQueriesType>;
 /** The bound saved queries record. */
 export type QueriesHandle = ValueTypeOf<typeof QueriesHandleType>;
+
+/**
+ * No tags: what a query never saved holds, and a recent run.
+ *
+ * @returns A set of its own, empty
+ */
+export function noTags(): SavedQuery["tags"] {
+    return new SortedSet<string>([], stringCompare);
+}
+
+/**
+ * A query's header with nothing given but its name and the data source it
+ * starts from: no description, no tags, and steps, not jq — a new query's, and
+ * a condition's rows'.
+ *
+ * @param name - Its name
+ * @param source - The data source its steps start from
+ * @returns The header
+ */
+export function newHeader(name: string, source: string): QueryHeader {
+    return { id: QUERY_HEADER_ID, name, description: none, tags: noTags(), source, jq: none };
+}
 
 /**
  * The id an entry has in the session.
@@ -214,9 +238,12 @@ export function savedEntries(saved: SavedQuery, root: EastType): QueryEntry[] {
     const text = printJq(saved.program, { layout: "pipeline" }).text;
     const parsed = parseSteps(text, root);
     if ("error" in parsed) {
-        return queryEntries({ id: QUERY_HEADER_ID, name: saved.name, description: saved.description, source: "", jq: some(text) }, []);
+        return queryEntries({ id: QUERY_HEADER_ID, name: saved.name, description: saved.description, tags: saved.tags, source: "", jq: some(text) }, []);
     }
-    return queryEntries({ id: QUERY_HEADER_ID, name: saved.name, description: saved.description, source: parsed.query.source, jq: none }, parsed.query.steps);
+    return queryEntries(
+        { id: QUERY_HEADER_ID, name: saved.name, description: saved.description, tags: saved.tags, source: parsed.query.source, jq: none },
+        parsed.query.steps,
+    );
 }
 
 /**
@@ -274,7 +301,7 @@ export function queryBase(
             saved: undefined,
             entries: from.type === "some"
                 ? savedEntries(from.value, root)
-                : queryEntries({ id: QUERY_HEADER_ID, name: untitled(open.value.source), description: none, source: open.value.source, jq: none }, []),
+                : queryEntries(newHeader(untitled(open.value.source), open.value.source), []),
         };
         known.set(sourceId, base);
         return base;
@@ -441,7 +468,9 @@ const applyEntries = Editing.apply(QueryEntryType, "id");
 
 /**
  * A query's `onApply`: the batch applied to the base, the program printed,
- * checked and prepared over the root, and the query committed as one patch.
+ * checked and prepared over the root, and the query committed as one patch —
+ * its tags as they are kept, and its sources the names of the data sources it
+ * reads, each as `@elaraai/e3-ui` gives it.
  *
  * @param ctx - The record, the open query, its base and root, and the words
  * @returns The session's async apply, over the batch's bytes
@@ -463,11 +492,14 @@ export function queryApply(ctx: QueryApplyContext): (bytes: Uint8Array) => Promi
             return variant("rejected", messages.map(message => ({ entry: QUERY_HEADER_ID, row: none, field: none, message })));
         }
         const reads = new Set(prepared.prepared.checked.reads);
+        const root = ctx.root.entries.filter(e => reads.has(e.name)).map(e => ({ name: e.name, path: e.path }));
         const next: SavedQuery = {
             name: header.name,
             description: header.description,
+            tags: east.tags(header.tags),
             program: prepared.prepared.checked.program,
-            root: ctx.root.entries.filter(e => reads.has(e.name)).map(e => ({ name: e.name, path: e.path })),
+            root,
+            sources: east.sources(root),
             saved_at: (ctx.now ?? (() => new Date()))(),
         };
         // The record as the edit began: the open query's entry as its session's base holds it.
