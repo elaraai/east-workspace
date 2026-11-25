@@ -25,6 +25,7 @@ import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { e3Harness } from "../../e3-web-mount.test-utils.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
 import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
@@ -41,6 +42,8 @@ const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
+/** How many columns a period's preset shows on a plot not laid out, as a controller's with no canvas is (#1740). */
+const PRESET = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
 
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
 const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
@@ -147,31 +150,35 @@ describe("actions run their own effects (#815)", () => {
         expect(calls).toEqual(["select r1", "grain group"]);
     });
 
-    test("a zoom writes the resolution, and the window where the new resolution's periods no longer hold it: twelve weeks come in to six weeks of days from the same start; back to the week the six weeks fit, and the resolution alone is written (#1344, #1710, ruled 23 Nov 2026)", async () => {
+    test("a period pressed is a range, and nothing of the period is written: twelve weeks come in to the days the plot holds at the preset width, from the same start, and the columns follow; the week then sets its own, from that start again (#1344, #1740, ruled 23 Nov 2026)", async () => {
         const s = await windowSlice("c815-res");
         const { c, notified } = show(root(ROWS, { slice: s.chrome }));
         const store = c.getSnapshot().store;
+        const resolution = s.state().resolution;
         c.dispatch({ t: "resolution.set", resolution: "day" });
-        // Two writes: the resolution, which is presentation, and the window — the most a day shows, six weeks, from the
-        // twelve weeks' own start: the start date never moves.
-        expect(s.writes()).toBe(2);
-        expect(s.state().resolution).toEqual(some(variant("day", null)));
-        const sixWeeks = [W27.getTime(), W27.getTime() + 42 * DAY];
-        expect(s.window()).toEqual(sixWeeks);
+        // One write, of the window, from the twelve weeks' own start: the start date never moves. The source's own
+        // resolution is as it was — the period is read from the range, and kept nowhere.
+        expect(s.writes()).toBe(1);
+        expect(s.state().resolution).toEqual(resolution);
+        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + PRESET * DAY]);
         // The machine's state did not move — the slice is the window's truth.
         // The one notification is the live region's (#819).
         expect(c.getSnapshot().store).toBe(store);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
         expect(notified()).toBe(1);
-        // Back to the week: a week's periods hold the six weeks, so the window stands — one write, of the resolution alone.
-        const where = s.state().where;
+        // The week: as many weeks, from the same start.
         c.dispatch({ t: "resolution.set", resolution: "week" });
-        expect(s.writes()).toBe(3);
-        expect(s.state().where).toEqual(where);
-        expect(s.window()).toEqual(sixWeeks);
+        expect(s.writes()).toBe(2);
+        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + PRESET * WEEK]);
+        expect(c.getSnapshot().announce?.text).toBe("Resolution: week");
+        // Pressed again, it is the window shown already: nothing is written, and nothing said.
+        const said = c.getSnapshot().announce?.seq;
+        c.dispatch({ t: "resolution.set", resolution: "week" });
+        expect(s.writes()).toBe(2);
+        expect(c.getSnapshot().announce?.seq).toBe(said);
     });
 
-    test("a zoom from a coarser resolution starts where the sources' window does, never where the scale's whole periods do: twelve weeks out to the month stand, and in to the day are six weeks from W27 — never from 1 June, where the month's scale draws from (ruled 23 Nov 2026)", async () => {
+    test("a preset starts where the sources' window does, never where the scale's whole periods do: the months run from W27 to a month's edge, and the days after them from W27 again — never from 1 June, where the month's scale draws from (ruled 23 Nov 2026)", async () => {
         const s = await windowSlice("c815-res-coarse");
         const { c } = show(root(ROWS, {
             slice: s.chrome,
@@ -180,11 +187,21 @@ describe("actions run their own effects (#815)", () => {
                 resolutions: [variant("day", null), variant("week", null), variant("month", null)], now: none, format: none,
             }),
         }));
-        // Twelve weeks touch four months, which a month's periods hold: the window stands, re-bucketed.
         c.dispatch({ t: "resolution.set", resolution: "month" });
-        expect(s.window()).toEqual([W27.getTime(), W39.getTime()]);
+        // June is the first of the months it shows, though the window starts on its 29th.
+        expect(s.window()).toEqual([W27.getTime(), Date.UTC(2026, 5 + PRESET, 1)]);
+        expect(c.getSnapshot().announce?.text).toBe("Resolution: month");
         c.dispatch({ t: "resolution.set", resolution: "day" });
-        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 42 * DAY]);
+        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + PRESET * DAY]);
+    });
+
+    test("a period the axis does not offer sets nothing", async () => {
+        const s = await windowSlice("c1740-unoffered");
+        const { c } = show(root(ROWS, { slice: s.chrome }));
+        c.dispatch({ t: "resolution.set", resolution: "month" });
+        expect(s.writes()).toBe(0);
+        expect(s.window()).toEqual([W27.getTime(), W39.getTime()]);
+        expect(c.getSnapshot().announce).toBeNull();
     });
 });
 
@@ -220,18 +237,34 @@ describe("the window a canvas holds itself (#1344)", () => {
         expect(s.state().where).toEqual(where);
     });
 
-    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing, and the canvas's own window zoomed", async () => {
+    test("no source holding the window, a period pressed moves the canvas's own, from the same start: nothing is written into the rows, and their narrowing stands (#1740)", async () => {
         const { s, hold, c, moved } = await overRows("c1344-res");
-        const where = s.state().where;
+        const state = s.state();
         c.dispatch({ t: "resolution.set", resolution: "day" });
-        expect(s.writes()).toBe(1);
-        expect(s.state().resolution).toEqual(some(variant("day", null)));
-        expect(s.state().where).toEqual(where);
-        // The canvas's own window zooms with it (#1438, #1710): its twelve weeks come in to the most a day shows, six weeks,
-        // from the same start (ruled 23 Nov 2026).
+        expect(s.writes()).toBe(0);
+        expect(s.state().resolution).toEqual(state.resolution);
+        expect(s.state().where).toEqual(state.where);
+        // Its twelve weeks come in to the day's preset (ruled 23 Nov 2026), and the columns are days.
         expect(moved()).toBe(1);
-        expect(hold.last).toEqual([W27.getTime(), W27.getTime() + 42 * DAY]);
+        expect(hold.last).toEqual([W27.getTime(), W27.getTime() + PRESET * DAY]);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
+    });
+
+    test("a zoom to a table cell's period is as many of it about the middle the cell names (#1438, #1740)", async () => {
+        const { s, hold, c, moved } = await overRows("c1438-about");
+        const about = W27.getTime() + 30 * DAY;
+        c.dispatch({ t: "resolution.set", resolution: "day", about });
+        expect(moved()).toBe(1);
+        expect(hold.last).toEqual([about - (PRESET / 2) * DAY, about + (PRESET / 2) * DAY]);
+        expect(s.writes()).toBe(0);
+        expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
+    });
+
+    test("the canvas's plot, laid out, is what a period's preset counts its columns on: half the width shows half the days", async () => {
+        const { hold, c } = await overRows("c1740-plot");
+        hold.layOut(PLAN_UNLAID_PLOT / 2);
+        c.dispatch({ t: "resolution.set", resolution: "day" });
+        expect(hold.last).toEqual([W27.getTime(), W27.getTime() + (PRESET / 2) * DAY]);
     });
 
     test("a canvas with no slice keeps the axis's stated window: the keys move nothing", () => {
@@ -241,7 +274,7 @@ describe("the window a canvas holds itself (#1344)", () => {
         c.setValue(v, v);
         c.dispatch({ t: "key", key: "]" });
         c.dispatch({ t: "brush.clear" });
-        expect(hold.moves).toBe(0);
+        expect(hold.version).toBe(0);
         expect(hold.last).toBeUndefined();
     });
 });

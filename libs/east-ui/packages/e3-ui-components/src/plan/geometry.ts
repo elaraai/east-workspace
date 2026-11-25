@@ -23,6 +23,8 @@
  * @packageDocumentation
  */
 
+import type { ColumnWidths } from "../shared/time/period.js";
+
 /**
  * How far a bucket tile stands inside its day's rules (#1735), and a cards chip
  * in from its own ends, each side (px). The renderers place both by it, and a
@@ -205,6 +207,24 @@ export function planGeometry(dense: boolean, coarse = false): Readonly<PlanGeome
     const tables = coarse ? COARSE_GEOMETRY : PLAN_GEOMETRY;
     return dense ? tables.dense : tables.default;
 }
+
+/**
+ * The plot a canvas weighs its window on while its own is not laid out (#1740)
+ * — before its first measure, in a pane that is hidden, where nothing lays it
+ * out: a desktop's plot beside its gutter. Its own width takes over as soon as
+ * it is measured, before the canvas is painted.
+ */
+export const PLAN_UNLAID_PLOT = 1000;
+
+/**
+ * The widths a canvas picks its columns' period by (#1740): its column floor,
+ * its squeeze floor and its preset width. One rule for every Plan, so every
+ * density's are the same and the same range shows the same period on two
+ * Plans side by side.
+ */
+export const PLAN_COLUMN_WIDTHS: ColumnWidths = {
+    floor: DEFAULT.columnMinWidth, squeeze: DEFAULT.columnSqueezeWidth, preset: DEFAULT.columnPresetWidth,
+};
 
 /**
  * The CSS variable a geometry entry is written as — a height `row` →

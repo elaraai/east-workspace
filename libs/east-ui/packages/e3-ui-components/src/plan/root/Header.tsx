@@ -15,6 +15,7 @@ import { HorizonBrush } from "../shell/HorizonBrush.js";
 import { FocusBar } from "../shell/FocusBar.js";
 import { PlanRuler } from "../shell/Ruler.js";
 import type { PlanInstantValue } from "../instant.js";
+import type { HeldEnd } from "../../shared/time/period.js";
 import type { PlanUiView } from "./view.js";
 import type { PlanWindowPart } from "./window.js";
 import type { PlanNestedSpanRead, SPAN_READING } from "./nested.js";
@@ -35,6 +36,9 @@ export interface PlanHeaderProps {
     span: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
+    /** The range the brush's resize, or a range drawn anew, sets on a time axis (#1740): its ends on the edges of the period it
+     *  takes on the canvas's plot, the end the gesture holds in place. */
+    brushed: (from: number, to: number, held: HeldEnd) => readonly [number, number] | undefined;
     /** The ruler's gutter caption — the active grain's name. */
     rulerCaption: string;
     cursorChipRef: RefObject<HTMLDivElement | null>;
@@ -54,7 +58,7 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, windowParts, stated, span, affordances, now, rulerCaption, cursorChipRef,
+    styles, gridTemplate, headerRef, windowParts, stated, span, affordances, now, brushed, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
@@ -64,7 +68,7 @@ export function PlanHeader({
                 own (#1344); only on the axis's arm, which the band decides
                 itself (#631). */}
             {affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} stated={stated} span={span} now={now} />
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} stated={stated} span={span} now={now} brushed={brushed} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />

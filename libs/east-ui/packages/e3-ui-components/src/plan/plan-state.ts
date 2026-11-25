@@ -13,9 +13,10 @@
  * produced them, right after the transition (#815) — no reducer ever performs
  * them, and no batch waits for a later drain.
  *
- * The slice is the single source of truth for window / resolution / filters —
- * the machine holds only ephemeral UI state and emits `slice.*` effects for
- * the component to write through the bind handle. Brush pixel geometry lives
+ * The slice is the single source of truth for window / filters — the machine
+ * holds only ephemeral UI state and emits `slice.*` effects for the component
+ * to write through the bind handle, and a period pressed is a range of the
+ * window's (`window.preset`, #1740). Brush pixel geometry lives
  * in the shared `slice/brush-strip.tsx` gesture machine; the reducer tracks
  * only whether a brush drag is in flight (the esc-ladder rung) and receives
  * the committed window as instants.
@@ -108,8 +109,9 @@ export type PlanEvent =
     | { t: "focus.clear" }
     /** A links focus's other rows' band opened, or folded again (#1680's review). */
     | { t: "focus.others" }
-    /** A zoom to a resolution — about the middle given, in the axis's numbers: a coarser table cell's period, where a
-     *  double click on it zooms to edit it (#1438) — else from the window's own start, which stays (ruled 23 Nov 2026). */
+    /** A period pressed (#1740): the range it fills on the plot — about the middle given, in the axis's numbers: a coarser
+     *  table cell's period, where a double click on it zooms to edit it (#1438) — else from the window's own start, which
+     *  stays (ruled 23 Nov 2026). */
     | { t: "resolution.set"; resolution: string; about?: number | undefined }
     /** A window pan of N whole periods — the narrow layout's two-finger
      *  horizontal drag (§10); the `[` / `]` keys are the one-period case. */
@@ -120,7 +122,8 @@ export type PlanEvent =
 export type PlanEffect =
     | { t: "slice.setRange"; min: PlanInstantValue; max: PlanInstantValue }
     | { t: "slice.clearRange" }
-    | { t: "slice.setResolution"; resolution: string; about?: number | undefined }
+    /** A period's preset: the range the period fills on the plot, written as every window is; nothing keeps the period. */
+    | { t: "window.preset"; period: string; about?: number | undefined }
     | { t: "emit.select"; key: RowKey }
     | { t: "emit.groupToggle"; key: RowKey; expanded: boolean }
     | { t: "emit.grainChange"; grain: PlanGrain }
@@ -289,7 +292,7 @@ export function planReducer(
             if (s.focus === null || s.focus.kind !== "links") return { state: s, effects: [] };
             return { state: { ...s, focus: { ...s.focus, others: s.focus.others !== true } }, effects: [] };
         case "resolution.set":
-            return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution, about: e.about }] };
+            return { state: s, effects: [{ t: "window.preset", period: e.resolution, about: e.about }] };
         case "pan":
             // A pure slice write, like the keys — a zero pan is identity so a
             // gesture that never crossed a period edge commits nothing.

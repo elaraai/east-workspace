@@ -222,10 +222,11 @@ describe('planReducer', () => {
             expect(idle.state).toBe(state);
         });
 
-        it('resolution.set is a pure slice write', () => {
+        it('resolution.set is a pure window write: the period\'s preset, or the window about a cell\'s middle (#1740)', () => {
             const { state, effects } = run(init(), { t: "resolution.set", resolution: "day" });
             expect(state).toEqual(init());
-            expect(effects).toEqual([{ t: "slice.setResolution", resolution: "day" }]);
+            expect(effects).toEqual([{ t: "window.preset", period: "day" }]);
+            expect(run(init(), { t: "resolution.set", resolution: "week", about: 1_000 }).effects).toEqual([{ t: "window.preset", period: "week", about: 1_000 }]);
         });
     });
 
@@ -331,12 +332,12 @@ describe('planStoreReducer (#610)', () => {
             expect(selected.store.ui.selected).toBe("r1");
             expect(selected.effects).toEqual([{ t: "emit.select", key: "r1" }]);
             // resolution.set transitions to the SAME ui but still delivers its
-            // slice write — as data the caller runs, never a batch held in the
+            // window write — as data the caller runs, never a batch held in the
             // store for a later drain to find (where a second effectful event
             // in one handler replaced the first).
             const res = step(selected.store, { t: "resolution.set", resolution: "day" });
             expect(res.store).toBe(selected.store);
-            expect(res.effects).toEqual([{ t: "slice.setResolution", resolution: "day" }]);
+            expect(res.effects).toEqual([{ t: "window.preset", period: "day" }]);
         });
     });
 

@@ -15,7 +15,9 @@
  *
  * The widths are a canvas's own — its column floor, the floor a change of the
  * plot's width alone squeezes its columns to, and the width a preset fills a
- * period at ({@link ColumnWidths}) — so this module holds none.
+ * period at ({@link ColumnWidths}) — so this module holds none. Nor does it
+ * know a plot that is not laid out: a canvas weighs its window on a plot of a
+ * width it names until its own is measured.
  *
  * @packageDocumentation
  */
@@ -98,25 +100,18 @@ const holds = (plot: number, columns: number, width: number): boolean => Math.ro
  * drawn narrower. A range shorter than the finest fills at the floor draws the
  * finest, wide: columns are never finer than the finest offered.
  *
- * A plot not laid out has no width to weigh, so its columns are the finest
- * offered that a scale cuts whole.
- *
  * @param from - The range's start, in ms
  * @param to - Its end, exclusive, in ms
- * @param plot - The plot's width as it is laid out, in px; none or zero for a plot not laid out
+ * @param plot - The plot's width, in px
  * @param offered - The periods the canvas offers
  * @param floor - The column floor, in px
  * @returns The period; `undefined` where none is offered
  */
-export function columnPeriod(
-    from: number, to: number, plot: number | undefined, offered: readonly TimeResolution[], floor: number,
-): TimeResolution | undefined {
+export function columnPeriod(from: number, to: number, plot: number, offered: readonly TimeResolution[], floor: number): TimeResolution | undefined {
     const periods = finestFirst(offered);
-    const laidOut = plot !== undefined && plot > 0;
     for (const period of periods) {
         const columns = periodColumns(period, from, to);
-        if (columns === 0) continue;
-        if (laidOut ? holds(plot, columns, floor) : columns <= MAX_BUCKETS) return period;
+        if (columns > 0 && holds(plot, columns, floor)) return period;
     }
     return periods[periods.length - 1];
 }
@@ -131,18 +126,27 @@ export function columnPeriod(
  * @param period - The period in use
  * @param from - The range's start, in ms
  * @param to - Its end, exclusive, in ms
- * @param plot - The plot's width as it is now laid out, in px
+ * @param plot - The plot's width as it is now, in px
  * @param offered - The periods the canvas offers
  * @param widths - The canvas's column widths
  * @returns The period: the one in use, or the one the range takes on the plot as it now is
  */
 export function squeezedPeriod(
-    period: TimeResolution, from: number, to: number, plot: number | undefined, offered: readonly TimeResolution[], widths: ColumnWidths,
+    period: TimeResolution, from: number, to: number, plot: number, offered: readonly TimeResolution[], widths: ColumnWidths,
 ): TimeResolution {
-    if (plot === undefined || !(plot > 0)) return period;
     const columns = periodColumns(period, from, to);
     if (columns > 0 && holds(plot, columns, widths.squeeze)) return period;
     return columnPeriod(from, to, plot, offered, widths.floor) ?? period;
+}
+
+/**
+ * How many columns a period's preset shows on a plot: as many as it holds at
+ * the preset width — never fewer than the period's least where those hold the
+ * column floor ({@link PRESET_LEAST}), and at least one.
+ */
+function presetColumns(period: TimeResolution, plot: number, widths: ColumnWidths): number {
+    const least = PRESET_LEAST[period];
+    return Math.min(MAX_BUCKETS, Math.max(1, Math.floor(plot / widths.preset), holds(plot, least, widths.floor) ? least : 1));
 }
 
 /**
@@ -158,15 +162,103 @@ export function squeezedPeriod(
  *
  * @param start - The window's start, in ms: it stays
  * @param period - The period pressed
- * @param plot - The plot's width as it is laid out, in px; none or zero for a plot not laid out, which shows the least
+ * @param plot - The plot's width, in px
  * @param widths - The canvas's column widths
  * @returns The window, `[start, end)` in ms
  */
-export function presetWindow(start: number, period: TimeResolution, plot: number | undefined, widths: ColumnWidths): readonly [number, number] {
-    const laidOut = plot !== undefined && plot > 0;
-    const least = PRESET_LEAST[period];
-    const fit = laidOut ? Math.floor(plot / widths.preset) : 0;
-    const columns = Math.min(MAX_BUCKETS, Math.max(1, fit, !laidOut || holds(plot, least, widths.floor) ? least : 1));
+export function presetWindow(start: number, period: TimeResolution, plot: number, widths: ColumnWidths): readonly [number, number] {
     const interval = resolutionInterval(period);
-    return [start, interval.offset(interval.floor(new Date(start)), columns).getTime()];
+    return [start, interval.offset(interval.floor(new Date(start)), presetColumns(period, plot, widths)).getTime()];
+}
+
+/**
+ * The window a zoom to a table cell's period sets (#1438, #1740): as many of
+ * the period as its preset shows, about the middle the cell names — the whole
+ * periods whose own middle is nearest it, so two years about November show
+ * that year and the next, not the year before. It keeps inside the time given,
+ * where there is one, and is the whole of it where the periods do not fit.
+ *
+ * @param middle - The middle the cell names, in ms
+ * @param period - The period zoomed to
+ * @param plot - The plot's width, in px
+ * @param widths - The canvas's column widths
+ * @param within - The time the window keeps inside, `[from, to)` in ms; `undefined` where none bounds it
+ * @returns The window, `[from, to)` in ms, its ends the period's edges
+ */
+export function presetAround(
+    middle: number, period: TimeResolution, plot: number, widths: ColumnWidths, within: readonly [number, number] | undefined,
+): readonly [number, number] {
+    const interval = resolutionInterval(period);
+    const columns = presetColumns(period, plot, widths);
+    const holding = interval.floor(new Date(middle));
+    // How far into its period the middle falls: half way or more, the window leans a period on.
+    const into = (middle - holding.getTime()) / (interval.offset(holding, 1).getTime() - holding.getTime());
+    let first = interval.offset(holding, Math.round(into - columns / 2));
+    if (within !== undefined && within[1] > within[0]) {
+        const lo = interval.floor(new Date(within[0]));
+        const hi = interval.ceil(new Date(within[1]));
+        if (periodColumns(period, lo.getTime(), hi.getTime()) <= columns) return [lo.getTime(), hi.getTime()];
+        const last = interval.offset(hi, -columns);
+        if (first.getTime() < lo.getTime()) first = lo;
+        else if (first.getTime() > last.getTime()) first = last;
+    }
+    return [first.getTime(), interval.offset(first, columns).getTime()];
+}
+
+/** The end of a range a gesture holds in place while its other end moves. */
+export type HeldEnd = "start" | "end";
+
+/**
+ * The range a brush's resize, or a range drawn anew, sets (#1740): the end
+ * under the hand goes to the nearest edge of the period the range takes, and
+ * the end held stays — or, where that period is coarser than the one it was an
+ * edge of, gives outward to the period's edge, as a scale draws it. So the
+ * range a gesture shows is the one its release keeps, in whole columns of the
+ * period it takes.
+ *
+ * Just past the most a period holds at the column floor, the nearest edge of
+ * the next coarser may fall back inside it — nine months are fewer weeks than
+ * the forty-one under the hand — and the range would be cut in the finer
+ * period's columns, off their edges. The end under the hand then goes to the
+ * coarser period's edge beyond it.
+ *
+ * Nothing holds it to a period's least or most: it runs from one of the
+ * finest period offered to as many of the coarsest as a scale draws, where the
+ * end under the hand stops. A range of no length is one of the finest.
+ *
+ * @param from - The range's start under the gesture, in ms
+ * @param to - Its end, exclusive, in ms
+ * @param held - The end the gesture holds in place
+ * @param plot - The plot's width, in px
+ * @param offered - The periods the canvas offers
+ * @param floor - The column floor, in px
+ * @returns The range, `[from, to)` in ms; `undefined` where no period is offered
+ */
+export function brushedRange(
+    from: number, to: number, held: HeldEnd, plot: number, offered: readonly TimeResolution[], floor: number,
+): readonly [number, number] | undefined {
+    const periods = finestFirst(offered);
+    const coarsest = periods[periods.length - 1];
+    if (coarsest === undefined) return undefined;
+    const onEdges = (period: TimeResolution, beyond: boolean): readonly [number, number] => {
+        const interval = resolutionInterval(period);
+        if (held === "start") {
+            const a = interval.floor(new Date(from));
+            const b = beyond ? interval.ceil(new Date(to)) : interval.round(new Date(to));
+            return [a.getTime(), (b.getTime() > a.getTime() ? b : interval.offset(a, 1)).getTime()];
+        }
+        const b = interval.ceil(new Date(to));
+        const a = beyond ? interval.floor(new Date(from)) : interval.round(new Date(from));
+        return [(a.getTime() < b.getTime() ? a : interval.offset(b, -1)).getTime(), b.getTime()];
+    };
+    const period = to > from ? columnPeriod(from, to, plot, periods, floor) ?? coarsest : periods[0]!;
+    let range = onEdges(period, false);
+    // The nearest edge left the range a finer period's: the edge beyond holds every column the hand's range did, so the
+    // period it takes is this one.
+    if (columnPeriod(range[0], range[1], plot, periods, floor) !== period) range = onEdges(period, true);
+    if (periodColumns(coarsest, range[0], range[1]) <= MAX_BUCKETS) return range;
+    const most = resolutionInterval(coarsest);
+    return held === "start"
+        ? [range[0], most.offset(most.floor(new Date(range[0])), MAX_BUCKETS).getTime()]
+        : [most.offset(most.ceil(new Date(range[1])), -MAX_BUCKETS).getTime(), range[1]];
 }

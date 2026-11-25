@@ -48,6 +48,12 @@
  * selection, and commits on release. While the sources' span is read its row
  * is held at its height, a placeholder track in the strip's place (#1398,
  * CL1), so nothing below it moves as the span lands.
+ *
+ * On a time axis the brush sets any range (#1740): an end dragged, or a range
+ * drawn anew, goes where the hand does, on the edges of the period that range
+ * takes on the plot — days while they hold the column floor, then weeks,
+ * months — so no period's least or most stops it, and what the drag shows is
+ * what its release keeps. A window moved whole keeps its columns.
  */
 
 import { useCallback, useMemo, useRef } from "react";
@@ -56,7 +62,7 @@ import { BrushStrip, PlaceholderShape, brushHorizon, type BrushBucket, type Brus
 import { useContainerWidth, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { periodText, resolutionInterval } from "../../shared/time/scale.js";
 import { sourcesTotals, totalsUnits } from "../../shared/time/horizon-totals.js";
-import { brushPeriodsOf, limitWindow } from "../../shared/time/zoom.js";
+import type { HeldEnd } from "../../shared/time/period.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
@@ -91,6 +97,12 @@ export interface HorizonBrushProps {
     span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
+    /**
+     * The range a resize, or a range drawn anew, sets on a time axis (#1740), `[from, to)` in ms: the end under the hand
+     * on the nearest edge of the period the range takes on the canvas's plot, the end it holds in place. Left out, or
+     * giving none, the window keeps to the periods the scale shows.
+     */
+    brushed?: ((from: number, to: number, held: HeldEnd) => readonly [number, number] | undefined) | undefined;
 }
 
 /**
@@ -146,13 +158,15 @@ function densityBuckets(density: HorizonDensity, words: PlanWords): BrushBucket[
 }
 
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now, brushed }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
     // The strip's width, which decides the period its bars count by (#1438).
     const trackRef = useRef<HTMLDivElement | null>(null);
     const trackPx = useContainerWidth(trackRef);
+    // The window the strip was last handed as fractions of the track, beside those fractions: what a commit of them writes.
+    const snapped = useRef<{ from: number; to: number; min: PlanInstantValue; max: PlanInstantValue } | null>(null);
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
@@ -262,25 +276,25 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const nowFrac = Number.isFinite(nowN) ? (nowN - extent.lo) / span : undefined;
     const fromFraction = (f: number): PlanInstantValue => scale.fromNumber(extent.lo + clamp(f) * span);
     const toFrac = (t: PlanInstantValue): number => clamp((scale.toNumber(t) - extent.lo) / span);
-    // Resolution-edge snapping: the draft and the committed window land on
-    // period boundaries of the ACTIVE resolution (a whole step on a number
-    // axis), at least one period wide. The scale's OWN `snap` / `offset` —
-    // this band used to carry a hand-copy of the same floor/offset/midpoint
-    // over the same interval (#617). On a time axis the window keeps within the
-    // most its zoom shows (#1710) — six weeks of days, six months of weeks: the
-    // edge the gesture holds stays (the strip names it), and the other gives way.
-    const limits = scale.kind === "time" ? brushPeriodsOf(scale.resolution) : undefined;
+    // Edge snapping: the draft and the committed window land on period boundaries, at least one period wide. A window
+    // moved whole lands on the periods the scale shows (a whole step on a number axis), by the scale's OWN `snap` /
+    // `offset` — this band used to carry a hand-copy of the same floor/offset/midpoint over the same interval (#617). On a
+    // time axis a resize, or a range drawn anew, sets any range (#1740): its ends land on the edges of the period that
+    // range takes on the plot, the end the gesture holds in place (the strip names it) staying where it is.
     const snapPair = (f0: number, f1: number, held?: BrushHeld): readonly [PlanInstantValue, PlanInstantValue] => {
+        const range = held === undefined || scale.kind !== "time" ? undefined
+            : brushed?.(extent.lo + clamp(f0) * span, extent.lo + clamp(f1) * span, held === "lo" ? "start" : "end");
+        if (range !== undefined) return [scale.fromNumber(range[0]), scale.fromNumber(range[1])];
         const a = scale.snap(fromFraction(f0));
         let b = scale.snap(fromFraction(f1));
         if (scale.toNumber(b) <= scale.toNumber(a)) b = scale.offset(a, 1);
-        if (limits === undefined) return [a, b];
-        return limitWindow(a, b, held === "lo" ? "start" : held === "hi" ? "end" : undefined, limits,
-            (at, n) => scale.offset(at, n), (at) => scale.toNumber(at));
+        return [a, b];
     };
     const snapWindow = (f0: number, f1: number, held?: BrushHeld): { from: number; to: number } => {
         const [a, b] = snapPair(f0, f1, held);
-        return { from: toFrac(a), to: toFrac(b) };
+        const window = { from: toFrac(a), to: toFrac(b) };
+        snapped.current = { ...window, min: a, max: b };
+        return window;
     };
     // The caption spans the whole brushable horizon, not the applied window
     // — `HORIZON · 26 WK` over a 12-week window; on a number axis the count
@@ -333,14 +347,14 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                     height={geometry.brush - geometry.lens}
                     barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
-                    // Snap AGAIN on the instants themselves so float round-trips
-                    // can never land the committed window off an edge. A
-                    // record's query moves once per gesture: the strip owns the
-                    // live selection preview, and the release commits it, so
-                    // dragging never floods the server with a new window for
-                    // each pointer frame.
+                    // The strip commits the fractions it was last handed, and the window they were made from is what is
+                    // written: a fraction of a horizon of decades does not hold a period's edge, and a range past the
+                    // track's end has no fraction at all. Any other fractions snap AGAIN on the instants themselves. A
+                    // record's query moves once per gesture: the strip owns the live selection preview, and the
+                    // release commits it, so dragging never floods the server with a new window for each pointer frame.
                     onCommit={(f0, f1) => {
-                        const [a, b] = snapPair(f0, f1);
+                        const kept = snapped.current;
+                        const [a, b] = kept !== null && kept.from === f0 && kept.to === f1 ? [kept.min, kept.max] : snapPair(f0, f1);
                         dispatch({ t: "brush.commit", min: a, max: b });
                     }}
                     onClear={() => { dispatch({ t: "brush.clear" }); }}

@@ -71,7 +71,7 @@ export interface PlanTyping {
     readonly type: (typed: PlanTypedValue) => boolean;
     /** Whether a tap on a cell opens the input in a popover anchored to it: below 480px of main. */
     readonly popover: boolean;
-    /** The resolutions the Plan zooms to, finest first ({@link planZooms}): none, where its axis states none. */
+    /** The periods the Plan's columns take, finest first (#1740): those its axis offers; none, where no zoom moves its window. */
     readonly zooms: readonly TimeResolution[];
 }
 
@@ -256,19 +256,6 @@ const RESOLUTIONS: readonly TimeResolution[] = ["hour", "day", "week", "month", 
 
 /** A resolution's place among them, the finest first. */
 const rankOf = (resolution: TimeResolution): number => RESOLUTIONS.indexOf(resolution);
-
-/**
- * The resolutions a Plan zooms to (#1438): its resolution segment's, and the
- * one its axis opens at — but `auto`, which is none of them.
- *
- * @param segment - The resolution segment's resolutions
- * @param opened - The resolution the axis opens at
- * @returns Them, the finest first
- */
-export function planZooms(segment: readonly string[], opened: string | undefined): readonly TimeResolution[] {
-    const named = new Set<string>(opened === undefined ? segment : [...segment, opened]);
-    return RESOLUTIONS.filter((resolution) => named.has(resolution));
-}
 
 /**
  * Whether a table cell takes a typed number at a zoom (#1438): at the Plan's

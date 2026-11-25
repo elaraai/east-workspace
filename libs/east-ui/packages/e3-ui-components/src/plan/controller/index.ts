@@ -795,18 +795,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     /** Keep the canvas's own window under its storage key as a gesture moves it (#813, #1344): what a remount opens
      *  on. The hold moves only while no source of the slice holds the window — a source's window is its own state —
      *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
-     *  scroll anchor is, never a toggle the host holds. */
+     *  scroll anchor is, never a toggle the host holds. It is kept as a range (#1740): the period its columns take is
+     *  worked out again as the canvas opens. */
     function persistWindow(): void {
         const hold = options.windowHold;
         const shown = hold?.last;
         const kind = value?.axis.type;
         if (hold === undefined || shown === undefined || (kind !== "time" && kind !== "number")) return;
-        // A source holding the window keeps it, and its zoom, in its own state.
+        // A source holding the window keeps it in its own state.
         if (planWindowParts(planSlices(value!), kind, hold.rows).length > 0) return;
-        // A time axis's zoom is kept with the window it shows (#1438), and is the one the hold falls back to.
-        const resolution = kind === "time" && value !== undefined ? currentScale(value, hold)?.resolution : undefined;
-        hold.resolution = resolution;
-        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1], ...(resolution !== undefined && { resolution }) };
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
         if (sameOwnWindow(persisted.window, next)) return;
         persisted = { ...persisted, window: next };
         options.persist?.(persisted);
@@ -1146,7 +1144,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         dispatch(e) {
             batch(() => {
                 const before = store.ui;
-                // A resolution lives in the slice: what it was, to say what it became.
+                // The period the columns take follows the range a preset sets: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
                     ? currentScale(value, options.windowHold)?.resolution : undefined;
                 // Bound, what the user did is the host's to hold (#824) —
@@ -1163,8 +1161,6 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (e.t === "resolution.set" && value !== undefined) {
                     const after = currentScale(value, options.windowHold)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
-                    // A zoom that left the canvas's own window where it was is kept with it all the same (#1438).
-                    persistWindow();
                 }
             });
         },

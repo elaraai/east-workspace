@@ -12,7 +12,8 @@
  * — are read whole, and no source narrows them: the bulk edit's Chooser offers
  * every press the canvas holds. The window is every event
  * source's range: the toolbar's navigation writes them all, a range written to
- * the leading one is written to the others, and the resolution goes to each.
+ * the leading one is written to the others, and a period pressed writes its
+ * preset to each.
  * Each source narrows every place its records appear: the jobs' choices their
  * events and their backlog, the Backlog tab counting `N of M` and its Clear
  * filters keeping the window; a templates record's the Events
@@ -46,6 +47,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
@@ -200,7 +202,7 @@ const JOBS = `records.${ex.planPrintJobs.name}`;
 // ============================================================================
 
 describe("the Plan's one window (#1344)", () => {
-    test("every event source's range holds the window: the toolbar's navigation writes both, a range written to the leading one is followed, and the resolution goes to each — no range is a chip of the rail", async () => {
+    test("every event source's range holds the window: the toolbar's navigation writes both, a range written to the leading one is followed, and a period pressed writes its preset to each — no range is a chip of the rail", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         // The axis's four weeks, in the jobs' optional start and the shifts' start alike.
@@ -226,14 +228,14 @@ describe("the Plan's one window (#1344)", () => {
         expect(screen.getByRole("dialog").querySelector('[data-record-slice-editor="start"][data-record-slice-source="job"]')).not.toBeNull();
         await act(async () => { fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" }); });
         await settle();
-        // The resolution, written to each source holding the window, and the window with it (#1710): the one week comes out
-        // to the least a week shows, four weeks from its own start, the 12th, in both sources — never a week alone in one
-        // column, and never a start moved (ruled 23 Nov 2026).
+        // A period pressed is its preset (#1740), written to each source holding the window: as many weeks as fill the
+        // plot at the preset width — one not laid out, in a DOM with no layout — from the window's own start, the 12th,
+        // which never moves (ruled 23 Nov 2026). Nothing of the period is written: the columns take it from the range.
         await press(toolbar(container).getByText("WEEK"));
-        expect(state("job").resolution).toEqual(some(variant("week", null)));
-        expect(state("shift").resolution).toEqual(some(variant("week", null)));
-        expect(narrowing("job").get("start")).toEqual(range(day("10-12"), day("11-09"), true));
-        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), day("11-09"), false));
+        const weeksOn = new Date(Date.UTC(2026, 9, 12 + 7 * Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset)));
+        expect(narrowing("job").get("start")).toEqual(range(day("10-12"), weeksOn, true));
+        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), weeksOn, false));
+        expect([state("job").resolution, state("shift").resolution]).toEqual([none, none]);
     });
 });
 

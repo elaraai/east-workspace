@@ -7,10 +7,10 @@
  * UI state survives a remount (#813) — under the canvas's `storageKey`, the
  * user's collapse toggles, expanded charts and scroll anchor persist, and a
  * remount restores them; the slice's source — the Plan's dated rows on e3
- * itself (`rail.test-utils.ts`, #1376) — keeps the resolution (#1344). While no
+ * itself (`rail.test-utils.ts`, #1376) — keeps the window (#1344). While no
  * source of the slice holds the window, the canvas's own window persists too,
- * with the zoom it was shown at (#1438), and a remount draws it from its first
- * frame, at that zoom where the slice kept none. jsdom lays nothing out and
+ * as a range (#1740), and a remount draws it from its first frame, the period
+ * its columns take worked out again as it opens. jsdom lays nothing out and
  * cannot scroll, so the bounded frame's geometry is stubbed and its `scrollTo`
  * moves `scrollTop` the way a browser does.
  */
@@ -26,6 +26,7 @@ import { Data } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { act, e3Harness } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, setPlanRootRenderProbe, type PlanRootValue } from "./index.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "./geometry.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type RailChrome } from "./rail.test-utils.js";
@@ -82,6 +83,8 @@ const W39 = new Date("2026-09-21T00:00:00Z");
 const W40 = new Date("2026-09-28T00:00:00Z");
 const W41 = new Date("2026-10-05T00:00:00Z");
 const W52 = new Date("2026-12-21T00:00:00Z");
+/** How many columns a period's preset shows on a plot not laid out, as a canvas's in a DOM with no layout is (#1740). */
+const PRESET = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolean): PlanWireRow {
@@ -149,7 +152,7 @@ async function scrollAndSettle(c: HTMLElement, top: number): Promise<void> {
 }
 const storedAt = (key: string) => JSON.parse(localStorage.getItem(keptName(key)) ?? "null") as {
     collapse: [string, boolean][]; charts: string[]; anchor: { key: string; offset: number; index: number } | null;
-    window?: { kind: string; min: number; max: number; resolution?: string };
+    window?: { kind: string; min: number; max: number };
 };
 /** The ruler's first tick: the first bucket of the window the canvas draws. */
 const firstTick = (c: HTMLElement) => c.querySelector('[data-slot="rulerTick"]')?.textContent;
@@ -214,7 +217,7 @@ describe("Plan UI state survives a remount (#813)", () => {
         // The body is the one the user left: A open (its three members), B
         // collapsed, the chart expanded to 88px.
         expect(extentOf(c)).toBe(26 + 3 * 32 + 26 + 88 + 60 * 32);
-        // The resolution is the slice's, and the slice kept it.
+        // The window is the slice's, and the slice kept it: the day's preset, which draws as days.
         expect(c.querySelector('[data-slot="rulerTick"]')!.textContent).toBe("MON");
         // Back at the top, the groups read as the user left them.
         await scrollAndSettle(c, 0);
@@ -504,11 +507,12 @@ describe("the canvas's own window survives a remount (#1344)", () => {
         // A pan: a week on.
         fireEvent.keyDown(first.container.querySelector("[data-plan-body]")!, { key: "]" });
         expect(firstTick(first.container)).toBe("W28");
-        await waitFor(() => expect(storedAt("plan-own").window).toEqual({ kind: "time", min: W28.getTime(), max: W40.getTime(), resolution: "week" }));
+        // Kept as a range: nothing of the period its columns take.
+        await waitFor(() => expect(storedAt("plan-own").window).toStrictEqual({ kind: "time", min: W28.getTime(), max: W40.getTime() }));
         // A step of the date navigator: the window's own twelve weeks on.
         fireEvent.click(within(navigatorOf(first.container)).getByRole("button", { name: "Next 12 weeks" }));
         expect(firstTick(first.container)).toBe("W40");
-        await waitFor(() => expect(storedAt("plan-own").window).toEqual({ kind: "time", min: W40.getTime(), max: W52.getTime(), resolution: "week" }));
+        await waitFor(() => expect(storedAt("plan-own").window).toStrictEqual({ kind: "time", min: W40.getTime(), max: W52.getTime() }));
         first.unmount();
 
         const drawn: (string | undefined)[] = [];
@@ -523,26 +527,35 @@ describe("the canvas's own window survives a remount (#1344)", () => {
         expect(firstTick(second.container)).toBe("W40");
     });
 
-    test("its zoom is kept with it (#1438): over a slice that kept none — a page's store gone with the page — a remount opens at the zoom it was shown at; a window kept with none, wider than the canvas draws a week at a time, is not taken back", async () => {
+    test("it is kept as a range, and the period its columns take is worked out again as it opens (#1740): a year's preset comes back in years over a slice of its own — a page's store gone with the page; a decade comes back where years draw it whole, and on an axis of weeks alone, more of them than a canvas draws, it is not taken back", async () => {
         const zooms = [variant("week", null), variant("month", null), variant("quarter", null), variant("year", null)];
         const value = (slice: RailChrome) => planRoot(rows(), { slice: some(slice), resolutions: zooms });
+        const ticks = (c: HTMLElement) => c.querySelectorAll('[data-slot="rulerTick"]');
         const first = renderPlan(value(await ownWindowSlice("plan-own-zoom-first")), "plan-own-zoom");
         fireEvent.click(screen.getByText("YEAR"));
-        await waitFor(() => expect(storedAt("plan-own-zoom").window?.resolution).toBe("year"));
-        const kept = storedAt("plan-own-zoom").window;
+        // The year's preset from the window's own start: the range alone is kept.
+        const years = { kind: "time", min: W27.getTime(), max: Date.UTC(2026 + PRESET, 0, 1) };
+        await waitFor(() => expect(storedAt("plan-own-zoom").window).toStrictEqual(years));
+        expect(ticks(first.container)).toHaveLength(PRESET);
         const year = firstTick(first.container);
         first.unmount();
-        // A slice of its own, holding no zoom: what a page whose store did not outlive the last one binds.
+        // A slice of its own: what a page whose store did not outlive the last one binds.
         const second = renderPlan(value(await ownWindowSlice("plan-own-zoom-second")), "plan-own-zoom");
         expect(firstTick(second.container)).toBe(year);
-        expect(storedAt("plan-own-zoom").window).toEqual(kept);
+        expect(ticks(second.container)).toHaveLength(PRESET);
+        expect(storedAt("plan-own-zoom").window).toStrictEqual(years);
         second.unmount();
-        // A decade kept with no zoom: 523 weeks, more than the canvas draws — the axis's window stands.
-        localStorage.setItem(keptName("plan-own-decade"), JSON.stringify({
-            collapse: [], charts: [], anchor: null, window: { kind: "time", min: Date.UTC(2021, 11, 27), max: Date.UTC(2032, 0, 5) },
-        }));
-        const decade = renderPlan(value(await ownWindowSlice("plan-own-zoom-third")), "plan-own-decade");
-        expect(firstTick(decade.container)).toBe("W27");
+        // A decade, 27 December 2021 to 5 January 2032: the twelve years it touches draw it whole.
+        const decade = JSON.stringify({ collapse: [], charts: [], anchor: null, window: { kind: "time", min: Date.UTC(2021, 11, 27), max: Date.UTC(2032, 0, 5) } });
+        localStorage.setItem(keptName("plan-own-decade"), decade);
+        const back = renderPlan(value(await ownWindowSlice("plan-own-zoom-third")), "plan-own-decade");
+        expect(ticks(back.container)).toHaveLength(12);
+        back.unmount();
+        // On an axis of weeks alone it is 523 of them, more than a canvas draws: the axis's window stands.
+        localStorage.setItem(keptName("plan-own-decade-weeks"), decade);
+        const weeks = renderPlan(planRoot(rows(), { slice: some(await ownWindowSlice("plan-own-zoom-fourth")) }), "plan-own-decade-weeks");
+        expect(firstTick(weeks.container)).toBe("W27");
+        expect(ticks(weeks.container)).toHaveLength(12);
     });
 
     test("a kept window the axis no longer allows is not taken back — one of another arm, or one ending before it starts: the axis's window stands", async () => {

@@ -464,11 +464,12 @@ describe("the jobs read a cell at a time (#1039)", () => {
         const { container } = await h.mount(seriesPlan);
         await settle();
         const opened = askedOf(SERIES).length;
-        // At a week the canvas lays out two weeks either side of the fortnight — 21 September to 2 November — so the week's
-        // run grows a week either way, the month's a month either way and the quarter's a quarter back, the year's not at
-        // all: five parts not held, a range a press over each, counted, and holding no job (#1433).
+        // The week pressed is its preset from the fortnight's start (#1740), on into the next year, and the canvas lays out
+        // two weeks either side of it, from 21 September: the week's run grows a week back and on to the range's end, the
+        // month's a month back and on, the quarter's a quarter back and on, and the year's a year on — seven parts not
+        // held, a range a press over each, counted, and holding no job (#1433).
         await zoomTo(container, "week");
-        expect(askedOf(SERIES, opened)).toEqual([`find ${5 * BLOCK}`]);
+        expect(askedOf(SERIES, opened)).toEqual([`find ${7 * BLOCK}`]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 

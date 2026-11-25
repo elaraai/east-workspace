@@ -367,7 +367,7 @@ describe("The toolbar's expand/collapse control", () => {
         expect(container.querySelector(rowSel("m2"))).not.toBeNull();
     });
 
-    test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
+    test("the resolution segment is the same radio group — → sets the next period's preset through the slice (#1740)", async () => {
         const rail = await weekly("plan.632.resolution");
         const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
@@ -384,7 +384,10 @@ describe("The toolbar's expand/collapse control", () => {
         act(() => week!.focus());
         fireEvent.keyDown(week!, { key: "ArrowRight" });
         expect(document.activeElement).toBe(day);
-        expect(part.read().resolution).toEqual(some(variant("day", null)));
+        // The twelve weeks the source holds come in to the day's preset, from their own start: the columns are days.
+        const held = recordSliceWindow(part)!;
+        expect(held.min).toBe(W27.getTime());
+        expect(held.max).toBeLessThan(W39.getTime());
         await waitFor(() => expect(day!.getAttribute("aria-checked")).toBe("true"));
         expect(day!.tabIndex).toBe(0);
     });

@@ -179,6 +179,9 @@ export interface PlanNarrowProps {
     /** Where the rows the cards draw go, in order, as they change (#1438): the canvas reads the rows' nested series for
      *  them while the list shows, where the desktop's rows read theirs for the rows laid out. */
     onShown?: ((rows: readonly PlanRowValue[]) => void) | undefined;
+    /** Where the width the cards' columns share goes, as the list is laid out and as it changes (#1740): the plot the
+     *  canvas weighs its window's period on while the list shows. */
+    onPlot?: ((plot: number) => void) | undefined;
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
@@ -213,7 +216,7 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
     expandBody, expandGutterBody, canExpand, partial, pagedCount, pagedMeasures, fill,
-    failures, onRetry, paging, marks, noun, unread, onShown,
+    failures, onRetry, paging, marks, noun, unread, onShown, onPlot,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -388,6 +391,18 @@ export function PlanNarrow({
         const w = listRef.current?.clientWidth ?? 0;
         return w > 0 ? (w - 2 * BODY_INSET_PX) / scale.n : 0;
     };
+    // The width the cards' columns share (#1740), told as the list is laid out and as it changes — never held in state:
+    // the canvas's window takes its period from it. Each tab mounts its own list, so the one shown is followed.
+    useLayoutEffect(() => {
+        const el = listRef.current;
+        if (el === null || onPlot === undefined) return;
+        const tell = () => onPlot(el.clientWidth - 2 * BODY_INSET_PX);
+        tell();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(tell);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [activeTab, onPlot]);
     const listGestures = useSurfaceGestures(
         twoFingerPan(panning, periodPx, (periods) => dispatch({ t: "pan", buckets: periods })),
         { accepts: fingersOnly, capture: false });

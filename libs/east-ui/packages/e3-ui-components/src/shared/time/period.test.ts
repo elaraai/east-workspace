@@ -9,15 +9,19 @@
  *
  * The period a window's columns take (#1740): the finest a canvas offers whose
  * column holds the column floor on the plot as laid out; kept while the plot's
- * width alone changes, down to the squeeze floor; and the window a period's
- * preset sets, from the window's start.
+ * width alone changes, down to the squeeze floor; the window a period's
+ * preset sets, from the window's start, or about a table cell's middle; and
+ * the range a brush's resize sets, which nothing holds to a period.
  */
 
 import { describe, expect, test } from "vitest";
 import { PLAN_GEOMETRY } from "../../plan/geometry.js";
 import { BUCKET_SLOT_GAP } from "../../plan/rows/bucket-slots.js";
-import { PRESET_LEAST, columnPeriod, finestFirst, periodColumns, presetWindow, squeezedPeriod, type ColumnWidths } from "./period.js";
-import { timeScale, type TimeResolution } from "./scale.js";
+import {
+    PRESET_LEAST, brushedRange, columnPeriod, finestFirst, periodColumns, presetAround, presetWindow, squeezedPeriod,
+    type ColumnWidths, type HeldEnd,
+} from "./period.js";
+import { MAX_BUCKETS, timeScale, type TimeResolution } from "./scale.js";
 
 const G = PLAN_GEOMETRY.default;
 const WIDTHS: ColumnWidths = { floor: G.columnMinWidth, squeeze: G.columnSqueezeWidth, preset: G.columnPresetWidth };
@@ -28,7 +32,7 @@ const at = (iso: string): number => Date.parse(`${iso}T00:00:00.000Z`);
 /** A Monday. */
 const MON = at("2026-01-05");
 const days = (n: number): readonly [number, number] => [MON, MON + n * DAY];
-const pick = (window: readonly [number, number], plot: number | undefined, offered = CALENDAR) =>
+const pick = (window: readonly [number, number], plot: number, offered = CALENDAR) =>
     columnPeriod(window[0], window[1], plot, offered, WIDTHS.floor);
 
 describe("the canvas's column widths (#1740)", () => {
@@ -105,16 +109,10 @@ describe("the period a range's columns take on a plot (#1740)", () => {
         expect(finestFirst(["year", "day", "week", "day"])).toEqual(["day", "week", "year"]);
         expect(pick(days(41), 1000, [])).toBeUndefined();
     });
-
-    test("a plot not laid out weighs no width: the finest offered a scale cuts whole", () => {
-        expect(pick(days(41), undefined)).toBe("day");
-        expect(pick(days(41), 0)).toBe("day");
-        expect(pick([at("2026-01-01"), at("2028-01-01")], undefined)).toBe("week");
-    });
 });
 
 describe("the period a canvas keeps as its plot's width alone changes (#1740)", () => {
-    const keep = (period: TimeResolution, window: readonly [number, number], plot: number | undefined) =>
+    const keep = (period: TimeResolution, window: readonly [number, number], plot: number) =>
         squeezedPeriod(period, window[0], window[1], plot, CALENDAR, WIDTHS);
 
     test("a pane opened or a browser resized squeezes or widens the columns and keeps the period", () => {
@@ -130,15 +128,10 @@ describe("the period a canvas keeps as its plot's width alone changes (#1740)", 
         expect(keep("day", days(40), 370)).toBe("week");
         expect(keep("day", days(40), 120)).toBe("month");
     });
-
-    test("a plot not laid out keeps the period", () => {
-        expect(keep("day", days(400), undefined)).toBe("day");
-        expect(keep("day", days(400), 0)).toBe("day");
-    });
 });
 
 describe("the window a period's preset sets (#1740)", () => {
-    const preset = (start: number, period: TimeResolution, plot: number | undefined) => presetWindow(start, period, plot, WIDTHS);
+    const preset = (start: number, period: TimeResolution, plot: number) => presetWindow(start, period, plot, WIDTHS);
     const columns = (period: TimeResolution, window: readonly [number, number]) => periodColumns(period, window[0], window[1]);
 
     test("from the window's start, as many of the period as the plot holds at the preset width", () => {
@@ -179,9 +172,98 @@ describe("the window a period's preset sets (#1740)", () => {
             }
         }
     });
+});
 
-    test("a plot not laid out shows the period's least", () => {
-        expect(columns("week", preset(MON, "week", undefined))).toBe(4);
-        expect(columns("day", preset(MON, "day", 0))).toBe(7);
+describe("the window a zoom to a table cell's period sets (#1438, #1740)", () => {
+    const around = (middle: number, period: TimeResolution, plot: number, within?: readonly [number, number]) =>
+        presetAround(middle, period, plot, WIDTHS, within);
+
+    test("as many of the period as its preset shows, about the middle the cell names", () => {
+        // A Wednesday: twenty weeks on a plot of a thousand, ten either side of its week's Monday.
+        expect(around(at("2026-01-14"), "week", 1000)).toEqual([at("2025-11-03"), at("2026-03-23")]);
+        expect(around(at("2026-01-14"), "day", 1000)).toEqual([at("2026-01-04"), at("2026-01-24")]);
+        // Two years about November are that year and the next; about March, the year before and that one.
+        expect(around(at("2026-11-15"), "year", 60)).toEqual([at("2026-01-01"), at("2028-01-01")]);
+        expect(around(at("2026-03-15"), "year", 60)).toEqual([at("2025-01-01"), at("2027-01-01")]);
+    });
+
+    test("it keeps inside the time given, and is the whole of it where the periods do not fit", () => {
+        const span = [at("2022-01-01"), at("2032-04-01")] as const;
+        expect(around(at("2026-01-14"), "week", 1000, span)).toEqual([at("2025-11-03"), at("2026-03-23")]);
+        // Near its start and its end the window stops at the span's own weeks.
+        expect(around(at("2022-01-10"), "week", 1000, span)).toEqual([at("2021-12-27"), at("2022-05-16")]);
+        expect(around(at("2032-03-20"), "week", 1000, span)).toEqual([at("2031-11-17"), at("2032-04-05")]);
+        expect(around(at("2026-01-14"), "week", 1000, [at("2026-01-05"), at("2026-02-02")])).toEqual([at("2026-01-05"), at("2026-02-02")]);
+    });
+
+    test("the period the range then takes is the one zoomed to, so the cell asked for takes the focus", () => {
+        for (const plot of [322, 480, 1000, 2400]) {
+            for (const period of CALENDAR) {
+                const window = around(at("2026-06-17"), period, plot, [at("1900-01-01"), at("2200-01-01")]);
+                expect([plot, pick(window, plot)]).toEqual([plot, period]);
+                // A zoom goes to the finest period offered: so it is over a span too short for its preset, shown whole.
+                const short = around(at("2026-06-17"), period, plot, [at("2026-06-01"), at("2026-06-20")]);
+                expect([plot, pick(short, plot, CALENDAR.slice(CALENDAR.indexOf(period)))]).toEqual([plot, period]);
+            }
+        }
+    });
+});
+
+describe("the range a brush's resize, or a range drawn anew, sets (#1740)", () => {
+    const brush = (from: number, to: number, held: HeldEnd, plot = 1000, offered = CALENDAR) =>
+        brushedRange(from, to, held, plot, offered, WIDTHS.floor);
+
+    test("the end under the hand goes to the nearest edge of the period the range takes; the end held stays", () => {
+        // Days while they hold the floor.
+        expect(brush(MON, MON + 9.4 * DAY, "start")).toEqual([MON, MON + 9 * DAY]);
+        expect(brush(MON + 3.3 * DAY, MON + 14 * DAY, "end")).toEqual([MON + 3 * DAY, MON + 14 * DAY]);
+        // Past forty days on a plot of a thousand the columns are weeks, and so are the edges.
+        expect(brush(MON, MON + 60.2 * DAY, "start")).toEqual([MON, MON + 63 * DAY]);
+        expect(brush(MON - 60.2 * DAY, MON, "end")).toEqual([MON - 63 * DAY, MON]);
+        // No period's least or most stops it: a day, or four years, of a window that showed six weeks.
+        expect(brush(MON, MON + 0.6 * DAY, "start")).toEqual([MON, MON + DAY]);
+        expect(brush(at("2026-01-01"), at("2030-02-10"), "start")).toEqual([at("2026-01-01"), at("2030-01-01")]);
+    });
+
+    test("an end held on a finer period's edge gives outward to the edge of the period the range takes, as a scale draws it", () => {
+        const wed = MON + 2 * DAY;
+        expect(brush(wed, wed + 100 * DAY, "start")).toEqual([MON, MON + 105 * DAY]);
+        expect(brush(wed - 100 * DAY, wed, "end")).toEqual([MON - 98 * DAY, MON + 7 * DAY]);
+    });
+
+    test("always one period at the least: a range of no length is one of the finest", () => {
+        expect(brush(MON, MON + 0.2 * DAY, "start")).toEqual([MON, MON + DAY]);
+        expect(brush(MON + 0.9 * DAY, MON + DAY, "end")).toEqual([MON, MON + DAY]);
+        expect(brush(MON, MON, "start")).toEqual([MON, MON + DAY]);
+        expect(brush(MON + DAY, MON + DAY, "end")).toEqual([MON, MON + DAY]);
+    });
+
+    test("just past the most weeks hold, the nearest month's edge would leave weeks: the end goes to the month's edge beyond", () => {
+        // Forty-one weeks and a bit from the first of January: months. Nine of them are thirty-nine weeks, which draw as weeks.
+        const from = at("2026-01-01");
+        const to = from + 41.3 * 7 * DAY;
+        expect(pick([from, to], 1000)).toBe("month");
+        expect(pick([from, at("2026-10-01")], 1000)).toBe("week");
+        expect(brush(from, to, "start")).toEqual([from, at("2026-11-01")]);
+    });
+
+    test("the range a gesture shows is the one its release keeps: whole columns of the period it takes", () => {
+        for (const plot of [322, 1000, 2400]) {
+            for (const span of [0, 0.2, 1.4, 9.4, 13.2, 40.5, 41.3, 60.2, 200.7, 289.1, 800.3, 4000.1, 20_000.5]) {
+                for (const held of ["start", "end"] as const) {
+                    const [from, to] = held === "start" ? [MON + 2 * DAY, MON + (2 + span) * DAY] : [MON + (16 - span) * DAY, MON + 16 * DAY];
+                    const range = brush(from, to, held, plot)!;
+                    const scale = timeScale({ window: { min: new Date(range[0]), max: new Date(range[1]) }, resolution: pick(range, plot)! })!;
+                    expect([plot, span, held, scale.window.min.getTime(), scale.window.max.getTime()]).toEqual([plot, span, held, range[0], range[1]]);
+                }
+            }
+        }
+    });
+
+    test("it stops at as many of the coarsest offered as a scale draws, and is none where no period is offered", () => {
+        const weeks = 7 * DAY;
+        expect(brush(MON, MON + 600 * weeks, "start", 1000, ["day", "week"])).toEqual([MON, MON + MAX_BUCKETS * weeks]);
+        expect(brush(MON - 600 * weeks, MON, "end", 1000, ["day", "week"])).toEqual([MON - MAX_BUCKETS * weeks, MON]);
+        expect(brush(MON, MON + DAY, "start", 1000, [])).toBeUndefined();
     });
 });

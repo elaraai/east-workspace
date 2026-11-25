@@ -4,10 +4,10 @@
  *
  * @vitest-environment jsdom
  *
- * Plan slice chrome DOM tests — a zoom, which re-buckets the window and keeps
- * its time within the new resolution's periods (§3, #1344, #1710), the horizon
- * brush, which moves a record's window once a gesture and keeps it within its
- * zoom's most (§7, #620, #1344, #1710), chrome that tracks the
+ * Plan slice chrome DOM tests — a period's preset, which sets the range that
+ * period fills from the window's own start (§3, #1344, #1740), the horizon
+ * brush, which moves a record's window once a gesture and sets any range, the
+ * columns' period following it (§7, #620, #1344, #1740), chrome that tracks the
  * slice store (#611), sizing
  * (#320 / #567 D1), and the series library, which is the library pane's
  * Series tab, not a toolbar button (#590, #1193). The narrowing is the Plan's
@@ -33,6 +33,7 @@ import { Data } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "./geometry.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { planWindowParts } from "./root/sources.js";
@@ -44,6 +45,9 @@ const h = e3Harness(RAIL_MODULES, { measure: false });
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
 const NOW = new Date("2026-08-12T00:00:00Z");
+const DAY = 86_400_000;
+/** How many columns a period's preset shows on a plot not laid out, as a canvas's in a DOM with no layout is (#1740). */
+const PRESET = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
@@ -133,8 +137,8 @@ function renderPlan(value: PlanRootValue, key = "plan") {
     );
 }
 
-describe("a zoom keeps its window's time within the new resolution's periods, and a window they already hold stands (§3, #1344, #1710)", () => {
-    test("WEEK → DAY: the twelve weeks the source holds come in to six weeks of days from the same start, the resolution and the window written; back to the week the six weeks fit — the resolution alone written", async () => {
+describe("a period pressed sets the range it fills at the preset width, from the window's own start, and the columns follow (§3, #1344, #1740)", () => {
+    test("WEEK → DAY → WEEK: the twelve weeks the source holds come in to the day's preset from the same start, the window alone written; the week's is as many weeks from it", async () => {
         // The dated rows' window, twelve weeks from W27 — the source holds it, and it alone.
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom", {
             dated: {
@@ -148,27 +152,31 @@ describe("a zoom keeps its window's time within the new resolution's periods, an
             resolutions: [variant("week", null), variant("day", null)],
         }));
         await settle();
+        // Twelve weeks on the plot are weeks: a day's column there would be under the column floor.
         expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(12);
+        const pressed = () => container.querySelector('[data-toolbar-item="resolution"] [aria-pressed="true"], [data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent;
+        expect(pressed()).toBe("WEEK");
         const before = rail.writes("dated");
+        const resolution = part.read().resolution;
         fireEvent.click(screen.getByText("DAY"));
         await settle();
-        expect(part.read().resolution).toEqual(some(variant("day", null)));
-        // Six weeks from the twelve weeks' own start, W27 — 29 June to 10 August, forty-two columns: the start date never
-        // moves (ruled 23 Nov 2026). Two writes, the resolution and the window, which is what a reader of the source reads.
-        const sixWeeks = { kind: "datetime", min: Date.UTC(2026, 5, 29), max: Date.UTC(2026, 7, 10) };
-        expect(recordSliceWindow(part)).toEqual(sixWeeks);
-        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(42);
-        expect(rail.writes("dated") - before).toBe(2);
-        // Back to the week: a week's periods hold the six weeks, so the window stands — one write, the resolution's.
+        // The day's preset from the twelve weeks' own start, W27: the start date never moves (ruled 23 Nov 2026). One
+        // write, of the window, which is what a reader of the source reads; nothing of the period is written.
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W27.getTime() + PRESET * DAY });
+        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(PRESET);
+        expect(rail.writes("dated") - before).toBe(1);
+        expect(part.read().resolution).toEqual(resolution);
+        expect(pressed()).toBe("DAY");
+        // The week: as many weeks, from the same start.
         fireEvent.click(screen.getByText("WEEK"));
         await settle();
-        expect(part.read().resolution).toEqual(some(variant("week", null)));
-        expect(recordSliceWindow(part)).toEqual(sixWeeks);
-        expect(rail.writes("dated") - before).toBe(3);
-        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(6);
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W27.getTime() + PRESET * 7 * DAY });
+        expect(rail.writes("dated") - before).toBe(2);
+        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(PRESET);
+        expect(pressed()).toBe("WEEK");
     });
 
-    test("WEEK → MONTH → WEEK: twelve weeks the source holds touch four months, which a month's periods hold — the window stands, re-bucketed, the resolution alone written each way", async () => {
+    test("WEEK → MONTH → WEEK: the months run from the window's own start to a month's edge, drawn from the first of its month; the weeks after them are from that start again", async () => {
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom-fits", {
             dated: {
                 source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
@@ -185,19 +193,20 @@ describe("a zoom keeps its window's time within the new resolution's periods, an
         const twelveWeeks = { kind: "datetime", min: W27.getTime(), max: W39.getTime() };
         expect(recordSliceWindow(part)).toEqual(twelveWeeks);
         const before = rail.writes("dated");
-        // To the month: its periods hold the four months the twelve weeks touch, so the window keeps its instants — never
-        // the three months its time would round to, which would move what the source holds.
+        // To the month: its preset, June the first of the months it shows. What the source holds starts on the 29th
+        // still — never the 1st, where the month's columns draw from.
         fireEvent.click(screen.getByText("MONTH"));
         await settle();
-        expect(part.read().resolution).toEqual(some(variant("month", null)));
-        expect(recordSliceWindow(part)).toEqual(twelveWeeks);
-        expect(ticks()).toEqual(["JUN", "JUL", "AUG", "SEP"]);
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: Date.UTC(2026, 5 + PRESET, 1) });
+        expect(ticks()).toHaveLength(PRESET);
+        expect(ticks().slice(0, 3)).toEqual(["JUN", "JUL", "AUG"]);
         expect(rail.writes("dated") - before).toBe(1);
-        // And back: the twelve weeks again, never the seventeen the months drawn would round to.
+        // And the week: from W27 — never from the 1st of June, a Monday short of it.
         fireEvent.click(screen.getByText("WEEK"));
         await settle();
-        expect(recordSliceWindow(part)).toEqual(twelveWeeks);
-        expect(ticks()).toHaveLength(12);
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W27.getTime() + PRESET * 7 * DAY });
+        expect(ticks()).toHaveLength(PRESET);
+        expect(ticks()[0]).toBe("W27");
         expect(rail.writes("dated") - before).toBe(2);
     });
 });
@@ -275,29 +284,62 @@ describe("Plan horizon brush — a record's window moves once a gesture (§7, #6
         expect(ticks()).toEqual(["W29", "W30", "W31"]);
     });
 
-    test("at the day the brush keeps the window within six weeks: an end dragged past them gives way at the forty-second day, its start held; a window drawn leftwards past them keeps the edge it started at (#1710)", async () => {
+    test("nothing holds the window to a period's most: on an axis of days alone an end dragged to the track's end takes the window there, its start held, and a window drawn from the track's start to its end is all of it but a day (#1740)", async () => {
         const days = variant("time", { window: some({ min: W27, max: W39 }), resolution: variant("day", null), resolutions: [], now: some(NOW), format: none });
-        const { container, track, range, writes, ticks } = await brushFixture("plan-1710-limit", days);
-        const DAY = 86_400_000;
-        // The end handle, where the strip draws it, dragged to the track's end: the window would run some ten weeks.
+        const { container, track, range, writes, ticks } = await brushFixture("plan-1740-any-range", days);
+        // The horizon in days: from W27 to the day after W39's row, eighty-five of them on the track.
+        expect(screen.getByText("HORIZON · 85 D")).toBeTruthy();
+        // The end handle, where the strip draws it, dragged to the track's end: ten weeks and a day from 13 July, where
+        // six weeks were once the most a day showed.
         const hiAt = parseFloat(container.querySelector<HTMLElement>('[data-brush-zone][data-edge="hi"]')!.style.left) / 100 * 1300;
         fireEvent.pointerDown(track, { clientX: hiAt, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 1299, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
-        // Six weeks from its start, 13 July: to 24 August, written once.
-        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z"));
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-09-22T00:00:00.000Z"));
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
         expect(writes()).toBe(1);
-        expect(ticks()).toHaveLength(42);
-        // Drawn from near the track's end back to its start: the edge it started at stays, and the start gives way — six
-        // weeks before it, the whole window right of where it was.
-        fireEvent.pointerDown(track, { clientX: 1290, pointerId: 1, buttons: 1 });
-        fireEvent.pointerMove(track, { clientX: 10, pointerId: 1, buttons: 1 });
+        expect(ticks()).toHaveLength(71);
+        // Drawn on the empty track before the window, from the second day to the track's end: the edge it started at
+        // gives outward to its day's start, and the end goes where the hand does, the nearest day's edge.
+        fireEvent.pointerDown(track, { clientX: 20, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 1299, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         await waitFor(() => expect(writes()).toBe(2));
-        expect(range().to.getTime()).toBeGreaterThan(Date.UTC(2026, 7, 24));
-        expect(range().to.getTime() - range().from.getTime()).toBe(42 * DAY);
-        expect(ticks()).toHaveLength(42);
+        expect(range().from.toISOString()).toBe("2026-06-30T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-09-22T00:00:00.000Z");
+        expect(ticks()).toHaveLength(84);
+    });
+
+    test("the columns' period follows the range the brush sets: four weeks of days, an end dragged out, are weeks, and dragged back in days again — each range on the edges of the period it takes (#1740)", async () => {
+        const offered = variant("time", {
+            window: some({ min: W27, max: W39 }), resolution: variant("week", null),
+            resolutions: [variant("day", null), variant("week", null), variant("month", null)], now: some(NOW), format: none,
+        });
+        const { container, track, range, writes, ticks } = await brushFixture("plan-1740-period-follows", offered);
+        const hiAt = () => parseFloat(container.querySelector<HTMLElement>('[data-brush-zone][data-edge="hi"]')!.style.left) / 100 * 1300;
+        // Four weeks on the plot hold a day's column: the canvas opens on days, its horizon the eighty-five days.
+        expect(ticks()).toHaveLength(28);
+        expect(screen.getByText("HORIZON · 85 D")).toBeTruthy();
+        // The end dragged out to the 8th of September, fifty-eight days: weeks, and the end on the nearest week's edge.
+        fireEvent.pointerDown(track, { clientX: hiAt(), pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 1100, pointerId: 1, buttons: 1 });
+        // The strip alone draws the range under the hand: the canvas and the source keep the four weeks until release.
+        expect(writes()).toBe(0);
+        expect(ticks()).toHaveLength(28);
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-09-07T00:00:00.000Z"));
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(writes()).toBe(1);
+        expect(ticks()).toEqual(["W29", "W30", "W31", "W32", "W33", "W34", "W35", "W36"]);
+        // The horizon is the thirteen whole weeks now, a hundred px each: the end dragged back in to the 24th of July.
+        expect(screen.getByText("HORIZON · 13 WK")).toBeTruthy();
+        fireEvent.pointerDown(track, { clientX: hiAt(), pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 360, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-07-24T00:00:00.000Z"));
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(writes()).toBe(2);
+        expect(ticks()).toHaveLength(11);
     });
 });
 

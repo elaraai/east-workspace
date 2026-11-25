@@ -95,10 +95,12 @@ import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
     type PlanResolvers,
 } from "./context.js";
-import { PLAN_GUTTER_VAR, planGeometry, planGeometryStyle, planGeometryVar } from "./geometry.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_GUTTER_VAR, planGeometry, planGeometryStyle, planGeometryVar } from "./geometry.js";
+import { brushedRange, type HeldEnd } from "../shared/time/period.js";
 import { PlanRunRow } from "./rows/RunRow.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
-import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
+import { axisNow, axisPeriods, axisResolutions, ordinalIndexOf } from "./axis.js";
+import type { PlanResolution } from "./scale.js";
 import type { PlanEvent } from "./plan-state.js";
 import type { PlanPart } from "./messages.js";
 import {
@@ -187,7 +189,7 @@ import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
-import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
+import { PlanTypingStore, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, elementKeys, holdsElement, selectableOf } from "./rows/element-select.js";
@@ -256,6 +258,8 @@ const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map
 const NO_INDEXES: readonly never[] = [];
 /** No collection of the rows' own holds more items in view than are drawn, unshaded. */
 const NO_ITEMS_OVER: readonly PlanNestedNotice[] = [];
+/** No period a table cell zooms to: a Plan with no slice, which shows the one its range takes alone. */
+const NO_ZOOMS: readonly PlanResolution[] = [];
 
 /** Default gutter width (px, desktop — #1680's review, over the §8 sheet's 168). */
 const GUTTER_W = 240;
@@ -391,9 +395,9 @@ export function usePlanCanvas({
     // ── What survives a remount (#813) ────────────────────────────────────
     // Under the canvas's `storageKey`: the user's collapse toggles, the charts
     // they expanded, where a bounded frame's scroll rests, and the canvas's own
-    // window while no source of its slice holds one (#1344), with the zoom it
-    // was shown at (#1438): the slice holds the zoom, but a page's store may
-    // not outlive the page. Never the selection — a transient act, and
+    // window while no source of its slice holds one (#1344) — kept as a range
+    // (#1740): the period its columns take is worked out again as the canvas
+    // opens. Never the selection — a transient act, and
     // restoring it would re-fire `onSelect`. The controller restores from it
     // once and writes through the latest handle. It is read as the canvas
     // mounts and never drawn from after: where the scroll rests is written each
@@ -405,12 +409,9 @@ export function usePlanCanvas({
     const persistTo = useRef(persistedAt.write);
     useLayoutEffect(() => { persistTo.current = persistedAt.write; });
     // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
-    // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
-    const [windowHold] = useState(() => {
-        const window = restoredWindow(restored.window, hostValue, PLAN_ROW_SOURCES);
-        // The zoom it was kept at with it (#1438): the scale's until the slice holds one.
-        return createPlanWindowHold(window, window !== undefined ? restored.window?.resolution : undefined);
-    });
+    // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there. It
+    // holds the plot's width too, and the period the window's columns take on it (#1740).
+    const [windowHold] = useState(() => createPlanWindowHold(restoredWindow(restored.window, hostValue, PLAN_ROW_SOURCES)));
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
@@ -1573,11 +1574,15 @@ export function usePlanCanvas({
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
-    // The resolutions the Plan zooms to, the finest first: its segment's and the one its axis opens at — what a table
-    // cell's typing reads (#1438). The resolution is the slice's: without one the Plan shows the one it opens at alone.
-    const zoomable = slices !== undefined;
-    const zooms = useMemo(() => (zoomable ? planZooms(resolutions, data.axis.type === "time" ? data.axis.value.resolution.type : undefined) : []),
-        [zoomable, resolutions, data.axis]);
+    // The periods the axis offers, the finest first (#1740): what the window's columns take as its range and the plot's
+    // width allow, and so what a table cell's typing reads and its zoom lands on (#1438) — the finest of them. Without a
+    // slice no segment and no zoom moves the window: a cell types at the period shown.
+    const offered = useMemo(() => axisPeriods(data.axis), [data.axis]);
+    const zooms = slices !== undefined ? offered : NO_ZOOMS;
+    // The range the brush's resize, or a range drawn anew, sets (#1740): on the edges of the period it takes on the plot
+    // as it is laid out when the hand moves.
+    const brushed = useCallback((from: number, to: number, held: HeldEnd) =>
+        brushedRange(from, to, held, windowHold.plot, offered, PLAN_COLUMN_WIDTHS.floor), [windowHold, offered]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
     // What the brush spans beside the window shown while no source holds the window (#1344).
     const stated = useMemo(() => statedWindow(data.axis), [data.axis]);
@@ -1977,6 +1982,25 @@ export function usePlanCanvas({
         return () => bodyEl.removeEventListener("focusout", onOut);
     }, [hasBody]);
 
+    // ── The plot's width (#1740) ──────────────────────────────────────────
+    // What the window's period is weighed on — the rows' width less the gutter's and the rail's — told to the window's
+    // hold as the canvas is laid out and as it changes, before the frame paints. Never held in state: a width that moves
+    // no period draws nothing again. The narrow list's cards share a width of their own, which the list tells itself
+    // (`onPlot`): a body under its threshold is left to it, so a phone's first lay-out is never the wide canvas's.
+    useLayoutEffect(() => {
+        const bodyEl = focusBodyRef.current;
+        const el = frameFills ? scrollElRef.current : bodyEl;
+        if (bodyEl === null || el === null || narrow) return undefined;
+        const tell = () => {
+            if (bodyEl.clientWidth >= PLAN_NARROW_BELOW) windowHold.layOut(el.clientWidth - gutterW - railPx);
+        };
+        tell();
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const observer = new ResizeObserver(tell);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [windowHold, frameFills, gutterW, railPx, narrow, hasBody]);
+
     // ── Moves (#825) ──────────────────────────────────────────────────────
     // What the rows and elements move with: the store, the drag surface — none
     // in the narrow layout, a review tool — and the words a keyboard reader is
@@ -2221,6 +2245,7 @@ export function usePlanCanvas({
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
             windowParts={windowParts} stated={stated} span={nestedSeam !== undefined ? nestedSpan : undefined} affordances={affordances} now={now}
+            brushed={brushed}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
@@ -2496,6 +2521,8 @@ export function usePlanCanvas({
                     // Its cards wash as the rows do while their cells are read, and say which rows they draw, for the
                     // rows' nested series to be read for them (#1438).
                     unread={unreadOrInFlight} onShown={onNarrowShown}
+                    // The width its cards' columns share is the plot the window's period is weighed on (#1740).
+                    onPlot={windowHold.layOut}
                 />
             ) : (<>
                 <VirtualRows

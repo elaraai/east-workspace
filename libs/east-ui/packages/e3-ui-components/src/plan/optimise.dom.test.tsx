@@ -46,6 +46,7 @@ import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { optimiseCases, typeInInspector } from "../shared/func/optimise-cases.test-utils.js";
 import { printEventRef } from "../shared/schedule/event-ref.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "./geometry.js";
 import "./index.js";
 
 /**
@@ -366,7 +367,7 @@ const nextWindow = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "N
 
 /**
  * The print works' jobs, read a window at a time behind their rail, on a canvas that zooms — the day, the week, the
- * month and the quarter — with the print works' optimiser. A Plan zooms through its rail, which keeps the resolution.
+ * month and the quarter — with the print works' optimiser. A Plan zooms through its rail, which keeps the window.
  */
 const zooming = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Record.bind(events.planPrintPresses, []));
@@ -417,17 +418,19 @@ describe("the period a run is asked of (rule 1)", () => {
             await settle();
             return [request.period.type, instant(request.from), instant(request.to)];
         };
-        // The window the app gave, in days and in weeks: four weeks from Mon 5 Oct.
+        /** How many columns a period's preset shows on a plot not laid out, as a canvas's in a DOM with no layout is (#1740). */
+        const preset = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
+        // The window the app gave, four weeks from Mon 5 Oct: its columns days.
         expect(await asked()).toEqual(["day", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
+        // A period pressed is its preset from the window's start, which never moves: as many weeks from the 5th.
         await zoomTo("week");
-        expect(await asked()).toEqual(["week", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
-        // Zoomed out, the window is whole units of the axis: the least a month shows from the 5th, three months — October
-        // to December — then the least a quarter shows, four quarters from October. The start never moves and the end
-        // gives way (ruled 23 Nov 2026), past the jobs' own dates.
+        expect(await asked()).toEqual(["week", "2026-10-05T00:00:00.000", instant(new Date(Date.UTC(2026, 9, 5 + 7 * preset)))]);
+        // Zoomed out, the window is whole units of the axis, from the start of the one the 5th is in: as many months
+        // from October, then as many quarters — past the jobs' own dates.
         await zoomTo("month");
-        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", "2027-01-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", instant(new Date(Date.UTC(2026, 9 + preset, 1)))]);
         await zoomTo("quarter");
-        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", "2027-10-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", instant(new Date(Date.UTC(2026, 9 + 3 * preset, 1)))]);
     });
 });
 

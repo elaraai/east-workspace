@@ -32,7 +32,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { PLAN_GEOMETRY } from "../geometry.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_GEOMETRY, PLAN_UNLAID_PLOT } from "../geometry.js";
 import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
@@ -302,18 +302,20 @@ describe("the works on a Plan (#1438)", () => {
         expect(notice()).toBeNull();
     });
 
-    test("a zoom keeps the window's start, and its time within the periods the new resolution shows: out to the year, the thirteen weeks from 28 September are the least a year shows, two years' time — never the ten; back to the week, the most a week shows from the same start (#1438, #1710, ruled 23 Nov 2026)", async () => {
+    test("a period pressed keeps the window's start and sets its preset from it: out to the year, as many years from the one 28 September is in as fill the plot at the preset width; back to the week, as many weeks from the same start (#1438, #1740, ruled 23 Nov 2026)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((tick) => tick.textContent);
-        // From Monday 28 September 2026: two years' time ends at the year edge nearest, New Year 2029.
+        // The columns a preset shows on a plot not laid out, as a canvas's in a DOM with no layout is.
+        const preset = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
+        // From Monday 28 September 2026: the years from 2026, the window's end a year's edge.
         await zoomTo(container, "year");
-        await waitFor(() => expect(ticks()).toEqual(["2026", "2027", "2028"]));
-        // The start stays: twenty-six weeks from the week of 28 September 2026, W40.
+        await waitFor(() => expect(ticks()).toEqual(Array.from({ length: preset }, (_, year) => String(2026 + year))));
+        // The start stays: as many weeks from the week of 28 September 2026, W40.
         await zoomTo(container, "week");
-        await waitFor(() => expect(ticks()).toHaveLength(26));
+        await waitFor(() => expect(ticks()).toHaveLength(preset));
         expect(ticks()[0]).toBe("W40");
     });
 

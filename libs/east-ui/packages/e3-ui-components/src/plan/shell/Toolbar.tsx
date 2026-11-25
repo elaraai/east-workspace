@@ -179,7 +179,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const tools = chrome?.tools;
     const optimiseItem = chrome?.optimise?.toolbarItem;
     const resolution = scale?.resolution ?? "";
-    // The resolution is the slice's: without one the segment would offer a control that does nothing.
+    // A period pressed moves the window, and a canvas with no slice has none to move: its segment would do nothing.
     const showResolution = slices !== undefined && resolutionItems.length > 0;
     const pickResolution = useCallback((r: string) => dispatch({ t: "resolution.set", resolution: r }), [dispatch]);
     // The overlapping pairs, which the toolbar's chip counts (#1198), and the first, earliest first — what its click
@@ -242,9 +242,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         };
     }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,
         pickResolution, pairs, selectFirst, toolStrip, linkMenu]);
-    // The segment writes the slice's resolution (`slice.setResolution`) — without a slice the effect runner drops it, so
-    // mounting it would offer a control that does nothing. The unbound-canvas fallback story is #572's (resolution
-    // persist fallback); until then, no slice ⇒ no segment.
+    // A period pressed sets the window's range (`window.preset`, #1740), and the columns' period follows it. A canvas
+    // with no slice keeps the axis's stated window, where the effect runner drops a preset: no slice, no segment.
     const resolutionItem = useMemo((): ToolbarItem | undefined => (drawn && showResolution ? {
         key: "resolution",
         rank: [PLAN_RANK.resolution, PLAN_RANK.controls],
