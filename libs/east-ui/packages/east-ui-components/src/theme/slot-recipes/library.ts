@@ -549,6 +549,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexWrap: "wrap",
             gap: "{spacing.1}",
             marginTop: "3px",
+            /* A paged gallery's cards stand as tall as each other: their
+               chips keep to one line, the ones past its end cut. */
+            "[data-library-gallery] &": { flexWrap: "nowrap", minWidth: "0", overflow: "hidden" },
         },
         chip: {
             fontFamily: "mono",
@@ -561,6 +564,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.xs}",
             paddingX: "6px",
             paddingY: "1px",
+            "[data-library-gallery] &": { flexShrink: "0", whiteSpace: "nowrap" },
         },
         dimText: {
             fontFamily: "mono",
@@ -754,6 +758,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             "[data-media=top] &": { marginTop: "6px" },
+            /* A paged gallery's cards stand as tall as each other: the foot
+               keeps to the card's end, whatever stands over it. */
+            "[data-library-gallery] &": { marginTop: "auto" },
         },
         galleryByline: {
             display: "flex",

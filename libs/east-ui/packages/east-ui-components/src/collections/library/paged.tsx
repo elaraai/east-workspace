@@ -30,10 +30,10 @@
  * the pending rows.
  *
  * {@link PagedGallery} (east-workspace#1761) is the same reads drawn as a
- * gallery: its host's own cards in a responsive grid — as many columns as fit
- * at the cards' least width, one at least, each line of the grid one virtual
- * row — so a gallery over ten thousand rows reads and mounts a screenful, as
- * the list does.
+ * gallery: the Library's gallery cards in a responsive grid — as many columns
+ * as fit at the cards' least width, one at least, each line of the grid one
+ * virtual row — so a gallery over ten thousand rows reads and mounts a
+ * screenful, as the list does.
  *
  * @packageDocumentation
  */
@@ -50,8 +50,8 @@ import { SEARCH_DELAY_MS } from "../../slice/record/index.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { planWindows } from "../paged-window-store.js";
 import {
-    LibraryCard, LibraryEmptyState, LibrarySearchBox, librarySearchItem, useLibrarySearchShortcut,
-    type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type LibrarySearchSize,
+    LibraryCard, LibraryEmptyState, LibraryGalleryCard, LibrarySearchBox, librarySearchItem, useLibrarySearchShortcut,
+    type LibraryCardExtras, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type LibrarySearchSize,
 } from "./index.js";
 import { pagedSearchFields, pagedSearchTarget, pagedSearchWhere } from "./paged-search.js";
 
@@ -92,8 +92,9 @@ export interface PagedLibrarySearch<T> {
 }
 
 /**
- * A paged palette as a gallery (east-workspace#1761): its host's own cards in a responsive grid, in place of the
- * Library's compact cards a row each — the query library's.
+ * A paged palette as a gallery (east-workspace#1761): the Library's gallery cards in a responsive grid, in place of
+ * its compact cards a row each — the query library's. A card is the Library's own, so its press, its keys and its
+ * looks are the ones every gallery has.
  *
  * @typeParam T - The palette's rows
  */
@@ -102,8 +103,18 @@ export interface PagedLibraryGallery<T> {
     readonly least: number;
     /** A card's height, px: every card of the gallery stands as tall. */
     readonly cardPx: number;
-    /** A row's card, which fills its place in the grid: its host's own, with its own press and its own keys. */
-    card(row: T): ReactNode;
+    /** A row's card: its name, its meta line, its status, its secondary facts, its byline and its action or glyph; `placed`, it is the one its host marks. */
+    item(row: T): LibraryItemValue;
+    /** Draws a card's media, as React: its host's thumbnail of the row. With none, a card has no media. */
+    media?: ((row: T) => ReactNode) | undefined;
+    /** What its host draws on a card beside its shared face: its tooltip, and a note in a tone. */
+    extras?: ((row: T) => LibraryCardExtras | undefined) | undefined;
+    /** Which rows' cards take a press: those it answers `true` for, and every one where it is not given. A card that takes none is no button. */
+    clicks?: ((row: T) => boolean) | undefined;
+    /** A press on a card, or ⏎ or Space with the keyboard on it: told the card's key. */
+    onOpen(key: string): void;
+    /** The secondary facts its cards show, by their keys in a card's `dims`, in their order; none where it is not given. */
+    dims?: readonly string[] | undefined;
 }
 
 /** @internal A paged palette reuses Library's card, empty state, search box and theme. */
@@ -146,7 +157,7 @@ export const PAGED_LIBRARY_PAGE = 32;
 /** The rows a narrowing reads first: from its start. */
 const FIRST_ROWS = { start: 0, end: 12 } as const;
 const estimateSize = () => 56;
-const EMPTY_DIMS: string[] = [];
+const EMPTY_DIMS: readonly string[] = [];
 /** Retained content (#1398, CL8): what stands in while a new narrowing is read — aria-disabled in a busy region. */
 const RETAINED = { "aria-busy": true, "aria-disabled": true } as const;
 
@@ -238,8 +249,9 @@ export interface PagedGalleryProps<T> {
 
 /**
  * A paged palette as a gallery (east-workspace#1761): {@link PagedLibrary}'s reads — a window at a time, the rows in
- * view and their neighbours, the rows that last landed standing in while a new narrowing's are read — drawn as its
- * host's own cards in a responsive grid. It has no search of its own: its host's rail narrows it.
+ * view and their neighbours, the rows that last landed standing in while a new narrowing's are read — drawn as the
+ * Library's gallery cards in a responsive grid, each with its media over its face. It has no search of its own: its
+ * host's rail narrows it.
  * @param props - The paged source, the cards and their grid, and what it says with no row
  * @returns A virtualized gallery of the host's cards
  * @internal
@@ -250,7 +262,7 @@ export function PagedGallery<T>({ source, id, gallery, empty, narrowing }: Paged
     const readNarrowed = useCallback(() => source.query?.() ?? "", [source]);
     const { result } = useTrackedEvaluation(readNarrowed);
     return (
-        <Box css={[styles.root, styles.pagedRoot]} data-library={id} data-library-paged="" data-library-gallery="" data-scrollable="">
+        <Box css={[styles.root, styles.pagedRoot]} data-library={id} data-library-paged="" data-library-gallery="" data-media="top" data-scrollable="">
             <PagedRows source={source} id={id} gallery={gallery} empty={empty} narrowing={narrowing}
                 identity={`${source.id}|${result.ok ? result.value : ""}|`} query="" styles={styles} onShowAll={noShowAll} />
         </Box>
@@ -259,8 +271,23 @@ export function PagedGallery<T>({ source, id, gallery, empty, narrowing }: Paged
 
 /** A gallery has no search of its own, so nothing to show all of. */
 const noShowAll = (): void => {};
-/** A card of a palette given no `onOpen`: a gallery's, whose cards are its host's. */
+/** A card of a palette given no `onOpen`: a gallery's, whose cards take its own. */
 const noOpen = (): void => {};
+
+/**
+ * A gallery's card over its row: the Library's gallery card, its item, its media and what its host draws beside it
+ * made once a row, so a card is drawn again only as its row or its gallery changes.
+ */
+function PagedGalleryCard<T>({ row, gallery, id, styles }: { row: T; gallery: PagedLibraryGallery<T>; id: string; styles: Styles }) {
+    const item = useMemo(() => gallery.item(row), [gallery, row]);
+    const extras = useMemo(() => gallery.extras?.(row), [gallery, row]);
+    const media = gallery.media;
+    const renderMedia = useMemo(() => (media === undefined ? undefined : () => media(row)), [media, row]);
+    const dims = gallery.dims ?? EMPTY_DIMS;
+    const takes = gallery.clicks?.(row) ?? true;
+    return <LibraryGalleryCard libraryId={id} item={item} dimOrder={dims} activeDims={dims} filtered={item.filtered} styles={styles}
+        onCardClick={takes ? gallery.onOpen : undefined} onCardEnter={undefined} storageKey={id} renderMedia={renderMedia} extras={extras} />;
+}
 
 /** Props of {@link PagedRows}: a palette's, its cards the Library's compact ones or — with a `gallery` — its host's own. */
 type PagedRowsProps<T> = Omit<PagedLibraryProps<T>, "item" | "onOpen"> & Partial<Pick<PagedLibraryProps<T>, "item" | "onOpen">> & {
@@ -407,7 +434,8 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, gallery, em
                                 {places.map(at => {
                                     const row = rows.get(at);
                                     return <Box key={at} css={styles.pagedGalleryCell} data-library-place={at}>
-                                        {row === undefined ? <Skeleton css={styles.pagedGallerySkeleton} aria-label="Loading record" /> : gallery.card(row)}
+                                        {row === undefined ? <Skeleton css={styles.pagedGallerySkeleton} aria-label="Loading record" />
+                                            : <PagedGalleryCard row={row} gallery={gallery} id={id} styles={styles} />}
                                     </Box>;
                                 })}
                             </Box>;

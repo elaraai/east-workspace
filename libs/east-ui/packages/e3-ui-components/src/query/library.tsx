@@ -16,44 +16,46 @@
  * - **The cards**, main: the saved queries the rail narrows to, in the order
  *   e3 pages them, as the shared paged gallery — as many across as fit, a
  *   window read and a screenful mounted at a time. A card is the Library's
- *   gallery card: a wireframe of the query, its source and a bar per step; its
- *   name, and the mark of the query the host says is open; its description —
- *   the author's, else the sentence generated from its steps; its tags; and a
- *   foot holding what it reads and gives and when it was saved, then Open in
- *   builder. A press on it, or ⏎ or Space with the keyboard on it, asks the
- *   host for its query. One whose data sources aren't bound here says why, in
- *   the warning tone, and asks for nothing.
+ *   gallery card, drawn by the Library ({@link queryItem}): a wireframe of the
+ *   query, its source and a bar per step; its name, and Open on the one the
+ *   host says is open; its description — the author's, else the sentence
+ *   generated from its steps; its tags; and a foot holding what it reads and
+ *   gives and when it was saved, then Open in builder. A press on it, or ⏎ or
+ *   Space with the keyboard on it, asks the host for its query. One whose data
+ *   sources aren't bound here says why, in the warning tone, and is no button.
  *
  * Opening tells the host which query is asked for, in a turn of its own, and
  * does nothing else: the query library opens nothing itself, writes nothing,
  * and shares no store entry with a builder (#1668). It reads no dataset, and
  * never the saved queries whole: a card's query is a row of a page e3 read.
  *
- * Its own parts' styles are the `queryLibrary` recipe's, the grid and a card
- * the `library` recipe's, its button the `button` recipe's and its menu the
- * `menu`'s.
+ * Its wireframe's and New query's styles are the `queryLibrary` recipe's, the
+ * grid and a card the `library` recipe's, its button the `button` recipe's and
+ * its menu the `menu`'s.
  *
  * @packageDocumentation
  */
 
-import { createContext, memo, useCallback, useContext, useMemo, type KeyboardEvent } from "react";
+import { createContext, memo, useCallback, useContext, useMemo } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { faCaretDown, faPlus, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
     StringType, equalFor, equivalentFor, fromEastTypeValue, isValueOf, none, parseFor, printFor, some, variant, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { QueryLibraryComponent, QueryLibraryPayloadType, SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
-import { BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, useTrackedEvaluation, type ToolbarItem } from "@elaraai/east-ui-components";
+import {
+    BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, useTrackedEvaluation, type LibraryItemValue, type ToolbarItem,
+} from "@elaraai/east-ui-components";
 import {
     PagedGallery, recordSlicePage, recordSliceRevision, useRecordSlicesToolbarItems, useSlotStyles,
     type LibraryPageSource, type PagedLibraryGallery, type SlotStyles,
 } from "@elaraai/east-ui-components/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { tellHost } from "../shared/open.js";
-import { queryAbout, whenWords, type QueryAbout } from "./about.js";
+import { queryAbout, refusalGlyph, whenWords, type QueryAbout } from "./about.js";
 import { sourceKind } from "./datasets-tab.js";
 import { useQueryRoot } from "./hooks.js";
 import type { QueryWords } from "./model/words.js";
@@ -81,15 +83,15 @@ const WIRE_STEPS = 4;
 /** The narrowest a card stands, and its height, px: the Library's gallery card, its wireframe over its face. */
 const CARD_LEAST = 300;
 const CARD_PX = 224;
+/** The secondary fact a card shows: its query's tags, as chips. */
+const TAGS = "tags";
+const CARD_DIMS = [TAGS] as const;
 
-/** What the library's cards read: the root, the words, who to tell, and the query its host says is open. */
+/** What the library's parts read: the root, the words, and who to tell. */
 interface QueryLibraryFacts {
     readonly root: QueryRoot;
     readonly words: QueryWords;
     readonly styles: SlotStyles;
-    /** The `library` recipe's: a card is its gallery card. */
-    readonly card: SlotStyles;
-    readonly open: option<QueryOpen>;
     readonly onOpen: QueryLibraryValue["onOpen"];
     /** Each bound data source's icon, by its name. */
     readonly icons: ReadonlyMap<string, string>;
@@ -146,68 +148,35 @@ function QueryWireframe({ about, icon, styles, words }: { about: QueryAbout; ico
 }
 
 /**
- * A saved query's card: the Library's gallery card — a wireframe of the query over its name, and the mark of the one
- * open in the builder; its description, or why it can't open here; its tags; and a foot holding what it reads and
- * gives and when it was saved, then Open in builder. The card is the one target: a press, ⏎ or Space asks the host
- * for its query.
+ * A saved query's card, as the Library's gallery card draws it: its name, and Open while it is the one its host says
+ * is open, which is then the card marked; its description, or — where it can't open here — why, as its note; its tags;
+ * and a foot holding what it reads and gives and when it was saved, then Open in builder, or a warning's glyph.
+ *
+ * @param saved - The saved query
+ * @param about - What the library says of it
+ * @param open - Whether it is the query its host says is open
+ * @param words - The words
+ * @returns The card
  */
-const QueryCard = memo(function QueryCard({ saved }: { saved: SavedQuery }) {
-    const { root, styles, card, words, open, onOpen, icons } = useQueryLibrary();
+function queryItem(saved: SavedQuery, about: QueryAbout, open: boolean, words: QueryWords): LibraryItemValue {
     const m = words.messages;
     const f = words.formatters;
-    const about = useMemo(() => queryAbout(saved, root, words), [saved, root, words]);
-    const name = saved.name;
-    const refused = about.refusal !== undefined;
-    const ask = useCallback(() => { if (!refused) tellHost(onOpen, variant("saved", name)); }, [onOpen, name, refused]);
-    const onKey = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-        event.preventDefault();
-        ask();
-    }, [ask]);
-    const isOpen = open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, name);
     const steps = about.steps === undefined ? undefined : { count: f.number(about.steps.count), n: about.steps.count };
     const gives = about.gives ?? (about.problems > 0 ? m.problemCount({ count: f.number(about.problems), n: about.problems }) : "");
     const tags = [...saved.tags];
-    return (
-        <Box css={card.galleryCard} role="button" tabIndex={0} aria-disabled={refused ? true : undefined} aria-current={isOpen ? "true" : undefined}
-            data-media="top" data-library-card={name} data-clickable={refused ? undefined : ""} data-placed={isOpen ? "" : undefined} data-open={isOpen ? "" : undefined}
-            onClick={ask} onKeyDown={onKey}>
-            <Box css={card.galleryMedia} data-library-media="" aria-hidden inert>
-                <QueryWireframe about={about} icon={icons.get(about.source) ?? "table-list"} styles={styles} words={words} />
-            </Box>
-            <Box css={card.galleryFace}>
-                <Box css={card.galleryHead}>
-                    <Box as="span" css={card.galleryTitle} title={name}>{name}</Box>
-                    {isOpen && <Box as="span" css={styles.cardOpen} data-query-library-open="">{m.openNow()}</Box>}
-                </Box>
-                {about.refusal !== undefined
-                    ? <Box as="span" css={styles.cardRefusal} title={about.refusal} data-query-library-refusal="">{about.refusal}</Box>
-                    : about.description !== undefined && (
-                        <Box as="span" css={card.gallerySublabel} title={about.description} data-query-library-description="">{about.description}</Box>
-                    )}
-                {tags.length > 0 && (
-                    <Box css={styles.cardTags} data-query-library-tags="">
-                        {tags.map((tag) => <Box as="span" key={tag} css={styles.cardTag}>{tag}</Box>)}
-                    </Box>
-                )}
-                <Box css={card.galleryFoot} data-library-foot="">
-                    <Box css={card.galleryByline}>
-                        <Box as="span" css={card.galleryBylineText} data-query-library-byline="">
-                            {m.libraryByline({ source: about.source, steps, gives, when: whenWords(saved.saved_at, new Date(), f), run: false })}
-                        </Box>
-                    </Box>
-                    {about.refusal === undefined
-                        ? <Box as="span" css={card.galleryAction} data-library-action="" aria-hidden>{m.openInBuilder()}</Box>
-                        : (
-                            <Box as="span" css={card.glyph} role="img" aria-label={about.refusal} title={about.refusal} data-tone="warning">
-                                <FontAwesomeIcon icon={faTriangleExclamation} />
-                            </Box>
-                        )}
-                </Box>
-            </Box>
-        </Box>
-    );
-});
+    return {
+        key: saved.name, label: saved.name,
+        sublabel: about.refusal !== undefined || about.description === undefined ? none : some(about.description),
+        icon: none,
+        status: open ? some({ label: m.openNow(), tone: variant("info", null), ring: false }) : none,
+        trailing: refusalGlyph(about),
+        draggable: false, filtered: false, placed: open, media: none, avatar: none,
+        byline: some(m.libraryByline({ source: about.source, steps, gives, when: whenWords(saved.saved_at, new Date(), f), run: false })),
+        action: about.refusal === undefined ? some(m.openInBuilder()) : none,
+        search: none, groups: new Map(), facets: new Map(),
+        dims: new Map(tags.length === 0 ? [] : [[TAGS, variant("chips", tags)]]),
+    };
+}
 
 /** Props of {@link EastChakraQueryLibrary}. */
 export interface EastChakraQueryLibraryProps {
@@ -320,11 +289,52 @@ function NewQuery({ labelled, source }: { labelled: boolean; source: string | un
     );
 }
 
-/** The gallery's cards: each row its card. Stable: the gallery's rows are drawn by it. */
-const GALLERY: PagedLibraryGallery<SavedQuery> = { least: CARD_LEAST, cardPx: CARD_PX, card: (saved: SavedQuery) => <QueryCard saved={saved} /> };
+/** The wireframe a card's media is: its query's, on the library's recipe. */
+const CardWireframe = memo(function CardWireframe({ about }: { about: QueryAbout }) {
+    const { styles, words, icons } = useQueryLibrary();
+    return <QueryWireframe about={about} icon={icons.get(about.source) ?? "table-list"} styles={styles} words={words} />;
+});
+
+/**
+ * The gallery's cards: each saved query the Library's gallery card ({@link queryItem}), its media the query's
+ * wireframe. A press on one tells the host its query, in a turn of its own; one that can't open here takes none, and
+ * says why in the warning tone. What the library says of a query is worked out once a row.
+ *
+ * @param root - The bound data sources
+ * @param words - The words
+ * @param open - The query its host says is open
+ * @param onOpen - Who to tell
+ * @returns The gallery the paged gallery draws
+ */
+function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryOpen>, onOpen: QueryLibraryValue["onOpen"]): PagedLibraryGallery<SavedQuery> {
+    return useMemo((): PagedLibraryGallery<SavedQuery> => {
+        const abouts = new WeakMap<SavedQuery, QueryAbout>();
+        const aboutOf = (saved: SavedQuery): QueryAbout => {
+            const held = abouts.get(saved);
+            if (held !== undefined) return held;
+            const about = queryAbout(saved, root, words);
+            abouts.set(saved, about);
+            return about;
+        };
+        const isOpen = (saved: SavedQuery) => open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, saved.name);
+        return {
+            least: CARD_LEAST,
+            cardPx: CARD_PX,
+            dims: CARD_DIMS,
+            item: (saved) => queryItem(saved, aboutOf(saved), isOpen(saved), words),
+            media: (saved) => <CardWireframe about={aboutOf(saved)} />,
+            extras: (saved) => {
+                const refusal = aboutOf(saved).refusal;
+                return refusal === undefined ? undefined : { title: refusal, note: { text: refusal, tone: "warning" } };
+            },
+            clicks: (saved) => aboutOf(saved).refusal === undefined,
+            onOpen: (name) => tellHost(onOpen, variant("saved", name)),
+        };
+    }, [root, words, open, onOpen]);
+}
 
 /** The cards over their page source: the shared paged gallery, saying so where the rail's choices leave none. */
-function QueryCards({ rows, id, words }: { rows: RowsPart; id: string; words: QueryWords }) {
+function QueryCards({ rows, id, words, gallery }: { rows: RowsPart; id: string; words: QueryWords; gallery: PagedLibraryGallery<SavedQuery> }) {
     const m = words.messages;
     const source = useSavedPages(rows);
     // Whether a choice of the viewer's narrows the cards: what an empty grid says, and whether it offers Clear filters.
@@ -334,21 +344,21 @@ function QueryCards({ rows, id, words }: { rows: RowsPart; id: string; words: Qu
     const clear = useCallback(() => { rows.clearAll(); }, [rows]);
     const empty = useMemo(() => ({ title: m.noQueries(), description: m.saveInBuilder() }), [m]);
     const narrowing = useMemo(() => (narrowed ? { empty: { title: m.noQueriesMatch(), description: m.changeFilters() }, onClear: clear, emptied: true } : undefined), [narrowed, m, clear]);
-    return <PagedGallery source={source} id={id} gallery={GALLERY} empty={empty} narrowing={narrowing} />;
+    return <PagedGallery source={source} id={id} gallery={gallery} empty={empty} narrowing={narrowing} />;
 }
 
 /** The library over its root: the frame's one toolbar — the rail, then New query — over the cards. */
 function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibraryValue; root: QueryRoot; words: QueryWords; storageKey: string }) {
     const m = words.messages;
     const styles = useSlotStyles("queryLibrary");
-    const card = useSlotStyles("library");
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => queryKeys(id), [id]);
     const onOpen = value.onOpen;
     const chrome = value.slice;
     const rows = useMemo(() => sourcePart(chrome, "rows"), [chrome]);
     const icons = useMemo(() => new Map(root.entries.map((entry) => [entry.name, sourceKind(fromEastTypeValue(entry.type)).icon])), [root]);
-    const facts = useMemo((): QueryLibraryFacts => ({ root, words, styles, card, open: value.query, onOpen, icons }), [root, words, styles, card, value.query, onOpen, icons]);
+    const facts = useMemo((): QueryLibraryFacts => ({ root, words, styles, onOpen, icons }), [root, words, styles, onOpen, icons]);
+    const gallery = useQueryGallery(root, words, value.query, onOpen);
 
     // The rail, counted in the library's noun, then New query, which follows it.
     const nouns = useMemo(() => ({ rows: m.savedNoun({ n: 2 }) }), [m]);
@@ -365,7 +375,7 @@ function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibr
     return (
         <QueryLibraryContext.Provider value={facts}>
             <BuilderFrame storageKey={`${storageKey}.${keys.library}.frame`} label={m.tab({ tab: "library" })} toolbar={toolbar}>
-                {rows !== undefined && <QueryCards rows={rows} id={keys.library} words={words} />}
+                {rows !== undefined && <QueryCards rows={rows} id={keys.library} words={words} gallery={gallery} />}
             </BuilderFrame>
         </QueryLibraryContext.Provider>
     );

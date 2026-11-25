@@ -5,15 +5,14 @@
 
 /**
  * Query library slot recipe — what `<Query.Library>` (#1063, #1761) draws of
- * its own: what a query's card adds to the Library's gallery card — the mark
- * of the open query, its tags, and why it can't open here — a card's media,
- * the query's wireframe: its source and a bar per step, or the dashed box that
- * counts its problems; and New query's glyphs.
+ * its own: a card's media, the query's wireframe — its source and a bar per
+ * step, or the dashed box that counts its problems — and New query's glyphs.
  *
  * Everything else is another recipe's: the frame the `builderFrame`'s, the
- * toolbar and its rail the shared `toolbar`'s, the grid and a card the
- * `library` recipe's paged gallery and gallery card, the buttons the `button`
- * recipe's and New query's menu the `menu`'s.
+ * toolbar and its rail the shared `toolbar`'s, the grid and a card — its name,
+ * its status, its meta line, its note, its tags and its foot — the `library`
+ * recipe's paged gallery and gallery card, the buttons the `button` recipe's
+ * and New query's menu the `menu`'s.
  *
  * @packageDocumentation
  */
@@ -21,7 +20,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { oneLineBox } from "../one-line-box.js";
 
-/** The mono caps voice — the mark of the open query, the problems' count. */
+/** The mono caps voice — the problems' count. */
 const CAPTION = {
     fontFamily: "mono",
     fontSize: "9.5px",
@@ -35,7 +34,6 @@ export const queryLibrarySlotRecipe = defineSlotRecipe({
     className: "elara-query-library",
     slots: [
         "caret", "buttonIcon", "menuIcon",
-        "cardOpen", "cardRefusal", "cardTags", "cardTag",
         "wireframe", "wireRow", "wireIcon", "wireTitle", "wireMore",
         "problems", "problemCount", "problemText",
     ],
@@ -49,36 +47,6 @@ export const queryLibrarySlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             textAlign: "center",
             color: "fg.subtle",
-        },
-        /* The mark of the query open in the builder, at the end of its card's head. */
-        cardOpen: { ...CAPTION, flexShrink: "0", color: "brand.fg" },
-        /* Why a query can't open here, in its description's place: one line, as a description is. */
-        cardRefusal: {
-            fontSize: "10.5px",
-            lineHeight: "1.3",
-            color: "fg.warning",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-        },
-        /* A card's tags: quiet chips on one line, the ones past its end cut. */
-        cardTags: {
-            display: "flex",
-            flexWrap: "nowrap",
-            gap: "6px",
-            minWidth: "0",
-            overflow: "hidden",
-        },
-        cardTag: {
-            flexShrink: "0",
-            paddingX: "6px",
-            borderRadius: "3px",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            fontFamily: "mono",
-            fontSize: "10px",
-            lineHeight: "16px",
-            color: "fg.muted",
         },
         /* The query's wireframe — its source, then a bar per step, each its
            icon and title — on its card's sunken paper. */
