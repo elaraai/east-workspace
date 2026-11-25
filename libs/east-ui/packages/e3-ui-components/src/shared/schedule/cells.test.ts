@@ -22,19 +22,21 @@
  * reads at now. And which drafts a kind that draws a draft only of an event
  * its window holds, or of a new one, leaves out — never one it last drew,
  * while its session has yet to judge it where its record reads now (#1599).
+ * And what a read hands a host that steps to another period: nothing of the
+ * period read (#1740).
  * The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`,
  * `plan/frame/plan-remote-rows.dom.test.tsx`).
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some, type option } from "@elaraai/east";
-import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
+import { SortedMap, StringType, compareFor, none, some, variant, type option, type ValueTypeOf } from "@elaraai/east";
+import { SCHEDULE_EVENT_CAP, type ScheduleCellReadType } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
     SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, sameCellSpan,
-    scheduleCellSpanOf, scheduleCellsWithinCap, schedulePagedBlocks, scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey,
-    type ScheduleCellPaged, type ScheduleCellSpan,
+    scheduleCellSpanOf, scheduleCellsWithinCap, schedulePagedBlocks, scheduleSteppedCells, scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks,
+    type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -324,6 +326,40 @@ describe("what Saves landed, over a kind's cells read before them", () => {
         expect(landedBefore(jobs("r0"), new Map(), at("r1")).size).toBe(0);
         expect(landedBefore(undefined, at("r0"), at("r1")).size).toBe(0);
         expect(landedBefore(new Map(), at("r0"), at("r1")).size).toBe(0);
+    });
+});
+
+describe("what a read hands a host that steps to another period (#1740)", () => {
+    const compareString = compareFor(StringType);
+    /** The jobs and the shifts: the kinds a read is of. */
+    const KINDS = [{ key: "job" }, { key: "shift" }] as unknown as ScheduleCellKind[];
+    /** A read standing from the weeks' columns — the jobs read by their window's rows, the shifts shaded past the cap — in the view given. */
+    const standing = (view: ScheduleCellsRead["view"], drawn: ScheduleCellsRead["drawn"]): ScheduleCellsRead => ({
+        reads: new SortedMap<string, ValueTypeOf<typeof ScheduleCellReadType>>([["job", variant("rows", "jobs-window")], ["shift", variant("nothing", null)]], compareString),
+        shading: new SortedMap([["crews", new SortedMap([["C-1", [{ at: day("2026-10-05"), value: some(1) }]]], compareString)]], compareString),
+        drafts: new SortedMap([], compareString),
+        held: new Map([["job", new Map()]]),
+        notices: [{ kind: "shift" }],
+        capped: new Set(["shift"]),
+        reading: true, drawn, windowed: new Set(["job"]), view, error: undefined,
+    }) as unknown as ScheduleCellsRead;
+
+    test("stepping, every kind is handed none of its events, with no shading, no notice and no kind past the cap, and no resource's row drawn — its drafts, its read on its way and its view its own", () => {
+        const read = standing("stepping", new Set(["presses P-1"]));
+        const stepped = scheduleSteppedCells(read, KINDS);
+        expect([...stepped.reads].map(([kind, one]) => [kind, one.type])).toEqual([["job", "nothing"], ["shift", "nothing"]]);
+        expect([stepped.shading.size, stepped.held.size, stepped.notices.length, stepped.capped.size, stepped.windowed.size, stepped.drawn?.size]).toEqual([0, 0, 0, 0, 0, 0]);
+        expect(stepped.drafts).toBe(read.drafts);
+        expect([stepped.reading, stepped.view, stepped.error]).toEqual([true, "stepping", undefined]);
+        // Over no paged kind, no row waits on the cells: none is said to.
+        expect(scheduleSteppedCells(standing("stepping", undefined), KINDS).drawn).toBeUndefined();
+    });
+
+    test("in every other view the read is handed on as it is: what the last range held stands while the next is read", () => {
+        for (const view of ["cold", "filtering", "rereading", "current"] as const) {
+            const read = standing(view, new Set(["presses P-1"]));
+            expect(scheduleSteppedCells(read, KINDS)).toBe(read);
+        }
     });
 });
 

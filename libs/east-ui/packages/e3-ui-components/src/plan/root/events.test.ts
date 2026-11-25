@@ -19,7 +19,8 @@
  * page at a time each window its source serves, and a window read again over
  * new events alone only in the rows whose events moved (#1712) — and the windows name the
  * snapshot of their data apart from the revision new events move (#1199), a
- * live source its narrowing with it (#1344).
+ * live source its narrowing with it (#1344). The events say the columns' period
+ * they were placed for, and so does each landing row joined (#1740).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -27,13 +28,13 @@ import { renderHook } from "@testing-library/react";
 import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planChildRowKey, planHideId, type PlanEventDraftsType } from "@elaraai/e3-ui/internal";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
-import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
+import { toCanvasRows, type PlanLinkValue, type PlanRootValue, type PlanRowId, type PlanWireBlock, type PlanWireRow } from "../model.js";
 import { NO_EDITS, rowId, timeAt, utcAt } from "../plan.test-utils.js";
 import { entry } from "../row-id.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import {
-    createEventPlacings, placedEvents, resolveEventLinks, usePlanEventPlaced, usePlanEventRoot,
+    createEventPlacings, placedEvents, placedPeriodOf, resolveEventLinks, usePlanEventPlaced, usePlanEventRoot,
     type PlanEventLead, type PlanEventPlacedValue, type PlanEventPlacing, type PlanEventRows, type PlanEventSeamValue, type PlanLandingValue,
 } from "./events.js";
 
@@ -257,6 +258,31 @@ describe("the event kinds' events over the range the canvas draws (#1192)", () =
         expect(result.current.placed).toBe(next);
         expect([result.current.version, result.current.error, result.current.cells, result.current.shading.size]).toEqual([2, undefined, undefined, 0]);
     });
+
+    test("the events say the columns' period they were placed for: a read in flight for another leaves the last period's standing, and the read that lands moves them though they hold the same (#1740)", () => {
+        /** The same four weeks by the week. */
+        const weeks = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "week" }) as PlanScale;
+        const first = placedOn([["presses", "span", "a1", "job", "J-1"]]);
+        let answer: () => ReturnType<PlanEventSeamValue["placed"]> = () => none;
+        // A new seam each time, so the read is evaluated again.
+        const events = (): PlanEventRows => ({ seam: seamOf(() => answer()), landings: LANDINGS, paged: false });
+        const { result, rerender } = renderHook(({ rows, columns }) => usePlanEventPlaced(rows, columns), { initialProps: { rows: events(), columns: scale } });
+        // Before a read answers, the events are of no period.
+        expect(result.current.period).toBeUndefined();
+        answer = () => some(first);
+        rerender({ rows: events(), columns: scale });
+        expect([result.current.version, result.current.period]).toEqual([1, "day"]);
+        // The columns turn to weeks, their read in flight: the days' events stand, and say they are the days'.
+        answer = () => none;
+        rerender({ rows: events(), columns: weeks });
+        expect(result.current.placed).toBe(first);
+        expect([result.current.version, result.current.period]).toEqual([1, "day"]);
+        // The weeks' read lands holding the same events: they move, placed for the weeks.
+        answer = () => some(placedOn([["presses", "span", "a1", "job", "J-1"]]));
+        rerender({ rows: events(), columns: weeks });
+        expect(result.current.placed).toEqual(first);
+        expect([result.current.version, result.current.period]).toEqual([2, "week"]);
+    });
 });
 
 describe("the events placed, handed to the frame (#1771)", () => {
@@ -349,10 +375,11 @@ describe("the events placed, handed to the frame (#1771)", () => {
 describe("the root's rows, the events joined in (#1541)", () => {
     /** A root whose own rows are `rows`. */
     const rootOf = (rows: unknown) => ({ rows, links: [] }) as unknown as PlanRootValue;
-    /** The events at a version, none placed and nothing shaded unless given. */
-    const leadAt = (version: number, placed: PlanEventPlacedValue = NOTHING_PLACED, shading: PlanEventLead["shading"] = new SortedMap([], compareString)): PlanEventLead => ({
-        placed, shading, cells: undefined, version, error: undefined,
-    });
+    /** The events at a version, none placed and nothing shaded unless given, placed for days unless another period is. */
+    const leadAt = (
+        version: number, placed: PlanEventPlacedValue = NOTHING_PLACED, shading: PlanEventLead["shading"] = new SortedMap([], compareString),
+        period: PlanEventLead["period"] = "day",
+    ): PlanEventLead => ({ placed, shading, cells: undefined, version, error: undefined, period });
     /** The canvas's source the hook hands it. */
     const sourceOf = (root: PlanRootValue) => (root.rows as unknown as { value: PlanPagedSourceValue }).value;
     /** What `place` was asked: how many rows, the events placed, and whether every row was at hand. */
@@ -546,6 +573,26 @@ describe("the root's rows, the events joined in (#1541)", () => {
             rerender({ lead: leadAt(5, placedOn([["presses", "marks", "P-04", "job", "J-1"]]), shading), hidden });
             read();
             expect(given.map((ids) => ids.length)).toEqual([80, 80, 80, 2]);
+        });
+
+        test("each landing row joined says the columns' period its events were placed for, a row no kind lands on none; another period joins the window whole, and the rows of the last still say theirs (#1740)", () => {
+            const { given, read, rerender } = joining(WINDOW, ON_PRESSES);
+            const placed = placedOn([["presses", "marks", "P-03", "job", "J-1"]]);
+            rerender({ lead: leadAt(2, placed), hidden: [] });
+            const days = read();
+            /** A joined row, by its id. */
+            const rowAt = (blocks: readonly PlanWireBlock[], id: PlanRowId): PlanWireRow => blocks.flatMap((b) => b.rows).find((one) => rowIdEqual(one.id, id))!;
+            const P03 = [entry("presses", "P-03"), entry("presses.buckets", "P-03"), entry("notes", "P-03")];
+            expect(P03.map((id) => placedPeriodOf(rowAt(days, id)))).toEqual(["day", "day", undefined]);
+            // The canvas's row, keyed from the window's, says what the window's row does.
+            expect(placedPeriodOf(toCanvasRows(days[0]!.rows)[0]!)).toBe("day");
+            // The same events placed for weeks: no row is the last period's, so every one is joined again.
+            rerender({ lead: leadAt(3, placed, NO_SHADING_HERE, "week"), hidden: [] });
+            const weeks = read();
+            expect(given.map((ids) => ids.length)).toEqual([80, 80]);
+            expect(P03.map((id) => placedPeriodOf(rowAt(weeks, id)))).toEqual(["week", "week", undefined]);
+            // A row the canvas still holds of the days' join is the days' yet: what it draws none of under the weeks' columns.
+            expect(placedPeriodOf(rowAt(days, P03[0]!))).toBe("day");
         });
 
         test("rows a step beneath their resource's are found by the pair's key — the same child's key beneath another resource another row — and each further row keeps its place", () => {

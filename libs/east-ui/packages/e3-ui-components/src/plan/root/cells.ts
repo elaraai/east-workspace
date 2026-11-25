@@ -46,8 +46,12 @@
  * hold, or of a new one (`isNew`, #1343), as its window's own read drew them —
  * an event its drafts moved under another key (east-workspace#1709) among the
  * new: its record holds none under that key.
- * The canvas's range is a window panned over its rows, no period: what the last
- * range held stands while the next is read.
+ * The canvas's range is a window panned over its rows: what the last range
+ * held stands while the next is read. Its period is its columns' (#1740), and
+ * a read is made for it — whether a kind draws its events or its summary's
+ * shading, and the buckets that shading is folded into — so under another the
+ * canvas draws none of the last one's: every kind is handed nothing and each
+ * row waits on the read, as before a first (`scheduleSteppedCells`).
  *
  * A Save's confirmation reads its events by their keys, never the cells: what
  * it landed of a kind the reader gives cells draws as the Save left it over
@@ -63,8 +67,8 @@ import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueT
 import { planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import {
-    sameCellSpan, scheduleCellSpanOf, useScheduleCells, type ScheduleCellBucket, type ScheduleCellEnd, type ScheduleCellKey, type ScheduleCellKind,
-    type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
+    sameCellSpan, scheduleCellSpanOf, scheduleSteppedCells, useScheduleCells, type ScheduleCellBucket, type ScheduleCellEnd, type ScheduleCellKey,
+    type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
 import { draftAdds } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
@@ -312,11 +316,15 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
-    // Zoomed out past a kind's series tile, the kind shades from its summary and reads none of its events (#1706).
-    return useScheduleCells({
-        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, buckets, resolution: scale?.resolution, zoomShades: true,
+    // Zoomed out past a kind's series tile, the kind shades from its summary and reads none of its events (#1706). The
+    // read is made for the columns' period, which names it (#1740).
+    const resolution = scale?.resolution;
+    const read = useScheduleCells({
+        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, period: resolution, buckets, resolution, zoomShades: true,
         drafts, span, landed: editing?.landed, shown: editing?.shown,
     });
+    // Under another period, none of the last one's events or shading draws: the rows wait on the read.
+    return useMemo(() => scheduleSteppedCells(read, cellKindsOf), [read, cellKindsOf]);
 }
 
 /**

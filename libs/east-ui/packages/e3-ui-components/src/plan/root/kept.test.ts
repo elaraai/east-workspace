@@ -203,8 +203,9 @@ describe("the canvas's own rows, each window kept while what it is made from hol
 describe("over the nested series' wrapper, read by the event kinds' wrapper and the cells' reader (#1713)", () => {
     /** No event placed. */
     const NOTHING_PLACED = { on: new SortedMap([], compareString), lost: new SortedMap([], compareString) } as unknown as PlanEventPlacedValue;
-    /** The events at a version. */
-    const leadAt = (version: number): PlanEventLead => ({ placed: NOTHING_PLACED, shading: new SortedMap([], compareString), cells: undefined, version, error: undefined });
+    /** The events at a version, placed for days. */
+    const leadAt = (version: number): PlanEventLead =>
+        ({ placed: NOTHING_PLACED, shading: new SortedMap([], compareString), cells: undefined, version, error: undefined, period: "day" });
     /** What the nested reader read, at a version. */
     const readAt = (version: number) => ({
         cells: new Uint8Array(), shading: new SortedMap([], compareString), parents: new Map(), notices: [], version, reading: false,

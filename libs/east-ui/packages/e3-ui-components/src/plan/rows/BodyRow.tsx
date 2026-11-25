@@ -25,9 +25,14 @@
  * Scale changes still repaint every row — correctly: the row CONTENT consumes
  * `PlanScaleContext`, and context pierces the memo by design. What the memo
  * removes is the store-change tax, not the geometry-change work.
+ *
+ * A row the event kinds land on holds events placed for the columns' period
+ * (`../root/events.ts`). Under another period it draws none of them — its plot
+ * waits, as an unread row's does — until its window is joined for the period
+ * drawn: the last period's marks are never laid out on this one's columns.
  */
 
-import { memo, useEffect, type ReactNode } from "react";
+import { memo, useContext, useEffect, type ReactNode } from "react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartGutterLegend, ChartGutterTicks, ChartRailTicks } from "./ChartRow.js";
@@ -39,7 +44,8 @@ import { statusDraws } from "./StatusIcon.js";
 import { rowToggle } from "./row-facts.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanRowState } from "../controller/react.js";
-import { usePlanGeometry } from "../context.js";
+import { PlanScaleContext, usePlanGeometry } from "../context.js";
+import { placedPeriodOf } from "../root/events.js";
 import { usePlanGridRow } from "../root/grid.js";
 import { rowItemKey, spansWindows, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
@@ -182,6 +188,10 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     // Its place in the treegrid and its share of the tab stop (#819).
     const grid = usePlanGridRow(rowItemKey(v.row.key), active, focusSeq);
     const geometry = usePlanGeometry();
+    // Its events were placed for another period than the columns' (#1740): it draws none of what it holds, and waits.
+    const period = useContext(PlanScaleContext)?.resolution;
+    const placedFor = placedPeriodOf(v.row);
+    const stepped = placedFor !== undefined && period !== undefined && placedFor !== period;
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -257,7 +267,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         draft,
         grid,
         groupEnd,
-        unread,
+        unread: unread || stepped,
     } as const;
     // The per-kind SHELL differences — caret, emphasis, a laned row's lanes,
     // the chart's ticks. The plot content itself is one switch shared with
@@ -374,7 +384,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         <RowShell {...shellBase} height={h} expandedState={expandedState} {...shellExtras}>
             {diagnostic !== undefined ? (
                 <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
-            ) : (
+            ) : stepped ? null : (
                 // One row's render failure stays in that row (#811).
                 <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}

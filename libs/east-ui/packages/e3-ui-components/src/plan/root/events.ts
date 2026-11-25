@@ -58,6 +58,19 @@
  * standing stays where it is. Over rows read a page at a time no Unassigned row
  * is drawn: an event on no row of the canvas's is in no window (#1541).
  *
+ * # Placed for a period
+ *
+ * The events are placed for the columns' period (#1740): which of a kind's
+ * events are read, and the buckets its shading is folded into, are the
+ * period's. So the events as last read say the period they were placed for,
+ * and each landing row joined says it too ({@link placedPeriodOf}) — by the row
+ * itself, whichever read of its window made it and however long the canvas
+ * holds it. A row placed for another period than the canvas draws draws none
+ * of what it holds, and waits: the rows a paged canvas holds are joined again
+ * only once the next events are handed over, and until then they are the last
+ * period's. A change of period joins every window whole, so every row says the
+ * period it is drawn under.
+ *
  * # A link's event end
  *
  * A link may name an event (`Plan.eventRef(kind, key)`): a run ref at the
@@ -89,13 +102,13 @@ import { windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-com
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
-import type { PlanScale } from "../scale.js";
+import type { PlanResolution, PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { meetsWindow } from "../../shared/schedule/window.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
-import { landingRowId, type PlanLandingValue } from "./landings.js";
+import { landingRowId, landingRowSeries, type PlanLandingValue } from "./landings.js";
 import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
 
 /** The payload's seam, decoded: the events of a range, filed, and how they join any rows (#1541). */
@@ -132,6 +145,41 @@ export interface PlanEventLead {
     version: number;
     /** The last read's failure, when it failed: why, and the kinds whose own events it could not read (#1398). */
     error: PlanEventFailure | undefined;
+    /** The columns' period the events were placed for (#1740); `undefined` until the first read answers, and on an axis
+     *  of no periods. */
+    period: PlanResolution | undefined;
+}
+
+/**
+ * The columns' period each landing row's events were placed for (#1740), by what the row draws — which its canvas row
+ * holds as its window's row does — and while it lives.
+ */
+const periodPlaced = new WeakMap<PlanWireRow["kind"], PlanResolution>();
+
+/**
+ * Says the period a window's landing rows were joined for: each row of a series the event kinds land on.
+ *
+ * @param blocks - The window's blocks, the events joined in
+ * @param landings - The series the event kinds land on
+ * @param period - The columns' period the events were placed for
+ */
+function placedUnder(blocks: readonly PlanWireBlock[], landings: readonly PlanLandingValue[] | undefined, period: PlanResolution | undefined): void {
+    if (landings === undefined || period === undefined) return;
+    const series = landingRowSeries(landings);
+    for (const block of blocks) {
+        for (const row of block.rows) if (row.id.type === "entry" && series.has(row.id.value.series)) periodPlaced.set(row.kind, period);
+    }
+}
+
+/**
+ * The columns' period a row's events were placed for (#1740, see the module docs): what a row is drawn by, since under
+ * another period it draws none of what it holds.
+ *
+ * @param row - The row, as its window gave it or as the canvas keys it
+ * @returns The period; `undefined` for a row no event kind lands on, and one no join has made
+ */
+export function placedPeriodOf(row: Pick<PlanWireRow, "kind">): PlanResolution | undefined {
+    return periodPlaced.get(row.kind);
 }
 
 /**
@@ -386,6 +434,7 @@ export function usePlanEventPlaced(
     const reads = cells?.reads ?? NO_READS;
     const shading = cells?.shading ?? NO_SHADING;
     const seamDrafts = cells?.drafts ?? drafts;
+    const period = scale?.resolution;
     // One read: the events of the range, filed — `undefined` while a kind is in flight. One that fails names the kinds
     // whose own events it could not read, each read alone in it (#1398).
     const read = useCallback((): PlanEventPlacedValue | undefined => {
@@ -398,9 +447,12 @@ export function usePlanEventPlaced(
         }
     }, [seam, from, to, hidden, seamDrafts, reads, kinds]);
     const { result } = useTrackedEvaluation(read);
-    // The last events read, held while a read is in flight or failed: kept by identity while a new read holds the same.
-    const held = useRef<{ placed: PlanEventPlacedValue | undefined; shading: PlanEventShadingValue; hidden: readonly string[]; version: number }>(
-        { placed: undefined, shading: NO_SHADING, hidden: NONE_HIDDEN, version: 0 });
+    // The last events read, held while a read is in flight or failed: kept by identity while a new read holds the same,
+    // for the same period.
+    const held = useRef<{
+        placed: PlanEventPlacedValue | undefined; shading: PlanEventShadingValue; hidden: readonly string[]; version: number;
+        period: PlanResolution | undefined;
+    }>({ placed: undefined, shading: NO_SHADING, hidden: NONE_HIDDEN, version: 0, period: undefined });
     // The last failure, kept by identity while a read fails the same way — its words and its kinds — so the reader hands
     // the canvas nothing new for it.
     const failed = useRef<PlanEventFailure | undefined>(undefined);
@@ -432,20 +484,21 @@ export function usePlanEventPlaced(
         const previous = held.current;
         if (!result.ok || result.value === undefined) return previous;
         const next = result.value;
-        // The shading and what the viewer hides are placed with the events: a new one places the rows again.
+        // The shading and what the viewer hides are placed with the events, for the columns' period: a new one places
+        // the rows again — another period too, whatever it holds, so every row is joined for the period it is drawn under.
         const same = previous.placed !== undefined && placedEqual(previous.placed, next)
-            && shadingEqual(previous.shading, shading) && previous.hidden === hidden;
+            && shadingEqual(previous.shading, shading) && previous.hidden === hidden && previous.period === period;
         if (same) return previous;
-        held.current = { placed: next, shading, hidden, version: previous.version + 1 };
+        held.current = { placed: next, shading, hidden, version: previous.version + 1, period };
         return held.current;
-    }, [result, hidden, shading]);
+    }, [result, hidden, shading, period]);
     // The read that landed, with what it was read over, handed to the frame (#1771) — never one in flight or failed: the
     // last stands, and the footer's counts with it.
     const landed = result.ok && result.value !== undefined ? now.placed : undefined;
     const placing = useMemo((): PlanEventPlacing | undefined => (landed === undefined || from === undefined || to === undefined ? undefined
         : { placed: landed, from: new Date(from), to: new Date(to), drafts, cells, hidden }), [landed, from, to, drafts, cells, hidden]);
     useLayoutEffect(() => { if (placing !== undefined) placings?.set(placing); }, [placings, placing]);
-    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error }), [now, cells, error]);
+    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error, period: now.period }), [now, cells, error]);
 }
 
 /**
@@ -454,7 +507,7 @@ export function usePlanEventPlaced(
  * @returns The events to stand in
  */
 export function initialEventLead(): PlanEventLead {
-    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined };
+    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined, period: undefined };
 }
 
 /** Props of {@link PlanEventsReader}. */
@@ -535,6 +588,8 @@ interface PlacedWith {
     readonly shading: PlanEventShadingValue;
     /** The ids the viewer hides: how many rows each landing row makes. */
     readonly hidden: readonly string[];
+    /** The columns' period the events were placed for: another joins the window whole, every row then saying its own. */
+    readonly period: PlanResolution | undefined;
 }
 
 /**
@@ -697,20 +752,27 @@ export function usePlanEventRoot(
     const seam = lead !== undefined ? events?.seam : undefined;
     const placed = lead?.placed ?? NOTHING_PLACED;
     const shading = lead?.shading ?? NO_SHADING;
+    const period = lead?.period;
+    const landings = events?.landings;
     // Inline: the root's blocks with the events joined in, the Unassigned rows after them — one array for both roots,
     // whose rows hold the same data.
-    const inline = useMemo(
-        () => (seam !== undefined && data.rows.type === "inline" ? seam.place(data.rows.value, placed, shading, [...hidden], true) : undefined),
-        [seam, data.rows, placed, shading, hidden]);
+    const inline = useMemo(() => {
+        if (seam === undefined || data.rows.type !== "inline") return undefined;
+        const joined = seam.place(data.rows.value, placed, shading, [...hidden], true);
+        placedUnder(joined, landings, period);
+        return joined;
+    }, [seam, data.rows, placed, shading, hidden, landings, period]);
     // Paged: one wrapper per source, placing each window it serves with the latest events.
     const paged = seam !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const landings = events?.landings;
-    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0 }, (source, latest) => {
+    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0, period }, (source, latest) => {
         // A window's blocks with the latest events joined in: no Unassigned row, an event on no row of the canvas's being
         // in no window.
         const placedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
             const l = latest();
-            return l.seam === undefined ? [...blocks] : l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            if (l.seam === undefined) return [...blocks];
+            const joined = l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            placedUnder(joined, l.landings, l.period);
+            return joined;
         };
         // Each window as last joined, by the blocks the source under this one gave: the same while they hold, which the
         // kept layer gives (`kept.ts`), so new events alone join again only the rows whose events moved (#1712).
@@ -718,12 +780,16 @@ export function usePlanEventRoot(
         const joinedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
             const l = latest();
             if (l.seam === undefined) return [...blocks];
-            const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden };
+            const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden, period: l.period };
             const was = windows.get(blocks);
             const again = was !== undefined && Object.is(was.with.seam, now.seam) && shadingEqual(was.with.shading, now.shading)
-                && sameTexts(was.with.hidden, now.hidden) ? rejoined(blocks, was, now) : undefined;
-            if (again !== undefined) return again;
+                && sameTexts(was.with.hidden, now.hidden) && was.with.period === now.period ? rejoined(blocks, was, now) : undefined;
+            if (again !== undefined) {
+                placedUnder(again, l.landings, l.period);
+                return again;
+            }
             const joined = l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            placedUnder(joined, l.landings, l.period);
             const index = placedIndex(blocks, joined, l.landings ?? NO_LANDINGS);
             if (index === undefined) windows.delete(blocks);
             else windows.set(blocks, { ...index, joined, with: now });

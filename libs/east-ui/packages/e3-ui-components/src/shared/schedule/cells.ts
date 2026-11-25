@@ -165,7 +165,12 @@
  * what is asked now is the one rule every builder reads its rows by
  * (`../view-read.ts`): a read again of the same view leaves its host live,
  * other choices of the same period leave what stands retained, and a period
- * stepped to draws none of a windowed kind's rows of the last.
+ * stepped to draws none of a windowed kind's rows of the last. A host every
+ * kind's read of which is made for its period — a Plan's, whose columns'
+ * period says whether a kind draws its events or its summary's shading, and
+ * whose buckets that shading is folded into — draws none of any kind's of the
+ * last: its seams are handed nothing, and its rows wait on the read
+ * ({@link scheduleSteppedCells}).
  *
  * # What a Save landed
  *
@@ -540,9 +545,11 @@ export interface ScheduleCellsArgs {
     /** The range the host reads its events over. */
     readonly range: { readonly from: Date; readonly to: Date } | undefined;
     /**
-     * The period the range is, as text, for a host whose rows are a period's — the Calendar's day, week or month: a read
-     * for another is a step, and none of a windowed kind's rows of the last draws under it (`../view-read.ts`). Left out
-     * by a host whose range is a window panned over its rows — the Plan's — where what the last range held stands.
+     * The period a read is made for, as text: a read for another is a step (`../view-read.ts`). A host whose rows are a
+     * period's — the Calendar's day, week or month — names its range, and none of a windowed kind's rows of the last
+     * draws under the next. A host whose range is a window panned over its rows — the Plan's — names its columns'
+     * period: what the last range held stands while the next is read, and under another period of its columns it draws
+     * none of any kind's ({@link scheduleSteppedCells}). Left out, every read is of one period.
      */
     readonly period?: string | undefined;
     /** The range cut into the host's buckets, in order: what a summary's shading is folded into. */
@@ -2295,6 +2302,43 @@ export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: Sch
 export function schedulePeriodFailure(read: Pick<ScheduleCellsRead, "error"> | undefined): ScheduleCellsFailure | undefined {
     const error = read?.error;
     return error === undefined || error.rows ? undefined : error;
+}
+
+/** No shading: what a host draws while it steps to another period. */
+const NO_SHADING: ScheduleCellShading = new SortedMap([], compareString);
+/** No kind's rows held. */
+const NO_KINDS_HELD: ReadonlyMap<string, HeldRows> = new Map();
+/** No kind giving the notice. */
+const NO_NOTICES: readonly ScheduleCellNotice[] = [];
+
+/**
+ * What a read hands its host's seams while the period asked is another than
+ * the one read (`../view-read.ts`' stepping), for a host every kind's read of
+ * which is made for its period — a Plan's, whose columns' period says whether
+ * a kind draws its events or its summary's shading, and whose buckets that
+ * shading is folded into. Nothing of the period read draws under the labels of
+ * the one asked: every kind is handed none of its events — so none is read
+ * over the range meanwhile either — with no shading, no notice and no kind
+ * past the cap, and over a paged kind no resource's row drawn, so every row
+ * waits on the read as before a first. The drafts, whether a read is on its
+ * way, the view and a failure are the read's own.
+ *
+ * @param read - What the reader handed on
+ * @param kinds - The event kinds
+ * @returns `read` itself, but while its view is stepping: the same with nothing of the period read to draw
+ */
+export function scheduleSteppedCells(read: ScheduleCellsRead, kinds: readonly ScheduleCellKind[]): ScheduleCellsRead {
+    if (read.view !== "stepping") return read;
+    return {
+        ...read,
+        reads: new SortedMap(kinds.map((kind): [string, ScheduleCellRead] => [kind.key, READ_NOTHING]), compareString),
+        shading: NO_SHADING,
+        held: NO_KINDS_HELD,
+        notices: NO_NOTICES,
+        capped: NONE_CAPPED,
+        drawn: read.drawn === undefined ? undefined : NO_RESOURCES,
+        windowed: NONE_WINDOWED,
+    };
 }
 
 /**
