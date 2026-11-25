@@ -4,9 +4,10 @@
  *
  * The sources of a Plan's one `Slice.bindRecords` (#1344), place by place:
  * the `rows` source gives the canvas its rows, paged from it — the rows the
- * event kinds land on among them (#1541); a source named after an event kind
- * narrows that kind's events and its backlog, its reads the kind's own; and a
- * templates list's and an author's tab's narrow those cards. Every source
+ * event kinds land on among them (#1541); an event kind's source — named after
+ * it, or the one its `source` names, which the kinds of one record's cases
+ * share (#1769) — narrows that kind's events and its backlog, its reads the
+ * kind's own; and a templates list's and an author's tab's narrow those cards. Every source
  * holding a `range` of the axis's arm holds the window with the others, but
  * the `rows` source, whose rows the dates on screen never narrow.
  *
@@ -63,8 +64,9 @@ export function planPart(chrome: PlanSlicesChrome | undefined, source: string): 
 }
 
 /**
- * The event kinds narrowed through their sources: each kind the slice names a
- * source after, in the kinds' order.
+ * The event kinds narrowed through their sources: each kind whose source the
+ * slice holds — the one named after it, or the one its `source` names (#1769),
+ * one part several kinds of one record read through — in the kinds' order.
  *
  * @param chrome - The rail's chrome; `undefined` with no slice
  * @param kinds - The Plan's event kinds
@@ -72,7 +74,7 @@ export function planPart(chrome: PlanSlicesChrome | undefined, source: string): 
  */
 export function planEventParts(chrome: PlanSlicesChrome | undefined, kinds: readonly PlanEventKindValue[]): PlanEventPart[] {
     return kinds.flatMap((kind) => {
-        const part = planPart(chrome, kind.key);
+        const part = planPart(chrome, kind.source);
         return part === undefined ? [] : [{ kind, part }];
     });
 }
@@ -140,8 +142,9 @@ export function planFollowedSources(value: ValueTypeOf<typeof PlanPayloadType>):
  * them — `rows`, or the app's (`vocabulary.rows`, #1516), since the rows are
  * whatever the app's record holds, the resources its event kinds land on
  * among them (#1541): `presses` — an event kind's events (`print job
- * events`), a kind's templates, a tab's — each as running text writes it, the
- * first that names a source keeping it.
+ * events`), or `events` for a source several kinds read through (#1769), a
+ * kind's templates, a tab's — each as running text writes it, the first that
+ * names a source keeping it.
  *
  * @param kinds - The Plan's event kinds
  * @param tabs - Its library's tabs
@@ -152,7 +155,11 @@ export function planFollowedSources(value: ValueTypeOf<typeof PlanPayloadType>):
 export function planNouns(kinds: readonly PlanEventKindValue[], tabs: readonly PlanLibraryTabValue[], rows: string, locale: string): Record<string, string> {
     const lower = (text: string) => text.toLocaleLowerCase(locale);
     const nouns: Record<string, string> = { [ROWS_SOURCE]: rows };
-    for (const kind of kinds) nouns[kind.key] ??= `${lower(kind.name)} events`;
+    // A source one kind reads through counts its events; one several kinds share counts all theirs (#1769).
+    for (const kind of kinds) {
+        const shared = kinds.filter((other) => stringEqual(other.source, kind.source)).length > 1;
+        nouns[kind.source] ??= shared ? "events" : `${lower(kind.name)} events`;
+    }
     for (const kind of kinds) if (kind.templatesSource.type === "some") nouns[kind.templatesSource.value] ??= `${lower(kind.name)} templates`;
     for (const tab of tabs) if (tab.type === "tab" && tab.value.source.type === "some") nouns[tab.value.source.value] ??= lower(tab.value.name);
     return nouns;

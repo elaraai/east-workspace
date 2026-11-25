@@ -125,12 +125,14 @@ export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Eve
                 "read whole — a paged kind's events are read a cell at a time, through a series index that reads its rows alone: " +
                 `place events.${slot} on ${paged.join(" and ")} alone, or read ${paging.paged} whole`);
         }
-        if (sources.includes(slot)) continue;
+        // Its source: the one its `source` names (#1769), else the one named after its slot.
+        if (sources.includes(kind.source ?? slot)) continue;
         const { series, summary } = scheduleCellIndexes(kind);
         const how = kind.windowed ? "reads the days in view through its day index (`window`)" : "its record is read whole";
         const leave = kind.windowed ? "leave `window` and `backlogWindow` out, and " : "";
+        const name = kind.source === undefined ? `name a source after "${slot}"` : `give the slice the source its \`source\` names, "${kind.source}"`;
         throw new Error(`${builder}: events.${slot} is placed on ${paged.join(" and ")}, paged, and ${how} — a paged kind's events are read a cell at a ` +
-            `time, through the kind's source of the slice: ${leave}name a source after "${slot}", Data.bindPaged(record, { indexes }), listing ` +
+            `time, through the kind's source of the slice: ${leave}${name}, Data.bindPaged(record, { indexes }), listing ` +
             `${series} and ${summary} beside its interval index`);
     }
 }

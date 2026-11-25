@@ -552,9 +552,11 @@ export type PlanEventChildType = typeof PlanEventChildType;
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
  * @property planRows - Its events' rows over `[from, to)` and its backlog's beside them, by key, the drafts in place, read once (#1409, R24): beast2 of `DictType(keyType, rowType)`, the record's own key and row types — the reads `planEvent` finds one row in, so a run's request finds every event's row there rather than reading them all again an event; `none` while a read is in flight. It reads the window, never a reader's cells: a kind read by its cells carries no request
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
+ * @property source - The source of the builder's slice it is narrowed and read through (#1769): the one its `source` names — several kinds of one record read through one, each a case of it — else the one named after its slot
  */
 export const PlanEventKindType = StructType({
     ...ScheduleKindType.fields,
+    source: StringType,
     draw: PlanDrawType,
     instant: BooleanType,
     overlaps: ScheduleOverlapsType,

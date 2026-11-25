@@ -39,7 +39,7 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { planHideId, type PlanEventDraftsType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useBacklogNarrowing, type BacklogNarrowing } from "../../shared/schedule/backlog.js";
@@ -69,8 +69,9 @@ export interface PlanBacklogEntry {
 export interface PlanEventCounts {
     /**
      * The events in the window of every kind the viewer shows but those not counted (`uncounted`) — a kind given cells
-     * counted exactly, from its source, as the rail counts it, or in memory, its record read whole (#1039); `undefined`
-     * where no kind's are counted: every kind shown among `uncounted`, or none shown.
+     * counted exactly, from its source, as the rail counts it, or in memory, its record read whole (#1039); a source the
+     * kinds of one record's cases read through, which counts all their events, counted once (#1769); `undefined` where
+     * no kind's are counted: every kind shown among `uncounted`, or none shown.
      */
     readonly events: number | undefined;
     /**
@@ -185,6 +186,9 @@ export function usePlanEventCounts(
         const hoursNotCounted: PlanEventKindValue[] = [];
         // Each kind that warns of its overlaps: two of its events are a pair (PB51).
         const warned: (readonly PlanEventItemValue[])[] = [];
+        // The sources whose counts are in `events`: the kinds of one record's cases read through one source, whose count is
+        // all their events, count it once (#1769).
+        const countedSources = new SortedSet<string>([], compareFor(StringType));
         for (const kind of kinds) {
             // Hidden in the Series tab: no part of what the canvas shows, so in no figure of the window.
             const shown = !hides(hidden, planHideId.events(kind.key));
@@ -220,10 +224,11 @@ export function usePlanEventCounts(
                         uncounted.push(kind);
                     } else {
                         // Its events in the window, exactly: its source's count, as the rail counts it — its record read
-                        // whole, counted in memory.
+                        // whole, counted in memory. A source another kind counted already is in `events` once (#1769).
                         const inWindow = part !== undefined ? part.count() : kind.count(new Date(from), new Date(to));
                         if (inWindow.type !== "some") return READING;
-                        events += Number(inWindow.value);
+                        if (part === undefined || !countedSources.has(kind.source)) events += Number(inWindow.value);
+                        if (part !== undefined) countedSources.add(kind.source);
                         counted = true;
                         if (capped) {
                             hoursNotCounted.push(kind);

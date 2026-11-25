@@ -17,6 +17,10 @@
  *   Plan's options sit beside the Calendar's (#1190): how a kind draws, an
  *   instant kind's `at`, and its roles' fields; and the Roster's and the
  *   Allocation's roles beside them (#1367).
+ * - `Schedule.events.kinds(record, field, cases, shared)`: an event kind per
+ *   case of a variant field of one record's rows, each drawn its own way, the
+ *   kinds sharing the record's one session and its source of a Plan's slice
+ *   (#1769).
  * - `Schedule.periods(record, config)`: what a builder publishes, the app's
  *   own record of periods, its status a variant field of the app's (#1367).
  * - A new row's own fields, the ones no role maps, from the app's `values`
@@ -44,6 +48,7 @@ import { Fields, type FieldsNamespace } from "@elaraai/east-ui";
 import { scheduleDays, scheduleUnscheduled } from "./days.js";
 import { scheduleTemplates } from "./templates.js";
 import { scheduleEvents, type ScheduleEventKind } from "./events.js";
+import { scheduleEventKinds } from "./event-kinds.js";
 import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { schedulePeriods } from "./periods.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
@@ -67,6 +72,11 @@ export {
     type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,
     type ScheduleValuesOf,
 } from "./events.js";
+export {
+    scheduleEventKinds,
+    type ScheduleCaseAccessor, type ScheduleCaseInstantKind, type ScheduleCaseKindBase, type ScheduleCaseKinds, type ScheduleCaseResource,
+    type ScheduleCaseSpanKind, type ScheduleCasesOf, type ScheduleKindsShared,
+} from "./event-kinds.js";
 export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from "./periods.js";
 export { type ScheduleNewValues } from "./values.js";
 export {
@@ -155,7 +165,10 @@ export function scheduleTitled(events: Readonly<Record<string, ScheduleEventKind
  */
 export interface ScheduleNamespace {
     /** One event kind: a record of its own, bound with its patch mutation. */
-    events: typeof scheduleEvents;
+    events: typeof scheduleEvents & {
+        /** An event kind per case of a variant field of one record's rows, each drawn its own way, sharing the record's session (#1769). */
+        kinds: typeof scheduleEventKinds;
+    };
     /** What a builder publishes: the app's record of periods, bound with its patch mutation, its status a field of the app's. */
     periods: typeof schedulePeriods;
     /** Reads typed templates from bound keyed data. */
@@ -212,7 +225,7 @@ export interface ScheduleNamespace {
  * module docs).
  */
 export const Schedule: ScheduleNamespace = {
-    events: scheduleEvents,
+    events: Object.assign(scheduleEvents, { kinds: scheduleEventKinds }),
     periods: schedulePeriods,
     templates: scheduleTemplates,
     resources: scheduleResources,

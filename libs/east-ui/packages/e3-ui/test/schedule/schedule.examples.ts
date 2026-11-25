@@ -15,7 +15,9 @@
  *   a backlog, inspections on a site or a machine, tasks whose estimates run in
  *   every unit, and visits with a field named with a dot.
  * - Plan Builder Spec §3.1's print works: jobs as bars, stops as marks,
- *   deliveries as tiles in their lanes and crew shifts as chips.
+ *   deliveries as tiles in their lanes and crew shifts as chips — and its
+ *   steps, one record of every kind of step, a kind per case of its `kind`
+ *   field (`Schedule.events.kinds`, #1769).
  * - Builder Interfaces Spec §4's: a warehouse's duties and weeks, the
  *   Roster's, and a kiln yard's bins and days, the Allocation's.
  *
@@ -166,6 +168,34 @@ export const schedulePrintShifts = e3.record("schedule_print_shifts", DictType(S
 export const schedulePrintDeliveries = e3.record("schedule_print_deliveries", DictType(StringType, SchedulePrintDelivery), {
     initial: new Map([
         ["d1", { title: "Van to depot", at: new Date("2026-10-05T09:00:00Z"), press: "pb", slot: "AM" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/**
+ * A step of the print works (#1769): on a press or a crew, the lifecycle it wears, and what it is — a run of sheets, a
+ * press's setup, or a crew's shift — each case holding its own fields.
+ */
+export const SchedulePrintStep = StructType({
+    on: VariantType({ press: StringType, crew: StringType }),
+    start: DateTimeType, end: DateTimeType, state: EventStateType,
+    kind: VariantType({
+        run: StructType({ title: StringType, sheets: FloatType }),
+        setup: StructType({ plates: IntegerType }),
+        shift: StructType({ people: IntegerType }),
+    }),
+});
+/** The steps about Monday 5 October 2026: press A's setup and the brochure run after it, and crew 1's early shift. */
+export const schedulePrintSteps = e3.record("schedule_print_steps", DictType(StringType, SchedulePrintStep), {
+    initial: new Map([
+        ["k1", { on: variant("press", "pa"), start: new Date("2026-10-05T05:00:00Z"), end: new Date("2026-10-05T06:00:00Z"),
+            state: variant("confirmed", null), kind: variant("setup", { plates: 4n }) }],
+        ["k2", { on: variant("press", "pa"), start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T12:00:00Z"),
+            state: variant("confirmed", null), kind: variant("run", { title: "Brochure run", sheets: 40000 }) }],
+        ["k3", { on: variant("crew", "c1"), start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"),
+            state: variant("confirmed", null), kind: variant("shift", { people: 3n }) }],
     ]),
     mutations: (mutation) => ({
         patch: mutation.patch(),

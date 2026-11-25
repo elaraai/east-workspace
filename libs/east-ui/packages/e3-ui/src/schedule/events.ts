@@ -123,6 +123,7 @@ import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/eas
 import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { checkMadeKeys, checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
+import { holdsCase } from "../utils/cases.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
@@ -417,6 +418,13 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * entries named. Required with either.
      */
     entries?: unknown;
+    /**
+     * Plan: the source of its builder's `Slice.bindRecords` the kind is narrowed and read through, by name (#1769) —
+     * one source several kinds of one record share, each a case of it (`Schedule.events.kinds`), so they read one
+     * series index through one source, the same cells asked once, and the rail lists the record once. Omitted, the
+     * source named after the kind's slot.
+     */
+    source?: string;
     /** Plan: the `EventStateType` field whose lifecycle its events wear. Omitted, confirmed. */
     state?: ScheduleStateField<R>;
     /** Plan: the Float field a bar prints and a parent's rollup sums, unit by unit. */
@@ -614,6 +622,8 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly times: { readonly start: string; readonly end: string };
     /** The field naming its events' resource (#1039); `undefined` for a kind with no `resource`. */
     readonly resourceField: string | undefined;
+    /** The source of a Plan's slice it reads through (#1769): its `source`; `undefined`, the one named after its slot. */
+    readonly source: string | undefined;
     /**
      * Whether it reads the days in view through a day index (`window`, #1199) —
      * the form for a kind with no source of its builder's slice — rather than its
@@ -715,6 +725,7 @@ interface AnyConfig {
     window?: unknown;
     backlogWindow?: unknown;
     entries?: unknown;
+    source?: string;
     draw?: string;
     state?: string;
     quantity?: { field: string; unit?: string; format?: unknown };
@@ -861,8 +872,44 @@ export function scheduleEvents<
     config: ScheduleInstantEventsConfig<K, R, A, F, SF>,
 ): ScheduleEventKind<K, R>;
 export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKind<EastType, EastType> {
+    return scheduleCaseEvents(record, input, undefined);
+}
+
+/**
+ * One case of a variant field of an event kind's rows (#1769): the case a kind of one case of its record is held to.
+ *
+ * @property field - The variant field
+ * @property tag - The case
+ */
+export interface ScheduleKindCase {
+    readonly field: string;
+    readonly tag: string;
+}
+
+/**
+ * Declares an event kind (see {@link scheduleEvents}) — over every row of its record, or, given `kindCase`, over the
+ * rows holding one case of a variant field of them (#1769, `Schedule.events.kinds`). A kind of one case reads, counts
+ * in memory, draws and writes those rows alone: the rows it holds and the drafts over them — a draft by the case its
+ * own row holds, so an edit changing the case moves its event to the case's kind — one event read by its key, the rows
+ * its window keeps standing, and an event a template or a card makes, which is refused where its row holds another
+ * case. Its `resource.of` may name a slot for some of a variant field's cases alone: a row holding another is on no
+ * resource. Its count through a source or a day index counts every case's events, an upper bound (`countExact`). A
+ * Calendar, a Roster and an Allocation take no kind of one case, nor a kind given `source`; a Plan draws a kind of one
+ * case from rows alone, never from a series index's copies (#1725).
+ *
+ * @param record - The record, `Record.bind(record)`
+ * @param input - The kind's options, as `Schedule.events` takes them
+ * @param kindCase - The case it is held to; `undefined`, every row
+ * @returns The kind
+ * @throws {Error} As `Schedule.events` does
+ * @internal
+ */
+export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: ScheduleKindCase | undefined): ScheduleEventKind<EastType, EastType> {
     const config = input as AnyConfig;
-    const where = `Schedule.events: "${config.name}"`;
+    const where = kindCase === undefined ? `Schedule.events: "${config.name}"` : `Schedule.events.kinds: "${config.name}"`;
+    // A kind of one case (#1769): what holds a row to it. Each row a seam makes an event of, counts or keeps is.
+    const ofCase = kindCase === undefined ? undefined
+        : (row: unknown): ExprType<BooleanType> => holdsCase(row as ExprType<EastType>, kindCase.field, kindCase.tag);
     // The options #1343 moved to the builder, refused by name for an app that still passes them.
     if ("slice" in (config as object)) {
         throw new Error(`${where}: \`slice\` moves to the builder — name a source of its Slice.bindRecords after this kind's slot, ` +
@@ -953,7 +1000,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         if (cases !== undefined && typeof of === "string") {
             throw new Error(`${where}: "${field}" is a variant — \`resource.of\` names a resource slot per case: { ${cases.map((c) => `${c}: "…"`).join(", ")} }`);
         }
-        return checkKeyField(field, type, of, { where, prop: "resource", noun: "resource" });
+        // A kind of one case lands on the resources of some of the field's cases alone (#1769): a press's runs, a crew's shifts.
+        return checkKeyField(field, type, of, { where, prop: "resource", noun: "resource" }, kindCase !== undefined);
     })();
     const takes = resource === undefined ? [] : keyFieldSlots(resource);
     // Plan's: the row beneath its resource an event is on (#1541, U1) — a key of a resources series among the resource's
@@ -1156,7 +1204,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * Every value held by key — the record's rows, a window's of them, what a reader's cells hold — with the drafts in
      * place, then the drafted entries it does not hold: a draft moved into a window shows, and one moved out of it leaves
      * by its times. `fromHeld` makes an entry of a value held and `fromDraft` one of a drafted row: a draft deleted leaves
-     * none, and one the session cannot read leaves the value held.
+     * none, and one the session cannot read leaves the value held. A kind of one case (#1769) makes entries of the rows
+     * holding its case alone — a draft by its own row's case, so one changing the case leaves this kind for the case's.
+     * Its values held are rows: a kind of one case never draws from copies (#1725), which hold no case.
      */
     const inPlaceOf = (heldType: EastType, entryType: StructType, fromHeld: EntryOf, fromDraft: EntryOf, narrowed: boolean) =>
         East.function([DictType(keyType, heldType), ScheduleDraftsType], ArrayType(entryType), ($, held, drafts) => {
@@ -1167,10 +1217,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const id = $2.const(idText(key));
                 $2.if(drafts.has(id), ($3) => {
                     $3.match(drafts.get(id).decodeBeast(draftType, "v2"), {
-                        value: ($4, row) => { $4(out.pushLast(fromDraft(id, key, row as ExprType<EastType>) as never)); },
-                        invalid: ($4) => { $4(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); },
+                        value: ($4, row) => {
+                            if (ofCase === undefined) $4(out.pushLast(fromDraft(id, key, row as ExprType<EastType>) as never));
+                            else $4.if(ofCase(row), ($5) => { $5(out.pushLast(fromDraft(id, key, row as ExprType<EastType>) as never)); });
+                        },
+                        invalid: ($4) => {
+                            if (ofCase === undefined) $4(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never));
+                            else $4.if(ofCase(value), ($5) => { $5(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); });
+                        },
                     });
-                }).else(($3) => { $3(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); });
+                }).else(($3) => {
+                    if (ofCase === undefined) $3(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never));
+                    else $3.if(ofCase(value), ($4) => { $4(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); });
+                });
             });
             $.for(drafts, ($2, bytes, id, label) => {
                 const key = $2.const(parse(id));
@@ -1183,7 +1242,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         $3.if(find(id).hasTag("absent").not(), $4 => { $4.continue(label); });
                     }
                     $3.match(bytes.decodeBeast(draftType, "v2"), {
-                        value: ($4, row) => { $4(out.pushLast(fromDraft(id, key as ExprType<EastType>, row as ExprType<EastType>) as never)); },
+                        value: ($4, row) => {
+                            if (ofCase === undefined) $4(out.pushLast(fromDraft(id, key as ExprType<EastType>, row as ExprType<EastType>) as never));
+                            else $4.if(ofCase(row), ($5) => { $5(out.pushLast(fromDraft(id, key as ExprType<EastType>, row as ExprType<EastType>) as never)); });
+                        },
                     });
                 });
             });
@@ -1202,11 +1264,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // A time as its field holds it: an Option field holds `some`.
     const placedAt = (t: ExprType<DateTimeType>): ExprType<EastType> => (optional ? East.value(some(t), OptionType(DateTimeType)) : t) as ExprType<EastType>;
     // How many of the record's stored events overlap [from, to), its record read whole, counted in memory (#1039): by the
-    // views' rule, an optional missing end an instant at its start, as the views place it.
+    // views' rule, an optional missing end an instant at its start, as the views place it — a kind of one case's (#1769)
+    // its case's alone.
     const countWhole = East.function([DateTimeType, DateTimeType], OptionType(IntegerType), ($, from, to) => {
         const all = $.const(readAll());
         const n = $.let(0n, IntegerType);
-        $.for(all, ($2, row) => {
+        $.for(all, ($2, row, _key, label) => {
+            if (ofCase !== undefined) $2.if(ofCase(row).not(), ($3) => { $3.continue(label); });
             const start = $2.const(instant(row, startField));
             const end = $2.const(instant(row, endField).match({
                 none: () => start,
@@ -1352,10 +1416,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * narrowed through its source reads its window's rows alone: its builder pages the backlog through the source itself.
      */
     const readsOf = (once: Once, slot: string, part: ScheduleKindPart | undefined, cap?: number, pagedBacklog = false): Reads => {
+        // The source it is read through, as a refusal names it: its `source`'s (#1769), else its slot's.
+        const source = config.source ?? slot;
         if (part === undefined) {
             if (entries !== undefined && dayWindow === undefined) {
                 throw new Error(`${where}: \`entries\` reads one event by its key beside \`window\`, or beside the kind's source of its builder's ` +
-                    `Slice.bindRecords (one named "${slot}") — give one of those with it`);
+                    `Slice.bindRecords (one named "${source}") — give one of those with it`);
             }
             const unscheduled = backlogWindow === undefined ? undefined
                 : once(scheduleBacklogWindow(backlogWindow, keyType, rowType, where) as unknown as ExprType<FunctionType<[], OptionType<DictType<EastType, EastType>>>>);
@@ -1387,10 +1453,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             };
         }
         if (dayWindow !== undefined || backlogWindow !== undefined) {
-            throw new Error(`${where}: the builder's source "${slot}" narrows this kind through its record's indexes — leave \`window\` and \`backlogWindow\` out`);
+            throw new Error(`${where}: the builder's source "${source}" narrows this kind through its record's indexes — leave \`window\` and \`backlogWindow\` out`);
         }
         if (entries === undefined) {
-            throw new Error(`${where}: the builder's source "${slot}" reads only its narrowing — and one event, the inspector's ` +
+            throw new Error(`${where}: the builder's source "${source}" reads only its narrowing — and one event, the inspector's ` +
                 "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
         }
         const scheduled = once(scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where, cap));
@@ -1693,6 +1759,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     });
                 }
             });
+            // One of another case is that case's kind's (#1769): none of this kind's.
+            if (ofCase !== undefined) {
+                $.match(row, { some: ($2, r) => { $2.if(ofCase(r).not(), ($3) => { $3.assign(row, East.value(none, OptionType(rowType))); }); } });
+            }
             return row.match({
                 some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(readType)),
                 none: (_$2) => East.value(none, OptionType(readType)),
@@ -1734,6 +1804,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 $3.match(find(id), { held: ($4, held) => { $4.assign(row, East.value(some(held as ExprType<EastType>), OptionType(rowType)) as never); } });
             });
         });
+        // One of another case is that case's kind's (#1769): none of this kind's.
+        if (ofCase !== undefined) {
+            $.match(row, { some: ($2, r) => { $2.if(ofCase(r).not(), ($3) => { $3.assign(row, East.value(none, OptionType(rowType))); }); } });
+        }
         return row.match({
             some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(readType)),
             none: (_$2) => East.value(none, OptionType(readType)),
@@ -1854,7 +1928,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         $.match(read, {
             some: ($2, rows) => {
                 const cells = $2.const(drawn.asCells);
-                $2.assign(result, East.value(some(East.Blob.encodeBeast(cells(rows), "v2")), OptionType(BlobType)));
+                // A kind of one case keeps its case's rows standing alone (#1769).
+                const mine = ofCase === undefined ? rows : $2.const(rows.filter((_$3, row) => ofCase(row)));
+                $2.assign(result, East.value(some(East.Blob.encodeBeast(cells(mine), "v2")), OptionType(BlobType)));
             },
         });
         return result;
@@ -2070,12 +2146,28 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         $3.match(byTemplate.tryGet(c.template), {
                             some: ($4, bytes) => {
                                 // The new entry: the template's values, its times and its resource placed, and its page's scope.
+                                // A kind of one case makes rows of its case alone (#1769): a template or a card whose values hold
+                                // another case makes none.
                                 const values = $4.const(bytes.decodeBeast(valuesType, "v2"));
                                 if (resolve === undefined) {
-                                    $4.if(c.resource.hasTag("none"), ($5) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, undefined)))); });
+                                    $4.if(c.resource.hasTag("none"), ($5) => {
+                                        if (ofCase === undefined) {
+                                            $5.assign(result, encoded(made(rowWith(values, c.start, c.end, undefined))));
+                                        } else {
+                                            const row = $5.const(made(rowWith(values, c.start, c.end, undefined)));
+                                            $5.if(ofCase(row), ($6) => { $6.assign(result, encoded(row)); });
+                                        }
+                                    });
                                 } else {
                                     $4.match(resolve(c.resource), {
-                                        some: ($5, value) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, value as ExprType<EastType>)))); },
+                                        some: ($5, value) => {
+                                            if (ofCase === undefined) {
+                                                $5.assign(result, encoded(made(rowWith(values, c.start, c.end, value as ExprType<EastType>))));
+                                            } else {
+                                                const row = $5.const(made(rowWith(values, c.start, c.end, value as ExprType<EastType>)));
+                                                $5.if(ofCase(row), ($6) => { $6.assign(result, encoded(row)); });
+                                            }
+                                        },
                                     });
                                 }
                             },
@@ -2163,8 +2255,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             cellsType: toEastTypeValue(drawn.cellsType),
             stored: storedOver(drawn, reads),
             count,
-            // Every count but a day index's counts the events themselves.
-            countExact: part !== undefined || dayWindow === undefined,
+            // Every count but a day index's counts the events themselves — but a kind of one case's through its source or
+            // a day index (#1769), which counts every case's: an upper bound on its own.
+            countExact: kindCase === undefined ? part !== undefined || dayWindow === undefined : part === undefined && dayWindow === undefined,
         };
         return { fields: fieldsOfKind, itemOf, reads, drawn, locked: drawnLocked };
     };
@@ -2207,6 +2300,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             return result;
         });
     };
+    /**
+     * Refuses a kind of one case of its record, and a kind read through a source its `source` names, where a builder
+     * takes neither (#1769): every builder but a Plan, which reads each kind through the source named after its slot.
+     */
+    const planOnly = (builder: string): void => {
+        if (kindCase !== undefined) {
+            throw new Error(`${where}: the ${builder} takes no kind of one case of its record — Schedule.events.kinds is a Plan's: give the ${builder} ` +
+                "a Schedule.events kind of every row");
+        }
+        if (config.source !== undefined) {
+            throw new Error(`${where}: \`source\` names the source a Plan reads the kind through, and the ${builder} reads each kind through the ` +
+                "source named after its slot: leave `source` out");
+        }
+    };
     /** Refuses two of a builder's roles naming one field: a builder writes each of its roles into a field of its own (B1). */
     const oneFieldEach = (builder: string, named: readonly RoleField[]): void => {
         const seen = new Map<string, string>();
@@ -2239,10 +2346,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         allocationValues,
         times: { start: startField, end: endField },
         resourceField: resource?.field,
+        source: config.source,
         windowed: dayWindow !== undefined,
         templateValues: valuesType,
         instant: instantKind,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
+            planOnly("Calendar");
             checkRowTitle();
             // The Calendar draws a kind's events from their rows (#1725): a source listing a series index of copies is refused.
             const copy = part === undefined ? undefined : scheduleCopyOf(part, slot, keyType, rowType, where);
@@ -2256,6 +2365,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             return heldKind((once) => {
+                planOnly("Roster");
                 checkRowTitle();
                 // A duty runs from its start to its end, on its slot's shift and group, rostered to someone, under a key the
                 // Roster makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
@@ -2383,6 +2493,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
             return heldKind((once) => {
+                planOnly("Allocation");
                 checkRowTitle();
                 // A bin is one instant in one lane, booking an arrival, its quantity on its parts for its hold, under a key the
                 // Allocation makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
@@ -2482,6 +2593,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     throw new Error(`Plan: events.${slot}'s source lists the series index "${copy.index}", whose entries are copies of its events, beside ` +
                         `${copy.beside.map((name) => `"${name}"`).join(", ")} — a kind drawn from copies reads every cell through their index: list "${copy.index}" alone`);
                 }
+                // A kind of one case is held to its case by its rows (#1769): a copy holds none.
+                if (copy !== undefined && kindCase !== undefined) {
+                    throw new Error(`Plan: events.${slot}'s source lists the series index "${copy.index}", whose entries are copies of its events — a kind of ` +
+                        "one case of its record draws from its rows, whose case says which kind's each is: list a series index declared with no `value` in its place");
+                }
                 if (copy === undefined) checkRowTitle();
                 else checkCopyRoles(copy);
                 // Its window through its source counted first, and read only within the cap (#1039): past it, no page is read.
@@ -2529,6 +2645,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const name = (field: string | undefined) => (field === undefined ? none : some(field));
                 return East.value({
                     ...parts.fields,
+                    // The source of the slice it reads through (#1769): its `source`'s, else its slot's.
+                    source: config.source ?? slot,
                     draw: variant(draw, null),
                     instant: instantKind,
                     overlaps: variant(overlaps, null),

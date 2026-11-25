@@ -55,15 +55,17 @@ type Answer = () => ReturnType<PlanEventKindValue["planItems"]>;
  * answering what it is given — its overlaps allowed unless it warns of them,
  * so its items need no times. Every kind is counted before it is read
  * (its `count`): by `count`, or as holding none, each range it is counted over
- * kept in `counts`; `exact` false for a kind counted through its day index.
+ * kept in `counts`; `exact` false for a kind counted through its day index. It
+ * is read through the source named after it, or the one `source` names (#1769).
  */
 function kind(k: {
     items: Answer; backlog?: Answer; commits?: readonly Date[]; asked?: [Date, Date][]; warns?: boolean; key?: string; name?: string; reads?: unknown[];
-    count?: () => option<bigint>; counts?: [Date, Date][]; exact?: boolean;
+    count?: () => option<bigint>; counts?: [Date, Date][]; exact?: boolean; source?: string;
 }): PlanEventKindValue {
     const count = k.count ?? (() => some(0n));
     return {
         key: k.key ?? "job",
+        source: k.source ?? k.key ?? "job",
         name: k.name ?? "Print job",
         planItems: (from: Date, to: Date, _drafts: unknown, read: unknown) => {
             k.asked?.push([from, to]);
@@ -195,6 +197,17 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         counted = some(43n);
         rerender({ parts: partsNow() });
         expect(result.current.counts!.events).toBe(43);
+    });
+
+    test("the kinds of one record's cases read by their cells through one source count it once — its count is all their events — and their hours each its own (#1769)", () => {
+        const runs = kind({ key: "run", name: "Print run", source: "step", items: () => some([item(), item()]) as never });
+        const setups = kind({ key: "setup", name: "Setup", source: "step", items: () => some([item()]) as never });
+        const cells = cellsOf([["run", new Uint8Array([7, 1])], ["setup", new Uint8Array([7, 1])]]);
+        // The one source counts nine steps in the window, both kinds' and every other case's.
+        const steps = { count: () => some(9n) };
+        const parts = [{ kind: runs, part: steps }, { kind: setups, part: steps }] as unknown as PlanEventPart[];
+        const { result } = renderHook(() => usePlanEventCounts([runs, setups], scale, undefined, cells, parts));
+        expect(result.current.counts).toEqual({ events: 9, uncounted: [], hoursNotCounted: [], minutes: 180, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
     });
 
     test("a kind counted before it is read is read over the window only once its count over the range the canvas reads is within the cap (#1039)", () => {
