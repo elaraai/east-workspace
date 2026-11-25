@@ -17,7 +17,7 @@ import type { EditIssue, HistoryAction, LandingAttributes, ToolbarItem } from "@
 import type { PlaceholderKind, SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetColumnIndex, SheetColumnMeta, SheetRegisterIndex } from "./model.js";
 import type { SheetCellRefusalWord } from "./messages.js";
-import type { SheetNotice } from "./sheet-types.js";
+import type { LinkEditCtx, SheetNotice } from "./sheet-types.js";
 import type { RefusedTurn } from "./refusal.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import type { SheetDropHost } from "./drop.js";
@@ -142,6 +142,20 @@ export interface SheetEntries {
      * version as it stands now, or `undefined` for a row not read. Stable.
      */
     hold: (id: string) => SheetEntryHold | undefined;
+    /**
+     * The rows the last gesture to move one put under another key, each by the key it left — over a record whose rows'
+     * keys the app builds from them (`rowKey`), or as an Undo or a Redo of such a gesture put them back: the session's
+     * map, a new one with each such gesture. What a host keeps by a row's id follows the row by it, as the ring does — a
+     * Record's ticks (east-workspace#1737).
+     */
+    moved: ReadonlyMap<string, string>;
+    /**
+     * The new rows the last carry-over of the drafts gave another key, each by the key it had (#1583,
+     * `EditSession.renumbered`): another Save had taken theirs first, and the row under that key now is that Save's. A
+     * new map at each carry-over. What a host keeps by a row's id follows the row by it — a Record's ticks
+     * (east-workspace#1738's review).
+     */
+    renumbered: ReadonlyMap<string, string>;
 }
 
 /** What a host holds of a row to remove it later ({@link SheetEntries.hold}): its version — its draft, its wire row and its place. */
@@ -256,6 +270,12 @@ export interface SheetHost {
      * the editing session's choice begins at, until its viewer chooses. Absent, off.
      */
     autosave?: boolean | undefined;
+    /**
+     * The root of the frame a host lays the sheet in itself, its inspector with it — a Record's: a field of that
+     * inspector's form with the keyboard is an edit open on the sheet, which holds the day it reads and writes at
+     * (east-workspace#1746). Absent, the frame is the Sheet's own.
+     */
+    frame?: RefObject<HTMLElement | null> | undefined;
 }
 
 /**
@@ -591,6 +611,12 @@ export interface SheetInspect {
     levelAt: (r: number, key: string) => "week" | "day" | "range" | "time" | undefined;
     /** The register members a column's options rule offers a row; `undefined` offers every one. */
     allowedAt: (r: number, key: string) => ReadonlySet<string> | undefined;
+    /**
+     * The link editor's context for a row's link or set cell under a column the grid draws (east-workspace#1741): what
+     * typing in the cell resolves members by, the members the row is offered, and the cell for the halves — `undefined`
+     * for any other column, one the grid does not draw, and a band, whose cells take no link editor.
+     */
+    linkAt: (r: number, key: string) => LinkEditCtx | undefined;
     /** A cell drawn as the grid draws it — a link's halves and their chips. */
     drawCell: (r: number, key: string) => ReactNode;
     /** An action field as Details draws it (#1478): its state, the cases its row is offered, and a choice's or a form's inline. */

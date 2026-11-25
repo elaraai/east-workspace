@@ -13,48 +13,15 @@
 
 import { describe, test, expect } from "vitest";
 import { variant } from "@elaraai/east";
-import { sheetReducer, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
+import { editUnchanged, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
 import type { SheetNotice } from "./sheet-types.js";
 import { noticeText, SHEET_WORDS, sheetWords } from "./words.js";
 import { sheetMessages } from "./messages.js";
+import { cell, ctxOf, ekey, key, run } from "./sheet-state.test-utils.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
-
-/** A 4 × 3 sheet: text · date · stamped; `bad` never parses; row 3 is blank. */
-function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
-    return {
-        rowCount: 4,
-        colCount: 3,
-        lensActive: false,
-        canAppend: true,
-        editableAt: (_r, c) => c !== 2,
-        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
-        parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
-        candidates: (_r, _c, text) => (text.startsWith("ro") ? [{ key: "Routing", label: "Routing" }, { key: "Routing - Nesting", label: "Routing - Nesting" }] : []),
-        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? { key: "Routing - Nesting", label: "Routing - Nesting" } : { key: "Routing", label: "Routing" }) : undefined),
-        editTextAt: (r, c) => `v${r}${c}`,
-        ...over,
-    };
-}
-
-const key = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: boolean }> = {}): SheetEvent =>
-    ({ t: "key", key: k, shift: false, meta: false, alt: false, ...mods });
-const ekey = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }> = {}): SheetEvent =>
-    ({ t: "editor.key", key: k, shift: false, meta: false, alt: false, atEnd: true, ...mods });
 /** The footer's line for the message a transition left — the machine leaves data, worded in English here (#861). */
 const said = (msg: SheetNotice | null): string => (msg === null ? "" : noticeText(msg, SHEET_WORDS));
-
-function run(s: SheetUiState, events: SheetEvent[], ctx = ctxOf()): { state: SheetUiState; effects: SheetEffect[] } {
-    let state = s;
-    const effects: SheetEffect[] = [];
-    for (const e of events) {
-        const t = sheetReducer(state, e, ctx);
-        state = t.state;
-        effects.push(...t.effects);
-    }
-    return { state, effects };
-}
 
 describe("movement", () => {
     test("arrows move the ring and report; shift extends a range", () => {
@@ -233,7 +200,8 @@ describe("editing", () => {
         const clicked = run(open, [{ t: "cell.down", r: 2, c: 1, shift: false }]);
         expect(clicked.state.edit).toBeNull();
         expect(clicked.state.sel).toEqual({ r: 2, c: 1 });
-        expect(clicked.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "x"), text: "x" });
+        // The commit's write follows the press (east-workspace#1727's review): the ring stands where the press put it, on its row.
+        expect(clicked.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "x"), text: "x", follow: true });
         const picked = run(open, [{ t: "strip.pick", label: "Routing", i: 0 }]);
         expect(picked.state.edit).toMatchObject({ val: "Routing", hi: 0 });
     });
@@ -399,23 +367,39 @@ describe("columns", () => {
 });
 
 describe("the store", () => {
-    test("effects ride the returned store and bump the sequence; a no-op keeps identity", () => {
+    /** Each batch the store holds: its place, and its effects' kinds. */
+    const batches = (store: ReturnType<typeof initialSheetStore>) => store.fx.map((batch) => [batch.seq, batch.effects.map((e) => e.t)]);
+
+    test("effects ride the returned store as the event's batch and bump the sequence; a no-op keeps identity", () => {
         const ctx = ctxOf();
         const s0 = initialSheetStore();
-        const s1 = sheetStoreReducer(s0, { t: "event", e: key("ArrowDown"), ctx });
+        const s1 = sheetStoreReducer(s0, { t: "event", e: key("ArrowDown"), ctx, drained: 0 });
         expect(s1.fxSeq).toBe(1);
-        expect(s1.fx.map((e) => e.t)).toEqual(["emit.select", "scroll.to"]);
-        const s2 = sheetStoreReducer(s1, { t: "event", e: key("Escape"), ctx });
+        expect(batches(s1)).toEqual([[1, ["emit.select", "scroll.to"]]]);
+        const s2 = sheetStoreReducer(s1, { t: "event", e: key("Escape"), ctx, drained: 0 });
         expect(s2).toBe(s1);
         const s3 = sheetStoreReducer(s2, { t: "patch", patch: { msg: { id: "text", text: "hi" } } });
         expect(said(s3.ui.msg)).toBe("hi");
         expect(s3.fxSeq).toBe(1);
+    });
+
+    test("each effectful event's batch stands until the drain has run it: a press and its release dispatched before a drain keep both, in order (east-workspace#1727)", () => {
+        const ctx = ctxOf();
+        const pressed = sheetStoreReducer(initialSheetStore(), { t: "event", e: { t: "cell.down", r: 1, c: 1, shift: false, click: true }, ctx, drained: 0 });
+        const released = sheetStoreReducer(pressed, { t: "event", e: { t: "cell.up", inside: true }, ctx, drained: 0 });
+        expect(batches(released)).toEqual([[1, ["emit.select", "focus.sheet"]], [2, ["emit.rowClick"]]]);
+        // An event dispatched once the drain has run both lets them go; one dispatched after it ran the first alone keeps the second.
+        expect(batches(sheetStoreReducer(released, { t: "event", e: key("ArrowDown"), ctx, drained: 2 })).map(([seq]) => seq)).toEqual([3]);
+        expect(batches(sheetStoreReducer(released, { t: "event", e: key("ArrowDown"), ctx, drained: 1 })).map(([seq]) => seq)).toEqual([2, 3]);
+        // An event with no effects keeps every batch the drain may not have run.
+        expect(sheetStoreReducer(released, { t: "event", e: { t: "cell.enter", r: 2, c: 2, dragging: false }, ctx, drained: 0 }).fx).toBe(released.fx);
     });
 });
 
 // ── The link editor (B§4.4 — Sheet Spec §5 row 7) ─────────────────────────
 
 import type { LinkEditCtx, LinkGroups } from "./sheet-state.js";
+import { sameHalves } from "./link/context.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { SheetMemberValue } from "./values.js";
 
@@ -446,9 +430,11 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         initial,
         candidates,
         candidateAt: (text, hi, groups) => { const l = candidates(text, groups); return l.length === 0 ? undefined : l[Math.min(Math.max(hi, 0), l.length - 1)]; },
+        offered: () => [],
         resolve,
         predicted: () => [],
         cell: (groups) => (groups[0].length + groups[1].length === 0 ? null : cell("Link", { from: groups[0], to: groups[1] })),
+        unchanged: (groups) => sameHalves(groups, initial),
         driverName: "Routing",
     };
     return ctxOf({
@@ -530,17 +516,71 @@ describe("the link editor", () => {
         expect(blurred.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140"), txt("mystery")], to: [] }), text: "" });
     });
 
-    test("⌫ pops the last chip back into the buffer, then crosses back to From; an empty link commits a blank", () => {
+    test("a link editor closed as it opened writes nothing, however it closes, and reads unchanged; a member out, in or typed reads changed, and put back as it was, unchanged again", () => {
+        const ctx = linkCtxOf("both", [[id("R2140")], [id("A7301")]]);
+        const writes = (t: { effects: SheetEffect[] }) => t.effects.filter((e) => e.t === "write");
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(editUnchanged(open.edit!, ctx)).toBe(true);
+        for (const event of [ekey("Enter"), ekey("Tab"), { t: "editor.blur" } as SheetEvent, { t: "cell.down", r: 2, c: 1, shift: false } as SheetEvent]) {
+            const closed = run(open, [event], ctx);
+            expect(closed.state.edit).toBeNull();
+            expect(writes(closed)).toEqual([]);
+        }
+        // It still moves the way a commit does.
+        expect(run(open, [ekey("Enter")], ctx).state.sel).toEqual({ r: 1, c: 0 });
+        // A member out: changed, and its commit writes what is left.
+        const removed = run(open, [{ t: "chip.remove", i: 1 }], ctx).state;
+        expect(editUnchanged(removed.edit!, ctx)).toBe(false);
+        expect(writes(run(removed, [ekey("Enter")], ctx))).toEqual([{ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140")], to: [] }), text: "" }]);
+        // Typed, not yet a chip: what a commit would write is what counts.
+        expect(editUnchanged(run(open, [{ t: "editor.change", val: "r2145" }], ctx).state.edit!, ctx)).toBe(false);
+        // Taken out and put back as it was: the cell's own again.
+        const back = run(removed, [{ t: "editor.change", val: "A7301, " }], ctx).state;
+        expect(editUnchanged(back.edit!, ctx)).toBe(true);
+        expect(writes(run(back, [ekey("Enter")], ctx))).toEqual([]);
+        // The same members in another order are another cell.
+        const swapped = linkCtxOf("to", [[], [id("R2140"), id("A7301")]]);
+        const reordered = run(initialSheetState(), [key("Enter"), { t: "chip.remove", i: 0 }, { t: "editor.change", val: "R2140, " }], swapped).state;
+        expect(editUnchanged(reordered.edit!, swapped)).toBe(false);
+        // An empty cell's editor, opened and closed: nothing to write, as an empty text cell's.
+        expect(writes(run(initialSheetState(), [key("Enter"), ekey("Tab"), ekey("Tab")], linkCtxOf("both")))).toEqual([]);
+    });
+
+    test("⌫ with nothing typed picks the half's last chip, and a second ⌫ removes it whole — never back into the buffer (east-workspace#1741); an empty To crosses back to From; an empty link commits a blank", () => {
         const ctx = linkCtxOf("both", [[id("R2140")], [id("A7301")]]);
         const open = run(initialSheetState(), [key("Enter")], ctx).state;   // opens in To (the first live EMPTY half is none ⇒ destination)
         expect(open.edit!.link!.side).toBe(1);
-        const popped = run(open, [ekey("Backspace")], ctx);
-        expect(popped.state.edit!.val).toBe("A7301");
-        expect(popped.state.edit!.link!.groups[1]).toEqual([]);
-        const crossed = run(popped.state, [{ t: "editor.change", val: "" }, ekey("Backspace")], ctx);
+        const picked = run(open, [ekey("Backspace")], ctx);
+        expect([picked.state.edit!.val, picked.state.edit!.link!.chipSel, labels(picked.state.edit!.link!.groups[1])]).toEqual(["", { anchor: 1, focus: 1 }, ["A7301"]]);
+        const removed = run(picked.state, [ekey("Backspace")], ctx);
+        expect([removed.state.edit!.val, labels(removed.state.edit!.link!.groups[1]), said(removed.state.msg)]).toEqual(["", [], "1 member removed"]);
+        const crossed = run(removed.state, [ekey("Backspace")], ctx);
         expect(crossed.state.edit!.link!.side).toBe(0);
-        const emptied = run(crossed.state, [ekey("Backspace"), { t: "editor.change", val: "" }, ekey("Enter")], ctx);
+        // From's chip picked, removed, and the empty link committed.
+        const emptied = run(crossed.state, [ekey("Backspace"), ekey("Backspace"), ekey("Enter")], ctx);
         expect(emptied.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: null, text: "" });
+    });
+
+    test("⌫ and ← never cross into a half that is not live: a set's editor, which draws its destination alone, keeps its input once it holds no member", () => {
+        const ctx = linkCtxOf("to", [[], [id("A7301")]]);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(open.edit!.link!.side).toBe(1);
+        const emptied = run(open, [ekey("Backspace"), ekey("Backspace")], ctx);
+        expect(labels(emptied.state.edit!.link!.groups[1])).toEqual([]);
+        // A third ⌫, as a held key gives: the caret stays in the half it is in.
+        const stayed = run(emptied.state, [ekey("Backspace")], ctx);
+        expect([stayed.state.edit!.link!.side, stayed.effects]).toEqual([1, []]);
+        expect(run(emptied.state, [ekey("ArrowLeft")], ctx).state.edit!.link!.side).toBe(1);
+    });
+
+    test("a chip's × takes its member out whole, wherever it stands, the caret back in the active half; past the chips, nothing (east-workspace#1741)", () => {
+        const ctx = linkCtxOf("both", [[id("R2140"), id("R2141")], [id("A7301")]]);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        const removed = run(open, [{ t: "chip.remove", i: 1 }], ctx);
+        expect([labels(removed.state.edit!.link!.groups[0]), labels(removed.state.edit!.link!.groups[1]), said(removed.state.msg)]).toEqual([["R2140"], ["A7301"], "1 member removed"]);
+        expect(removed.effects).toEqual([{ t: "focus.editor", selectAll: false }]);
+        expect(labels(run(open, [{ t: "chip.remove", i: 2 }], ctx).state.edit!.link!.groups[1])).toEqual([]);
+        expect(run(open, [{ t: "chip.remove", i: 3 }], ctx).state).toBe(open);
     });
 
     test("⇧← / ⇧→ select whole chips; ⌫ removes them; esc drops the selection first", () => {
@@ -1105,7 +1145,7 @@ describe("a grid a host draws", () => {
         // A press that commits an open editor, then steps the cell it lands on, is two undo steps.
         const editing = run(at, [{ t: "cell.down", r: 0, c: 2, shift: false }, key("x")], ctx).state;
         expect(run(editing, [{ t: "cell.down", r: 0, c: 1, shift: false }], ctx).effects.filter((e) => e.t === "write" || e.t === "gesture.end")).toEqual([
-            { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x" }, { t: "gesture.end" }, stepTo(0, 1, "B"),
+            { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x", follow: true }, { t: "gesture.end" }, stepTo(0, 1, "B"),
         ]);
     });
 

@@ -1814,3 +1814,67 @@ Each wire changed under this rule, with the kind it is.
   packages are re-exported, and the dataflow computes each UI task's output
   again under the new type. A UI task's output is not stored state, so no
   repository upgrade step ships with it.
+- **e3-ui's `Sheet` and `Record` hear a click on a row (#1726, #1727)** —
+  package-borne. The Sheet's root (`SheetRootType`) gains `onRowClick`, after
+  `onSelect`: a function over the grid's click on a row (`SheetRowClickType`:
+  the row's id, a line's place among its group's lines and the column
+  clicked), made from the app's `onRowClick` over `Sheet.Types.RowClick(K)`,
+  which hears the row's key read back from the id at the rows' key type —
+  `none` where the app gives none. The Record's payload holds the Sheet's
+  root, so it gains it too. They travel in the `Sheet` and `Record`
+  extensions' payloads, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, and an application's records keep their types, so no
+  repository upgrade step ships with it.
+- **e3-ui's `Record` draws a row's numbers with east-ui's Trace, Sparkline
+  and Meter (#1726, #1728, #1729, #1730)** — package-borne.
+  `Sheet.Types.ColumnKind` gains `trace`, `sparkline` and `meter`, the display
+  columns `<Record>` builds its grid from and `<Sheet>` refuses at build:
+  `trace` holds Trace's `now`, `axis`, `scale` and `future`, a `domain` every
+  row shares and its words for no series (`absent`); `sparkline` Sparkline's
+  `type`, a `domain` and `absent`; and `meter` the cells a row's max and its
+  tone's case are read into at the day, and `absent`. The cases are sorted by
+  name, so every case after `lookup` moves down. `Sheet.Types.Cell` gains
+  `Series`, a series of numbers (`Array<Float>`), a trace's and a sparkline's
+  cell, which sorts between `Null` and `String`, so `String` moves down one. A
+  meter's max and tone are read by the root's `cellsAt`, its max cell holding
+  a Float — or, where the app's max or tone threw over the row, the error's
+  message, a String; and where a mark or a column from data threw over the
+  row, `cellsAt` leaves the error's message in the row's `$unread` cell, a
+  String, and reads its meters all the same. A custom column's `parse` giving
+  a series is refused at build, as a payload no cell of it holds, and a Trace
+  or a Sparkline given a `domain` written as numbers that draw no scale is
+  refused as it is built. east-ui's `Trace` and `Sparkline` arms gain `domain`, an
+  `Option<NumberDomainType>` — the Trace's after `future`, the Sparkline's
+  after `type` — one scale for every track, or every line. They travel in
+  east-ui's `UIComponentType` and in the `Sheet` and `Record` extensions'
+  payloads, so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, and
+  a display column reads a field the app's record already holds, as it holds
+  it, so no repository upgrade step ships with it.
+- **e3-ui's `Record` tells the app which rows are ticked (#1736, #1737)** —
+  package-borne. The Sheet's root (`SheetRootType`) gains `onTick`, after
+  `selection`: a function over the ticked rows' ids (`Set<String>`), which
+  the Record's renderer calls after each change of its ticks, made from the
+  app's `onTick` over a Set of the record's keys, each read back from its id
+  at the record's key type — `none` where the Record is given none, and on
+  every Sheet. The Record's payload holds the Sheet's root, so it carries it.
+  They travel in the `Sheet` and `Record` extensions' payloads, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and an application's
+  records keep their types, so no repository upgrade step ships with it.
+- **e3-ui's `Record` takes the page's day (#1746)** — package-borne. The
+  `Record` extension's payload gains `day`, after `autosave`: the day the
+  page sets (`Option<DateTime>`), as the page gives it, `none` where it sets
+  none. The renderer reads a row's cells at that day (the root's `cellsAt`),
+  writes a gesture's cells from data at it (`SheetEditingType`'s `decode`)
+  and counts an age's days and weeks to it, in place of the browser's local
+  calendar date at UTC midnight. A UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's
+  output is not stored state, and a column from data reads and writes a
+  field the app's record already holds, as it holds it, so no repository
+  upgrade step ships with it.

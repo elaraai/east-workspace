@@ -21,7 +21,7 @@ import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import type { PackageListItem } from './types.js';
 import { PackageListItemType } from './types.js';
 import { ResponseType } from './types.js';
-import { get, del, fetchWithAuth, fetchWithProgress, requestFetch, ApiError, type RequestOptions, type Response } from './http.js';
+import { get, del, fetchWithAuth, fetchWithProgress, fetchWithRetry, ApiError, type RequestOptions, type Response } from './http.js';
 
 /**
  * List all packages in the repository.
@@ -53,6 +53,8 @@ export async function packageGet(
  */
 export interface PackageImportOptions {
   onProgress?: (progress: PackageImportProgress) => void;
+  /** Told the bytes of the zip sent so far and its size; an upload that is
+   *  retried counts from the start again. */
   onUploadProgress?: (uploaded: number, total: number) => void;
   signal?: AbortSignal;
 }
@@ -61,6 +63,12 @@ export interface PackageImportOptions {
  * Import a package from a zip archive using the transfer protocol.
  *
  * Flow: init upload → upload zip → trigger import → poll for result
+ *
+ * @remarks
+ * Every request of the flow is retried per {@link fetchWithRetry}, under the
+ * policy of `options.retry`: the upload among them, whose PUT of the whole zip
+ * to the URL the server names is idempotent, so a connection that drops while
+ * it is sent is sent again with the zip whole.
  */
 export async function packageImport(
   url: string,
@@ -93,21 +101,20 @@ export async function packageImport(
 
   const { id, uploadUrl } = initResult.value;
 
-  // 2. Upload zip bytes (no auth — URL may be a presigned S3 URL)
+  // 2. Upload zip bytes (no auth — URL may be a presigned S3 URL). The PUT
+  // is idempotent, so a dropped connection is retried; each attempt is built
+  // afresh, since one consumes a progress stream.
   const onUploadProgress = importOptions?.onUploadProgress;
-  const uploadBody = onUploadProgress
-    ? createProgressStream(archive, onUploadProgress)
-    : archive;
-  const uploadRes = await requestFetch(options)(uploadUrl, {
+  const uploadRes = await fetchWithRetry(uploadUrl, (): RequestInit => ({
     method: 'PUT',
     headers: {
       'Content-Type': 'application/zip',
       'Content-Length': String(archive.byteLength),
     },
-    body: uploadBody,
+    body: onUploadProgress ? createProgressStream(archive, onUploadProgress) : archive,
     signal,
     duplex: onUploadProgress ? 'half' as const : undefined,
-  });
+  }), { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   if (!uploadRes.ok) throw new Error(`Transfer upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
 

@@ -7,7 +7,7 @@
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
  * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2–IN4, IN7–IN9): its select column's,
  * a new row's required cell's, its empty state's, its cells' — their hovers,
- * an age's and an audit's, the words for no one and for no value where a
+ * an age's, an audit's, a sparkline's and a meter's, the words for no one and for no value where a
  * column gives none, and a mark's after a cell's own — and its toolbar's, its status line's, its strip's, its
  * footer's and its inspector's, each in the Record's word for its rows. Every
  * other word it shows is the Sheet's, but the message of an empty field a new
@@ -50,6 +50,21 @@ export interface RecordTally {
     readonly deleted: number;
 }
 
+/**
+ * Why a meter draws no share (east-workspace#1730): its max not read; not readable, the app's max or tone having thrown
+ * over the row; no finite number, or 0 or below — or its value no finite number.
+ */
+export type RecordMeterNoShare = "unread" | "failed" | "max" | "low" | "value";
+
+/** Why a meter draws no share, in words. */
+const NO_SHARE: Readonly<Record<RecordMeterNoShare, string>> = {
+    unread: "its max is not read",
+    failed: "its max or tone could not be read",
+    max: "its max is not a finite number",
+    low: "its max is 0 or below",
+    value: "its value is not a finite number",
+};
+
 /** A line's words, parts of them in the line's strong ink: the footer's `N of M people`, its N strong. */
 export type RecordLineText = readonly (string | { readonly strong: string })[];
 
@@ -89,6 +104,12 @@ export interface RecordMessages {
     pendingMeta: (p: { count: string; one: boolean; blame: boolean }) => string;
     /** A pending audit's hover. */
     pendingTitle: (p: { count: string }) => string;
+    /** A sparkline's hover (east-workspace#1729): its series' last value, and its range — each a number in the viewer's language. */
+    sparklineTitle: (p: { last: string; min: string; max: string }) => string;
+    /** A meter's hover (east-workspace#1730): its value, the row's max and the value's share of it — each in the viewer's language. */
+    meterTitle: (p: { value: string; max: string; percent: string }) => string;
+    /** A meter's hover where it draws no share (east-workspace#1730): its value, the row's max where it is a number, and why. */
+    meterNoShare: (p: { value: string; max: string | undefined; why: RecordMeterNoShare }) => string;
     /** The rows, where the Record names them no other way: one and many. */
     rowNoun: () => { singular: string; plural: string };
     /** Add's words (FR6). */
@@ -128,10 +149,10 @@ export interface RecordMessages {
     shownOf: (p: { shown: string; total: string; n: number; noun: string; nouns: string }) => RecordLineText;
     /** The footer's stale note (FT1): how many rows the first age column with a threshold says are stale. */
     staleNote: (p: { count: string; threshold: string; unit: AgeUnit; one: boolean }) => string;
+    // The strip's keys name only the keys nobody would guess (east-workspace#1743) — a cycle's and a toggle's, and the Undo
+    // that takes a new row away; the ring's moves and ⏎ go unsaid, and a coarse pointer shows none.
     /** The strip over nothing (SP1): what a click on a cell does, and on a row. */
     stripRest: (p: { steps: boolean; inspector: boolean }) => string;
-    /** The strip's keys where the cell takes none of its own: the ring's moves. */
-    stripMove: () => string;
     /** The strip's label over a cell holding a state (SP2): its column, and the state. */
     stripState: (p: { header: string; state: string }) => string;
     /** The strip over a cycle (SP2): the row, the state's name, what the record holds while a draft changed it, and — where it steps — where a click and a ⇧-click take it. */
@@ -156,8 +177,6 @@ export interface RecordMessages {
     stripRequired: (p: { noun: string; how: { cycle: string } | "click" | "inspector" | undefined }) => string;
     /** A new row's field's keys (SP6). */
     stripRemoveRow: () => string;
-    /** A Sheet kind's keys, at rest: ⏎ edits, where it edits. */
-    stripEdit: (p: { editable: boolean }) => string;
     /** The inspector's chip on a row whose drafts change its fields (IN2): how many. */
     detailsPending: (p: { count: string }) => string;
     /** The inspector's counts with no row selected (IN8): the rows shown, the drafts pending, the rows stale. */
@@ -197,6 +216,9 @@ export const recordMessages: RecordMessages = {
     pending: () => "Pending",
     pendingMeta: ({ count, one, blame }) => (blame ? `${count} ${one ? "change" : "changes"}` : count),
     pendingTitle: ({ count }) => `${count} pending`,
+    sparklineTitle: ({ last, min, max }) => `last ${last} · ${min} to ${max}`,
+    meterTitle: ({ value, max, percent }) => `${value} of ${max} · ${percent}`,
+    meterNoShare: ({ value, max, why }) => `${max === undefined ? value : `${value} of ${max}`} · no share: ${NO_SHARE[why]}`,
     rowNoun: () => ({ singular: "row", plural: "rows" }),
     add: () => "Add",
     addTip: ({ noun }) => `Add ${withArticle(noun)}`,
@@ -227,7 +249,6 @@ export const recordMessages: RecordMessages = {
     staleNote: ({ count, threshold, unit, one }) => `${count} stale · no update in ${threshold} ${UNITS[unit][one ? 0 : 1]}`,
     stripRest: ({ steps, inspector }) => (steps && inspector ? "Click a cell to step it · select a row to open it in the inspector"
         : steps ? "Click a cell to step it" : inspector ? "Select a row to open it in the inspector" : ""),
-    stripMove: () => "↑ ↓ ← → move",
     stripState: ({ header, state }) => `${header} · ${state}`,
     // The parts the cell has, in order: `A. Morgan · Supervised · was 0 · click → 2 · ⇧-click → 0`.
     stripCycle: ({ name, meta, was, next, previous }) => [name, meta, was === undefined ? "" : `was ${was}`, next === undefined ? "" : `click → ${next}`,
@@ -250,7 +271,6 @@ export const recordMessages: RecordMessages = {
         return how === undefined ? waits : how === "click" ? `${waits} · click sets it` : how === "inspector" ? `${waits} · set it in the inspector` : `${waits} · click sets ${how.cycle}`;
     },
     stripRemoveRow: () => "⌘Z removes the row",
-    stripEdit: ({ editable }) => (editable ? "⏎ edit · ↑ ↓ ← → move" : "↑ ↓ ← → move"),
     detailsPending: ({ count }) => `${count} pending`,
     detailsStat: ({ stat }) => (stat === "shown" ? "Shown" : stat === "pending" ? "Pending" : "Stale"),
     detailsHint: () => "Select a row to see its fields here.",

@@ -49,6 +49,8 @@ export function KpiVisual({ kpi, asks, answers, source }: KpiVisualProps) {
         data: [...model.trend],
         type: some(variant("line", null)),
         style: some({ color: some("series.1"), width: some("100%"), height: some("36px") }),
+        // Its own min and max: a KPI's trend has no scale to share with another row's (east-workspace#1729).
+        domain: none,
     }), [model.trend]);
     const progress = useMemo((): ProgressValue | undefined => (model.goal === undefined ? undefined : {
         value: model.goal.share * 100,

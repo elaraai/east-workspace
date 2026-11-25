@@ -6,7 +6,7 @@
 /** Typed draft decoding without domain defaults. @packageDocumentation */
 import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType } from "@elaraai/east";
 import { SheetActionCellType, SheetCellType, SheetRowType } from "./types.js";
-import { SheetCellsType, type SheetColumnMeta } from "./bridge.js";
+import { SheetCellsType, type SheetColumnMeta } from "./column-meta.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { printLink, printLinkWith, SheetRegisterMembersType } from "./link.js";
@@ -37,7 +37,7 @@ export function buildDraftRowDecoder(
         const own = meta.field === field;
         const decoder = East.function([SheetCellType, draftField], draftField, ($, cell, base) => {
             const members = meta.register !== undefined && registers[meta.register] !== undefined
-                ? $.const(registers[meta.register]!, SheetRegisterMembersType) : undefined;
+                ? $.const(registers[meta.register]!.members, SheetRegisterMembersType) : undefined;
             const missing = $.const(variant("missing", null), draftField);
             $.if(cell.hasTag("Null"), ($) => {
                 // An existing explicit none remains a value, while a fresh
@@ -63,13 +63,15 @@ export function buildDraftRowDecoder(
                             some: (_$2, v) => East.value(variant("value", meta.optional ? some(v) : v), draftField),
                         }) as ExprType<typeof draftField>;
                     }
-                    // A cycle over a variant: the case its key names, or the text kept unread when no case has that key.
-                    if (meta.steps !== undefined) {
-                        const decode = $.const(meta.steps.decode);
+                    // A key's text read back at its value's type — a register's key of another type than String
+                    // (east-workspace#1747), a variant's case by its step's key — or the text kept unread when no value
+                    // has that key.
+                    if (meta.keys !== undefined) {
+                        const decode = $.const(meta.keys.decode);
                         const text = payload as ExprType<StringType>;
                         return decode(text).match({
                             none: () => East.value(variant("invalid", text), draftField),
-                            some: (_$2, v) => East.value(variant("value", v), draftField),
+                            some: (_$2, v) => East.value(variant("value", meta.optional ? some(v) : v), draftField),
                         }) as ExprType<typeof draftField>;
                     }
                     let value = payload;

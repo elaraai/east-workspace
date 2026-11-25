@@ -15,6 +15,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { DensityType } from "../../style.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
+import { numberDomainOf } from "../../charts/spec/number-domain.js";
 import {
     TraceScaleType,
     TraceFutureType,
@@ -68,12 +69,15 @@ function buildStyle(options: TraceOptions | undefined): ExprType<TraceStyleType>
  * future.
  *
  * @param tracks - One row per measure, each `{ name, values }`
- * @param options - Optional config: `now`, `density`, `scale`, `future`, `axis`, colour overrides
+ * @param options - Optional config: `now`, `density`, `scale`, `future`, `axis`, `domain`, colour overrides
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When `domain`'s bounds are written as numbers and draw no scale: one is no finite number, or the max is not past the min
  *
  * @remarks
  * Read-only by construction — no events, no commit, no drag. Each track's heat
- * fill normalises across its own min/max; tracks share one step grid, so `now`
+ * fill normalises across its own min/max — or, given `domain: [min, max]`,
+ * every track's across the domain, so the same value takes the same level on
+ * each (east-workspace#1728); tracks share one step grid, so `now`
  * (a single index) draws one line spanning every row. `density` shares the
  * cascade with `ChipRail`, so a Trace cell and a ChipRail cell line up in
  * adjacent table columns.
@@ -119,6 +123,7 @@ function createTrace(
         density: densityValue ? some(densityValue) : none,
         scale: scaleValue ? some(scaleValue) : none,
         future: futureValue ? some(futureValue) : none,
+        domain: numberDomainOf(options?.domain, "Trace", "one scale for every track"),
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

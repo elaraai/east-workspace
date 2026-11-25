@@ -89,7 +89,10 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("horizonLens").height).toBe(v("lens"));
         expect(slot("ruler").height).toBe(v("ruler"));
         expect(slot("narrowRuler").height).toBe(v("ruler"));
-        expect(slot("footer").minHeight).toBe(v("footer"));
+        // The footer is the frame's, every builder's 28px rail (east-workspace#1748): the Plan draws none of its own, and
+        // its table holds no height for one.
+        expect((planSlotRecipe.base as Record<string, unknown>).footer).toBeUndefined();
+        expect("footer" in PLAN_GEOMETRY.default).toBe(false);
         // An unloaded run's rows are the canvas's rows (#1398, CL2): the rule inside their height, as a row's.
         expect(slot("runRow").borderBottomWidth).toBe(v("rule"));
     });

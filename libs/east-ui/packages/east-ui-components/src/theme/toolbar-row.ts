@@ -53,6 +53,20 @@ export const PHONE_ICON_ALONE = fontAwesomeSize("16px");
 export const TOOLBAR_CONTROL_HEIGHT = `${ROW_PX}px`;
 
 /**
+ * Words a toolbar's row holds beside its controls, as the Roster's and the Calendar's range does: mono 10/600 in
+ * capitals at 0.1em in `fg.subtle`, the voice a builder's footer items speak in (`builderFooterSlotRecipe`).
+ */
+export const TOOLBAR_TEXT = {
+    fontFamily: "mono",
+    fontSize: "label.sm",
+    fontWeight: "semibold",
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    color: "fg.subtle",
+    whiteSpace: "nowrap",
+} as const;
+
+/**
  * The height of a control in a toolbar's row that holds one line of words, and
  * the height of that line: the room inside the control's edge.
  *

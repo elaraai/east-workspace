@@ -86,6 +86,7 @@ import { issueText, type SheetWords } from "../words.js";
 import { actionColumnOf } from "../actions/model.js";
 import { setAt } from "../actions/form-check.js";
 import { namesMember } from "../Rows.js";
+import { SetTagsEditor } from "./set-tags.js";
 import type { SheetValue } from "./index.js";
 
 /**
@@ -998,8 +999,10 @@ const compareFloats = compareFor(FloatType);
  * A phone's cell editor for a sheet given an inspector (SH10, R9): what the
  * Sheet's bottom container shows for the ring's cell — the pane's form at
  * touch size, the field the cell's column writes — or `undefined` where the
- * sheet has no inspector, or its form no field for that column, and the
- * docked strip shows.
+ * sheet has no inspector, or its form no field for that column, or a read-only
+ * one, and the docked strip shows. A set's field is read only in the form,
+ * its members the grid's to edit: on a phone its cell is edited here all the
+ * same, in the form's tags editor (east-workspace#1741).
  *
  * @param value - The payload: its inspector's forms
  * @param words - The sheet's words
@@ -1013,7 +1016,8 @@ export function sheetCellEditor(value: SheetInspectorValue, words: SheetWords, h
         if (pane === undefined) return undefined;
         const form = at.band ? getSomeorUndefined(pane.forms.group) : pane.forms.row;
         const field = form?.fields.find((f) => { const key = getSomeorUndefined(f.column); return key !== undefined && stringEqual(key, at.columnKey); });
-        if (form === undefined || field === undefined || field.spec.editor.type === "readonly") return undefined;
+        const set = !at.band && value.sheet.columns.some((column) => stringEqual(column.key, at.columnKey) && column.kind.type === "set");
+        if (form === undefined || field === undefined || (field.spec.editor.type === "readonly" && !set)) return undefined;
         // Its row's by its id, never its place: the rows moving under it — a window landing above, another session's
         // row — never draw it afresh, and what is typed in it stays.
         return <SheetCellEditor key={`${at.id}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
@@ -1035,10 +1039,11 @@ interface CellEditorProps {
  * A phone's cell editor (SH10): in the bottom container, under its head — the
  * eyebrow naming the column and the row, and ⌄ close — the field the cell's
  * column writes. A number is − · the field · its unit · + (digits only), a
- * time of day its `hh:mm` field, filled as digits are typed, and Clear; every
- * other kind its form's own input at touch size (R9). Its edits while it stays
- * open are one step of the history (SH10.1), each written as the inspector
- * writes it.
+ * time of day its `hh:mm` field, filled as digits are typed, and Clear; a set
+ * the form's tags editor, its register's members suggested (`set-tags.tsx`,
+ * east-workspace#1741); every other kind its form's own input at touch size
+ * (R9). Its edits while it stays open are one step of the history (SH10.1),
+ * each written as the inspector writes it.
  */
 function SheetCellEditor({ value, words, hidden, at, form, field, noun }: CellEditorProps) {
     const inspect = useSheetInspect();
@@ -1095,6 +1100,10 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
     // A bound the row breaks (#1585), said in the tone its Save stands in, as Details says it.
     const breaches = targetBreachTone(targetIssues(target, inspect, form, words));
+    // A set's members (east-workspace#1741): the form's tags editor over them.
+    if (inspect.columnAt(at.r, at.columnKey)?.kind === "set") {
+        return <SetTagsEditor inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} header={header} joins={joins} breaches={breaches} />;
+    }
     if (touchKind(inspect, at.r, at.columnKey, spec) !== undefined) {
         return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins}
             breaches={breaches} />;

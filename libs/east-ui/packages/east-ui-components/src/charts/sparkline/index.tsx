@@ -5,8 +5,8 @@
 
 import { memo, useMemo } from "react";
 import { useChakraContext } from "@chakra-ui/react";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Sparkline } from "@elaraai/east-ui/internal";
+import { FloatType, equivalentFor, lessFor, type ValueTypeOf } from "@elaraai/east";
+import { Sparkline, drawsDomain } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level
@@ -48,13 +48,24 @@ export interface EastChakraSparklineProps {
     value: SparklineValue;
 }
 
+/** East's order of Floats: what says a series' min is below its max. */
+const floatLess = lessFor(FloatType);
+
 /**
  * Generates SVG path data for sparkline.
  * Uses a normalized coordinate system (0-100) that scales with viewBox.
+ *
+ * @param data - The values, in order
+ * @param isArea - Whether the area under the line is filled too
+ * @param domain - One vertical scale for the values (east-workspace#1729): each drawn at its place in it, one past
+ *   either end at that end; `undefined`, or one whose bounds are no finite numbers or whose max is not past its min,
+ *   the data's own min and max — and a single value, or one value throughout, at the middle
+ * @returns The line's path, and the area's (`""` for a line)
  */
-function generatePaths(
+export function generatePaths(
     data: number[],
-    isArea: boolean
+    isArea: boolean,
+    domain?: { readonly min: number; readonly max: number },
 ): { linePath: string; areaPath: string } {
     if (data.length === 0) {
         return { linePath: "", areaPath: "" };
@@ -63,9 +74,13 @@ function generatePaths(
     const padding = 2;
     const width = 100;
     const height = 100;
+    const scale = domain !== undefined && drawsDomain(domain.min, domain.max) ? domain : undefined;
+    // A value's height on the domain, a value past either end at that end.
+    const yOn = (value: number, min: number, max: number) =>
+        height - padding - ((Math.min(max, Math.max(min, value)) - min) / (max - min)) * (height - padding * 2);
 
     if (data.length === 1) {
-        const y = height / 2;
+        const y = scale !== undefined ? yOn(data[0]!, scale.min, scale.max) : height / 2;
         const linePath = `M ${padding} ${y} L ${width - padding} ${y}`;
         const areaPath = isArea
             ? `M ${padding} ${height - padding} L ${padding} ${y} L ${width - padding} ${y} L ${width - padding} ${height - padding} Z`
@@ -73,16 +88,19 @@ function generatePaths(
         return { linePath, areaPath };
     }
 
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const min = scale?.min ?? Math.min(...data);
+    const max = scale?.max ?? Math.max(...data);
     const range = max - min || 1;
+    // One value throughout, and no domain to place it on: the line runs across the middle, as a single value's does
+    // (east-workspace#1734's review) — over a range of none it would lie on the box's foot.
+    const flat = scale === undefined && !floatLess(min, max);
 
     const xStep = (width - padding * 2) / (data.length - 1);
     const yScale = (height - padding * 2) / range;
 
     const points = data.map((value, i) => {
         const x = padding + i * xStep;
-        const y = height - padding - (value - min) * yScale;
+        const y = scale !== undefined ? yOn(value, scale.min, scale.max) : flat ? height / 2 : height - padding - (value - min) * yScale;
         return { x, y };
     });
 
@@ -110,10 +128,12 @@ export const EastChakraSparkline = memo(function EastChakraSparkline({ value }: 
     const system = useChakraContext();
 
     const isArea = useMemo(() => props.chartType === "area", [props.chartType]);
+    // One vertical scale, where the value gives one (east-workspace#1729).
+    const domain = useMemo(() => getSomeorUndefined(value.domain), [value.domain]);
 
     const paths = useMemo(
-        () => generatePaths(props.data, isArea),
-        [props.data, isArea]
+        () => generatePaths(props.data, isArea, domain),
+        [props.data, isArea, domain]
     );
 
     // Resolve color token using Chakra's token system

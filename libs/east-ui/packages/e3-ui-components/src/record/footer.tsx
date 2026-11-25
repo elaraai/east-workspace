@@ -4,7 +4,8 @@
  */
 
 /**
- * The Record's footer (`Record - DX Proposal.md` FT1, FT2): `N of M people`
+ * The Record's footer (`Record - DX Proposal.md` FT1, FT2), on every
+ * builder's rail (`builderFooter`, east-workspace#1748): `N of M people`
  * — the rows the narrowing shows, of the record's — and the record's last
  * save after it, the stale note of the first age column with a threshold,
  * and at the right the legend of the register every cycle column names: each
@@ -29,7 +30,7 @@ import { Box } from "@chakra-ui/react";
 import { IntegerType, StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type SlotStyles } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingLine } from "../shared/loading.js";
 import type { SheetLoadingLine } from "../sheet/Footer.js";
 import type { SheetEntries } from "../sheet/index.js";
@@ -37,7 +38,7 @@ import type { SheetColumnIndex, SheetRegisterIndex } from "../sheet/model.js";
 import type { SheetRowValue } from "../sheet/values.js";
 import { useSheetWords, type SheetWords } from "../sheet/words.js";
 import { heatOf } from "./cells.js";
-import { ageOf } from "./clock.js";
+import { ageOf, type RecordTime } from "./clock.js";
 import { recordMessages as m, type RecordLineText } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
@@ -105,24 +106,24 @@ export interface RecordStaleCount {
 
 /**
  * How many of the rows the first age column with a threshold says are stale,
- * to the Record's clock: what the footer's note (FT1) and the inspector's
+ * to the Record's clock and its day: what the footer's note (FT1) and the inspector's
  * count with no row selected (IN8) say. A new row is never stale: the record
  * holds no age of it yet, and the grid draws it none.
  *
  * @param columns - The columns
  * @param rows - The rows to count: every row the narrowing shows
  * @param changes - What a row's drafts changed: whether it is new
- * @param now - The Record's now
+ * @param time - The Record's time
  * @returns The count; `undefined` with no such column
  */
-export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], now: Date): RecordStaleCount | undefined {
+export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], time: RecordTime): RecordStaleCount | undefined {
     for (const meta of columns.list) {
         const kind = meta.raw.kind;
         if (kind.type !== "age") continue;
         const threshold = getSomeorUndefined(kind.value.stale);
         if (threshold === undefined) continue;
         let n = 0;
-        for (const row of rows) if (changes(row.id, row)?.added !== true && ageOf(meta, row.cells.get(meta.key), now)?.stale === true) n += 1;
+        for (const row of rows) if (changes(row.id, row)?.added !== true && ageOf(meta, row.cells.get(meta.key), time)?.stale === true) n += 1;
         return { n, threshold, unit: kind.value.unit.type };
     }
     return undefined;
@@ -130,24 +131,24 @@ export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowV
 
 /**
  * The stale note (FT1): how many of the rows the first age column with a
- * threshold says are stale, to the Record's clock — a new row never.
+ * threshold says are stale, to the Record's clock and its day — a new row never.
  *
  * @param columns - The columns
  * @param rows - The rows to count: every row the narrowing shows
  * @param changes - What a row's drafts changed: whether it is new
- * @param now - The Record's now
+ * @param time - The Record's time
  * @param words - The Sheet's words: the counts in the viewer's language
  * @returns The note; `undefined` with no such column, or no row stale
  */
-export function staleNoteOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], now: Date, words: SheetWords): string | undefined {
-    const stale = staleCountOf(columns, rows, changes, now);
+export function staleNoteOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], time: RecordTime, words: SheetWords): string | undefined {
+    const stale = staleCountOf(columns, rows, changes, time);
     if (stale === undefined || stale.n === 0) return undefined;
     return m.staleNote({ count: words.number(stale.n), threshold: words.number(stale.threshold), unit: stale.unit, one: integerEqual(stale.threshold, 1n) });
 }
 
 /** Props of {@link RecordFooter}. */
 export interface RecordFooterProps {
-    /** The record recipe's slot styles. */
+    /** The record recipe's slot styles: its legend's chips. */
     styles: SlotStyles;
     /** The rows shown, of the record's — `N of M people`, N strong; `undefined` while either is not known. */
     count: RecordLineText | undefined;
@@ -189,25 +190,26 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
     // Every legend chip as wide as the widest label, at its own face, as a cell's chips are.
     const chipStyle = { "--record-chip-ch": legend.chip } as CSSProperties;
     const units = legend.items.length;
+    const footer = useSlotStyles("builderFooter");
     return (
         // The counts are kept whole beside the legend, which folds to its "…" alone where they leave it no room.
-        <Box ref={rail} css={styles.footer} data-slot="footer" data-footer-fold="">
+        <Box ref={rail} css={footer.root} data-slot="footer" data-footer-fold="">
             {(count !== undefined || saved !== undefined) && (
-                <Box as="span" css={styles.footerCount} data-slot="footerCount">
+                <Box as="span" css={footer.count} data-slot="footerCount">
                     {count?.map((part, i) => (typeof part === "string" ? part : <b key={i}>{part.strong}</b>))}
                     {saved !== undefined && (count === undefined ? saved : ` · ${saved}`)}
                 </Box>
             )}
-            {stale !== undefined && <Box as="span" css={styles.footerNote} data-slot="footerNote">{stale}</Box>}
+            {stale !== undefined && <Box as="span" css={footer.count} data-slot="footerNote">{stale}</Box>}
             {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} />}
             {/* The slack between the counts and the legend: fitted at no width, so the legend is cut only for room it lacks. */}
-            <Box as="span" css={styles.footerSpacer} data-footer-slack="" aria-hidden="true" />
+            <Box as="span" css={footer.spacer} data-footer-slack="" aria-hidden="true" />
             {units > 0 && (
-                <Box as="span" css={styles.legend} data-slot="legend" data-footer-units="" data-footer-cut={fit.kept === 0 ? "" : undefined}>
+                <Box as="span" css={footer.legend} data-slot="legend" data-footer-units="" data-footer-cut={fit.kept === 0 ? "" : undefined}>
                     {legend.items.map((item, i) => (
-                        <Box key={i} as="span" css={styles.legendItem} data-slot="legendItem" data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
+                        <Box key={i} as="span" css={footer.item} data-slot="legendItem" data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
                             {item.look !== undefined && <Box as="span" css={styles.legendChip} data-slot="legendChip" data-look={item.look} style={chipStyle}>{item.label}</Box>}
-                            {item.name !== undefined && <Box as="span" css={styles.legendName} data-slot="legendName">{item.name}</Box>}
+                            {item.name !== undefined && <span data-slot="legendName">{item.name}</span>}
                         </Box>
                     ))}
                 </Box>
@@ -215,7 +217,7 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
             <FooterMore shown={fit.kept < units} />
             {/* The status line's words, seen and heard on a phone: elsewhere the toolbar's line says them — and where it cuts
                 them for want of room, they are seen here whole, the toolbar's line still the one a screen reader hears. */}
-            <Box as="span" css={styles.footerLive} data-slot="footerLive" data-footer-live={live === "" ? undefined : ""} data-band={band ? "" : undefined}
+            <Box as="span" css={footer.message} data-slot="footerLive" data-echo="" data-footer-live={live === "" ? undefined : ""} data-band={band ? "" : undefined}
                 data-tone={refused ? "refused" : undefined} role="status" aria-live="polite" aria-hidden={band ? true : undefined}
                 title={band && live !== "" ? live : undefined}>{live}</Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />

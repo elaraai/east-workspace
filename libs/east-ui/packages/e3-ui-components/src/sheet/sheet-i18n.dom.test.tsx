@@ -228,7 +228,7 @@ describe("one message table (#861)", () => {
         const gutter = q('[data-row-id="a"] [data-slot="gutter"]')!;
         expect(attrs(gutter, "aria-label", "title")).toEqual(["⟦Row 1", "⟦Select whole row — delete removes it"]);
         expect(gutter.querySelector('[data-slot="checkbox"]')!.getAttribute("aria-label")).toBe("⟦Select row 1");
-        expect(q('[data-slot="footerHint"]')!.textContent).toBe("⟦⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel");
+        expect(q('[data-slot="footerHint"]')!.textContent).toBe("⟦⌘C / ⌘V round-trips with Excel");
         for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]) expect(getByRole("button", { name })).toBeTruthy();
         expect(q('[data-slot="historyIssues"] button')!.getAttribute("aria-label")).toBe("⟦0 issues");
         // An empty date field: what it accepts, in the strip.
@@ -304,7 +304,7 @@ describe("one message table (#861)", () => {
             <ChakraProvider value={system}>
                 <I18nProvider locale="de-DE">
                     <SheetMessagesProvider messages={MARKED}>
-                        <SheetFooter styles={{}} items={[]} hint="" message="" noun="rows" onRetry={() => {}}
+                        <SheetFooter items={[]} hint="" message="" noun="rows" onRetry={() => {}}
                             loading={{ kind: "failed", from: 8_300, to: 8_499, reason: "fetch failed: 503" }} />
                     </SheetMessagesProvider>
                 </I18nProvider>
@@ -320,7 +320,7 @@ describe("one message table (#861)", () => {
 // ── Overrides ─────────────────────────────────────────────────────────────
 describe("SheetMessagesProvider (#861)", () => {
     const OUTER: Partial<SheetMessages> = {
-        hintDefault: () => "⏎ bearbeiten · esc abbrechen",
+        hintDefault: () => "⌘C / ⌘V tauscht mit Excel",
         undo: () => "Rückgängig",
     };
     const INNER: Partial<SheetMessages> = {
@@ -333,7 +333,7 @@ describe("SheetMessagesProvider (#861)", () => {
                 <SheetMessagesProvider messages={INNER}>{sheet}</SheetMessagesProvider>
             </SheetMessagesProvider>
         ));
-        expect(q('[data-slot="footerHint"]')!.textContent).toBe("⏎ bearbeiten · esc abbrechen");
+        expect(q('[data-slot="footerHint"]')!.textContent).toBe("⌘C / ⌘V tauscht mit Excel");
         expect(getByRole("button", { name: "Rückgängig" })).toBeTruthy();
         expect(getByRole("button", { name: "Wiederholen" })).toBeTruthy();
         // Whatever neither overrides is the default table's.

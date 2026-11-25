@@ -22,6 +22,7 @@
  * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
  * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
+ * | `trace`, `sparkline`, `meter` | Read only — the renderer draws the series with the column's own Trace or Sparkline, the value against its max with its Meter |
  * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
  * | Columns from data | None: the renderer draws each member's cell as a line of its own (#1561) |
@@ -61,7 +62,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { FIELD_HINT, FieldEditorType, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
-import { SheetCellsType, buildPatchCells, optionPayload, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import { buildPatchCells, type SheetBridge } from "./bridge.js";
+import { SheetCellsType, optionPayload, type SheetColumnMeta, DISPLAY_KINDS } from "./column-meta.js";
 import type { SheetUnsettableInput } from "./editing-bridge.js";
 import { SheetPatchTypeFor } from "./types.js";
 
@@ -133,6 +135,8 @@ function isHint(value: unknown): value is AnyHint {
 /** Why a column's field takes no editor hint, or `undefined` when it does. */
 function readOnlyReason(meta: SheetColumnMeta): string | undefined {
     if (meta.kind === "audit") return "is an audit column, which shows the change the app keeps";
+    const shows = DISPLAY_KINDS.get(meta.kind);
+    if (shows !== undefined) return `is a ${meta.kind} column, which shows its ${shows}`;
     if (meta.derived !== undefined) return "is a `value` projection, a derived read";
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;

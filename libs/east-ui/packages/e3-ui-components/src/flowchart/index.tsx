@@ -784,12 +784,13 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                     storageKey={keys.frame}
                     loading={!data.ready && data.error === undefined}
                     busy={data.loading || narrowingBusy}
+                    liveFooter
                     toolbar={items}
                     toolbarRef={toolbarRef}
                     banners={banners}
                     start={start}
                     end={end}
-                    footer={<FlowchartFooter styles={styles} counts={model.counts} pending={edits ? history.pending : undefined} saved={saves.newest?.when}
+                    footer={<FlowchartFooter counts={model.counts} pending={edits ? history.pending : undefined} saved={saves.newest?.when}
                         message={notice} words={words} notices={notices} line={line} />}
                     onKeyDown={onKeyDown}
                 >

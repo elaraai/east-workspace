@@ -86,11 +86,11 @@ export interface PlanGeometry {
     weight: number;
     /** A segment track. */
     segment: number;
-    /** The chrome bands: horizon brush (its strip and its lens), ruler,
-     *  footer. The toolbar band is the frame's (#1193). */
+    /** The chrome bands: the horizon brush (its strip and its lens) and the
+     *  ruler. The toolbar band and the footer are the frame's, every
+     *  builder's (#1193, east-workspace#1748). */
     brush: number;
     ruler: number;
-    footer: number;
     /** The horizon's lens under its strip (#949) — the connectors from the
      *  window it selected down to the plot's edges. The strip is the band
      *  less this. */
@@ -163,7 +163,7 @@ const DEFAULT: PlanGeometry = {
     lane: 24,
     bar: 20, rollBar: 12,
     tile: 20, chip: 18, weight: 20, segment: 20,
-    brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 28,
+    brush: 38, ruler: 28, lens: 6, brushBar: 28,
     narrowStrip: 24,
     failedBandMin: 64,
     markTriangle: 9,

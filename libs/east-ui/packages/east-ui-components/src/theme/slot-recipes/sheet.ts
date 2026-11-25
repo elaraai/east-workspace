@@ -46,16 +46,19 @@
  *     and its stepper column, the text input) drop their own border and
  *     focus ring inside it.
  *   - Strip: `bg.panel` band as tall as a row (`density.row`), 4/20 padding;
- *     label mono 10/600/.13em uppercase brand; chips mono 12 (armed: 600 on
+ *     label mono 10/600/.13em uppercase brand; chips mono 13 (armed: 600 on
  *     brandTint + inset ring); the chips page rather than
  *     scroll or clip: `‹ 1/3 ›` ghost chevrons at the row's end, the count
- *     mono 10.5 tabular; meta mono 11 (ellipsis past a third of the band).
- *   - Footer: the shared rail's 28 px, 12 px side padding, as every builder's
- *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
- *     moves it; counts mono 11; key hint mono 10, each of its hints whole — a
- *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
- *     right-aligned — in the danger ink while it says a gesture was refused —
- *     the shared loading line after it.
+ *     mono 10.5 tabular; meta mono 10.5 (ellipsis past a third of the band);
+ *     each run of words with its capitals at the middle of the band under its
+ *     rule (east-workspace#1748).
+ *   - Footer: every builder's rail (`builderFooter`, east-workspace#1748) —
+ *     its 28 px, 12 px side padding (ruled 23 Oct 2026, #1398), so the loading
+ *     line, coming and going, never moves it: the counts in its count voice,
+ *     the key hint in its hint voice, each of its hints whole — a rail too
+ *     narrow ends them at a whole hint, then "…" — and the message at its
+ *     end, in the danger ink while it says a gesture was refused, the shared
+ *     loading line after it.
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
@@ -172,12 +175,12 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { capitalsBox, centredCapitals } from "../face-capitals.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
-import { refusedRow, refusedTone } from "../refused-mark.js";
+import { refusedRow } from "../refused-mark.js";
 import { toolbarControlBox } from "../toolbar-row.js";
-import { FOOTER_FIT, RAIL_LINE } from "./builder-footer.js";
 import { ACTION_LINE, ACTION_LINE_EVEN } from "./sheetAction.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -204,6 +207,15 @@ const CELL_LINES = {
 } as const;
 
 /**
+ * The rooms the strip's words stand in (east-workspace#1748): the band under its 1px rule at each density, 35 at the
+ * middle one and 41 at the largest, and 31 at the smallest, where its 23px chips stand it 32 tall; and 37 on a touch
+ * screen, whose chips stand 29. Each part sets its words with their capitals at the room's middle (`centredCapitals`):
+ * its label stood a row high, 13 rows under the rule and 15 over the foot, and its chips' mono 12, whose capitals take an
+ * even 8 rows, half a row off it.
+ */
+const STRIP_ROOMS = [31, 35, 37, 41];
+
+/**
  * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
  * padded 0 8, snapping as the others do and scrolling with them.
  */
@@ -228,14 +240,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorNumber", "editorNumberInput", "editorStepper", "editorDate",
         "editorCombobox", "editorMenu", "editorOption", "editorOptionMeta",
         "editorTime",
-        "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
+        "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "chipLine", "chipMore", "chipText", "chipRemove", "lockTag", "lockWarn", "arrow",
         "retry", "rowError",
         "run", "runRow", "runGutter", "runCell", "runActionCell", "runBand",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "stripPager", "stripPage", "stripPageCount", "stripMeasure",
-        "footer", "footerCounts", "footerHint", "footerHintSep", "footerMessage",
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
@@ -1123,6 +1134,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             height: "100%",
             display: "flex",
             alignItems: "center",
+            // A half's buffer (#1741): a line of its input's face, and never narrower than what it holds — the characters
+            // typed and ghosted (`--editor-typed`, the renderer's geometry) and the caret's room — so a half crowded with
+            // chips scrolls rather than hide the words under the caret.
+            "[data-half] > &": {
+                flex: "1 1 0%",
+                height: "22px",
+                fontFamily: "mono",
+                fontSize: "12.5px",
+                _coarse: { fontSize: "16px" },
+                minWidth: "calc(var(--editor-typed, 0) * 1ch + 24px)",
+            },
         },
         editorMirror: {
             position: "absolute",
@@ -1264,16 +1286,42 @@ export const sheetSlotRecipe = defineSlotRecipe({
             position: "relative",
             zIndex: "1",
         },
+        // A half on one line (#1741): never a second line past its row. At rest its chips fit their line (`chipLine`); in the
+        // open editor they scroll sideways under what is typed, which stays in view — the active half underlined 1.5px in
+        // brand, 4px over its foot, by its background, which stays where it is as the half scrolls under it. A link's halves
+        // are tracks of its grid; a set's one half is its cell's own flex item, and fills the cell's room whatever it
+        // holds, so the width its line is fitted to — and fitted again by, as it changes — is the cell's, never its chips'.
         half: {
+            flex: "1 1 0%",
             minWidth: "0",
             display: "flex",
-            flexWrap: "wrap",
+            flexWrap: "nowrap",
             gap: "4px",
             alignItems: "flex-start",
             alignContent: "flex-start",
             minHeight: "20px",
             "&[data-half=from]": { paddingRight: "3px", justifyContent: "flex-end" },
             "&[data-half=to]": { paddingLeft: "3px" },
+            "[data-slot=editor] &": {
+                position: "relative",
+                minHeight: "34px",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                paddingY: "7px",
+                overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
+                // A chip keeps its width, and on a touch screen lets its × out over and under it (`chipRemove`): its words
+                // shorten in their own box, never by the chip's clip.
+                "& > [data-slot=chip]": { flexShrink: "0", _coarse: { overflow: "visible" } },
+                "&[data-half=from]": { paddingLeft: "0", paddingRight: "3px", justifyContent: "flex-start" },
+                "&[data-half=to]": { paddingLeft: "3px", paddingRight: "0" },
+                "&[data-active]": {
+                    backgroundImage: "linear-gradient({colors.brand.solid}, {colors.brand.solid})",
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "calc(100% - 3px) 1.5px",
+                    backgroundPosition: "left bottom 4px",
+                },
+                "&[data-active][data-half=to]": { backgroundPosition: "right bottom 4px" },
+            },
         },
         // A half's label, where it holds no chip: as tall as a chip, its words on its cell's own line (#1638), centred
         // in it. A half stands its 20px at the middle of the cell's room, half a pixel down where that room is an odd
@@ -1341,6 +1389,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             lineHeight: "14px",
+            gap: "4px",
             fontFamily: "mono",
             fontSize: "10.5px",
             fontWeight: "600",
@@ -1356,11 +1405,76 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             overflow: "hidden",
         },
+        // A chip's meta gives way before its words do: it takes nearly all a narrow chip's shrink.
         chipMeta: {
             color: "fg.subtle",
             fontSize: "9px",
             letterSpacing: "0.03em",
-            flex: "0 1 auto",
+            flex: "0 1000 auto",
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        // A cell's members on one line (#1741): the chips that fit whole, then `+n` for the rest — never a second line past
+        // the row, nor a chip cut mid-word. A chip of a line keeps its natural width, so the fit measures what it needs,
+        // not the line's width a cap would hand it; the first chip, too wide on its own, is the one capped at the line,
+        // and shortens with "…" (`data-alone`). A from-half's chips run to its end. Details' line wraps instead
+        // (`data-wrap`): every member on as many lines as they take, 4px apart, each chip capped at the line.
+        chipLine: {
+            flex: "1 1 0%",
+            minWidth: "0",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            overflow: "hidden",
+            "& > [data-slot=chip], & > [data-slot=chipMore]": { flexShrink: "0" },
+            "& > [data-slot=chip]": { maxWidth: "none" },
+            "&[data-alone] > [data-slot=chip]:first-of-type": { flexShrink: "1", minWidth: "0", maxWidth: "100%" },
+            "&[data-end]": { justifyContent: "flex-end" },
+            "&[data-wrap]": { flexWrap: "wrap", "& > [data-slot=chip]": { flexShrink: "1", minWidth: "0", maxWidth: "100%" } },
+        },
+        // The count of the members past a line's room: a chip's box, in the subtler ink on no fill.
+        chipMore: {
+            display: "inline-flex",
+            alignItems: "center",
+            lineHeight: "14px",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            color: "fg.subtle",
+            background: "transparent",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.sm}",
+            paddingX: "4px",
+            paddingY: "1px",
+            whiteSpace: "nowrap",
+        },
+        // A chip's × in the open editor (east-workspace#1741): its member out of the cell, whole. Font Awesome's xmark in
+        // the chip's subtler ink, the danger ink on hover — and a picked chip's contrast. On a touch screen it is a
+        // target of its own, never a halo: a halo centred on it lay over the chip's words, which a touch near their end
+        // then removed. The design system's touch chip's 34px square at the chip's very end — over its padding and its
+        // edge, and the half's whole height over and under the chip, which keeps its own — begins where the words' gap ends.
+        chipRemove: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "10px",
+            height: "10px",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            color: "fg.subtle",
+            fontSize: "8px",
+            cursor: "pointer",
+            _coarse: { width: "34px", height: "34px", marginBlock: "-10px", marginInlineEnd: "-5px" },
+            _hover: { color: "fg.danger" },
+            "[data-slot=chip][data-picked] &": { color: "brand.contrast" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
+        },
+        // A chip's words: shortened with "…" where its chip is narrower than they are.
+        chipText: {
             minWidth: "0",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -1632,8 +1746,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         stripLabel: {
             flex: "none",
-            fontFamily: "mono",
-            fontSize: "10px",
+            ...centredCapitals("mono", "label.sm", STRIP_ROOMS),
             fontWeight: "600",
             letterSpacing: "0.13em",
             textTransform: "uppercase",
@@ -1652,13 +1765,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChip: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
-            _coarse: { paddingY: "6px" },
+            // Its words at the middle of its 23px, 29 on a touch screen (east-workspace#1748): mono's 13px, whose capitals take an
+            // odd 9 rows, as the odd rooms the chip stands in are; the 12px's 8 stood half a row off them.
+            ...capitalsBox("mono", "body", 23),
+            _coarse: { ...capitalsBox("mono", "body", 29) },
             color: "fg.subtle",
             paddingX: "8px",
-            paddingY: "3px",
             borderRadius: "{radii.sm}",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -1669,16 +1781,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChipOn: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
-            _coarse: { paddingY: "6px" },
+            // Its words at the middle of its 23px, 29 on a touch screen (east-workspace#1748): mono's 13px, whose capitals take an
+            // odd 9 rows, as the odd rooms the chip stands in are; the 12px's 8 stood half a row off them.
+            ...capitalsBox("mono", "body", 23),
+            _coarse: { ...capitalsBox("mono", "body", 29) },
             fontWeight: "600",
             color: "brand.fg",
             background: "brandTint",
             borderRadius: "{radii.sm}",
             paddingX: "8px",
-            paddingY: "3px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -1698,12 +1809,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChipFlat: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
+            ...capitalsBox("mono", "body", 23),
             color: "fg.muted",
             paddingX: "8px",
-            paddingY: "3px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -1712,8 +1820,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flex: "none",
             minWidth: "0",
             maxWidth: "30%",
-            fontFamily: "mono",
-            fontSize: "11px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             color: "fg.muted",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -1721,8 +1828,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         stripKeys: {
             flex: "none",
-            fontFamily: "mono",
-            fontSize: "10.5px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
@@ -1751,8 +1857,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _coarse: { width: "28px", height: "28px" },
         },
         stripPageCount: {
-            fontFamily: "mono",
-            fontSize: "10.5px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             fontVariantNumeric: "tabular-nums",
             color: "fg.subtle",
             whiteSpace: "nowrap",
@@ -1772,61 +1877,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "4px",
             whiteSpace: "nowrap",
             width: "max-content",
-        },
-        // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
-        // line follows the message, which takes the rail's slack. It is the shared rail's 28 px, 12 px side padding
-        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it. Its
-        // words stand on one whole line of 15px, the shared rail's, centred in the 27px under its rule (#1638): its
-        // counts' 11px face and its message's 10.5px took 16.5px and 15.75px, each a fraction of a pixel under the rule.
-        footer: {
-            ...FOOTER_FIT,
-            display: "flex",
-            alignItems: "center",
-            gap: "18px",
-            minHeight: "28px",
-            lineHeight: RAIL_LINE,
-            paddingX: "12px",
-            paddingY: "0",
-            background: "bg.surface",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            minWidth: "0",
-            "& > [data-footer-line]": { marginInlineStart: "0" },
-        },
-        footerCounts: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-            display: "inline-flex",
-            gap: "6px",
-            "& [data-tone=success]": { color: "status.pos" },
-            "& [data-tone=danger]": { color: "status.neg" },
-            "& [data-tone=warning]": { color: "status.warn" },
-            "& [data-tone=info]": { color: "status.info" },
-        },
-        // The key hint: its hints run on, each whole — the fit ends them at a whole hint rather than cut a word.
-        footerHint: {
-            flex: "none",
-            fontFamily: "mono",
-            fontSize: "10px",
-            color: "fg.subtle",
-            letterSpacing: "0.04em",
-            whiteSpace: "nowrap",
-        },
-        // The ` · ` before a hint: its spaces kept wherever the hint is laid out, so a hint measures the same cut or shown.
-        footerHintSep: {
-            whiteSpace: "pre",
-        },
-        footerMessage: {
-            marginLeft: "auto",
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            ...refusedTone,
         },
         diagnostic: {
             padding: "20px",

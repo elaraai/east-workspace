@@ -478,12 +478,19 @@ describe("the columns map's typing", () => {
     test("a kind on a field it cannot sit on", () => {
         assert.throws(() => Record({
             record: Record.bind(ex.recordCrew),
-            registers: { levels: Record.register.members(East.value(["0"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) },
             columns: {
-                // @ts-expect-error — a cycle sits on a String field
-                inducted: Record.column.cycle(ex.Crew, "levels"),
+                // @ts-expect-error — a toggle sits on a Boolean field
+                name: Record.column.toggle(ex.Crew, { on: "yes", off: "no" }),
             },
-        }), /^Error: Record: cycle column "inducted" must sit on a String/);
+        }), /^Error: Record: toggle column "name" must sit on a Boolean/);
+    });
+
+    test("a column holding a register's key, on a field of another type than its keys — which the register decides, so the page refuses it as it builds, naming the register's key type (#1747)", () => {
+        assert.throws(() => Record({
+            record: Record.bind(ex.recordCrew),
+            registers: { levels: Record.register.members(East.value(["0"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) },
+            columns: { inducted: Record.column.cycle(ex.Crew, "levels") },
+        }), /^Error: Record: cycle column "inducted" holds a key of the register "levels", keyed by String — it sits on a field of that type, or its Option, and "inducted" holds Boolean$/);
     });
 
     test("a cycle over a variant one of whose cases holds data", () => {
@@ -872,6 +879,31 @@ describe("columns from data at the day", () => {
         // columns, so Save never waits for it.
         const unwritten = decode("S-9", new Map(), undefined);
         assert.ok(equalFor(RosteredDraft)(unwritten, { id: variant("value", "S-9"), week: variant("value", { mon: 0n, sat: none, note: "" }) }), printFor(RosteredDraft)(unwritten));
+    });
+});
+
+describe("a column from data that throws over a row (east-workspace#1734's review)", () => {
+    test("says why under the row's unread cell, and the row's meters are read all the same", () => {
+        const Crew = StructType({ id: StringType, name: StringType, hours: DictType(StringType, FloatType), booked: FloatType });
+        const MORGAN_CREW: ValueTypeOf<typeof Crew> = { id: "H-1", name: "A. Morgan", hours: new Map([["P-100", 12.5]]), booked: 30 };
+        // Each project's mark: P-900 has none, and the mark's read of it throws over every row.
+        const Notes = DictType(StringType, Mark);
+        const NOTES: ValueTypeOf<typeof Notes> = new Map([["P-100", none], ["P-101", none], ["P-200", none]]);
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const([MORGAN_CREW], ArrayType(Crew));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Crew, { header: "Name" }),
+                hours: Record.column.quantity(Crew, {
+                    each: "projects",
+                    mark: East.function([Crew.fields.hours, StringType, DateTimeType], Mark, (_$2, _hours, project) => East.value(NOTES, Notes).get(project)),
+                }),
+                booked: Record.column.meter(Crew, { header: "Booked", max: 40 }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const cells = cellsAtOf(root)(variant("entry", encodeBeast2For(Crew)(MORGAN_CREW)), MONDAY);
+        const Cell = Sheet.Types.Cell;
+        assert.ok(equalFor(Cell)(cells.get("$unread") ?? variant("Null", null), variant("String", 'Dict does not contain key "P-900"')), printFor(Cells)(cells));
+        assert.ok(equalFor(Cell)(cells.get("$max:booked") ?? variant("Null", null), variant("Float", 40)), printFor(Cells)(cells));
     });
 });
 

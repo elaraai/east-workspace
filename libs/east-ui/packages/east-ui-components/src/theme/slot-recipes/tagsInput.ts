@@ -18,7 +18,21 @@
  * Font Awesome's own height is 1em, outranking the `_icon` size, so the
  * delete's font is the icon's size, and `--fa-width` its width. A chip's words
  * are set on the 20px of room inside its edge, so they start a whole number of
- * pixels under it (#1636).
+ * pixels under it (#1636). The box is never narrower than its placeholder:
+ * where a line holds less, the box wraps onto a line of its own
+ * (`--tags-typed`, the placeholder's length the renderer gives, in the box's
+ * own `ch`) — and never wider than that line: a placeholder longer than the
+ * field is cut inside the box, which keeps inside the field's edge.
+ *
+ * In a phone's frame its suggestions are a row of the shared `chip`s under the
+ * box, where a wider frame links the browser's list (east-workspace#1741): one
+ * line, 8 apart, scrolling sideways with no scrollbar, so the field never grows
+ * as what is typed narrows them, each chip whole — and a chip tall while it
+ * shows none, its words matching nothing, so the field never shrinks either,
+ * nor what gives way to it moves. The row sets its chips'
+ * geometry as a chip rail does (`--cr-*`): the rail chip's 22 — a 12px line,
+ * padded 8, its icon 4 from its words — and on a coarse pointer the touch
+ * chip's 34, padded 12 (base-components.md, Touch).
  *
  * @packageDocumentation
  */
@@ -35,7 +49,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
     className: "elara-tags-input",
     slots: [
         "root", "label", "control", "input", "item", "itemPreview",
-        "itemText", "itemInput", "itemDeleteTrigger", "clearTrigger",
+        "itemText", "itemInput", "itemDeleteTrigger", "clearTrigger", "suggestions",
     ],
     base: {
         control: {
@@ -85,7 +99,8 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
         input: {
             ...fieldInRingedControl,
             flex: 1,
-            minWidth: "80px",
+            /* Its placeholder whole, past its padding: never cut where it shares a line with chips — up to a line of its own, never past the field. */
+            minWidth: "min(100%, max(80px, calc(var(--tags-typed, 0ch) + 12px)))",
             height: CHIP.height,
             border: "none",
             outline: "none",
@@ -100,6 +115,30 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             _coarse: { fontSize: TOUCH_FONT_FLOOR },
         },
         itemInput: fieldInRingedControl,
+        /* A phone's suggestions: one sideways-scrolling line of chips under the box, their geometry set as a rail sets it. */
+        suggestions: {
+            display: "flex",
+            flexWrap: "nowrap",
+            alignItems: "center",
+            gap: "8px",
+            marginTop: "8px",
+            /* As wide as the field, never wider: its chips are laid out in the room it is given, so they never widen the form. */
+            minWidth: "0",
+            contain: "inline-size",
+            /* A chip tall — its line, its padding and its edge — with none in it. */
+            minHeight: "calc(var(--cr-lh) + 2 * var(--cr-py) + 2px)",
+            overflowX: "auto",
+            overscrollBehaviorX: "contain",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
+            "& > *": { flex: "none" },
+            "--cr-fs": "11.5px",
+            "--cr-lh": "12px",
+            "--cr-py": "4px",
+            "--cr-px": "8px",
+            "--cr-igap": "4px",
+            _coarse: { "--cr-fs": "11px", "--cr-lh": "14px", "--cr-py": "9px", "--cr-px": "12px", "--cr-igap": "6px" },
+        },
     },
     variants: {
         // The control's line, the chips' row centred in it: (height − border − chip) ÷ 2 above and

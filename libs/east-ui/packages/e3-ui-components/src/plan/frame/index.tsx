@@ -545,7 +545,7 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
     // The changes waiting on Save as the history bar counts them: an event moved under another key is one (east-workspace#1709).
     const pending = session === undefined ? undefined : changeCount(session);
     const footer = chrome !== undefined
-        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
+        ? <PlanFooter items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
             counts={counts} unread={kindsUnread} pending={pending} notices={notices}
             optimise={chrome.optimise === undefined ? undefined : { line: chrome.optimise.line, legend: chrome.optimise.legend, flash: chrome.optimise.flash }} />
         : undefined;

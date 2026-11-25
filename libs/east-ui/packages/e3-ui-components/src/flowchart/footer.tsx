@@ -5,7 +5,8 @@
 
 /**
  * The Flowchart's footer (#1502, #1503, `Flowchart Records Spec.md` R5, R12)
- * — today's counts, in its frame's footer: the transitions the flowchart
+ * — today's counts, on every builder's rail (`builderFooter`,
+ * east-workspace#1748), in its frame's footer: the transitions the flowchart
  * holds, and on the right their split, planned · observed · unresolved; where
  * the flowchart edits, the changes waiting on Save (`3 pending`); when its
  * records were last saved, the newest of their last saves; each Save's notice,
@@ -14,7 +15,8 @@
  * a row whose key another holds, a transition drawn where there is one — why,
  * in the danger tone (east-workspace#1709): a change that did not happen is
  * never read as one that did. It is a polite live line, so a screen reader
- * hears it too. What the narrowing draws
+ * hears it too, and live on the rail (`data-footer-live`) while it says
+ * something, so a phone's frame shows it over main's foot. What the narrowing draws
  * as context counts nowhere: the transitions counted are those drawn as
  * themselves, an in-place one among them though it folds into its state's
  * `↻ n`, and an unresolved one once, under unresolved.
@@ -25,26 +27,24 @@
  * or why a read failed, with Retry; shown on the frame's one reveal clock (its
  * `LoadingReveal`), and fitted to the room the rail leaves it
  * (`useFooterFit`): its full text, its short form or its dot alone. The
- * refusal's line takes the rail's slack (`data-footer-slack`), cut short
- * before the split.
+ * refusal's line takes the rail's slack (`data-footer-slack`), its words at
+ * its end and cut short before the split.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { Box, type SystemStyleObject } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { DateTimeType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
-import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { authorOf } from "../shared/records/author.js";
 import { sameDay } from "../shared/schedule/window.js";
 import { kindOf } from "./editing.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartValue, ModelCounts } from "./model.js";
 import { FLOWCHART_SORTS, type FlowchartSort } from "./read.js";
-
-type Styles = Record<string, SystemStyleObject>;
 
 const compareInstant = compareFor(DateTimeType);
 
@@ -62,8 +62,6 @@ export interface FlowchartNotice {
 
 /** Props of {@link FlowchartFooter}. */
 export interface FlowchartFooterProps {
-    /** The `flowchart` recipe's styles. */
-    readonly styles: Styles;
     /** What the flowchart holds, counted: its transitions, and their split. */
     readonly counts: ModelCounts;
     /** The changes waiting on Save; `undefined` where the flowchart edits nothing. */
@@ -87,21 +85,20 @@ export interface FlowchartFooterProps {
  *   loading line
  * @returns The footer
  */
-export function FlowchartFooter({ styles, counts, pending, saved, message, words, notices, line }: FlowchartFooterProps) {
+export function FlowchartFooter({ counts, pending, saved, message, words, notices, line }: FlowchartFooterProps) {
     const m = words.m;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
     const shown = useRevealed() === true;
+    const footer = useSlotStyles("builderFooter");
     return (
-        <Box ref={rail} css={styles.footer} data-flowchart-footer="">
-            <Box as="span" css={styles.footerStrong}>{words.number(counts.transitions)}</Box>
-            <Box as="span">{m.footerLinks({ n: counts.transitions })}</Box>
-            {message !== undefined && <Box as="span">·</Box>}
+        <Box ref={rail} css={footer.root} data-flowchart-footer="">
+            <Box as="span" css={footer.count} data-flowchart-count=""><b>{words.number(counts.transitions)}</b>{m.footerLinks({ n: counts.transitions })}</Box>
             {/* Always there, so a screen reader hears each line it takes. */}
-            <Box as="span" css={styles.footerMessage} data-flowchart-message="" data-footer-slack="" data-tone={message === undefined ? undefined : "refused"}
-                title={message} aria-live="polite">{message ?? ""}</Box>
+            <Box as="span" css={footer.message} data-flowchart-message="" data-footer-slack="" data-footer-live={message === undefined ? undefined : ""}
+                data-tone={message === undefined ? undefined : "refused"} title={message} aria-live="polite">{message ?? ""}</Box>
             {notices.map((notice) => <RecordSliceSaveNotice key={notice.sort} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
-            <Box css={styles.footerSplit} data-flowchart-split="">
+            <Box as="span" css={footer.count} data-end="" data-flowchart-split="">
                 {m.footerSplit({
                     planned: words.number(counts.planned), observed: words.number(counts.observed),
                     unresolved: counts.unresolved > 0 ? words.number(counts.unresolved) : undefined,

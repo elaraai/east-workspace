@@ -37,20 +37,31 @@
  *     step of the heat ramp or a valence's 6% wash, edge and text step; the
  *     mark look's pips and dots; an age mono 13/500, warn past its threshold
  *     with a dot; an audit's date mono 13/500 and its who in `fg.muted`, or
- *     PENDING in `brandPressed`. A mark's note after the value at `body.sm`
+ *     PENDING in `brandPressed`; a trace's steps across the cell between its
+ *     paddings (east-workspace#1728), a sparkline's line in `brand.solid`
+ *     across the cell's room less 6 at its top and its foot, which holds its 3:1
+ *     on every row's wash in both themes (east-workspace#1729), and a meter's
+ *     bar and its percent on a 20px line across the cell, the bar alone in a
+ *     cell under 56px (east-workspace#1730). A mark's note after the value at `body.sm`
  *     in `fg.muted`, or in an empty cell in the absent face in its place; a
  *     lock the design system's Tag — 20 tall, padded 0 8, `bg.subtle` behind
  *     the subtle rule at radius `sm`, mono 10/500 in `fg.muted`, the paper on
  *     a selected row — after the value or alone, cut with an ellipsis.
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
- *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5. Over a
- *     Sheet kind the Sheet's strip draws its chips in this frame.
- *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
- *     legend's 15-tall chips cut whole where the rail is short of room, and
- *     the shared loading line at its end; on a phone, the status line's words
- *     beside the line, in the band the frame lays over main's foot — and on a
- *     wider frame, where the toolbar's row cuts those words, the words whole
- *     at the footer's end, mono 11 in `fg.muted`, or the danger ink.
+ *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5 at its
+ *     end — in the room the text leaves, whole or not at all, so the text keeps
+ *     its own (east-workspace#1743) — each with its capitals at the middle of
+ *     the 31 under its rule (east-workspace#1748). Over a Sheet kind the
+ *     Sheet's strip draws its chips in this frame.
+ *   - Footer: every builder's rail (`builderFooter`, east-workspace#1748):
+ *     the rows shown and the stale note in its count voice, the legend's
+ *     members in its item voice, each one's 15-tall chip before its name —
+ *     the Record's own mark, the rail's odd mark (`RAIL_ODD_MARK`) — cut whole
+ *     where the rail is short of room, and the shared loading line at its end;
+ *     on a phone, the status line's words beside the line, in the band the
+ *     frame lays over main's foot — and on a wider frame, where the toolbar's
+ *     row cuts those words, the words whole at the footer's end, in the
+ *     danger ink while they say a gesture was refused.
  *   - A phone (the Sheet's phone grid): no select column; the title held at
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
@@ -70,12 +81,14 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
+import { centredCapitals } from "../face-capitals.js";
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { refusedRow, refusedTone } from "../refused-mark.js";
 import { TOOLBAR_WORDS, TOOLBAR_WORDS_LINE } from "../toolbar-row.js";
-import { FOOTER_FIT } from "./builder-footer.js";
+import { wholeOrNone } from "../../style/whole-or-none.js";
+import { RAIL_ODD_MARK } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
 /** A chip's or a legend chip's look: the first member, a scale step, a toggle's on, or a valence's wash, edge and text step. */
@@ -154,12 +167,15 @@ const CELL_LINE = centredLine(34, 20);
 /** A part an odd number of pixels tall in a cell's even room, a compact chip's 15: a pixel under it, so it too starts on a whole one. */
 const ODD_PART = { marginBottom: "1px" } as const;
 
-/**
- * The strip's lines (#1638), centred in the 31px under its rule: its label's and its keys' a whole 15px, its words' 19px,
- * where the body's 1.5 gave the keys 15.75px and the words 18.75px.
- */
+/** The strip's line (#1638): a whole 15px, centred in the 31px under its rule, for any words of its own. */
 const STRIP_LINE = centredLine(31, 15);
-const STRIP_TEXT_LINE = centredLine(31, 19);
+
+/**
+ * The room the strip's words stand in (east-workspace#1748): the 31px under its rule. Each part sets its words with their
+ * capitals at its middle (`centredCapitals`): a whole line centred in it left the mono label's capitals a row high, 11
+ * rows under the rule and 13 over the foot, beside the words' 11 and 11.
+ */
+const STRIP_ROOM = 31;
 
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
@@ -170,10 +186,10 @@ export const recordSlotRecipe = defineSlotRecipe({
         "row", "cell", "tick", "run", "runRow", "runGutter", "runCell", "runActionCell",
         "titleCell", "avatar", "nobody", "personLabel", "text",
         "chip", "pips", "pip", "mark", "markDot", "markWord", "box",
-        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock",
+        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock", "display",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
-        "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
+        "legendChip",
         "facts", "factValue", "statValue",
     ],
     base: {
@@ -374,6 +390,21 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
+        /* A display cell's part (east-workspace#1726) — a trace's steps, a sparkline's line, a meter's bar — across the cell
+           between its paddings, starting a whole number of pixels under the row's edge: a compact trace's 22 in the 34 or 30 of
+           a 36 or 32 row, a condensed one's 15 in a 28 row's 26 a pixel under it, as any odd part stands (`data-density`, the
+           trace's); a sparkline the room's height less 6 at its top and its foot — 22, 18 or 14 — its line in the brand, the
+           Sparkline's own colour (`currentColor`), its stroke whole where the line runs along its box's top or foot, the
+           inset its room (east-workspace#1734's review); a meter's bar and its percent on an even 20px line, in Details as in a row,
+           the size container its Meter reads: under 56px wide, the bar alone. In Details, across its field's line, the
+           Input's height. */
+        display: {
+            flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center",
+            "&[data-density=condensed]": ODD_PART,
+            "&[data-kind=sparkline]": { alignSelf: "stretch", paddingBlock: "6px", color: "brand.solid", "& svg": { overflow: "visible" } },
+            "&[data-kind=meter]": { containerType: "inline-size", lineHeight: "20px" },
+            "&[data-place=details]": { height: fieldHeights.md, boxSizing: "border-box" },
+        },
         /* A mark's note after the cell's value, one line, the value keeping its room. */
         note: {
             flex: "0 1 auto", minWidth: "0", marginInlineStart: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -407,46 +438,25 @@ export const recordSlotRecipe = defineSlotRecipe({
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", position: "relative", overflow: "hidden",
         },
         stripLabel: {
-            flex: "none", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
+            flex: "none", ...centredCapitals("mono", "label.sm", STRIP_ROOM), fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             color: "brand.solid", whiteSpace: "nowrap",
         },
-        stripText: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", lineHeight: STRIP_TEXT_LINE, color: "fg.strong" },
-        stripKeys: { flex: "none", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* The words keep their own width, cut with an ellipsis only where the strip is narrower than they are. */
+        stripText: { flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...centredCapitals("body", "body.sm", STRIP_ROOM), color: "fg.strong" },
+        /* The keys take what the label and the words leave, at the strip's end, whole or not at all (east-workspace#1743). */
+        stripKeys: { ...wholeOrNone("100%"), flex: "1 1 0%", minWidth: "0", justifyContent: "flex-end", ...centredCapitals("mono", "label.md", STRIP_ROOM), color: "fg.subtle", whiteSpace: "nowrap" },
 
-        /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */
-        footer: {
-            ...FOOTER_FIT,
-            height: "36px", boxSizing: "border-box", flex: "none", display: "flex", alignItems: "center", gap: "16px", paddingInline: "20px",
-            borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", background: "bg.surface", overflow: "hidden",
-            "& > [data-footer-line]": { marginInlineStart: "0" },
-        },
-        footerCount: {
-            fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap",
-            "& b": { fontWeight: 600, color: "fg" },
-        },
-        footerNote: { fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap" },
-        footerSpacer: { flex: "1", minWidth: "0" },
-        /* The status line's words on a phone, whose toolbar has no room for them: unseen and unheard on a wider frame, where
-           the toolbar's line says them — but seen there too, one line at the footer's end, where the toolbar's row cuts
-           them for want of room (`data-band`). */
-        footerLive: {
-            display: "none",
-            "&[data-band]": {
-                display: "block", flex: "0 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...refusedTone,
-            },
-            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted", ...refusedTone },
-        },
-        legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
-        legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
-        /* A legend chip: as wide as a cell's chip is, at its own face, its one line the room inside its edge as a cell's chip's is. */
+        /* A legend member's chip, before its name on the footer's rail (every builder's, `builderFooter`): as wide as a cell's
+           chip is, at its own face and in its own words — whatever the rail's item around it says — its one line the room
+           inside its edge as a cell's chip's is. It is an odd 15 tall: the rail's odd mark, so it and its name both stand at
+           the rail's middle. */
         legendChip: {
             ...oneLineBox(15), minWidth: "max(20px, calc(var(--record-chip-ch, 0) * 1ch + 10px))", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
             alignItems: "center", justifyContent: "center", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
-            fontFamily: "mono", fontSize: "label.xs", fontWeight: 600,
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: 600, letterSpacing: "normal", textTransform: "none",
+            ...RAIL_ODD_MARK,
             ...LOOKS,
         },
-        legendName: { fontFamily: "mono", fontSize: "label.md", color: "fg.muted" },
 
         /* The inspector's facts (IN6): each the shared Field, its label and its key, over its value read only. */
         facts: { ...INSPECTOR_SECTION, gap: "{spacing.4}" },

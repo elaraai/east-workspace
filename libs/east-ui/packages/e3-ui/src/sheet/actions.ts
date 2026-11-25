@@ -78,7 +78,8 @@ import {
 import { SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
 import type { SheetColumn, SheetMarkInput } from "./columns.js";
-import type { SheetBridge, SheetColumnMeta, SheetRuleCellMeta } from "./bridge.js";
+import type { SheetBridge } from "./bridge.js";
+import { describeType as describeKeyType, type SheetColumnMeta, type SheetRuleCellMeta } from "./column-meta.js";
 import type { SheetRegisterValue } from "./registers.js";
 
 // ============================================================================
@@ -186,11 +187,16 @@ export interface SheetActionMenu<C extends string> {
     readonly labels?: { readonly [K in C]?: string };
 }
 
-/** A case's menu of a register's members (`Sheet.action.menu({ of })`), its value a `String`: the chosen member's key. */
+/**
+ * A case's menu of a register's members (`Sheet.action.menu({ of })`), its
+ * value a `String`: the chosen member's key, of a register keyed by String. A
+ * case holding a key of another type is asked with a form whose field is a
+ * reference to the register (east-workspace#1747).
+ */
 export interface SheetActionRegisterMenu {
     /** The take's kind. */
     readonly [FIELD_HINT]: "action-register";
-    /** The register's name — one of the sheet's `registers`. */
+    /** The register's name — one of the sheet's `registers`, keyed by String. */
     readonly of: string;
 }
 
@@ -745,7 +751,12 @@ export function buildActionKind(input: SheetActionKindInput): ExprType<typeof Sh
             wireTake = East.value(variant("button", null), SheetActionTakeType);
         } else if (kind === "action-register") {
             if (!isTypeEqual(type, StringType)) throw new Error(`${at} is ${describeType(type)} — Sheet.action.menu({ of }) chooses a register member, whose key is a String`);
-            if (registers[take!.of!] === undefined) throw new Error(`${at}'s menu names register "${take!.of}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
+            const register = registers[take!.of!];
+            if (register === undefined) throw new Error(`${at}'s menu names register "${take!.of}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
+            if (!isTypeEqual(register.keyType, StringType)) {
+                throw new Error(`${at}'s menu names register "${take!.of}", keyed by ${describeKeyType(register.keyType)} — Sheet.action.menu({ of }) chooses a member of a register keyed by String; ` +
+                    `ask a case holding another key with a form: Sheet.action.form({ fields: Sheet.field.reference({ of: "${take!.of}" }) })`);
+            }
             wireTake = East.value(variant("register", take!.of!), SheetActionTakeType);
         } else if (kind === "action-menu" || (kind === undefined && isChoice(type))) {
             if (!isChoice(type)) throw new Error(`${at} is ${describeType(type)} — Sheet.action.menu({ labels }) chooses among a variant's cases, each NullType`);

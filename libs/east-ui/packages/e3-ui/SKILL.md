@@ -189,10 +189,12 @@ Task → What do you need?
     │   ├─ Its panes, each optional                           → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · inspector (+ fields)
     │   ├─ The app's own words for what it draws              → vocabulary={{ members, unassigned, source, destination, wanted, actual }}
     │   ├─ Its columns, registers and the driver              → Sheet.column.* / Sheet.register.* / Sheet.driver
+    │   ├─ A register keyed by a number, a date, any Dict key → over a Dict keyed by it, Sheet.register.members(lines.read(), { key: (_line, number) => number, label }) · over an Array, key: (row) => row.number (an Array's own key is the index, as text): the enum and reference columns and band cells over it sit on a field of its key type, or its Option, a pick, a paste and Save writing that type; one register's members share one key type, never an Option
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest() — over one entry's rows OptimiseRequest({ entry: K }) — to Sheet.Types.OptimiseResult(Rows), a patch of the rows its Save reaches; over a record only
     │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
+    │   ├─ What the host hears of the rows                    → onRowClick={fn(Sheet.Types.RowClick(K))} each click — the row's key at the rows' key type, a line's place in its group, the column; never a key, a tick, a step, a drag or an action · onSelect={fn(Sheet.Types.Selection)} as the ring moves · selection
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
     ├─ Keep a system of records — people, skills, certificates — the Record
@@ -200,10 +202,17 @@ Task → What do you need?
     │   ├─ Click-stepped states, two words, a checkbox        → Record.column.cycle(R, register, { scale? }) · toggle(R, { on, off }) · boolean(R, {…})
     │   ├─ A variant's cases, stepped in their order          → Record.column.cycle(R, Variant, { steps: [{ case, label, tone? }] })
     │   ├─ Who, and the row's last change                     → Record.column.person(R, register, {…}) · audit(R, { mode }) on a Record.Types.Change field
+    │   ├─ Registers keyed by a number, a date, any Dict key  → Record.register.members(lines.read(), { key: (_line, number) => number, label }) over a Dict keyed by it, or key: (row) => row.number over an Array: enum, reference, person and cycle sit on a field of its key type, or its Option, showing names and keeping the key; a column from data's functions take each member's key at that type
     │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
+    │   ├─ A row's series as a Trace, read only               → Record.column.trace(R, { now?, axis?, scale?: "brand" | "diverge", future?, domain?: [min, max], absent? }) on an Array<Float> or its Option, or value: (row) => … — domain puts every row on one scale
+    │   ├─ A row's series as a Sparkline, read only           → Record.column.sparkline(R, { type?: "line" | "area", domain?: [min, max], absent? }), on the same fields — its hover the last value and the range
+    │   ├─ A value against its max as a Meter, read only      → Record.column.meter(R, { max?: 40 | (row) => …, tone?: (row) => a status value, absent? }) on a Float or its Option, or value: (row) => … — max 100 without one; the max and the tone follow a row's draft
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
     │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
     │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
+    │   ├─ No Add, no Delete, no edit at all                  → edits={{ insertRows: false }} (no Add, no Duplicate) · edits={{ removeRows: false }} (no Delete, in the toolbar or Details) · readOnly
+    │   ├─ What the host hears of the rows                    → onRowClick={fn(Record.Types.RowClick(K))} each click — the row's key at the record's key type, the column — a panel beside it reads · onTick={fn(SetType(K))} after each change of the ticks — every ticked row's key at the record's key type; the tick boxes show where Delete or onTick acts on them · onSelect · selection, the Sheet's
+    │   ├─ Plan as at a day the page sets                     → day={dayBind.read()}, a DateTime as the page gives it: the day its columns from data read, write and mark at, and its ages count days and weeks to — a new day reads every row again, the drafts kept; left out, the viewer's own day
     │   └─ Narrow it — one rail, the record beside it        → slice={{ slice: Slice.bindRecords(key, { rows }) }} + record={record} (the record its `rows` source pages; without it, read only)
     │
     ├─ Schedule bound records on a calendar — the Calendar
@@ -451,7 +460,7 @@ and saves nothing. A draft that no longer fits its record ends the call
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records landing on its rows, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes`, `e3-ui:plan-events.examples.tsx:planPrintWorksRecords` (the whole of it: one record of rows, five event kinds, a link kind, templates, an optimiser) |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
-| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day) |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age, audit, trace, sparkline and meter; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day), `e3-ui:record-display.examples.tsx:recordTrace`, `recordSparkline` and `recordMeter` (a series per row, drawn as a Trace or a Sparkline; a value against the row's max, as a Meter), `e3-ui:record-day.examples.tsx:recordPlannedHours` (the page's day), `e3-ui:record-register-keys.examples.tsx:recordMachinesByLine` (registers keyed by number) |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish, duties in no group yet | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople`, `e3-ui:roster.examples.tsx:rosterNoGroup` (in two steps) |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
@@ -459,8 +468,9 @@ and saves nothing. A draft that no longer fits its record ends the call
 | `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes`, `e3-ui:schematic.examples.tsx:schematicBakehouse` |
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a
-`Sheet.column.date` on a `DateTime`, each `Option` of it allowed; an event's
-start and end are `Option<DateTime>` when it can wait in the backlog. A
+`Sheet.column.date` on a `DateTime`, an `enum`, `reference`, `person` or `cycle`
+on its register's key type, each `Option` of it allowed; an event's start and
+end are `Option<DateTime>` when it can wait in the backlog. A
 `Record.Types.Change` field is the solution's to write; the Record only reads it.
 
 ## Other surfaces
@@ -587,6 +597,11 @@ in; dates print in UTC.
   button applying `r.mutate.increment(1n)` with `loading={r.mutate.pending()}`:
   `e3-ui:record.examples.tsx:recordBindMutate`.
 - **Disable controls on stale data**: `disabled={t.status().hasTag('stale')}`.
+- **A threshold on a Record's meter** is its tone over the row — warning at or
+  past 90, danger past 100: `tone: (m) => m.used.greater(100.0).ifElse((_$) =>
+  variant("danger", null), (_$) => m.used.greaterEqual(90.0).ifElse((_$2) =>
+  variant("warning", null), (_$2) => variant("neutral", null)))`; without a
+  tone the bar is the brand's: `e3-ui:record-display.examples.tsx:recordMeter`.
 
 ## Related skills
 

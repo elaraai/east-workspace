@@ -13,6 +13,7 @@ import { expect } from "playwright/test";
 import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { open, size, token } from "./allocation-page";
+import { legendLaid } from "./picker-legend";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
@@ -126,6 +127,8 @@ for (const theme of LAYOUT_THEMES) {
         await expect(legend).toHaveText(["Published", "Draft", "Not started"]);
         expect(await legend.locator("[data-state]").evaluateAll(marks => marks.map((el) => { const s = getComputedStyle(el); return { state: el.getAttribute("data-state"), fill: s.backgroundColor, ring: s.borderTopColor }; })))
             .toEqual([published, draft, empty].map(({ state, fill, ring }) => ({ state, fill, ring })));
+        // Each mark 8px before its word, at the middle of its line.
+        expect(await legendLaid(legend)).toEqual(Array(3).fill({ gap: 8, centred: true }));
         await page.keyboard.press("Escape");
     });
 }

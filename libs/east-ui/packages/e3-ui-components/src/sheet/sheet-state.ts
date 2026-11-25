@@ -43,7 +43,9 @@
  *   `seek.edge`) — the ring lands once it arrives.
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
- *   never touched — so opening a cell and pressing ⏎ never changes it.
+ *   never touched — so opening a cell and pressing ⏎ never changes it. A
+ *   link's or a set's editor is unchanged while its halves are the cell's
+ *   own and nothing typed adds to them.
  * - **A register member is typed in the words its cell shows** (#1536): the
  *   editor opens on its label; a member a gesture chooses — the cell's own as
  *   it opens, a menu option, a strip chip, a candidate ⇥ or ⌘→ takes —
@@ -67,6 +69,14 @@
  *   on a press, ⏎ or F2. A grid a host draws opens with no ring: a press
  *   places it, or the first move key, on the first row's first cell that
  *   edits in place.
+ * - **A click on a row (east-workspace#1727)**: a press on a cell or on a
+ *   row's number that did nothing but place the ring — the button's first
+ *   press, no step of the cell, no ⇧ — is held until its release, and
+ *   released where it was pressed — inside the box of the cell or the number
+ *   it pressed, whatever the press drew over it — it reports a click
+ *   (`emit.rowClick`). A drag of the range into another cell, a release
+ *   elsewhere and a release never heard click nothing, and no key ever does; a
+ *   pick of a row's box is no press.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. A lens over a grouped sheet narrows its groups,
@@ -84,7 +94,7 @@ import {
     same, clamp, selectionRect, wholeRows, initialSheetState,
     type CellRef, type CommitDir, type EditBuffer, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetNotice, type SheetUiState, type Transition,
 } from "./sheet-types.js";
-import { linkStartSide, withBuffer, linkChange, linkKey, switchSide } from "./sheet-link-state.js";
+import { linkStartSide, withBuffer, linkChange, linkKey, linkRemove, switchSide } from "./sheet-link-state.js";
 import {
     suggestKey, escSuggest, fillRow, takeFill, takeProposals, rejectProposal, applyReady, applyLanded, rekeySuggest, clearSuggest, afterRowsChanged,
 } from "./sheet-suggest-state.js";
@@ -208,15 +218,20 @@ export function provisionalCell(edit: EditBuffer, ctx: SheetMachineCtx): SheetCe
 /**
  * Whether the open editor holds nothing to write (#852): closed on the text it opened with, nothing changed — an
  * untouched editor (its buffer as it opened, no candidate cycled) taking no ghost it was not asked for — or, holding a
- * chosen member, holding the cell's own (#1536). What a commit writes nothing for, and what the history's buttons
- * light for no more than for no editor (#1680's review). A link editor's commit always writes.
+ * chosen member, holding the cell's own (#1536) — or, a link's or a set's, its halves with what is typed resolved into
+ * them the cell's own members, each half's in its order. What a commit writes nothing for, and what the history's
+ * buttons light for no more than for no editor (#1680's review).
  *
  * @param edit - The open editor
  * @param ctx - The sheet as the machine sees it
  * @returns Whether a commit of it would write nothing
  */
 export function editUnchanged(edit: EditBuffer, ctx: SheetMachineCtx): boolean {
-    if (edit.link !== undefined || edit.opened === undefined) return false;
+    if (edit.link !== undefined) {
+        const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+        return linkCtx !== undefined && linkCtx.unchanged(withBuffer(edit, linkCtx));
+    }
+    if (edit.opened === undefined) return false;
     if (edit.pick !== undefined) {
         const own = ctx.memberAt?.(edit.r, edit.c);
         return own !== undefined && stringEqual(edit.pick, own);
@@ -225,6 +240,17 @@ export function editUnchanged(edit: EditBuffer, ctx: SheetMachineCtx): boolean {
 }
 
 /** Commit the open editor in a direction. */
+/**
+ * A press's commit of the open editor (east-workspace#1727's review): its writes leave the ring where the press puts
+ * it, which follows its row by identity as the commit's rows land — a new line above it, a row moved in key order.
+ *
+ * @param effects - The commit's effects
+ * @returns The effects, each write marked to follow
+ */
+function pressCommit(effects: SheetEffect[]): SheetEffect[] {
+    return effects.map((fx) => (fx.t === "write" ? { ...fx, follow: true } : fx));
+}
+
 function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Transition {
     const edit = s.edit;
     if (edit === null) return { state: s, effects: [] };
@@ -232,11 +258,12 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     if (edit.r >= ctx.rowCount) return { state: { ...s, edit: null }, effects: [] };
     if (edit.link !== undefined) {
         // The buffer resolves into the active half (the ghost taken); the cell is
-        // the two halves. Typed entry is never blocked, so a link always commits.
+        // the two halves. Typed entry is never blocked, so a link always commits — and writes, but where its halves
+        // are the cell's own (#852): closed as it opened, the cell keeps its value and the history takes no step.
         const linkCtx = ctx.linkAt?.(edit.r, edit.c);
         if (linkCtx === undefined) return { state: { ...s, edit: null }, effects: [{ t: "focus.sheet" }] };
         const groups = withBuffer(edit, linkCtx);
-        const effects: SheetEffect[] = [{ t: "write", r: edit.r, c: edit.c, cell: linkCtx.cell(groups), text: "" }];
+        const effects: SheetEffect[] = linkCtx.unchanged(groups) ? [] : [{ t: "write", r: edit.r, c: edit.c, cell: linkCtx.cell(groups), text: "" }];
         let next: SheetUiState = { ...s, edit: null, armed: null };
         if (dir !== "blur") effects.push({ t: "focus.sheet" });
         next = moveAfterCommit(next, dir, ctx, effects);
@@ -574,9 +601,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
     // works on the groups, the records (#1349).
     switch (e.t) {
         case "cell.down": {
-            // A click commits an open editor in place first.
+            // A click commits an open editor in place first, the ring then following its row as the commit lands.
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
-            const effects = closed.effects;
+            const effects = pressCommit(closed.effects);
             // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range. With
             // no ring placed, a ⇧ press has no range to stretch, and places the ring as a press does. A cell no step
             // reaches — an owned row's, a read-only one, one its mark locks — is any other cell to a ⇧ press: had it
@@ -584,7 +611,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const stepped = ctx.stepAt?.(e.r, e.c, e.shift ? -1 : 1);
             const steps = stepped !== undefined && ctx.editableAt(e.r, e.c);
             if (e.shift && !steps && !closed.state.ringless) {
-                return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
+                return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null, press: null }, effects };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
@@ -595,7 +622,16 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             }
             // A cell that edits out of place opens where the host edits it (#1531).
             if (!e.shift && ctx.opensAt?.(e.r, e.c) === true) effects.push({ t: "open", r: e.r, c: e.c });
-            return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
+            // A press that did nothing but place the ring may be a click on its row (east-workspace#1727): its release
+            // where it was pressed says. A step of the cell, or ⇧, is no click.
+            const press = e.click === true && !e.shift && !steps ? { r: e.r, c: e.c } : null;
+            return { state: moved.gsel === null && moved.press === null && press === null ? moved : { ...moved, gsel: null, press }, effects };
+        }
+        case "cell.up": {
+            // The press in hand ends (east-workspace#1727): released where it was pressed, a click on its row.
+            const press = s.press;
+            if (press === null) return { state: s, effects: [] };
+            return { state: { ...s, press: null }, effects: e.inside ? [{ t: "emit.rowClick", r: press.r, c: press.c }] : [] };
         }
         case "cell.dbl":
             // A double press inside the open editor — its step buttons pressed twice, a word double-clicked — reaches
@@ -603,7 +639,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit !== null && same(s.edit, e)) return { state: s, effects: [] };
             return startEdit(s, e.r, e.c, undefined, ctx);
         case "cell.enter": {
-            if (e.dragging) return { state: { ...s, selEnd: clamp({ r: e.r, c: e.c }, ctx) }, effects: [] };
+            if (e.dragging) {
+                // The range dragged into another cell: the press is no click (east-workspace#1727).
+                const press = s.press !== null && (s.press.r !== e.r || s.press.c !== e.c) ? null : s.press;
+                return { state: { ...s, selEnd: clamp({ r: e.r, c: e.c }, ctx), press }, effects: [] };
+            }
             if (s.hover !== null && s.hover.r === e.r && s.hover.c === e.c) return { state: s, effects: [] };
             return { state: { ...s, hover: { r: e.r, c: e.c } }, effects: [] };
         }
@@ -611,20 +651,22 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: s.hover === null ? s : { ...s, hover: null }, effects: [] };
         case "row.pick": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
-            const effects = closed.effects;
+            const effects = pressCommit(closed.effects);
             const last = Math.max(0, ctx.colCount - 1);
-            if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
+            if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null, press: null }, effects };
             // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
             const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
             const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
             const r1 = group?.lines !== undefined ? group.lines.r1 : e.r;
             const selected = wholeRows(closed.state, ctx.colCount);
+            // A press on the row's number may be a click on its row — a band's, on its group (east-workspace#1727); ⇧ is none.
+            const press = e.click === true && !e.shift ? { r: e.r, c: null } : null;
             if (selected !== null && selected.r0 === r0 && selected.r1 === r1) {
                 effects.push({ t: "focus.sheet" });
-                return { state: { ...closed.state, selEnd: null, gsel: null }, effects };
+                return { state: { ...closed.state, selEnd: null, gsel: null, press }, effects };
             }
             effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
-            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null, ringless: false }, effects };
+            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null, ringless: false, press }, effects };
         }
         case "key":
             if (s.edit !== null) return { state: s, effects: [] };
@@ -669,6 +711,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit.link.side === e.side) return { state: s, effects: [{ t: "focus.editor", selectAll: false }] };
             return switchSide(s, e.side, ctx);
         }
+        case "chip.remove":
+            return linkRemove(s, e.i);
         case "select.move": {
             // A key's move landing once its window has (#860) — a key moves nothing while an editor is open.
             if (s.edit !== null) return { state: s, effects: [] };
@@ -693,17 +737,28 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 const r = e.moved?.(ref.r);
                 return r === undefined || r === null || r === ref.r ? ref : { ...ref, r };
             };
+            // A ring a press placed as it committed the open editor follows its row by identity, as the press does
+            // (east-workspace#1727's review): the commit's rows moved it, which no write of the sheet's says.
+            const byRow = <T extends CellRef>(ref: T): T => {
+                const r = e.followed?.(ref.r);
+                return r === undefined || r === null || r === ref.r ? ref : { ...ref, r };
+            };
+            const placed = e.ring === true ? byRow : follow;
             const editLeft = s.edit !== null && e.moved?.(s.edit.r) === null;
-            const sel = clamp(follow(s.sel), ctx);
-            const selEnd = s.selEnd !== null ? clamp(follow(s.selEnd), ctx) : null;
+            const sel = clamp(placed(s.sel), ctx);
+            const selEnd = s.selEnd !== null ? clamp(placed(s.selEnd), ctx) : null;
             const moved = s.edit !== null && !editLeft ? follow(s.edit) : null;
             const edit = moved !== null && moved.r < ctx.rowCount && moved.c < ctx.colCount ? moved : null;
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
             const msg: SheetNotice | null = editLeft ? { id: "rowLeft" } : s.msg;
-            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg
+            // A press in hand follows its row, whoever moved it — the sheet's own writes too; its row gone, it is let go
+            // of, clicking nothing (east-workspace#1727).
+            const pressR = s.press === null ? undefined : (e.followed ?? e.moved)?.(s.press.r);
+            const press = s.press === null || pressR === null ? null : pressR === undefined || pressR === s.press.r ? s.press : { ...s.press, r: pressR };
+            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg && press === s.press
                 ? s
-                : { ...s, sel, selEnd, edit, hover, armed, msg };
+                : { ...s, sel, selEnd, edit, hover, armed, msg, press };
             return { state: afterRowsChanged(clamped, ctx), effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
         case "columns.changed": {
@@ -722,8 +777,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
             const msg: SheetNotice | null = editLeft ? { id: "columnLeft" } : s.msg;
-            const kept = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg;
-            return { state: kept ? s : { ...s, sel, selEnd, edit, hover, armed, msg }, effects: editLeft ? [{ t: "focus.sheet" }] : [] };
+            // A press in hand on a cell follows its column; its column gone, it is let go of (east-workspace#1727). One on
+            // a row's number is under no column.
+            const pressC = s.press === null || s.press.c === null ? undefined : e.moved(s.press.c);
+            const press = s.press === null || pressC === null ? null : pressC === undefined || pressC === s.press.c ? s.press : { ...s.press, c: pressC };
+            const kept = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg && press === s.press;
+            return { state: kept ? s : { ...s, sel, selEnd, edit, hover, armed, msg, press }, effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
         case "msg":
             return s.msg === e.msg ? { state: s, effects: [] } : { state: { ...s, msg: e.msg }, effects: [] };
@@ -821,18 +880,33 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
 
 // ── The component-facing store (the Plan #610 pattern) ─────────────────────
 
-/** The one `useReducer` store: UI state + the effect batch. */
+/** One effectful event's effects, and its place among the effectful events: the component's drain runs each batch once. */
+export interface SheetFxBatch {
+    /** The event's place among the effectful events, the first 1. */
+    readonly seq: number;
+    /** Its effects, in order. */
+    readonly effects: readonly SheetEffect[];
+}
+
+/** The one `useReducer` store: UI state + the effect batches. */
 export interface SheetStore {
     ui: SheetUiState;
-    /** The latest effectful event's batch — replaced per such event. */
-    fx: readonly SheetEffect[];
-    /** Bumps when an event yields effects; the component's drain gates on it. */
+    /**
+     * Each effectful event's batch the drain may not have run yet, in order: two events dispatched before it runs — a
+     * press and its release in one task, as a script clicks — keep both, the first never lost to the second.
+     */
+    fx: readonly SheetFxBatch[];
+    /** Counts the effectful events — the last batch's `seq`; the component's drain gates on it. */
     fxSeq: number;
 }
 
 /** Everything the store reducer handles. */
 export type SheetAction =
-    | { t: "event"; e: SheetEvent; ctx: SheetMachineCtx }
+    | {
+        t: "event"; e: SheetEvent; ctx: SheetMachineCtx;
+        /** The last batch the drain had run as the event was dispatched: those up to it are let go. */
+        drained: number;
+    }
     /** A direct UI patch from the component (the range after a paste, a message). */
     | { t: "patch"; patch: Partial<SheetUiState> }
     /**
@@ -851,18 +925,20 @@ export function initialSheetStore(sel?: CellRef, active: string | null = null, f
 }
 
 /**
- * The store transition — pure: StrictMode double-invokes reducers, so the
+ * The store transition — pure: StrictMode double-invokes reducers, so each
  * effect batch rides the returned store and is run by the component's
- * seq-gated drain, never from inside a reducer.
+ * seq-gated drain, never from inside a reducer. A batch stands until an event
+ * dispatched after the drain ran it lets it go.
  */
 export function sheetStoreReducer(store: SheetStore, a: SheetAction): SheetStore {
     switch (a.t) {
         case "event": {
             const { state, effects } = sheetReducer(store.ui, a.e, a.ctx);
             if (state === store.ui && effects.length === 0) return store;
-            return effects.length === 0
-                ? { ...store, ui: state }
-                : { ...store, ui: state, fx: effects, fxSeq: store.fxSeq + 1 };
+            if (effects.length === 0) return { ...store, ui: state };
+            const seq = store.fxSeq + 1;
+            const pending = store.fx.filter((batch) => batch.seq > a.drained);
+            return { ...store, ui: state, fx: [...pending, { seq, effects }], fxSeq: seq };
         }
         case "patch":
             return { ...store, ui: { ...store.ui, ...a.patch } };

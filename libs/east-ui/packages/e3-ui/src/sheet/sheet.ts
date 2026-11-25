@@ -67,7 +67,8 @@ import {
     type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
-import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetIndexedOptions, type SheetStringField } from "./root.js";
+import { createSheetBuild, type SheetBindHandle, type SheetBuild } from "./root.js";
+import type { SheetEntriesOptions, SheetGroupedOptions, SheetOptions, SheetIndexedOptions, SheetStringField } from "./options.js";
 import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
@@ -432,13 +433,13 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * missing entry's key, whether its Autosave begins on and the sheet's name.
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
- * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
+ * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns, and `onTick`, its app's function over the ticked rows' keys
  * @returns An East expression of {@link SheetPayloadType}
  * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; a `keyField` on a sheet handed no record, beside `entry`, that is no field of the record's entries of its key's type, or that a column writes; a `rowKey` on a sheet handed no record, beside `entry` or `newKey`, that builds no key of the record's key type, or that reads the field `keyField` names; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` on a sheet handed no record, or that is not `Func.bind` of a function from `OptimiseRequest()` (`OptimiseRequest({ entry: K })` over one entry's rows) to `OptimiseResult(D)` over the rows the Save reaches (#1409, east-workspace#1622); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, the rows of its `rows` source beside `data`, `entry` or `window`, `onApply` or `onUpdate` beside them, which `record` replaces, and a `record` whose entries the `rows` source does not page; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
-export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
-    const recordKinds = internal.recordKinds === true ? { recordKinds: true } : {};
+export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean; onTick?: unknown } = {}): ExprType<SheetPayloadType> {
+    const recordKinds = internal.recordKinds === true ? { recordKinds: true, ...(internal.onTick !== undefined ? { onTick: internal.onTick } : {}) } : {};
     const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, autosave, name, keyField, rowKey, ...sheet } = props as SheetAnyProps;
     const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.

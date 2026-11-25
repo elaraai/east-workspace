@@ -7,8 +7,16 @@
  * Dock slot recipe — the design system's docked pane, as the Studio spec
  * draws its palette and inspector. Expanded, the pane has one row: its tab
  * row, the mono caps labels — each with any count after it, in the quiet ink
- * — with the open tab underlined in ink, and the collapse control at the
- * row's end. A row its tabs don't fit folds them (#1210): its counts leave
+ * — with the open tab underlined in ink, and the collapse control where the
+ * rail's stands (`data-dock-control` on a pane that collapses), so it never
+ * moves as the pane collapses or expands: at the row's start on a sidebar
+ * pinned to the start, else at its end, at the middle of the rail's width
+ * (`--dock-rail`, the renderer's geometry) — 8px in from the pane's outer edge
+ * at the design system's 44px rail, and on its own panel a pixel less inside
+ * its border — open or on the rail. A press on the row's own room collapses
+ * the pane, as a press anywhere on the rail expands it, so both show they take
+ * one (`data-toggles` on the row); a pane that never collapses, and a phone's
+ * drawer's head, take none, and a name on such a row is no control. A row its tabs don't fit folds them (#1210): its counts leave
  * the row (`data-fold` on the tab list), then its trailing tabs go into the
  * `+n` menu's trigger (`tabMore`), drawn as a tab is; a lone open tab that
  * still doesn't fit (`data-squeezed`) shrinks, its name cut short with an
@@ -25,6 +33,19 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { oneLineBox } from "../one-line-box.js";
+
+/** The control: a 28px square. */
+const CONTROL = "28px";
+
+/**
+ * How far a sidebar's control stands in from the edge its pane pins to — half of what its rail leaves beside it, so it
+ * stands at the rail's middle, on the rail's bar and on the open row alike: 8px at the design system's 44px rail. The
+ * rail's width is the renderer's geometry (`--dock-rail`).
+ */
+export const CONTROL_INSET = `calc((var(--dock-rail, 44px) - ${CONTROL}) / 2)`;
+
+/** The same on a pane's own panel, whose 1px border stands outside it. */
+export const CONTROL_INSET_CARD = `calc((var(--dock-rail, 44px) - ${CONTROL}) / 2 - 1px)`;
 
 /** The mono caps voice of a pane's tabs and its rail label. */
 const CAPS = {
@@ -60,17 +81,26 @@ export const dockSlotRecipe = defineSlotRecipe({
             /* A collapsed tray lays its rail along the row. */
             "&[data-collapsed][data-orientation=vertical]": { flexDirection: "row" },
         },
-        /* The pane's one row: its tabs, and the collapse control at the end. */
+        /* The pane's one row: its tabs, and the collapse control at the end — or, on a sidebar pinned to the start, at its
+         * start. As tall as the rail's bar, with tabs or none: the control stands at one height open or collapsed. */
         header: {
             display: "flex",
             alignItems: "stretch",
             gap: "20px",
+            minHeight: "44px",
             paddingLeft: "{spacing.4}",
             paddingRight: "{spacing.2}",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             flexShrink: 0,
-            "& > button:last-child": { marginLeft: "auto" },
+            /* A row that takes no press says so: its name is no control. */
+            cursor: "default",
+            "&[data-toggles]": { cursor: "pointer" },
+            "[data-dock-control=start] > &": { paddingLeft: CONTROL_INSET, paddingRight: "{spacing.4}" },
+            "[data-orientation=horizontal][data-dock-control=end] > &": { paddingRight: CONTROL_INSET },
+            /* On its own panel, in from the panel's outer edge as far as on the rail: a pixel less inside its border. */
+            "[data-surface=card][data-dock-control=start] > &": { paddingLeft: CONTROL_INSET_CARD },
+            "[data-surface=card][data-orientation=horizontal][data-dock-control=end] > &": { paddingRight: CONTROL_INSET_CARD },
             /* A phone's drawer's head: padded 0 4 0 20, the designer's. */
             "[data-frame-drawer] &": { paddingLeft: "20px", paddingRight: "{spacing.1}" },
         },
@@ -109,8 +139,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             "&[data-selected]": { color: "fg", borderBottomColor: "fg" },
             /* The open tab alone beside the menu, and still too wide: it shrinks. */
             "&[data-squeezed]": { flexShrink: 1, minWidth: 0 },
-            /* The label as the pane's only tab is a name, not a control. */
-            "span&": { cursor: "default" },
+            /* The label as the pane's only tab is a name, not a control: pressed, it is the row's. */
+            "span&": { cursor: "inherit" },
         },
         tabLabel: {
             minWidth: 0,
@@ -164,8 +194,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             alignSelf: "center",
             display: "grid",
             placeItems: "center",
-            width: "28px",
-            height: "28px",
+            width: CONTROL,
+            height: CONTROL,
             padding: "0",
             background: "transparent",
             border: "none",
@@ -178,6 +208,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             transitionTimingFunction: "{easings.out}",
             _hover: { background: "bg.subtle", color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "focus" },
+            /* Ending its open row, it stands at the row's end whatever the row holds before it. */
+            "[data-dock-control=end] > [data-dock-row] > &": { marginLeft: "auto" },
             /* Touch hit target (#350). */
             ...coarseHitArea({ position: true }),
             /* A phone's drawer (`BuilderFrame`): its collapse a 44px square, as the strip's tabs are. */
@@ -192,21 +224,35 @@ export const dockSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             "&[hidden]": { display: "none" },
         },
-        /* The rail's head: the expand control, alone on its bar. */
+        /* The rail's head: the expand control, alone on its bar, where the open row's collapse control stands — atop a
+         * sidebar's rail, at the middle of the rail's width (a pixel less inside a panel's border); at the end of a tray's
+         * collapsed row, 8px from it, on a bar as tall as the tray's rail — its rule the rail's whole height — which holds
+         * the control in the open row's 44px at its top. */
         railBar: {
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",
             height: "44px",
+            paddingLeft: CONTROL_INSET,
             flexShrink: 0,
+            cursor: "pointer",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "[data-surface=card][data-orientation=horizontal] > &": { paddingLeft: CONTROL_INSET_CARD },
+            "[data-orientation=horizontal][data-side=end] > &": { justifyContent: "flex-end", paddingLeft: "0", paddingRight: CONTROL_INSET },
+            "[data-surface=card][data-orientation=horizontal][data-side=end] > &": { paddingLeft: "0", paddingRight: CONTROL_INSET_CARD },
             "[data-orientation=vertical] > &": {
-                height: "auto",
+                alignSelf: "stretch",
+                alignItems: "flex-start",
                 width: "44px",
-                borderBottomWidth: "0",
-                borderRightWidth: "1px",
-                borderRightColor: "border.subtle",
+                height: "auto",
+                justifyContent: "flex-end",
+                paddingTop: `calc((44px - ${CONTROL}) / 2)`,
+                paddingLeft: "0",
+                paddingRight: "{spacing.2}",
+                borderBottomColor: "transparent",
+                borderLeftWidth: "1px",
+                borderLeftColor: "border.subtle",
             },
         },
         /* The rest of the rail — the whole of it expands the pane. */

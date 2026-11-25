@@ -32,6 +32,30 @@ export const traceBasic = example({
 });
 
 // ============================================================================
+// Domain — one scale for every track
+// ============================================================================
+
+export const traceDomain = example({
+    keywords: ["Trace", "domain", "scale", "shared scale", "compare", "min", "max", "clamp", "heatmap"],
+    description: "Two presses' weekly hours on one scale, 0 to 40: the same hours take the same fill on both rows, so the busier press reads darker, and a week past 40 takes the scale's top",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Trace
+                tracks={[
+                    { name: "Press 1", values: [12, 18, 22, 26] },
+                    { name: "Press 2", values: [28, 34, 38, 44] },
+                ]}
+                now={3n}
+                density="comfortable"
+                domain={[0, 40]}
+                axis={["W40", "W41", "W42", "W43"]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
 // With ChipRail — the cross-component height-match contract
 // ============================================================================
 

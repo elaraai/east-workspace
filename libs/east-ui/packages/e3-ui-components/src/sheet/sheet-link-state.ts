@@ -6,14 +6,19 @@
 /**
  * The link editor's transitions (B§4.4 — `Sheet Spec.md` §5 row 7): the two
  * halves, the buffer that resolves to chips on `,` / ⏎ / a hop, the chip
- * selection, the ⇥ ladder. Pure functions over the machine state; the commit
- * is injected by the core so this module never imports it.
+ * selection, the ⇥ ladder. A member leaves whole — never back into the buffer
+ * to be deleted letter by letter (east-workspace#1741): Backspace with nothing
+ * typed picks the half's last chip and a second removes it, as Delete and
+ * Backspace remove any chips picked, and a chip's × removes it. No key takes
+ * the caret into a half that is not live — a set's editor draws its
+ * destination alone, and the caret out of it would leave no input. Pure
+ * functions over the machine state; the commit is injected by the core so
+ * this module never imports it.
  *
  * @packageDocumentation
  */
 
 import { ghostWord } from "./candidates.js";
-import { memberLabel } from "./model.js";
 import { ARROW } from "./link/grammar.js";
 import type { LinkHalves } from "./link/sides.js";
 import type {
@@ -59,12 +64,41 @@ function chipRange(link: LinkEdit): { lo: number; hi: number } {
     return { lo: Math.min(link.chipSel.anchor, link.chipSel.focus), hi: Math.max(link.chipSel.anchor, link.chipSel.focus) };
 }
 
-/** The link editor's typing: `,` resolves the buffer, an arrow hops From → To (dropped in To). */
+/** The halves without the chips from `lo` to `hi` of the flat list, the footer counting them: what a picked chip's Backspace and a chip's × leave. */
+function withoutChips(s: SheetUiState, lo: number, hi: number): Transition {
+    const edit = s.edit!;
+    const link = edit.link!;
+    let i = 0;
+    const groups = link.groups.map((g) => g.filter(() => { const n = i++; return n < lo || n > hi; })) as LinkGroups;
+    return { state: { ...s, msg: { id: "membersRemoved", n: hi - lo + 1 }, edit: { ...edit, link: { ...link, groups, chipSel: null } } }, effects: [] };
+}
+
+/**
+ * A chip's × (east-workspace#1741): its member out of its half, whole — the caret back in the active half's input.
+ *
+ * @param s - The machine's state
+ * @param i - The chip's place in the flat list, From then To
+ * @returns The transition
+ */
+export function linkRemove(s: SheetUiState, i: number): Transition {
+    const link = s.edit?.link;
+    if (link === undefined || i < 0 || i >= link.groups[0].length + link.groups[1].length) return { state: s, effects: [] };
+    const t = withoutChips(s, i, i);
+    return { ...t, effects: [{ t: "focus.editor", selectAll: false }] };
+}
+
+/**
+ * The link editor's typing: `,` resolves the buffer, an arrow hops From → To (dropped in To). What is typed starts at its
+ * first word — the space typed after a `,` is the separator's, never the buffer's, whether it arrives with the comma or
+ * after it — so a buffer that shows nothing holds nothing, and Backspace there picks a chip (east-workspace#1741) rather
+ * than take a space no one sees.
+ */
 export function linkChange(s: SheetUiState, val: string, ctx: SheetMachineCtx): Transition {
     const edit = s.edit!;
     const link = edit.link!;
     if (!val.includes(",") && !ARROW.test(val)) {
-        return { state: { ...s, edit: { ...edit, val, err: false, hi: val.trim() === "" ? -1 : 0, link: { ...link, chipSel: null } } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
+        const typed = val.replace(/^\s+/, "");
+        return { state: { ...s, edit: { ...edit, val: typed, err: false, hi: typed === "" ? -1 : 0, link: { ...link, chipSel: null } } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
     }
     const linkCtx = ctx.linkAt?.(edit.r, edit.c);
     if (linkCtx === undefined) return { state: s, effects: [] };
@@ -176,19 +210,17 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
     }
     if (link.chipSel !== null && (e.key === "Backspace" || e.key === "Delete")) {
         const { lo, hi } = chipRange(link);
-        let i = 0;
-        const groups = link.groups.map((g) => g.filter(() => { const n = i++; return n < lo || n > hi; })) as LinkGroups;
-        return { state: { ...s, msg: { id: "membersRemoved", n: hi - lo + 1 }, edit: { ...edit, link: { ...link, groups, chipSel: null } } }, effects: [] };
+        return withoutChips(s, lo, hi);
     }
     if (link.chipSel !== null && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return setLink({ chipSel: null });
     if (e.key === "Backspace" && edit.val === "") {
-        // Pop the active half's last chip back into the buffer; an empty To crosses back to From.
+        // The active half's last chip is picked, and the next Backspace takes it whole (east-workspace#1741); an empty To
+        // crosses back to From, where From is live.
         if (link.groups[link.side].length > 0) {
-            const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
-            const tok = groups[link.side].pop()!;
-            return setLink({ groups, chipSel: null }, { val: memberLabel(tok), hi: 0 });
+            const last = (link.side === 0 ? 0 : link.groups[0].length) + link.groups[link.side].length - 1;
+            return setLink({ chipSel: { anchor: last, focus: last } });
         }
-        if (link.side === 1) return switchSide(s, 0, ctx);
+        if (link.side === 1 && linkCtx.halves.from.live) return switchSide(s, 0, ctx);
         return { state: s, effects: [] };
     }
     if (e.key === "ArrowRight" && e.atEnd && edit.val.trim() !== "") {
@@ -208,8 +240,8 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
             return { state: { ...s, msg: { id: "predictedTaken", n: rest.length }, edit: { ...edit, link: { ...link, groups } } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
         }
     }
-    // Plain arrows at the edge of an empty buffer cross the divider.
+    // Plain arrows at the edge of an empty buffer cross the divider, into a live half.
     if (e.key === "ArrowRight" && edit.val === "" && !e.meta && link.side === 0 && linkCtx.halves.to.live) return switchSide(s, 1, ctx);
-    if (e.key === "ArrowLeft" && edit.val === "" && link.chipSel === null && link.side === 1) return switchSide(s, 0, ctx);
+    if (e.key === "ArrowLeft" && edit.val === "" && link.chipSel === null && link.side === 1 && linkCtx.halves.from.live) return switchSide(s, 0, ctx);
     return { state: s, effects: [] };
 }

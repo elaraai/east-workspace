@@ -16,7 +16,8 @@
  *   under its label — an unlabelled group's `Other` — and the fields no column
  *   shows after them (IN4), each member of a column from data a line of its
  *   own in its group's section (#1561), a cycle, a toggle and a boolean each
- *   one line of radios (IN5); a cell's mark its field's help, and a lock's
+ *   one line of radios (IN5), and a trace's, a sparkline's or a meter's value the
+ *   part its cell draws, read only (east-workspace#1726); a cell's mark its field's help, and a lock's
  *   field read only (D1); its facts last, the audit's and the age's, read
  *   only, an age warning once stale (IN6); then Duplicate and Delete (IN7);
  * - **nothing** — the rows shown, the drafts pending and the rows stale, then
@@ -57,8 +58,9 @@ import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectP
 import { issuesByField, targetBreachTone, targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../sheet/model.js";
 import type { SheetWords } from "../sheet/words.js";
-import { ageOf, useRecordNow } from "./clock.js";
+import { ageOf, useRecordTime } from "./clock.js";
 import { staleCountOf } from "./footer.js";
+import { RecordDisplay, isDisplayKind } from "./cells.js";
 import { nameOf, titleColumnOf, titleOf, useRecordGrid } from "./grid.js";
 import { recordMessages as rm } from "./messages.js";
 import type { RecordNoun, RecordStatus } from "./status.js";
@@ -183,7 +185,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const { styles: record, groups } = useRecordGrid();
     const { focus, focused, status, ticks, readOnly } = useRecordInspector();
     const entries = useSheetEntries();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const edit = useTargetForm({ value, words, hidden, styles, inspect, target, form });
     const own = useAuthorDetails({ value, pane, inspect, target, form, struct: edit.struct });
     const issues = targetIssues(target, inspect, form, words);
@@ -264,9 +266,26 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
         });
         return out;
     }, [edit.specs, edit.columns, inspect, r, registers]);
+    // A trace's, a sparkline's or a meter's field, the part its cell draws, read only (east-workspace#1726): its value as
+    // the row holds it — a `value`'s as it derives it, a meter's over the row's max and tone as its draft reads them — in
+    // the field's line, at the comfortable density whatever the rows': a Trace's compact steps, a Meter's own.
+    const displays = useMemo(() => {
+        const out = new Map<string, ReactNode>();
+        edit.specs.forEach((spec, i) => {
+            const key = edit.columns[i];
+            const kind = key === undefined ? undefined : inspect.columnAt(r, key)?.raw.kind;
+            if (key === undefined || kind === undefined || !isDisplayKind(kind)) return;
+            out.set(formKey(spec.path), <RecordDisplay styles={record} kind={kind} cell={cells.get(key)} cells={cells} density="comfortable" place="details"
+                storageKey={`record.details.${key}.${kind.type}`} />);
+        });
+        return out;
+    }, [edit.specs, edit.columns, inspect, r, record, cells]);
     // A line draws its choices, or read only the choice made — a lock's too: never its cell's own control.
     const editControl = edit.renderControl;
-    const renderControl = useCallback((spec: FieldSpecValue) => (lines.has(formKey(spec.path)) ? undefined : editControl(spec)), [lines, editControl]);
+    const renderControl = useCallback((spec: FieldSpecValue) => {
+        const key = formKey(spec.path);
+        return displays.get(key) ?? (lines.has(key) ? undefined : editControl(spec));
+    }, [displays, lines, editControl]);
 
     // The fields its issues name, washed in the form (IN3), each saying under it what its issues say of it, in their
     // order (ruled 13 Nov 2026): a field gone to says why it is named, whatever of the issues over the form is in view.
@@ -299,14 +318,14 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                 }) }];
             }
             if (kind.type === "age") {
-                const age = ageOf(meta, cell, now);
+                const age = ageOf(meta, cell, time);
                 return [age === undefined
                     ? { key: meta.key, label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? rm.absent(), stale: false }
                     : { key: meta.key, label: meta.header, text: words.number(age.n), stale: age.stale }];
             }
             return [];
         });
-    }, [isNew, columns, target.row, now, words]);
+    }, [isNew, columns, target.row, time, words]);
 
     // Its gestures (IN7): a copy after it, its title empty and the keyboard in it, and its deletion — none on a Record no
     // gesture changes, nor a gesture the record does not take.
@@ -410,9 +429,9 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
 function RecordNothing({ styles, inspect, words, columns }: { styles: Styles; inspect: SheetInspect; words: SheetWords; columns: SheetColumnIndex }) {
     const { styles: record } = useRecordGrid();
     const entries = useSheetEntries();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const shown = entries.count.shown;
-    const stale = entries.whole ? staleCountOf(columns, entries.rows, entries.changes, now) : undefined;
+    const stale = entries.whole ? staleCountOf(columns, entries.rows, entries.changes, time) : undefined;
     const stats: [stat: "shown" | "pending" | "stale", text: string | undefined][] = [
         ["shown", shown === undefined ? undefined : words.number(shown)],
         ["pending", words.number(inspect.counts.pending)],

@@ -19,6 +19,13 @@
  * one, which the step centred at a fraction of a pixel under its edge. There
  * the line is 12px, in the 32px inside the step's edge.
  *
+ * Every value stands as wide as the longest (`--t-value-ch`, its figures in
+ * characters, which the renderer sets): a step with no room for it wraps it
+ * under its edge, out of sight, so where the steps are too narrow — many in a
+ * narrow plot gutter, a Record's cell (east-workspace#1728) — none shows, and
+ * none spills over its neighbours. A step's edge is drawn over it, never in its
+ * layout, so a step stands as narrow as its track however many share the lane.
+ *
  * @packageDocumentation
  */
 
@@ -76,9 +83,16 @@ export const traceSlotRecipe = defineSlotRecipe({
             fontWeight: "medium",
             lineHeight: "1",
             color: "fg",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "transparent",
+            // A value with no room on the step goes to a second line, under the step's edge, which clips it: the first holds
+            // only this step-tall strut, so the value it fits beside stands at the step's middle.
+            flexWrap: "wrap",
+            overflow: "hidden",
+            "&::before": { content: '""', height: "100%" },
+            // Its edge: over the step, inside its box, where a border's 2px would keep it from standing narrower.
+            "&::after": {
+                content: '""', position: "absolute", inset: "0", borderRadius: "inherit", pointerEvents: "none",
+                borderWidth: "1px", borderStyle: "solid", borderColor: "transparent",
+            },
             "--t-edge": "{colors.brandPressed}",
             // A step on the design system's heat ramp (`data-level`, 0 to 4), its value in the ink the design system
             // pairs with that step, which reads on it in both themes (charts.md › Sequential ramp).
@@ -127,10 +141,9 @@ export const traceSlotRecipe = defineSlotRecipe({
             // own hue on a paler mix of itself did not.
             "&[data-predicted]": {
                 fontStyle: "italic",
-                "[data-future=ghost] &": { borderStyle: "dashed", borderColor: "var(--t-edge)" },
+                "[data-future=ghost] &": { "&::after": { borderStyle: "dashed", borderColor: "var(--t-edge)" } },
                 "[data-future=hatch] &": {
-                    borderStyle: "dashed",
-                    borderColor: "var(--t-edge)",
+                    "&::after": { borderStyle: "dashed", borderColor: "var(--t-edge)" },
                     backgroundImage: "repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, var(--t-edge) 12%, transparent) 5px 6px)",
                 },
                 // Faded, the fill alone pales: the value keeps its ink, where an opacity over the whole step took it
@@ -141,6 +154,9 @@ export const traceSlotRecipe = defineSlotRecipe({
         value: {
             position: "relative",
             zIndex: 1,
+            // As wide as the longest value: where it has no room, no value on any step has.
+            minWidth: "calc(var(--t-value-ch, 0) * 1ch)",
+            textAlign: "center",
         },
         now: {
             position: "absolute",

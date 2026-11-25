@@ -1267,7 +1267,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     banners={banners}
                     start={library}
                     end={end}
-                    footer={<SchematicFooter styles={styles} words={words} density={data.density} names={kindName} viewport={viewport} extent={value.extent}
+                    footer={<SchematicFooter words={words} density={data.density} names={kindName} viewport={viewport} extent={value.extent}
                         refusal={refusal} notices={notices} found={found} line={line} />}
                     liveFooter
                     onKeyDown={onKeyDown}

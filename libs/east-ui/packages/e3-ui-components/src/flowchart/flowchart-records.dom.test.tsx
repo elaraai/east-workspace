@@ -170,6 +170,9 @@ test("the first read is the frame's cold load: its skeleton covers it, and nothi
     // The frame's body under the cover, out of reach and unheard; and main not busy there.
     const body = slot(container, "body");
     expect([body.hasAttribute("inert"), body.getAttribute("aria-hidden"), slot(container, "main").getAttribute("aria-busy")]).toEqual([true, "true", "false"]);
+    // The footer stays live under the cover, as every builder's does: its loading line is the read's own.
+    const footer = slot(container, "footer");
+    expect([footer.hasAttribute("inert"), footer.getAttribute("aria-hidden"), footer.hasAttribute("data-frame-live")]).toEqual([false, null, true]);
     // Nothing drawn, never as empty: no state, no lane, not the empty records' "+ LANE".
     expect([stateKeys(container), container.querySelectorAll("[data-flowchart-lane]").length, container.querySelector("[data-flowchart-addlane]")]).toEqual([[], 0, null]);
     await act(async () => { pages.release(); });

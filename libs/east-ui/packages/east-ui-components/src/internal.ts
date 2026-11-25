@@ -155,6 +155,9 @@ export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
 export { PagedScan, SCAN_CONCURRENCY } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
+// When a layout measured as the page lays it out is measured again, before the browser paints: the one clock of every
+// measured fold — the Dock's tab row here, a ruler's labels, a cell's chips and a bucket cell's tiles beside it.
+export { useMeasureAgain, type MeasureAgain } from "./hooks/useMeasureAgain.js";
 // Keyboard and sizing primitives, and a control's touch target on a coarse
 // pointer — its halo, the row's widths kept (#346, #1221).
 export { radioGroupKey } from "./primitives/radio-group.js";
@@ -169,6 +172,11 @@ export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
 export { useSlotClass, useSlotStyles, type SlotStyle, type SlotStyles, type SlotVariants } from "./theme/slot-styles.js";
 // The theme colour tokens a Schematic's colour may name (D14): what its Issues tab holds a colour to (#1391).
 export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
+
+// The display parts a Record draws in its own cells, from a payload it builds for each (east-workspace#1726): a series as a
+// Trace's one track, and a value against its max as a Meter's bar.
+export { EastChakraTrace, type TraceValue } from "./display/trace/index.js";
+export { EastChakraMeter, type MeterValue } from "./display/meter/index.js";
 
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";

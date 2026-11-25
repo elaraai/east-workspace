@@ -15,16 +15,15 @@
  */
 
 import { Record as RecordBinding } from "../bind/record.js";
-import {
-    text, stamped, integer, quantity, date, enumColumn, reference, set,
-    title, person, booleanColumn, toggle, cycle, age, audit,
-} from "../sheet/columns.js";
+import { text, stamped, integer, quantity, date, enumColumn, reference, set } from "../sheet/columns.js";
+import { title, person, booleanColumn, toggle, cycle, age, audit } from "../sheet/record-columns.js";
 import { action } from "../sheet/actions.js";
+import { meter, sparkline, trace } from "../sheet/display-columns.js";
 import { createMembers, concatMembers } from "../sheet/registers.js";
 import { SheetField } from "../sheet/fields.js";
 import { createPatch } from "../sheet/index.js";
 import {
-    RecordChangeType, RecordMarkType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, sheetContextType,
+    RecordChangeType, RecordMarkType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, SheetRowClickTypeFor, sheetContextType,
 } from "../sheet/types.js";
 import { SheetNewRowType, SheetReadinessType, SheetFieldIssueType, SheetDraftTypeFor } from "../sheet/transactions.js";
 import { RecordTag, RecordComponent, createRecordPayload, type RecordTagType } from "./record.js";
@@ -39,6 +38,7 @@ export {
     type RecordColumnGroupInput,
     type RecordNounInput,
     type RecordCommon,
+    type RecordTickOptions,
 } from "./record.js";
 
 /**
@@ -88,6 +88,12 @@ export interface RecordNamespace extends RecordTagType {
         age: typeof age;
         /** The last change the app kept. */
         audit: typeof audit;
+        /** A row's series as one track of value-coloured steps, with a now-line; read only (east-workspace#1728). */
+        trace: typeof trace;
+        /** A row's series as a line or an area across the cell; read only (east-workspace#1729). */
+        sparkline: typeof sparkline;
+        /** A row's value against its max as a filled bar and its percent, in the row's tone; read only (east-workspace#1730). */
+        meter: typeof meter;
     };
     /** Registers — the members the reference, enum, set, person and cycle columns name. */
     register: {
@@ -125,6 +131,8 @@ export interface RecordNamespace extends RecordTagType {
         Link: typeof SheetLinkType;
         /** One member of a link. */
         Member: typeof SheetMemberType;
+        /** `RowClick(K)` — a click on a row as `onRowClick` hears it: its key at the record's key type `K`, and the column clicked ({@link SheetRowClickTypeFor}). */
+        RowClick: typeof SheetRowClickTypeFor;
     };
 }
 
@@ -135,7 +143,7 @@ const RECORD_MEMBERS = {
     toDraft: RecordBinding.toDraft,
     column: {
         text, stamped, integer, quantity, date, enum: enumColumn, reference, set, action,
-        boolean: booleanColumn, title, person, toggle, cycle, age, audit,
+        boolean: booleanColumn, title, person, toggle, cycle, age, audit, trace, sparkline, meter,
     },
     register: { members: createMembers, concat: concatMembers },
     field: SheetField,
@@ -151,6 +159,7 @@ const RECORD_MEMBERS = {
         FieldIssue: SheetFieldIssueType,
         Link: SheetLinkType,
         Member: SheetMemberType,
+        RowClick: SheetRowClickTypeFor,
     },
 };
 
