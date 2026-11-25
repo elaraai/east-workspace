@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from '@elaraai/east';
+import { ArrayType, BooleanType, DateTimeType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from '@elaraai/east';
 import { RackRegistrationType } from './registration.js';
 
 /** An empty control message. */
@@ -46,8 +46,9 @@ export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringT
  * Ends a split scope a session's leases named (`RackLeaseEvent.scope`): its
  * split task's execution ended, and no lease of it is submitted again. The
  * racks it was granted to are told so with their next heartbeat. A session
- * that ends ends every scope its leases named, its own session scope among
- * them, which no request ends before it.
+ * that ends ends every scope its leases named. The hub's own scope, which a
+ * rack that keeps a hub's objects under its key is granted, is no session's:
+ * no request ends it, and it ends as the hub stops.
  */
 export const EndScopeType = StructType({ scope: StringType });
 /** Names a claim-time attempt, which changes on reclaim. */
@@ -97,21 +98,6 @@ export const CapacitySnapshotType = StructType({
 export const TierManifestRequestType = StructType({ digest: StringType });
 /** The manifest's text, as a rack that boots the tier reported it; none when no rack the hub hears reports it. */
 export const TierManifestResultType = OptionType(StringType);
-/**
- * Asks what a session's work would fetch: of each object, by its hash, whether
- * each rack is known to hold it; and the scope the work's lease names
- * (`RackLeaseEvent.scope`), none for work of no scope, whose leases' outputs
- * the racks that wrote them keep for it.
- */
-export const FetchCostRequestType = StructType({ hashes: ArrayType(StringType), scope: OptionType(StringType) });
-/**
- * Of each rack the hub has served a transfer, or a lease of the scope asked
- * about wrote on: its link's rate towards it, in bytes a second, none while
- * it is unmeasured or stale; and, of each object asked about, in the order
- * asked, whether the rack holds it: it was served it whole for the session's
- * repository, or a lease of the scope that feeds it wrote it there.
- */
-export const FetchCostResultType = ArrayType(StructType({ rackId: StringType, bytesPerSecond: OptionType(FloatType), held: ArrayType(BooleanType) }));
 /** Requests events after a cursor, waiting at most 20 seconds. */
 export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerType });
 /** Returns ordered events and a fresh capacity snapshot. */

@@ -5,9 +5,9 @@
 
 import { unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { DateTimeType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, variant } from '@elaraai/east';
-import type { HubClient, HubConfig, RackComputeSize, RackKeep, RackMerges, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
+import type { HubClient, HubConfig, RackComputeSize, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
 import { parseMemory } from '@elaraai/e3-core';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
@@ -30,9 +30,22 @@ const collect = (value: string, previous: string[] | undefined): string[] => [..
 function dataOriginsLine(config: HubConfig): string {
   return `Data origins: ${config.dataOrigins.length === 0 ? 'none (every data URL on the advertised origin)' : `${config.dataOrigins.join(', ')}, beside the advertised origin`}`;
 }
-/** The flags of `e3 rack policy`, as Commander reads them. */
+/** The flags of `e3 rack policy`, as Commander reads them: those it takes,
+ *  and those a release before this one took, which it refuses
+ *  ({@link REMOVED_POLICY_FLAGS}). */
 export interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
   merges?: string; keep?: string }
+/** A flag of `e3 rack policy` a release before this one took. */
+type RemovedPolicyFlag = 'weighFetch' | 'merges' | 'keep';
+/** A flag of `e3 rack policy` this release takes. */
+type PolicyFlag = Exclude<keyof PolicyFlags, RemovedPolicyFlag>;
+/** The policy flags a release before this one took, each with why it is gone:
+ *  given one, `e3 rack policy` refuses it, saying so, rather than ignore it. */
+const REMOVED_POLICY_FLAGS: Readonly<Record<RemovedPolicyFlag, string>> = {
+  weighFetch: '--weigh-fetch/--no-weigh-fetch was removed: work is no longer weighed for what it would fetch. A rack keeps what your hub\'s tasks read and write, so an input crosses the link once',
+  merges: '--merges was removed: a split task\'s merges run where its pieces run',
+  keep: '--keep was removed: a rack keeps what your hub\'s tasks read and write for as long as the hub runs (24 h idle at most), encrypted under a key only the running hub holds',
+};
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -40,43 +53,36 @@ function sizeOf(text: string): RackComputeSize {
   if (!sizes.some((size) => size === text)) throw new Error(`Unknown compute size '${text}'; choose ${sizes.join(', ')}`);
   return text as RackComputeSize;
 }
-/** Where `--merges` sends a split task's merge units: `rack` or `local`. */
-function mergesOf(text: string): RackMerges {
-  if (text !== 'rack' && text !== 'local') throw new Error(`--merges must be rack or local, not '${text}'`);
-  return text;
-}
-/** How long `--keep` has a rack keep what work wrote there: `split` or `session`. */
-function keepOf(text: string): RackKeep {
-  if (text !== 'split' && text !== 'session') throw new Error(`--keep must be split or session, not '${text}'`);
-  return text;
-}
 /** The flags of `e3 rack policy` each verb takes, by their option names: a
  *  rule's with `set`, the policy's with `defaults`, and none with any other. */
-const POLICY_FLAGS: Readonly<Record<string, ReadonlyArray<keyof PolicyFlags>>> = {
-  set: ['size', 'timeout', 'allowHostAccess', 'memoryLimit', 'gpu', 'merges'],
-  defaults: ['size', 'timeout', 'claimTimeout', 'spill', 'retryTaskFailuresLocally', 'weighFetch', 'merges', 'keep'],
+const POLICY_FLAGS: Readonly<Record<string, ReadonlyArray<PolicyFlag>>> = {
+  set: ['size', 'timeout', 'allowHostAccess', 'memoryLimit', 'gpu'],
+  defaults: ['size', 'timeout', 'claimTimeout', 'spill', 'retryTaskFailuresLocally'],
 };
-const FLAG_NAMES: Readonly<Record<keyof PolicyFlags, string>> = { size: '--size', timeout: '--timeout', allowHostAccess: '--allow-host-access',
-  memoryLimit: '--memory-limit', gpu: '--gpu', spill: '--spill/--no-spill', claimTimeout: '--claim-timeout',
-  retryTaskFailuresLocally: '--retry-task-failures-locally/--no-retry-task-failures-locally', weighFetch: '--weigh-fetch/--no-weigh-fetch',
-  merges: '--merges', keep: '--keep' };
+const FLAG_NAMES: Readonly<Record<PolicyFlag, string>> = { size: '--size', timeout: '--timeout',
+  allowHostAccess: '--allow-host-access', memoryLimit: '--memory-limit', gpu: '--gpu', spill: '--spill/--no-spill', claimTimeout: '--claim-timeout',
+  retryTaskFailuresLocally: '--retry-task-failures-locally/--no-retry-task-failures-locally' };
 
 /**
  * Why an `e3 rack policy` verb refuses the flags it was given, or undefined
- * when it takes them all: a flag the verb would leave unread is refused, never
- * ignored, naming where it belongs.
+ * when it takes them all: a flag a release before this one took is refused,
+ * saying it was removed and why; and a flag the verb would leave unread is
+ * refused, never ignored, naming where it belongs.
  *
  * @param action - The verb
  * @param flags - The flags given
  * @returns The refusal, or undefined
  * @example
- * policyFlagRefusal('set', { weighFetch: true }); // '--weigh-fetch/--no-weigh-fetch is the policy's, not a rule's: …'
+ * policyFlagRefusal('set', { spill: false }); // '--spill/--no-spill is the policy's, not a rule's: …'
+ * policyFlagRefusal('defaults', { keep: 'session' }); // '--keep was removed: …'
  */
 export function policyFlagRefusal(action: string, flags: PolicyFlags): string | undefined {
+  const removed = (Object.keys(REMOVED_POLICY_FLAGS) as RemovedPolicyFlag[]).find((name) => flags[name] !== undefined);
+  if (removed !== undefined) return REMOVED_POLICY_FLAGS[removed];
   const takes = POLICY_FLAGS[action] ?? [];
-  const given = (Object.keys(FLAG_NAMES) as Array<keyof PolicyFlags>).filter((name) => flags[name] !== undefined && !takes.includes(name));
+  const given = (Object.keys(FLAG_NAMES) as PolicyFlag[]).filter((name) => flags[name] !== undefined && !takes.includes(name));
   if (given.length === 0) return undefined;
-  const [first] = given as [keyof PolicyFlags];
+  const [first] = given as [PolicyFlag];
   const flag = FLAG_NAMES[first];
   if (POLICY_FLAGS.defaults!.includes(first) && !POLICY_FLAGS.set!.includes(first)) return `${flag} is the policy's, not a rule's: use e3 rack policy defaults ${flag.split('/')[0]}`;
   if (POLICY_FLAGS.set!.includes(first) && !POLICY_FLAGS.defaults!.includes(first)) return `${flag} is a rule's: use e3 rack policy set <pattern> rack ${flag}`;
@@ -175,10 +181,9 @@ function printFleet(lib: RackLib, status: Status): void {
 
 function printPolicy(policy: RackPolicy): void {
   console.log(`Enabled: ${policy.enabled}\nMode: ${policy.mode.type === 'optIn' ? 'opt-in' : 'auto'}`);
-  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}, merges=${policy.defaultMerges.type}, keep=${policy.keep.type}`);
+  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}`);
   policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}` +
-    `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}` +
-    `${rule.merges.type === 'some' ? `, merges=${rule.merges.value.type}` : ''}`));
+    `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}`));
 }
 
 /** Creates the rack management and repository policy command group. */
@@ -315,19 +320,14 @@ export function createRackCommand(): Command {
     .option('--spill', 'Run locally when rack capacity is full').option('--no-spill', 'Wait for rack capacity')
     .option('--claim-timeout <sec>', 'Recheck an unclaimed lease after this many seconds')
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
-    .option('--weigh-fetch', 'Run here a task or unit whose inputs would take longer to fetch over the rack\'s link than it last ran (off unless you turn it on)')
-    .option('--no-weigh-fetch', 'Place by the rules alone, however long a unit\'s inputs take to fetch (the default)')
-    .option('--merges <where>', 'Where a split task\'s merge and combine units run when its pieces run on a rack: rack (the default) or local, ' +
-      'which fetches no piece back to a rack and runs them under this machine\'s -j/--memory budget. ' +
-      'With set, for the rule\'s tasks; with defaults, for every rule that names none')
-    .option('--keep <scope>', 'With defaults: how long a rack keeps what a rack lease wrote there, for later work to read there rather than fetch it back: ' +
-      'split (the default), for the later units of the same split task; or session, for every later task of the same e3 dataflow run, ' +
-      'or of an e3 watch --start --rack across its re-runs')
-    .addHelpText('after', '\nA merge kept local stays local under --rack-only and run --rack too: those keep for a rack only the work the policy sends to one.' +
-      '\n\n--keep session keeps task data on a rack longer: until the run or watch ends, or an hour unused, within the rack\'s own bound on what it keeps.' +
-      '\n\nWeighing what work would fetch is off unless you turn it on (defaults --weigh-fetch): off, work is placed by the rules alone, and the hub is asked no fetch cost.' +
-      '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . set "rollup_*" rack --merges local' +
-      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . defaults --keep session\n  e3 rack policy . show')
+    // Removed: parsed only so that one given is refused, saying so
+    .addOption(new Option('--weigh-fetch').hideHelp()).addOption(new Option('--no-weigh-fetch').hideHelp())
+    .addOption(new Option('--merges <where>').hideHelp()).addOption(new Option('--keep <scope>').hideHelp())
+    .addHelpText('after', '\nA rack keeps what your hub\'s tasks read and write — their inputs, and what they make — for as long as the hub runs (24 h idle at most), ' +
+      'within the rack\'s own bound on what it keeps, encrypted under a key only the running hub holds: a later task of any run reads it there rather than over the link. ' +
+      'No policy setting governs it.' +
+      '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G' +
+      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
@@ -348,8 +348,7 @@ export function createRackCommand(): Command {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
         policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
           timeoutMinutes: flags.timeout === undefined ? undefined : integer(flags.timeout, '--timeout'), allowHostCoupled: flags.allowHostAccess,
-          memoryLimit: flags.memoryLimit === undefined ? undefined : memory(flags.memoryLimit, '--memory-limit'), gpu: flags.gpu,
-          merges: flags.merges === undefined ? undefined : mergesOf(flags.merges) });
+          memoryLimit: flags.memoryLimit === undefined ? undefined : memory(flags.memoryLimit, '--memory-limit'), gpu: flags.gpu });
       } else if (action === 'unset') policy = lib.removeRule(policy, words[0]!);
       else if (action === 'enable' || action === 'disable') policy = lib.setEnabled(policy, action === 'enable');
       else if (action === 'mode') {
@@ -362,9 +361,6 @@ export function createRackCommand(): Command {
           ...(flags.claimTimeout === undefined ? {} : { claimTimeoutSeconds: BigInt(integer(flags.claimTimeout, '--claim-timeout')) }),
           ...(flags.spill === undefined ? {} : { spill: flags.spill }),
           ...(flags.retryTaskFailuresLocally === undefined ? {} : { retryTaskFailuresLocally: flags.retryTaskFailuresLocally }),
-          ...(flags.weighFetch === undefined ? {} : { weighFetch: flags.weighFetch }),
-          ...(flags.merges === undefined ? {} : { defaultMerges: variant(mergesOf(flags.merges), null) }),
-          ...(flags.keep === undefined ? {} : { keep: variant(keepOf(flags.keep), null) }),
         };
       }
       if (action !== 'show') await lib.savePolicy(repo, policy);

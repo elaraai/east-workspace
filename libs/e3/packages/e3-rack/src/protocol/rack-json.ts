@@ -214,12 +214,91 @@ export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
  * lease is then granted it with its scope (`RackLeaseEvent.scope`), and the
  * heartbeat's answer names the scopes that ended
  * ({@link RACK_SCOPES_ENDED_HEADER}). A scope is a split task's execution,
- * whose units' leases name it, or, under a policy that keeps what work wrote
- * for the session, a whole rack session, whose every task's and unit's lease
- * names it. A rack that does not name the feature is granted the same lease
- * without one.
+ * whose units' leases name it. A rack that does not name the feature is
+ * granted the same lease without one; one that names
+ * {@link RACK_HUB_KEYED_SCOPES} too is granted its source's own scope in its
+ * place, where the source keeps one.
  */
 export const RACK_SPLIT_SCOPES = 'split-scopes';
+
+/**
+ * The report's feature by which a rack says it keeps a hub's objects for the
+ * hub's life, encrypted under a key the hub gives it: every task's and unit's
+ * lease it is granted names the hub's own scope (`RackLeaseEvent.scope`, its
+ * `keyed` true, one id for the hub's process), and every heartbeat's answer
+ * gives it the scope's key ({@link RACK_HUB_KEY_HEADER}). What the rack keeps
+ * of the scope — what its leases fetched and made — it keeps encrypted under
+ * that key alone, and reads only while its source still gives it: a hub that
+ * restarts has a new scope and a new key, and the rack deletes what it kept
+ * of the old one. A rack that names the feature is still granted a split
+ * scope by a source that keeps none of its own; one that does not is granted
+ * no hub scope, and never told a key.
+ */
+export const RACK_HUB_KEYED_SCOPES = 'hub-keyed-scopes';
+
+/**
+ * The header of a heartbeat's answer that gives a rack that names
+ * {@link RACK_HUB_KEYED_SCOPES} the key of its source's own scope: a JSON
+ * object, `{"id": <the scope's id>, "key": <32 bytes, base64>}`. A source
+ * sends it with every answer to such a rack, and only over a pinned TLS
+ * connection; it is a secret, which neither side logs, journals, stores or
+ * puts in anything a lease's guest sees. An answer with none, or with another
+ * id, says the rack holds the key of no scope it kept before.
+ */
+export const RACK_HUB_KEY_HEADER = 'x-e3-rack-hub-key';
+
+/** The bytes of a hub scope's key: an AES-256 key. */
+export const RACK_HUB_KEY_BYTES = 32;
+
+/** A hub scope's key, as a heartbeat's answer gives it ({@link RACK_HUB_KEY_HEADER}). */
+export interface RackHubKey {
+  /** The hub scope's id, as its leases name it: one for the hub's process */
+  readonly id: string;
+  /** The key, {@link RACK_HUB_KEY_BYTES} bytes */
+  readonly key: Uint8Array;
+}
+
+/**
+ * The value of a heartbeat answer's hub-key header.
+ *
+ * @param key - The scope's id and key
+ * @returns The header's value
+ * @throws {Error} When the id is no scope's, or the key is not 32 bytes
+ * @example
+ * ```ts
+ * response.headers.set(RACK_HUB_KEY_HEADER, rackHubKeyHeader({ id: scopeId, key: rackKey }));
+ * ```
+ */
+export function rackHubKeyHeader(key: RackHubKey): string {
+  if (!isRackScopeId(key.id) || key.key.byteLength !== RACK_HUB_KEY_BYTES) throw new Error('A hub scope\'s key is 32 bytes, of a scope\'s id');
+  return JSON.stringify({ id: key.id, key: Buffer.from(key.key).toString('base64') });
+}
+
+/**
+ * Reads a heartbeat answer's hub-key header.
+ *
+ * @param json - The header's value, or null when the answer had none
+ * @returns The scope's id and key; undefined when the header is absent, does
+ *   not read, names no scope's id, or holds no key of 32 bytes
+ * @example
+ * ```ts
+ * const key = readRackHubKey(response.headers.get(RACK_HUB_KEY_HEADER));
+ * ```
+ */
+export function readRackHubKey(json: string | null): RackHubKey | undefined {
+  if (json === null) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { id, key } = value as Record<string, unknown>;
+  if (!isRackScopeId(id) || typeof key !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(key)) return undefined;
+  const bytes = Buffer.from(key, 'base64');
+  return bytes.byteLength === RACK_HUB_KEY_BYTES ? { id, key: new Uint8Array(bytes) } : undefined;
+}
 
 /**
  * The header of a heartbeat's answer that names the scopes that ended
@@ -404,7 +483,8 @@ export interface RackReport {
    * composes a lease's environment from layers),
    * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier),
    * {@link RACK_SPLIT_SCOPES} (it keeps a scope's outputs for its later
-   * leases), {@link RACK_DATA_ORIGINS} (it fetches a data URL on any origin its
+   * leases), {@link RACK_HUB_KEYED_SCOPES} (it keeps a hub's objects for the
+   * hub's life, encrypted under the hub's key), {@link RACK_DATA_ORIGINS} (it fetches a data URL on any origin its
    * source's hello lists).
    */
   readonly features: readonly string[];

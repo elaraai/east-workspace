@@ -228,28 +228,17 @@ repository's first upgrade step of its own (`rack-policy-limits`, in e3-core,
 with both forms frozen there), which carries a policy an earlier release stored
 into the form with them when the repository is opened.
 
-A rule's `merges`, else the policy's `defaultMerges`, says where the merge
-units of a split task it sends to a rack run: `rack`, the default, as its
-pieces do, or `local`. A merge unit is a set's or a dict's merge over a key
-range, or a step of a fold's combine; an array's concatenation and every
-output's final assembly are no unit, and run here always. A merge kept local
-is judged before the task's verdict, which its pieces share
-(`merges-local`), and runs through the ordinary local body under the run's
-budget and guard. It fetches nothing: every piece's output is verified into
-this store as its lease ends. It is not the default, since a merge on a rack
-uses the rack's cores and memory, which a wide fan-in or a large range may
-need, and the upgrade keeps every repository placing as it did. A merge kept
-local is no rack's work: rack-only, which keeps a rack's work for a rack,
-leaves it here, and `selected` (a command's `--rack`) takes it from the
-rule as it takes the rule's size. A merge kept local is never weighed for
-what it would fetch (the policy's `weighFetch`, off unless the policy turns
-it on: off, no fetch cost is asked and work is placed by the rules alone,
-as before #1722), since it is judged here
-first; a merge on a rack is weighed by its task's earlier merges, never its
-pieces, and follows its policy before one has run. Both came with the local
-repository's third step (`rack-policy-merges`), which carries the form the
-second (`rack-policy-weigh-fetch`) writes into this one, every merge on a
-rack.
+The policy is its rules and the defaults beside them (a size, a timeout,
+spill, the claim timeout, the retry of a task's failures here). Three fields
+came and went: `weighFetch` (work run here when its fetch over the link would
+outlast its run, #1722), `defaultMerges` with a rule's `merges` (a split
+task's merges run here), and `keep` (`split` or `session`). Each worked
+around a link that carried the same objects again; what a rack keeps of the
+hub's work (below) removes the cause, so the local repository's fifth step
+(`rack-policy-rules`) carries the form the fourth (`rack-policy-keep`) writes
+into rules and defaults alone, every rule and default as it was. The CLI
+refuses the removed flags, saying each was removed. A split task's pieces and
+merges go where its rule sends the task.
 
 Eligibility checks task name/selection, the environment's kind, the
 runtime/platform configuration, East body and every executable program
@@ -431,9 +420,7 @@ Only a unit that expects nothing books its rule's limit, else its size's
 memory. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
 ever hold is not queued, and runs locally. Split-task
-planning and final assembly stay local; both pieces and merge bodies delegate,
-unless the rule's `merges`, else the policy's `defaultMerges`, keeps merges
-local.
+planning and final assembly stay local; both pieces and merge bodies delegate.
 Each unit's lease names the split task's execution it runs in, its scope
 (e3-core's `SplitScope`: a random id, and whether a later unit reads what it
 writes). The hub grants it with the lease only to a rack whose report names
@@ -452,20 +439,31 @@ completed lease of a scope that feeds it wrote its output and targets on
 lease of a scope waits up to `SCOPE_AFFINITY_MS` for a rack that wrote some
 of what it reads before another may take it — only for one that could be
 granted it (its tier, what its resources could ever hold, its approval and
-release, the work's environment), never for one that could not; `fetch-costs`,
-asked with the scope, counts those objects held there.
+release, the work's environment), never for one that could not.
 
-The policy's `keep` widens the scope: `split` (the default) is the above;
-`session` names one scope, the session's own (`RackSession.sessionScope`), on
-every task's and unit's lease of the rack session — one `e3 dataflow run`, or
-one `e3 watch --start --rack` across its re-runs — feeding it but for a piece
-whose merges run here. A task's output a rack made is then read there by the
-session's later work, which goes to it input by input, not pile onto one
-rack. No split task's end ends it; the hub ends it as the session ends:
-closed, or swept as gone or silent. It keeps a task's data on a rack until
-then, or an hour unused, within the rack's bound. It came with the local
-repository's fourth step (`rack-policy-keep`), which carries the merges
-step's form into this one, kept for a split task alone.
+A rack whose report names `hub-keyed-scopes` is granted the hub's own scope
+in place of a split scope, on every task's and unit's lease of every session
+(a call's names none): one id for the hub's process, `keyed`, feeding it. The
+hub makes the id and a random 256-bit secret as it starts, in memory alone,
+and gives each such rack its key of the scope with every heartbeat's answer
+(`x-e3-rack-hub-key`, the secret's HMAC of the rack's id), only over its TLS
+listener, which the rack pins: a plain-HTTP listener grants no hub scope. The
+key is never logged, stored or put in a lease's event. The rack keeps what
+the scope's leases fetched and made, AES-256-GCM-encrypted under its key (a
+random nonce an object, the object's hash as additional data, a file name
+that is an HMAC of its hash), verifies tag and hash before a lease reads one,
+and keeps no plaintext of it; it deletes what it kept as its source gives
+another key id (the hub restarted) or none, as its agent starts, or once
+idle past its bound (24 h unless configured). No session ends the hub's scope:
+the hub stopping does, its key with it. The hub notes what each lease wrote
+on such a rack, and what it was served whole there, as the hub scope's
+(`ScopeWrites`, the same bound), so a later lease of any session waits up to
+`SCOPE_AFFINITY_MS` for the rack that holds what it reads; a rack's reboot
+lets go of what it was noted to hold. Root on the running worker can read
+what it keeps while the key is valid, as it can a running task's inputs;
+anything else — its files, a disk image, anything after the hub stops — has
+ciphertext. Hub control protocol 8 removed `fetch-costs` and the session's
+own scope (`RackSession.sessionScope`), which this subsumes.
 
 | Outcome | Record and action |
 | --- | --- |
@@ -610,9 +608,11 @@ traffic is such a path: plain HTTP is for a terminator in front of the hub, or a
 path encrypted end to end, such as an SSH tunnel.
 
 The hub keeps no task data: leases and capabilities live in memory, and objects
-stream through it from the owning session. What a worker keeps between tasks is
-the worker's policy; the hub works unchanged with an agent that fetches every
-object for each task and keeps nothing after it.
+stream through it from the owning session; its scope's secret lives in its
+memory alone, and goes with it. What a worker keeps between tasks is the
+worker's: of the hub's scope, only encrypted under the key the running hub
+gives it. The hub works unchanged with an agent that fetches every object for
+each task and keeps nothing after it.
 
 The local `enroll` command prints the source origin, the certificate
 fingerprint, the matching release and a short-lived token separately. The

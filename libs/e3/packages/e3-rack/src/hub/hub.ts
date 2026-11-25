@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import { Server } from 'node:http';
 import { Server as HttpsServer, createServer as createHttpsServer } from 'node:https';
@@ -24,13 +24,12 @@ import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionA
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackRegistration } from '../protocol/registration.js';
-import { RACK_DATA_ORIGINS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
-  type RackReport } from '../protocol/rack-json.js';
+import { RACK_DATA_ORIGINS, RACK_ENVIRONMENTS_OVER_TIER, RACK_HUB_KEYED_SCOPES, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES,
+  rackScopesEndedFitting, type RackHubKey, type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, readRackLeaseScope,
   type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
-  FetchCostResultType, HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
 import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
@@ -42,7 +41,6 @@ import { listenerProblem, loadHubCertificate, loadHubConfig, saveHubConfig, upgr
 import { acquireHubLock, type HeldHubLock } from './lock.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge, type SessionEndpoint } from './session-bridge.js';
-import { RackLinkMeter } from './link-meter.js';
 import { ScopeWrites } from './scope-writes.js';
 
 interface Session {
@@ -110,10 +108,10 @@ const MOST_SCOPES_ENDED = 4 * RACK_SCOPES_ENDED_MAX;
  * inputs were made, when that rack has room for it soon.
  */
 export const SCOPE_AFFINITY_MS = 5000;
-/** A scope the sessions' leases name — a split task's execution, or a whole
- *  session's under a policy that keeps it for the session: the session whose
- *  leases name it, and the racks granted a lease of it, which are told its
- *  end. What each rack holds of it is {@link ScopeWrites}'. */
+/** A split scope the sessions' leases name — a split task's execution: the
+ *  session whose leases name it, and the racks granted a lease of it, which
+ *  are told its end. What each rack holds of it is {@link ScopeWrites}'. The
+ *  hub's own scope is none of these: it is the hub's, and ends with it. */
 interface Scope {
   session: string;
   racks: Set<string>;
@@ -152,9 +150,6 @@ export interface RackHubOptions {
   listenerRetryMs?: number;
   /** Test tuning; production sweeps every five seconds. */
   sweepMs?: number;
-  /** Measures each rack's link from the reads the hub serves it; the hub's
-   *  own unless given, as a test gives one whose clock it sets. */
-  linkMeter?: RackLinkMeter;
   /** Test tuning; production keeps at most 1024 scopes open for a session. */
   scopesPerSession?: number;
 }
@@ -177,29 +172,37 @@ export interface RackHubOptions {
  * run it. Such a rack is served the layers built over its tier when the
  * work's sessions keep them, and the whole environment's otherwise.
  *
- * The hub measures each rack's link from the reads it serves it, and keeps
- * which objects it served each rack whole ({@link RackLinkMeter}), for as
- * long as it runs: a session asks it what a unit would fetch
- * (`/v1/sessions/:id/fetch-costs`) before it leases the unit.
+ * The hub has a scope of its own, for as long as its process runs: a random
+ * id, and a random 256-bit secret, made as it is constructed, kept in its
+ * memory alone — never logged, stored or put in a lease's event. A rack whose
+ * report names `hub-keyed-scopes`, and which reaches the hub's TLS listener,
+ * is granted every task's and unit's lease of every session with the hub's
+ * scope (`keyed`, feeding it), and every heartbeat's answer gives it the
+ * scope's key (`x-e3-rack-hub-key`): the secret's HMAC of the rack's id, so no
+ * two racks keep under one key. The rack keeps what those leases fetch and
+ * make, encrypted under that key, for later work of any session of the hub;
+ * a hub that stops takes its key with it, and one started again has another
+ * scope and another key, so a rack deletes what it kept of the last. A call's
+ * lease is granted no scope: it writes nothing a later lease reads.
  *
- * A unit's lease may name its split task's execution, its scope; and under a
- * policy that keeps what work wrote for the session, every task's and unit's
- * lease names the session's own scope. A rack whose report names
- * `split-scopes` is granted the lease with it, keeps what the scope's leases
- * wrote for its later ones, and is told with its next heartbeat once the
- * scope ends: when its session says so of a split task's, or the session
- * ends. The hub notes which rack each completed lease of a scope that feeds
- * it wrote its objects on ({@link ScopeWrites}), and a lease of the scope goes
- * first, for {@link SCOPE_AFFINITY_MS}, to a rack that holds some of what that
- * lease reads and could be granted it — its tier, its resources, its release
- * and approval, the work's environment — and is weighed as fetching none of
- * it there: by input, so a session's work is not piled onto one rack. A lease
- * no such rack could take waits for none. A rack that reboots holds nothing
- * it held: the hub lets go of what it knew it to hold, of its reads and of
- * every scope, as its first heartbeat of the new boot arrives. The hub keeps
- * no more of a scope than its id, its racks, and the writers of at most
- * `SCOPE_WRITES_MAX` of its objects; and of a session, at most
- * `MOST_SCOPES_PER_SESSION` scopes open at once.
+ * A unit's lease may name its split task's execution, its split scope. A rack
+ * whose report names `split-scopes`, and is granted no hub scope, is granted
+ * the lease with it, keeps what the scope's leases wrote for its later ones,
+ * and is told with its next heartbeat once the scope ends: when its session
+ * says so, or the session ends.
+ *
+ * The hub notes which rack holds each object of a scope ({@link ScopeWrites}):
+ * of a split scope, what each completed lease that feeds it wrote; of its own,
+ * what each completed lease wrote, and what each rack was served whole for a
+ * lease. A lease goes first, for {@link SCOPE_AFFINITY_MS}, to a rack that
+ * holds some of what it reads and could be granted it — its tier, its
+ * resources, its release and approval, the work's environment: by input, so a
+ * session's work is not piled onto one rack. A lease no such rack could take
+ * waits for none. A rack that reboots holds nothing it held: the hub lets go
+ * of what it knew it to hold, of every scope, as its first heartbeat of the
+ * new boot arrives. The hub keeps no more of a scope than its id, its racks,
+ * and the writers of at most `SCOPE_WRITES_MAX` objects of every scope; and of
+ * a session, at most `MOST_SCOPES_PER_SESSION` split scopes open at once.
  *
  * Its configuration may name data origins beside the advertised one, each
  * reaching its listener over a connection of its own: its hello names
@@ -238,8 +241,15 @@ export class RackHub {
   private readonly mismatchedTierManifests = new Map<string, Set<string>>();
   /** How the last leases ended, the latest first: what the status lists. */
   private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
-  /** The scopes the sessions' leases name, by id, until each ends. */
+  /** The split scopes the sessions' leases name, by id, until each ends. */
   private readonly scopes = new Map<string, Scope>();
+  /** The hub's own scope's id: one for the process, which every task's and
+   *  unit's lease is granted to a rack that keeps it under its key. */
+  private readonly hubScopeId = randomUUID();
+  /** The secret each rack's key of the hub's scope is made of: random, of
+   *  this process alone, never logged, stored or sent. A rack's key is its
+   *  HMAC of the rack's id. */
+  private readonly hubSecret = randomBytes(32);
   /** Of each scope, the rack each of its objects was written on: what a
    *  later lease of it reads there. */
   private readonly writes = new ScopeWrites();
@@ -259,9 +269,6 @@ export class RackHub {
   private registry!: FileRackRegistry;
   private config!: HubConfig;
   private bridge!: SessionProxyStorageBridge;
-  /** Each rack's link, as the reads the hub serves it measure it, and what
-   *  it was served whole: for as long as the hub runs. */
-  private readonly meter: RackLinkMeter;
   private dispatch!: StoreRackDispatch;
   private control?: Server;
   private rack?: Server | HttpsServer;
@@ -413,31 +420,71 @@ export class RackHub {
   }
 
   /**
-   * Whether a rack is granted a lease with its scope: its report names
-   * {@link RACK_SPLIT_SCOPES}, and the scope has not ended. Such a rack is
-   * then one the scope's end is told to.
+   * Whether a rack keeps the hub's own scope: its report names
+   * {@link RACK_HUB_KEYED_SCOPES}, and the hub's listener is TLS, which the
+   * rack pins, so the scope's key travels only inside it.
    */
-  private scopeGranted(rackId: string, scope: RackLeaseScope): boolean {
-    if (this.reports.get(rackId)?.features.includes(RACK_SPLIT_SCOPES) !== true) return false;
-    const known = this.scopes.get(scope.id);
-    if (known === undefined) return false;
-    known.racks.add(rackId);
-    return true;
+  private keepsHubScope(rackId: string): boolean {
+    return this.reports.get(rackId)?.features.includes(RACK_HUB_KEYED_SCOPES) === true
+      && this.listener.type === 'up' && this.listener.value.certificateSha256.type === 'some';
   }
 
   /**
-   * Notes what a lease of a scope that feeds it wrote on its rack, as it
-   * completes with success: its output, and every object it was given a
-   * target for. Not of a rack the scope was never granted to, which keeps
-   * none of it.
+   * The key of the hub's scope a rack's heartbeat answer gives it: the hub's
+   * secret's HMAC of the rack's id, to a rack that keeps the scope
+   * ({@link keepsHubScope}); none to any other.
+   */
+  private hubKeyFor(rackId: string): RackHubKey | undefined {
+    if (!this.keepsHubScope(rackId)) return undefined;
+    return { id: this.hubScopeId, key: createHmac('sha256', this.hubSecret).update(rackId).digest() };
+  }
+
+  /**
+   * The scope a rack is granted a lease with: the hub's own, of any task's or
+   * unit's lease, to a rack that keeps it ({@link keepsHubScope}); else the
+   * split scope the lease names, to a rack whose report names
+   * {@link RACK_SPLIT_SCOPES}, while it has not ended, the rack then one its
+   * end is told to; else none. A call's lease is granted none.
+   */
+  private scopeGranted(rackId: string, event: RackLeaseEvent): RackLeaseScope | undefined {
+    if (isFunctionLease(event)) return undefined;
+    if (this.keepsHubScope(rackId)) return { id: this.hubScopeId, feeds: true, keyed: true };
+    const scope = readRackLeaseScope(event.scope);
+    if (scope === undefined || this.reports.get(rackId)?.features.includes(RACK_SPLIT_SCOPES) !== true) return undefined;
+    const known = this.scopes.get(scope.id);
+    if (known === undefined) return undefined;
+    known.racks.add(rackId);
+    return scope;
+  }
+
+  /**
+   * Notes what a lease wrote on its rack, as it completes with success: its
+   * output, and every object it was given a target for. Of the hub's scope,
+   * for a rack that keeps it; else of the split scope the lease names, when
+   * it feeds it and the scope was granted to the rack. Not of a rack that
+   * keeps neither, which keeps none of it.
    */
   private scopeWrote(lease: RackLeaseRecord): void {
-    const scope = readRackLeaseScope(lease.event.scope);
     const rackId = lease.claimedBy;
     const outputHash = lease.result?.outputHash;
-    if (scope?.feeds !== true || rackId === undefined || lease.result?.status !== 'success' || outputHash === undefined) return;
-    if (this.scopes.get(scope.id)?.racks.has(rackId) !== true) return;
-    this.writes.wrote(scope.id, rackId, [outputHash, ...(lease.targets ?? [])]);
+    if (rackId === undefined || lease.result?.status !== 'success' || outputHash === undefined || isFunctionLease(lease.event)) return;
+    const written = [outputHash, ...(lease.targets ?? [])];
+    if (this.keepsHubScope(rackId)) { this.writes.wrote(this.hubScopeId, rackId, written); return; }
+    const scope = readRackLeaseScope(lease.event.scope);
+    if (scope?.feeds !== true || this.scopes.get(scope.id)?.racks.has(rackId) !== true) return;
+    this.writes.wrote(scope.id, rackId, written);
+  }
+
+  /**
+   * Notes an object a rack was served whole for a task's or a unit's lease,
+   * as the hub's scope's, when the rack keeps it: the rack keeps what it
+   * fetched for later work of any session.
+   */
+  private servedWhole(whole: { readonly rackId: string; readonly repo: string; readonly leaseId: string; readonly hash: string }): void {
+    if (!this.keepsHubScope(whole.rackId)) return;
+    const lease = this.backend.peek(whole.repo, whole.leaseId);
+    if (lease === null || isFunctionLease(lease.event)) return;
+    this.writes.wrote(this.hubScopeId, whole.rackId, [whole.hash]);
   }
 
   /** The scopes of a rack's that ended, each named once, as many as one
@@ -456,9 +503,8 @@ export class RackHub {
    * Notes the boot a rack's heartbeat came from, as its registration now names
    * it. A rack that reports another boot than it last did rebooted: its disk,
    * kept by boot, holds none of the objects it was served or wrote before, so
-   * what the hub knew it to hold — of its link's reads, and of every scope —
-   * is let go, and it is told of no scope it was granted before, which it no
-   * longer keeps. Its link's rate stands.
+   * what the hub knew it to hold, of every scope, is let go, and it is told
+   * of no scope it was granted before, which it no longer keeps.
    */
   private async booted(rackId: string): Promise<void> {
     const rack = await this.registry.getRack(rackId);
@@ -466,7 +512,6 @@ export class RackHub {
     const before = this.boots.get(rackId);
     this.boots.set(rackId, rack.lastBootId.value);
     if (before === undefined || equalString(before, rack.lastBootId.value)) return;
-    this.meter.forgetHeld(rackId);
     this.writes.forget(rackId);
     this.scopesEnded.delete(rackId);
     for (const scope of this.scopes.values()) scope.racks.delete(rackId);
@@ -514,18 +559,22 @@ export class RackHub {
   }
 
   /**
-   * Whether a lease of a scope waits for a rack that holds some of what it
-   * reads, which the scope's earlier leases wrote there: one could be granted
-   * it ({@link couldHold}), the rack asking is none of them, and the lease has
-   * waited less than {@link SCOPE_AFFINITY_MS}. A lease that reads nothing the
-   * scope's leases wrote, or whose every holder could never take it — another
-   * tier's rack, one too small for it, a boot awaiting approval — waits for
-   * no rack.
+   * Whether a lease waits for a rack that holds some of what it reads: of the
+   * split scope it names, what the scope's earlier leases wrote there; of the
+   * hub's scope, for a task's or a unit's lease, what a rack that keeps it
+   * fetched or wrote there for any earlier lease. It waits when one such rack
+   * could be granted it ({@link couldHold}), the rack asking is none of them,
+   * and the lease has waited less than {@link SCOPE_AFFINITY_MS}. A lease that
+   * reads nothing any rack holds, or whose every holder could never take it —
+   * another tier's rack, one too small for it, a boot awaiting approval —
+   * waits for no rack.
    */
   private async waitsForHolder(rackId: string, lease: RackLeaseRecord): Promise<boolean> {
+    if (this.now() - lease.createdAtMs >= SCOPE_AFFINITY_MS || isFunctionLease(lease.event)) return false;
+    const reads = leaseReads(lease.event);
     const scope = readRackLeaseScope(lease.event.scope);
-    if (scope === undefined || !this.scopes.has(scope.id) || this.now() - lease.createdAtMs >= SCOPE_AFFINITY_MS) return false;
-    const holders = this.writes.writersOf(scope.id, leaseReads(lease.event));
+    const holders = scope === undefined || !this.scopes.has(scope.id) ? new Set<string>() : this.writes.writersOf(scope.id, reads);
+    for (const holder of this.writes.writersOf(this.hubScopeId, reads)) if (this.keepsHubScope(holder)) holders.add(holder);
     if (holders.size === 0 || holders.has(rackId)) return false;
     for (const holder of holders) {
       const rack = await this.registry.getRack(holder);
@@ -539,7 +588,6 @@ export class RackHub {
     this.home = options.home ?? rackHome();
     this.now = options.now ?? Date.now;
     this.idleSince = this.now();
-    this.meter = options.linkMeter ?? new RackLinkMeter();
     this.backend = new InMemoryRackLeaseStore(this.now);
     this.leases = new FairLeaseStore(this.backend, (lease) => this.subscriptions.get(lease.leaseId)?.owner ?? '');
     this.closed = new Promise((resolve) => { this.resolveClosed = resolve; });
@@ -575,7 +623,9 @@ export class RackHub {
         advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
         // Only a rack that says it fetches from them is given URLs on them
         dataOrigins: (rackId) => this.reports.get(rackId)?.features.includes(RACK_DATA_ORIGINS) === true ? this.config.dataOrigins : [],
-        envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease), meter: this.meter });
+        envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease),
+        // What a rack that keeps the hub's scope was served whole, it holds for later work
+        served: (whole) => this.servedWhole(whole) });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
       // The rack listener binds before the control socket answers: a client
@@ -887,21 +937,6 @@ export class RackHub {
       const text = this.tierManifests.get((await decodeBody(c, TierManifestRequestType)).digest);
       return answer(TierManifestResultType, text === undefined ? none : some(text));
     });
-    // What a session's work would fetch from each rack the hub has served,
-    // or its scope's leases wrote on: the link's rate, and which of its
-    // objects the rack holds, served it whole or written there by a lease of
-    // the work's scope
-    app.post('/v1/sessions/:id/fetch-costs', async (c) => {
-      const session = this.session(c.req.param('id'));
-      const request = await decodeBody(c, FetchCostRequestType);
-      const scope = request.scope.type === 'some' && this.scopes.get(request.scope.value)?.session === session.id ? request.scope.value : undefined;
-      const racks = new Set([...this.meter.racks(), ...(scope === undefined ? [] : this.writes.writersOf(scope, request.hashes))]);
-      return answer(FetchCostResultType, [...racks].map((rackId) => {
-        const link = this.meter.link(rackId);
-        return { rackId, bytesPerSecond: link.bytesPerSecond === null ? none : some(link.bytesPerSecond),
-          held: request.hashes.map((hash) => link.holds(session.alias, hash) || (scope !== undefined && this.writes.writer(scope, hash) === rackId)) };
-      }));
-    });
     app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);
@@ -950,7 +985,6 @@ export class RackHub {
       this.reports.delete(id);
       this.problems.delete(id);
       this.boots.delete(id);
-      this.meter.forget(id);
       this.forgetTierManifests();
       // It is told nothing more, and holds no scope
       this.scopesEnded.delete(id);
@@ -1015,9 +1049,12 @@ export class RackHub {
       // round trip of the rack's link
       inlineObjects: true,
       onLeaseSignal: (signal) => this.signal(signal),
-      // A unit's lease carries its scope to a rack that keeps a scope's
-      // outputs, which is told the scope's end with its next heartbeat
-      splitScopes: { granted: (rackId, scope) => this.scopeGranted(rackId, scope), ended: (rackId) => this.scopesEndedFor(rackId) },
+      // A lease carries the hub's scope to a rack that keeps it under the
+      // hub's key, which each heartbeat's answer gives it; else a unit's its
+      // split scope, to a rack that keeps a scope's outputs, which is told
+      // the scope's end with its next heartbeat
+      scopes: { granted: (rackId, event) => this.scopeGranted(rackId, event), ended: (rackId) => this.scopesEndedFor(rackId),
+        key: (rackId) => this.hubKeyFor(rackId) },
       // A heartbeat that was read is of this protocol: what was wrong is not.
       // One of another boot is of a rack that rebooted
       onReport: async (rackId, report) => { await this.booted(rackId); return this.reported(rackId, report); },
@@ -1033,8 +1070,8 @@ export class RackHub {
       // holds whole tasks and no unit, which it would not cap.
       claimLookahead: 64,
       canEverHold: (rack, needs) => rackEverHolds(needs, this.reports.get(rack.rackId)?.resources),
-      // A unit of a split scope goes first to a rack that holds what the
-      // scope's leases wrote, which it then reads there
+      // A lease goes first to a rack that holds what it reads, of its split
+      // scope or the hub's, which it then reads there
       canClaim: async (rack, lease) => await this.mayClaim(rack, lease) && !await this.waitsForHolder(rack.rackId, lease),
     }));
     let server: Server | HttpsServer | undefined;
@@ -1124,6 +1161,8 @@ export class RackHub {
         const results = await Promise.allSettled([this.closeRack(), this.control === undefined ? Promise.resolve() : closeSocketServer(this.control, hubSocketPath(this.home)), this.registry?.flush()]);
         for (const result of results) if (result.status === 'rejected') failures.push(result.reason);
       } finally {
+        // The hub's scope ends with it: nothing can make a rack's key of it again
+        this.hubSecret.fill(0);
         try { await this.lock?.release(); } finally { this.resolveClosed(); }
       }
       if (failures.length > 0) throw new AggregateError(failures, 'Rack hub shutdown failed');

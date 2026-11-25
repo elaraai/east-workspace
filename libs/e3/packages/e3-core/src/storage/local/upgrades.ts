@@ -7,6 +7,7 @@ import type { RepositoryUpgrade } from '../interfaces.js';
 import { rackPolicyKeep } from './rack-policy-keep.js';
 import { rackPolicyLimits } from './rack-policy-limits.js';
 import { rackPolicyMerges } from './rack-policy-merges.js';
+import { rackPolicyRules } from './rack-policy-rules.js';
 import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
 
 /**
@@ -23,6 +24,9 @@ import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
  * - `rack-policy-keep`: the policy says how long a rack keeps what work wrote
  *   there for later work to read: a split task's units, or a whole rack
  *   session's work ({@link rackPolicyKeep}).
+ * - `rack-policy-rules`: the policy is its rules and defaults alone: it no
+ *   longer weighs what work would fetch, says where merges run, or how long a
+ *   rack keeps what work wrote ({@link rackPolicyRules}).
  *
  * A release that changes the local layout appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -30,4 +34,4 @@ import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
  *
  * @internal
  */
-export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits, rackPolicyWeighFetch, rackPolicyMerges, rackPolicyKeep];
+export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits, rackPolicyWeighFetch, rackPolicyMerges, rackPolicyKeep, rackPolicyRules];

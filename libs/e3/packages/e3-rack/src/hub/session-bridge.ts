@@ -21,7 +21,6 @@ import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, Se
   SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import type { RackLogChunk } from '../protocol/rack-wire.js';
 import { RACK_INLINE_OBJECT_DEFAULT, RACK_TRANSFERS_AT_ONCE } from '../protocol/rack-json.js';
-import type { RackLinkMeter } from './link-meter.js';
 
 /** Identifies the session that currently owns repository I/O for a lease. */
 export interface SessionEndpoint {
@@ -124,11 +123,12 @@ export interface SessionBridgeOptions {
    */
   transfersAtOnce?: number;
   /**
-   * Measures each rack's link from the reads it is served, and keeps which
-   * objects each was served whole ({@link RackLinkMeter}); nothing is
-   * measured unless given.
+   * Told of each object a rack was served whole for a lease: through its data
+   * URL once the answer to the rack finished with its last byte, or inline in
+   * a storage reply. What the rack then holds, which the hub notes for the
+   * affinity of later work that reads it. Absent, nothing is told.
    */
-  meter?: RackLinkMeter;
+  served?: (whole: { readonly rackId: string; readonly repo: string; readonly leaseId: string; readonly hash: string }) => void;
 }
 
 /** How long a rack that was refused a transfer waits before it asks again. */
@@ -146,12 +146,10 @@ const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
  * Every transfer streams through the launching process, so the hub bounds
  * how many it serves one rack at once, and a rack that asks for one more is
  * told to ask again. A read honours `Range: bytes=N-`, so a transfer that a
- * slow or broken link cut short goes on from the byte it reached. Given a
- * {@link RackLinkMeter}, the bridge counts each read towards its rack's link
- * rate as its bytes are written to the rack's connection, a transfer in
- * flight until its answer has finished, and notes each object a rack was sent
- * whole, through its data URL once its answer finished, or inline: what that
- * rack holds.
+ * slow or broken link cut short goes on from the byte it reached. The bridge
+ * tells of each object a rack was sent whole ({@link SessionBridgeOptions.served}),
+ * through its data URL once its answer finished, or inline: what that rack
+ * holds.
  *
  * A data URL is built on the origin racks reach the hub at, or, for a rack
  * given data origins ({@link SessionBridgeOptions.dataOrigins}), on each of
@@ -328,9 +326,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     }
     if (response.statusCode !== 200 || length !== size) throw new Error('Input object read failed');
     // Sent whole in the answer: the rack holds it once it has the answer
-    if (this.options.meter !== undefined) {
+    if (this.options.served !== undefined) {
       const lease = await this.options.leases.get(repo, context.leaseId);
-      if (lease?.claimedBy !== undefined) this.options.meter.held(lease.claimedBy, repo, hash);
+      if (lease?.claimedBy !== undefined) this.options.served({ rackId: lease.claimedBy, repo, leaseId: context.leaseId, hash });
     }
     return { kind: 'inline' as const, data: Buffer.concat(chunks) };
   }
@@ -557,19 +555,17 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
       if (release === null) return refuse(429, 'busy', `${this.transfersAtOnce} transfers are in flight for this rack`, BUSY_RETRY_MS);
       const remaining = Math.max(1, cap.expires - this.now());
       const signal = AbortSignal.any([cap.abort.signal, c.req.raw.signal, AbortSignal.timeout(remaining)]);
-      // A read is counted towards the link's rate; an object read to its last
-      // byte is one the rack now holds. A write goes the other way, and is not.
-      const transfer = cap.upload === undefined ? this.options.meter?.begin(lease.claimedBy ?? '') : undefined;
-      // The transfer is in flight until the answer to the rack has finished
-      // or its connection closed, and ends once: its rack's slot given back,
-      // and the object held only when every byte of it was written to the
-      // rack's connection.
+      // An object read to its last byte is one the rack now holds. A write
+      // goes the other way, and is not. The transfer is in flight until the
+      // answer to the rack has finished or its connection closed, and ends
+      // once: its rack's slot given back, and the object held only when every
+      // byte of it was written to the rack's connection.
       let ended = false;
       const finish = (sent: { readonly repo: string; readonly hash: string } | undefined) => {
         if (ended) return;
         ended = true;
         release();
-        transfer?.end(sent);
+        if (sent !== undefined && lease.claimedBy !== undefined) this.options.served?.({ rackId: lease.claimedBy, repo: sent.repo, leaseId: cap.leaseId, hash: sent.hash });
       };
       try {
         const upload = cap.upload;
@@ -591,9 +587,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
           if (typeof value === 'string') headers.set(name, value);
         }
         // Each chunk is taken from the session only as the answer is written
-        // to the rack's connection, which takes it at the link's pace, and is
-        // counted then: not as the session's stream gives it, which a small
-        // object does at once, into the buffers between the hub and the rack.
+        // to the rack's connection, which takes it at the link's pace: not as
+        // the session's stream gives it, which a small object does at once,
+        // into the buffers between the hub and the rack.
         const outgoing = (c.env as Partial<HttpBindings> | undefined)?.outgoing;
         const chunks = response[Symbol.asyncIterator]() as AsyncIterator<Buffer>;
         let drained = false;
@@ -609,7 +605,6 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
               if (outgoing === undefined) finish(held);
               return;
             }
-            if (read) transfer?.add(next.value.length);
             controller.enqueue(new Uint8Array(next.value.buffer, next.value.byteOffset, next.value.length));
           },
           cancel: () => { response.destroy(); finish(undefined); },

@@ -4,26 +4,25 @@
  */
 
 /**
- * A lease's scope through the hub — a split task's execution, or a whole
- * session's: a task's or a unit's lease is granted with it only to a rack
- * whose report names `split-scopes`, and a call's never; the rack is told once
- * the scope ended — by its session, or as its session ends or expires; and a
+ * A lease's split scope through the hub — a split task's execution: a task's
+ * or a unit's lease that names one is granted with it only to a rack whose
+ * report names `split-scopes`, and a call's never; the rack is told once the
+ * scope ended — by its session, or as its session ends or expires; and a
  * lease of a scope goes first to a rack that holds some of what it reads, as
- * the scope's completed leases wrote it, when that rack could take it, which
- * is also what the scope's work is weighed as fetching nothing of there.
+ * the scope's completed leases wrote it, when that rack could take it. The
+ * hub's own scope is `hub-keyed-scopes.spec.ts`'.
  */
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { uuidv7 } from '@elaraai/e3-core';
-import { IntegerType, encodeBeast2For, none, some } from '@elaraai/east';
-import { EmptyType, EndScopeType, FetchCostRequestType, FetchCostResultType } from '../protocol/control.js';
+import { IntegerType, encodeBeast2For } from '@elaraai/east';
+import { EmptyType, EndScopeType } from '../protocol/control.js';
 import { RACK_SCOPES_ENDED_BYTES, RACK_SPLIT_SCOPES } from '../protocol/rack-json.js';
 import type { RackLeaseEvent, RackLeaseScope } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { socketRequest } from '../client/local-http.js';
 import { SCOPE_AFFINITY_MS } from './hub.js';
-import { RackLinkMeter } from './link-meter.js';
 import { call, closeAll, fixture, type HubFixture, type HubSession } from './hub.test-utils.js';
 import type { TestRackAgent } from '../testing/test-rack-agent.js';
 
@@ -66,13 +65,6 @@ async function runs(f: HubFixture, agent: TestRackAgent, leaseId?: string): Prom
   const outputHash = await f.storage.objects.write(f.repo, encodeBeast2For(IntegerType)(++written));
   assert.equal((await agent.complete(grant, { taskName: 'task', status: 'success', outputHash })).disposition.type, 'recorded');
   return outputHash;
-}
-
-/** What a session's work reading these objects would fetch from each rack, in the scope given. */
-async function fetchCosts(f: HubFixture, session: HubSession, hashes: string[], scope?: string): Promise<Map<string, boolean[]>> {
-  const links = await socketRequest(f.socket, 'POST', `/v1/sessions/${session.sessionId}/fetch-costs`, { requestType: FetchCostRequestType,
-    body: { hashes, scope: scope === undefined ? none : some(scope) }, responseType: FetchCostResultType });
-  return new Map(links.map((link) => [link.rackId, link.held]));
 }
 
 /** Ends a scope through a session's control route, as its session does once its split task has ended. */
@@ -209,7 +201,7 @@ it('grants a whole task\'s lease with its scope to a rack that keeps scopes, and
   const scope = { id: uuidv7(), feeds: true };
   await session.create(task(['b'.repeat(64)], scope));
   const granted = await keeps.claim(); assert(granted);
-  assert.deepEqual((JSON.parse(granted.eventJson) as RackLeaseEvent).scope, scope, 'a session\'s scope rides a whole task\'s lease');
+  assert.deepEqual((JSON.parse(granted.eventJson) as RackLeaseEvent).scope, scope, 'a scope a whole task\'s lease names rides it');
   await keeps.complete(granted, failed);
   const [program] = (await f.objects(1, 64)).keys();
   await session.create({ ...call(program!, 2n), scope });
@@ -217,7 +209,7 @@ it('grants a whole task\'s lease with its scope to a rack that keeps scopes, and
   assert.equal('scope' in (JSON.parse(called.eventJson) as object), false, 'a call writes nothing a later lease reads');
 });
 
-it('sends a lease of a session\'s scope first to the rack that wrote some of what it reads, input by input, and weighs it fetching that there for nothing', async () => {
+it('sends a lease of a scope first to the rack that wrote some of what it reads, input by input', async () => {
   let time = Date.now();
   const f = await fixture({ now: () => time, leaseWindowMs: 40 });
   const session = await f.session();
@@ -250,24 +242,17 @@ it('sends a lease of a session\'s scope first to the rack that wrote some of wha
   const anywhere = await second.claim();
   assert.equal(anywhere?.leaseId, readsC.leaseId);
   await first.complete(onFirst, failed); await second.complete(onSecond, failed); await second.complete(anywhere, failed);
-
-  // What its work fetches, weighed with its scope: the rack that wrote it holds
-  // it, and no rack is known to hold it without the scope
-  const scoped = await fetchCosts(f, session, [a, b, c, d], scope.id);
-  assert.deepEqual(scoped.get(first.rackId), [true, false, false, false]);
-  assert.deepEqual(scoped.get(second.rackId), [false, true, false, false]);
-  const unscoped = await fetchCosts(f, session, [a, b], undefined);
-  assert.ok([...unscoped.values()].every((held) => held.every((one) => !one)));
-  // Another session's work is told nothing of the scope
-  const another = await f.session();
-  assert.ok([...(await fetchCosts(f, another, [a], scope.id)).values()].every((held) => !held[0]));
+  // Work of no scope reading what the scope wrote waits for no rack
+  const unscoped = await session.create(task([a]));
+  const unscopedOn = await second.claim();
+  assert.equal(unscopedOn?.leaseId, unscoped.leaseId);
+  await second.complete(unscopedOn, failed);
 
   // Once the scope ends, what its racks wrote of it is let go: a lease that
   // names it is the same work of no scope, and waits for no rack
   await endScope(f, session, scope.id);
   const after = await session.create(task([a], scope));
   assert.equal((await second.claim())?.leaseId, after.leaseId);
-  assert.ok([...(await fetchCosts(f, session, [a], scope.id)).values()].every((held) => !held[0]));
 });
 
 it('ends a session\'s scopes as the hub finds the session silent, and tells each rack once', async () => {
@@ -309,9 +294,8 @@ it('tells a rack of more ended scopes than one answer\'s header holds over its n
   assert.ok(keeps.scopesEndedHeaderBytes.every((bytes) => bytes <= RACK_SCOPES_ENDED_BYTES), `${keeps.scopesEndedHeaderBytes.join(', ')}`);
 });
 
-it('forgets what a rack that rebooted held — of its reads and of every scope — and tells it of no scope it was granted before', async () => {
-  const meter = new RackLinkMeter();
-  const f = await fixture({ leaseWindowMs: 40, linkMeter: meter });
+it('forgets what a rack that rebooted held of every scope, and tells it of no scope it was granted before', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
   const session = await f.session();
   const rebooting = await f.agent({ resources, splitScopes: true, label: 'rebooting' });
   const other = await f.agent({ resources, splitScopes: true, label: 'other' });
@@ -319,15 +303,15 @@ it('forgets what a rack that rebooted held — of its reads and of every scope �
   const scope = { id: uuidv7(), feeds: true };
   await session.create(task(['b'.repeat(64)], scope));
   const wrote = await runs(f, rebooting);
-  // An object it was served whole through the hub
-  const served = 'c'.repeat(64);
-  meter.held(rebooting.rackId, session.repoAlias, served);
-  assert.deepEqual((await fetchCosts(f, session, [wrote, served], scope.id)).get(rebooting.rackId), [true, true]);
+  // Of the same boot, a lease that reads what it wrote waits for it
+  const held = await session.create(task([wrote], scope));
+  assert.equal(await other.claim(), null);
+  const there = await rebooting.claim(); assert.equal(there?.leaseId, held.leaseId);
+  await rebooting.complete(there, failed);
 
-  // Its host restarts: its next heartbeat names another boot
+  // Its host restarts: its next heartbeat names another boot, and its disk, kept by boot, holds none of it
   rebooting.reboot();
   await rebooting.heartbeat();
-  assert.deepEqual((await fetchCosts(f, session, [wrote, served], scope.id)).get(rebooting.rackId), [false, false], 'its disk, kept by boot, holds none of it');
   // A lease that reads what it wrote waits for it no more
   const reads = await session.create(task([wrote], scope));
   assert.equal((await other.claim())?.leaseId, reads.leaseId);
@@ -335,10 +319,6 @@ it('forgets what a rack that rebooted held — of its reads and of every scope �
   await endScope(f, session, scope.id);
   await rebooting.heartbeat();
   assert.deepEqual(rebooting.scopesEnded, []);
-  // A heartbeat of the same boot forgets nothing
-  meter.held(rebooting.rackId, session.repoAlias, served);
-  await rebooting.heartbeat();
-  assert.equal(meter.link(rebooting.rackId).holds(session.repoAlias, served), true);
 });
 
 it('keeps at most a session\'s share of the hub\'s scopes open, so one session never takes the scopes of another', async () => {

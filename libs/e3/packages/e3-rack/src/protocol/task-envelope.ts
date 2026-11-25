@@ -17,9 +17,9 @@
  * - the environment the guest's rootfs is composed from;
  * - the lease's closure: every object its guest may read, and no other;
  * - for a unit of a split task, the task's execution it is part of (its
- *   scope), to a rack that keeps a stage's outputs for the next; or, under a
- *   policy that keeps what work wrote for the session, the session's own
- *   scope, which every task's and unit's lease of the session names.
+ *   scope), to a rack that keeps a stage's outputs for the next; or, to a
+ *   rack that keeps a hub's objects under the hub's key, the hub's own scope,
+ *   which every task's and unit's lease of the hub names.
  *
  * A function lease names its program by hash, staged with the closure, so a
  * lease's row stays small.
@@ -170,9 +170,10 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
 
 /**
  * The scope a lease is part of, as a rack is told it: the execution of a
- * split task a unit's lease is part of (e3-core's `SplitScope`), or, under a
- * policy that keeps what work wrote for the session (`keep` `session`), the
- * rack session every task's and unit's lease of it is part of.
+ * split task a unit's lease is part of (e3-core's `SplitScope`), or, to a
+ * rack that keeps a hub's objects under the hub's key (`hub-keyed-scopes`,
+ * `RACK_HUB_KEYED_SCOPES`), the hub's own scope, which every task's and
+ * unit's lease of every session of the hub is part of (`keyed`).
  *
  * @remarks
  * A rack whose report names `split-scopes` (`RACK_SPLIT_SCOPES`) may keep what a lease
@@ -187,13 +188,18 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
  */
 export interface RackLeaseScope {
   /** The scope's id: random, of nothing the task runs over, one for each
-   *  execution of a split task, or for each session. Words of at most 64
+   *  execution of a split task, or for each hub process. Words of at most 64
    *  letters, digits and hyphens. */
   readonly id: string;
   /** Whether a later lease of the scope reads what this one writes: its
    *  outputs are worth keeping. A lease that feeds none still reads what the
    *  scope keeps. */
   readonly feeds: boolean;
+  /** Whether the scope is its hub's own, which the rack keeps only encrypted
+   *  under the key the hub's heartbeat answers give it (`RACK_HUB_KEY_HEADER`),
+   *  and reads only while it holds that key: a rack that holds no key of the
+   *  scope's id keeps nothing of it. Absent for a split scope. */
+  readonly keyed?: true;
 }
 
 /**
@@ -215,9 +221,9 @@ export interface RackLeaseScope {
  */
 export function readRackLeaseScope(value: unknown): RackLeaseScope | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const { id, feeds } = value as Record<string, unknown>;
+  const { id, feeds, keyed } = value as Record<string, unknown>;
   if (!isRackScopeId(id) || typeof feeds !== 'boolean') return undefined;
-  return { id, feeds };
+  return keyed === true ? { id, feeds, keyed } : { id, feeds };
 }
 
 /**
@@ -258,11 +264,13 @@ export interface RackLeaseEvent {
    */
   readonly resources?: RackLeaseResources;
   /**
-   * The split task's execution a unit is part of, or the session a task or a
-   * unit is part of, to a rack that keeps a scope's outputs for its later
-   * leases ({@link RackLeaseScope}). A call's lease names none. Read with
+   * The split task's execution a unit is part of, to a rack that keeps a
+   * scope's outputs for its later leases; or the hub's own scope a task or a
+   * unit is part of, to a rack that keeps a hub's objects under its key
+   * ({@link RackLeaseScope}). A call's lease names none. Read with
    * {@link readRackLeaseScope}; a source leaves it out of the lease a rack
-   * that does not name `split-scopes` (`RACK_SPLIT_SCOPES`) is granted.
+   * that names neither `split-scopes` (`RACK_SPLIT_SCOPES`) nor
+   * `hub-keyed-scopes` is granted.
    */
   readonly scope?: RackLeaseScope;
 }
