@@ -53,6 +53,8 @@ export interface StudioPageInput {
     readonly live?: Live;
     /** What it is tagged, each a word or two to find it by; omitted, none. A tag is kept without the spaces around it, once. */
     readonly tags?: readonly string[];
+    /** A page is no template: an entry written with both is refused. */
+    readonly template?: never;
 }
 
 /**
@@ -69,6 +71,17 @@ export interface StudioTemplateInput {
     readonly template: Layout;
     /** What it is tagged, each a word or two to find it by; omitted, none. A tag is kept without the spaces around it, once. */
     readonly tags?: readonly string[];
+    /** A template is no page: an entry written with both is refused. */
+    readonly draft?: never;
+    /** A template has no published version. */
+    readonly live?: never;
+}
+
+/** An entry as it may be written past the compiler — from data, or a cast: what is refused where it is built. */
+interface Written {
+    readonly draft?: unknown;
+    readonly template?: unknown;
+    readonly live?: unknown;
 }
 
 /**
@@ -77,6 +90,9 @@ export interface StudioTemplateInput {
  *
  * @remarks
  * - **An entry with `draft` is a page**, and one with `template` a template.
+ *   An entry is one or the other: written with both, or as a template with a
+ *   `live` version, it is refused — by the compiler, and where it is built —
+ *   so nothing written is dropped unsaid.
  * - **Each entry is built as every write builds one** (`studioEntry`): its
  *   project is its key's and its title its layout's, so the record's indexes
  *   on them list it where it is. Neither is written here.
@@ -85,7 +101,8 @@ export interface StudioTemplateInput {
  *
  * @param entries - The pages and the templates, each its key, its layout, and its published version and tags ({@link StudioPageInput}, {@link StudioTemplateInput})
  * @returns The entries, by key: a value of the record's type, `Studio.Types.Pages`
- * @throws {Error} When two entries have one key, naming it; and when a tag is empty
+ * @throws {Error} When two entries have one key, naming it; when a tag is empty; and when an entry is written as both a
+ *   page and a template, as neither, or as a template with a published version
  *
  * @example
  * ```ts
@@ -117,6 +134,16 @@ export function studioPagesValue(entries: readonly (StudioPageInput | StudioTemp
         if (pages.has(entry.key)) {
             throw new Error(`Studio.value: ${printKey(entry.key)} is written twice — an entry's key is its own in the record`);
         }
+        const written: Written = entry;
+        if (written.template !== undefined && written.draft !== undefined) {
+            throw new Error(`Studio.value: ${printKey(entry.key)} is written as a page, with a \`draft\`, and as a template — an entry is one or the other`);
+        }
+        if (written.template === undefined && written.draft === undefined) {
+            throw new Error(`Studio.value: ${printKey(entry.key)} has neither a \`draft\` nor a \`template\` — a page is written with its draft, a template with its layout`);
+        }
+        if (written.template !== undefined && written.live !== undefined) {
+            throw new Error(`Studio.value: ${printKey(entry.key)} is a template written with a \`live\` version — a template has no published version`);
+        }
         const keep = (tagsOf ??= East.compile(keptTags, []));
         // A tag nothing is kept of is the author's slip, never dropped in silence.
         if ((entry.tags ?? []).some(tag => keep(new SortedSet([tag], compareStrings)).size === 0)) {
@@ -124,7 +151,7 @@ export function studioPagesValue(entries: readonly (StudioPageInput | StudioTemp
         }
         const tags = keep(new SortedSet(entry.tags ?? [], compareStrings));
         const build = (entryOf ??= East.compile(studioEntry, []));
-        pages.set(entry.key, "template" in entry
+        pages.set(entry.key, entry.template !== undefined
             ? build(entry.key, variant("template", null), entry.template, none, tags)
             : build(entry.key, variant("page", null), entry.draft, entry.live === undefined ? none : some(entry.live), tags));
     }

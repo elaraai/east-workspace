@@ -118,6 +118,25 @@ export function recordDeploy(name: string, first: () => Package): RecordDeploy {
 }
 
 /**
+ * A deploy e3 refuses for a record: the refusal is the record deploy's own,
+ * it says what the test holds it to, and the workspace keeps what it held.
+ *
+ * @param suite - The suite's repositories
+ * @param pkg - The release e3 refuses
+ * @param record - The record's name, as the package declares it
+ * @param says - Holds the refusal's words to what the test expects of them
+ */
+export async function assertRefused(suite: RecordDeploy, pkg: Package, record: string, says: (message: string) => void): Promise<void> {
+    const held = await suite.history(record);
+    await assert.rejects(suite.deploy(pkg), (err: unknown) => {
+        assert.ok(err instanceof RecordDeployRefusedError);
+        says(err.message);
+        return true;
+    });
+    assert.deepEqual(await suite.history(record), held, 'nothing was written');
+}
+
+/**
  * A record at a new type, deployed without its migration step: the deploy is
  * refused, naming what changed and what to declare, and the workspace keeps
  * what it held.
@@ -127,12 +146,8 @@ export function recordDeploy(name: string, first: () => Package): RecordDeploy {
  * @param record - The record's name, as the package declares it
  */
 export async function assertRefusedWithoutStep(suite: RecordDeploy, pkg: Package, record: string): Promise<void> {
-    const held = await suite.history(record);
-    await assert.rejects(suite.deploy(pkg), (err: unknown) => {
-        assert.ok(err instanceof RecordDeployRefusedError);
-        assert.ok(err.message.includes(`record 'records/${record}' changed type with no migration`), err.message);
-        assert.match(err.message, /Declare a migration for it/);
-        return true;
+    await assertRefused(suite, pkg, record, (message) => {
+        assert.ok(message.includes(`record 'records/${record}' changed type with no migration`), message);
+        assert.match(message, /Declare a migration for it/);
     });
-    assert.deepEqual(await suite.history(record), held, 'nothing was written');
 }

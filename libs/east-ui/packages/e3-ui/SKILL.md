@@ -127,7 +127,7 @@ Task → What do you need?
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
-    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: Studio.value([{ key: { project, page }, draft: { title, cells, filters }, live?, tags? }, { key, template: { title, cells, filters } }]), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ pages_by_kind: index.on(["kind"]), pages_by_kind_project: index.on(["kind", "project"]), pages_by_kind_tag: index.on(["kind", "tags"]), pages_by_kind_title: index.on(["kind", "title"]) }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent), migration.rows("entry_fields", Studio.migrations.entryFields)] })
+    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: Studio.value([{ key: { project, page }, draft: { title, cells, filters }, live?, tags? }, { key, template: { title, cells, filters } }]), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ pages_by_kind: index.on(["kind"]), pages_by_kind_project: index.on(["kind", "project"]), pages_by_kind_tag: index.on(["kind", "tags"]), pages_by_kind_title: index.on(["kind", "title"]) }), migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)] }) — an entry is a struct (`kind`: page or template, `project`, `title`, `tags`, `draft`, `live`), its project its key's and its title its layout's, as `Studio.value` and every write build it; each index is led by `kind`, so the pages and the templates list apart; the step carries a record an earlier release wrote, listed after `cell_content` by a record that already lists that step and alone by any other (`e3-ui:studio.examples.tsx:studioBuilder`)
     │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder and the page (range: a date field every row has, never an optional one)
     │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
     │   ├─ What a click on a visual does, and who follows it → Studio.visual.of(source, view, { click?: variant("select" | "filter" | "none", null) or variant("open", pageKey), follow?: { leader, from, to, empty: variant("all" | "prompt", null) } })
@@ -513,19 +513,9 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   A visual whose filter reads `$now` ("in the last 7
   days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
   readers only what their pages bind must admit their platform-free calls over
-  those datasets. A text block draws. An entry of the pages record
-  (`Studio.Types.Entry`) is a struct: its `kind` (page or template), its
-  `project`, its `title`, its `tags`, its `draft` layout and its `live`
-  version. `Studio.value([...])` writes the entries a solution ships — a page
-  its `draft`, its `live` and its `tags`, a template its `template` — and
-  gives each its project from its key and its title from its layout, as every
-  write does. A record's indexes are each led by `kind`, so a page lists the
-  pages and the templates apart, by project, tag and title
-  (`e3-ui:studio.examples.tsx:studioBuilder`). A pages record an earlier
-  release wrote is carried by listing its rows steps in order:
-  `Studio.migrations.cellContent`, for placements stored before one held
-  content, then `Studio.migrations.entryFields`, for entries stored before
-  one held its fields; a later form ships a step of its own.
+  those datasets. A text block draws. A pages record an earlier release wrote
+  is carried by its `Studio.migrations` steps, as the tree's line says; a later
+  form of an entry ships a step of its own.
   `e3-ui:studio.examples.tsx:studioContent` holds all of it.
   Given `alerts={Record.bind(alerts)}` (a `Studio.Types.Alerts` record whose
   one mutation is a patch), each data visual's header carries a bell that sets

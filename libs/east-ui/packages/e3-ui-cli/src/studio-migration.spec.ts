@@ -24,6 +24,13 @@
  * - **M3**: from the second form — a workspace the first step was deployed to
  *   — the deploy plans the second step alone, and builds the indexes the
  *   release declares over the carried entries.
+ * - **M4**: from the second form in a record that never listed a step — one
+ *   first declared once a placement held content, as the Studio's examples
+ *   declared theirs — the release lists the second step alone, which the
+ *   deploy plans and applies.
+ * - **M5**: that record under a release that lists both steps is refused: it
+ *   has applied none, so the deploy would start at the first, which takes a
+ *   form the record never held; the workspace keeps what it held.
  *
  * What a later release that changes an entry's form owes — a step of its own —
  * is refused where the record is declared, with no deploy, as a record that
@@ -42,7 +49,7 @@ import {
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { Studio } from '@elaraai/e3-ui';
-import { assertRefusedWithoutStep, recordDeploy } from './testing/record-deploy.js';
+import { assertRefused, assertRefusedWithoutStep, recordDeploy } from './testing/record-deploy.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
 
@@ -127,6 +134,19 @@ const before2 = () => e3.package('studio', '1.5.0', e3.record('pages', PagesCont
     migrations: (migration) => [migration.rows('cell_content', Studio.migrations.cellContent)],
 }));
 
+/** The same release as a solution first declared its record once a placement held content: at that type, with no step. */
+const before2Unlisted = () => e3.package('studio', '1.5.0', e3.record('pages', PagesContent, {
+    initial: SEED_CONTENT as ValueTypeOf<typeof PagesContent>,
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+}));
+
+/** The release whose entries hold their fields, for a record that never listed a step: the second step alone. */
+const withEntryStep = (version: string) => e3.package('studio', version, e3.record('pages', Studio.Types.Pages, {
+    initial: Studio.value([]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+    migrations: (migration) => [migration.rows('entry_fields', Studio.migrations.entryFields)],
+}));
+
 /** The release whose entries hold their fields, with both steps and the indexes a page lists the entries by. */
 const withSteps = (version: string) => e3.package('studio', version, e3.record('pages', Studio.Types.Pages, {
     initial: Studio.value([]),
@@ -189,5 +209,26 @@ describe('the Studio\'s pages record through a deploy, from the form whose place
             [['pages_by_kind', false, true], ['pages_by_kind_project', false, true], ['pages_by_kind_tag', true, true], ['pages_by_kind_title', false, true]],
             'the index on a Set files an entry once under each tag it holds',
         );
+    });
+});
+
+describe('the Studio\'s pages record through a deploy, from a record that never listed a step (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
+    // A repository a test, its workspace on a release that declared the record once a placement held content, with no step.
+    const suite = recordDeploy('studio-migration-unlisted', before2Unlisted);
+
+    it('M4: the release lists the second step alone — the record has applied none, and the first is not its own — and the deploy carries each entry to its fields', async () => {
+        const plans = await suite.deploy(withEntryStep('2.0.0'));
+        assert.deepEqual(plans, [{ record: 'records/pages', action: variant('migrate', { steps: ['entry_fields'] }) }]);
+        assert.deepEqual((await suite.history('pages')).slice(0, 1), ['$migrate:entry_fields']);
+        assert.ok(samePages(await suite.read(pagesPath) as Pages, CARRIED), 'each entry holds what it is, its project, its title and no tags, its layouts as they were');
+
+        // The step is applied once: the next deploy of the release keeps the record.
+        assert.deepEqual((await suite.deploy(withEntryStep('2.0.2'))).map((plan) => plan.action.type), ['keep']);
+    });
+
+    it('M5: a release that lists both steps is refused — the deploy would start at the first, which takes the form from before a placement held content — and the workspace keeps what it held', async () => {
+        await assertRefused(suite, withSteps('2.0.0'), 'pages', (message) => {
+            assert.match(message, /its next migration, 'cell_content', takes it as /);
+        });
     });
 });
