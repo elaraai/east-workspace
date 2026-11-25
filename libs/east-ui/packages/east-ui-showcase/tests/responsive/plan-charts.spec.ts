@@ -18,12 +18,15 @@
  * - its marks — each stroke as its layer gives it, a dot at every point where
  *   a layer asks for them, and a reading with none either side drawn as one;
  * - its readout — the row under the pointer reading the week's name and a line
- *   a series, each with its unit, a line and its band on one.
+ *   a series, each with its unit, a line and its band on one;
+ * - a target zone's caption — at the zone's start on the canvas, and past the
+ *   numbers inside a phone card's plot.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { openExample, rowSel } from "./plan-page";
+import { drawnSel, openExample, planBox, rowSel, same, sizeBox } from "./plan-page";
+import { settled } from "./settle";
 import { token } from "./tokens";
 
 /** The chart page's examples file in the catalog. */
@@ -204,5 +207,30 @@ test.describe("Plan chart page (#1753) @desktop", () => {
             names: ["Press A", "Press B", "Press C", "Press D", "Press E", "Press F"],
             values: ["37 k sheets", "29 k sheets", "28 k sheets", "23 k sheets", "20 k sheets", "14 k sheets"],
         });
+    });
+
+    test("planCharts: a target zone's caption stands at the zone's start on the canvas, whose numbers are in the gutter; on a phone card, whose numbers stand inside its plot's left edge, just past them (#1750, ruled 25 Nov 2026)", async ({ page }) => {
+        const entry = await openExample(page, "planCharts", PLAN_CHART_EXAMPLES);
+        /** The zone's caption's left, the plot's, and the right of the widest number inside the plot — none on a canvas row. */
+        const read = () => entry.locator(drawnSel("quality", "quality")).evaluate((el) => {
+            const caption = [...el.querySelectorAll("[data-plan-band-caption]")].find((c) => c.textContent === "ON TARGET")!;
+            const inPlot = [...el.querySelectorAll("[data-plan-cardbody] [data-plan-tickpx]")].map((t) => t.getBoundingClientRect().right);
+            return {
+                caption: caption.getBoundingClientRect().left,
+                plot: el.querySelector("[data-plan-chart]")!.getBoundingClientRect().left,
+                numbers: inPlot.length === 0 ? null : Math.max(...inPlot),
+            };
+        });
+        const canvas = await read();
+        expect([canvas.numbers, same(canvas.caption, canvas.plot)]).toEqual([null, true]);
+        // A phone's width: the canvas is cards, its chart rows under Measures.
+        await sizeBox(page, planBox(entry), 360);
+        await entry.getByRole("tab", { name: /Measures/ }).click();
+        await settled(page);
+        const card = await read();
+        expect(card.numbers, "the card's numbers inside its plot").not.toBeNull();
+        // Never under the numbers, and no further from them than its own paper's edge.
+        expect(card.caption - card.numbers!).toBeGreaterThanOrEqual(-0.5);
+        expect(card.caption - card.numbers!).toBeLessThanOrEqual(1);
     });
 });

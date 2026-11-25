@@ -12,7 +12,8 @@
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
  * through when an arrow key moves between them (`CSS.escape`, #819). A chart
- * card taller than a row's own lines names its series under its title (#1750).
+ * card taller than a row's own lines names its series under its title, and a
+ * band's caption on it stands past the numbers inside its plot (#1750).
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
@@ -559,6 +560,28 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(tall.textContent).not.toContain("sheets · plan");
         const spark = container.querySelector(rowSel("spark", "data-plan-card"))!;
         expect([spark.querySelector("[data-plan-legend]"), spark.textContent?.includes("sheets · plan")]).toEqual([null, true]);
+    });
+
+    test("a band's caption on a chart card stands past the numbers inside its plot's left edge: the plot carries the widest of them, in glyphs, and the caption the band's start, which the recipe keeps it no nearer the edge than (#1750, ruled 25 Nov 2026)", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("zone", variant("chart", {
+                layers: [
+                    variant("refBand", { x: none, y: some({ lo: 90, hi: 100 }), axis: variant("left", null), label: some("ON TARGET"), color: none }),
+                    variant("line", { points: [{ t: t(W27), y: 94 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                ],
+                left: some({ domain: some(variant("number", { min: 80, max: 100 })), tickValues: some(variant("number", [80, 90, 100])), numTicks: none, format: none, label: none }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            })),
+        ]), "plan-1750-card-caption");
+        const card = container.querySelector(rowSel("zone", "data-plan-card"))!;
+        // Its numbers inside the plot: 80, 90 and 100, the widest three glyphs.
+        expect([...card.querySelectorAll("[data-plan-tickpx]")].map((tick) => tick.textContent)).toEqual(["80", "90", "100"]);
+        const plot = card.querySelector<HTMLElement>("[data-plan-chart]")!;
+        expect([plot.hasAttribute("data-left-ticks"), plot.style.getPropertyValue("--plan-left-glyphs")]).toEqual([true, "3"]);
+        // The zone runs across the plot, so its caption's start is the plot's left edge.
+        const caption = screen.getByText("ON TARGET");
+        expect([caption.hasAttribute("data-plan-band-caption"), caption.style.getPropertyValue("--caption-at")]).toEqual([true, "0%"]);
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

@@ -96,6 +96,9 @@ const legendWords = {
     whiteSpace: "nowrap",
 } satisfies SystemStyleObject;
 
+/** What an axis's number stands in from the plot's edge, on the paper that keeps a mark from showing through it (#1750). */
+const TICK_INSET = "3px";
+
 /** A chart row's axis tick, wherever it stands: mono in the label ink, one line, its middle on its value's pixel. */
 const chartTick = {
     position: "absolute",
@@ -414,13 +417,13 @@ export const elementsBase = {
     },
     // Over the marks, a number stands on the paper, as a reference line's caption does (#1750): a column under it does
     // not show through. Its padding is the inset it stood at, so its words keep their place.
-    chartTickLeft: { ...chartTick, left: 0, padding: "0 3px", background: "bg.surface" },
+    chartTickLeft: { ...chartTick, left: 0, padding: `0 ${TICK_INSET}`, background: "bg.surface" },
     chartTickRight: {
         ...chartTick,
-        right: "3px",
+        right: TICK_INSET,
         zIndex: 4,
         // On a phone card, which has no rail, its numbers stand on the paper too.
-        "[data-plan-cardbody] &": { right: 0, padding: "0 3px", background: "bg.surface" },
+        "[data-plan-cardbody] &": { right: 0, padding: `0 ${TICK_INSET}`, background: "bg.surface" },
     },
     // A canvas row's left-axis tick, in the gutter's value slot (#1750): at the
     // slot's end, beside the plot it scales, in the slot's own tabular figures
@@ -508,6 +511,14 @@ export const elementsBase = {
         zIndex: 4,
         pointerEvents: "none",
         "&[data-ink]": { color: "var(--mark-ink)" },
+        // A band's caption stands at the band's start (`--caption-at`). On a phone card, whose left numbers stand
+        // inside its plot (#1750), it never stands under them: it starts past the widest of them (`--plan-left-glyphs`,
+        // in glyphs — a caption and a number share the mono face at one size, so a glyph of one is a glyph of the other)
+        // and the paper either side of it.
+        "&[data-plan-band-caption]": {
+            left: "var(--caption-at)",
+            "[data-plan-cardbody] [data-left-ticks] &": { left: `max(var(--caption-at), calc(var(--plan-left-glyphs) * 1ch + 2 * ${TICK_INSET}))` },
+        },
     },
     // The crosshair readout (#743) of every chart row but the one under the
     // pointer, whose readout is the full one (`chartTooltip`, #1753): each

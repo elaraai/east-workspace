@@ -28,8 +28,9 @@
  * - a refLine is a dotted rule — or ruled in its own dash — in its colour or
  *   the label ink, its mono caption in its colour too; a refBand washes a span
  *   of instants, a range of values on its axis (a target zone), or the
- *   rectangle where they meet, in its colour or the paper; refDots ringed
- *   markers;
+ *   rectangle where they meet, in its colour or the paper, its caption at its
+ *   start — on a phone card, past the numbers inside its plot's left edge
+ *   (#1750); refDots ringed markers;
  * - each tick is a gridline across the plot, under the marks, on the very
  *   scales the marks use (#1750): on a chart taller than a row's own lines the
  *   left axis reads it in the gutter's value slot beside it — a narrow card's,
@@ -68,6 +69,7 @@ import { curveFor, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import { chartSummary } from "../a11y.js";
+import { maxOf } from "../reductions.js";
 import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
@@ -311,6 +313,12 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale, words)), [ctx, kind, scale, words]);
     // Its ticks (#1750): a gridline each, and what the right axis reads at it.
     const ticks = useChartTicks(kind, height);
+    // The widest of its left numbers, in glyphs, on a chart tall enough to read them: on a phone card, which draws them
+    // inside the plot's left edge, a band's caption starts past them (the `refLabel` recipe).
+    const leftGlyphs = useMemo(
+        () => (height >= CHART_TALL_PX ? Math.max(0, maxOf(ticks.map((t) => t.left?.length ?? 0))) : 0),
+        [ticks, height],
+    );
     // How each layer draws (#1753): its look, and where it draws among the others.
     const system = useChakraContext();
     const looks = useMemo(() => {
@@ -492,6 +500,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
 
     return (
         <Box ref={chartRef} position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
+            data-left-ticks={leftGlyphs > 0 ? "" : undefined}
+            style={leftGlyphs > 0 ? ({ "--plan-left-glyphs": leftGlyphs } as CSSProperties) : undefined}
             onClick={() => dispatch({ t: "row.select", key: rowKey })}
             onPointerMove={() => { hovered.current = true; }}
             onPointerLeave={() => { hovered.current = false; }}>
@@ -526,7 +536,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                             }}
                             data-plan-mark="refband" data-ink={look?.ink}
                             data-plan-frac={f0.toFixed(4)} data-plan-frac-end={f1.toFixed(4)} />
-                        {caption !== undefined && <Box css={styles.refLabel} style={{ left: `${labelF * 100}%`, top: `${top + 1}px` }}>{caption}</Box>}
+                        {caption !== undefined && (
+                            <Box css={styles.refLabel} style={{ "--caption-at": `${labelF * 100}%`, top: `${top + 1}px` } as CSSProperties}
+                                data-plan-band-caption="">{caption}</Box>
+                        )}
                     </Box>
                 );
             })}
