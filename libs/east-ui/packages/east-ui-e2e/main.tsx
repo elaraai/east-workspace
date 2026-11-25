@@ -8,8 +8,8 @@
  * `UITaskPreview` — over the e3 server the harness runs, never an e3 in the page, so every read the surface makes is
  * a request to it, answered from the repository on its disk.
  *
- * A bar over the surface lists the repository's workspaces, and the address's hash chooses one (`#jobs-1m`); with
- * none, the first. The task is `plan_lab`, the plan-scale lab's Plan, unless the address names another
+ * A bar over the surface lists the repository's workspaces, and the address's hash chooses one (`#steps-5m`); with
+ * none, the first. The task is `plan_lab`, the plan-steps lab's Plan, unless the address names another
  * (`?task=name`). The server is the page's own host on port 3300, unless the address names another
  * (`?api=http://host:port`).
  *
