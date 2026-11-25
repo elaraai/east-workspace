@@ -13,7 +13,6 @@
  */
 
 import { ArrayType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, type StructType as StructTypeOf } from "@elaraai/east";
-import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import type { SchematicValue } from "./data.js";
 
 /** An item kind, decoded: what makes its rows' roles. */
@@ -34,18 +33,6 @@ const stringEqual = equalFor(StringType);
 
 /** The most rows a kind keeps at a revision, past which they are made again as they are read again. */
 const MAX_KEPT = 8_192;
-
-/**
- * An entry's row: its joined row, or the whole row its index carries (D29).
- *
- * @param entry - The entry
- * @returns Its row; `undefined` for an entry that carries none
- */
-export function entryRow(entry: RecordSliceEntry): unknown {
-    if (entry.row?.type === "some") return entry.row.value;
-    if (entry.value?.type === "some") return entry.value.value;
-    return undefined;
-}
 
 /** Some kinds' rows as their `rowsOf` makes them (see the module docs). */
 export class KindRows<R> {

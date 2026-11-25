@@ -1712,12 +1712,25 @@ Each wire changed under this rule, with the kind it is.
   …)`, its types frozen copies (`e3-ui`'s `query/migrations.ts`) — which a
   deploy runs, giving each query its root's names and no tags; a record
   declared at the new type without it is refused at the deploy, the workspace
-  keeping what it held. The type travels in the query builder's and the query
-  library's payloads — the bound record's `read`, and `Query.Types.Open`, whose
-  `new` case holds a saved query — so a UI value encoded under either type
+  keeping what it held. The type travels in the query builder's payload — the
+  bound record's `read` — and in its and the query library's
+  `Query.Types.Open`, whose `new` case holds a saved query, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. What a browser kept of the earlier form — this viewer's recent
+  runs, each a saved query as East prints it, and the open query of a builder
+  that holds its own — does not read under the new type, and is nothing kept:
+  the recent runs start empty, and such a builder opens a new query on its
+  first data source.
+- **e3-ui's query library pages the saved queries through a Slice (#1761)** —
+  package-borne. The `QueryLibrary` extension's payload trades `queries`, the
+  saved queries record's bound handle, for `slice`, in its place: the chrome of
+  a Slice over the record (`RecordSlicesChromeType`), as every builder narrowed
+  over records carries one, its `rows` source paging the saved queries through
+  the record's indexes. The library reads them a window at a time and never the
+  record whole, so its surface's manifest lists the record among what it pages,
+  not among the records it binds. A UI value encoded under either payload type
   does not decode under the other: packages are re-exported, and the dataflow
-  computes each UI task's output again under the new type. What a browser kept
-  of the earlier form — this viewer's recent runs, each a saved query as East
-  prints it, and the open query of a builder that holds its own — does not
-  read under the new type, and is nothing kept: the recent runs start empty,
-  and such a builder opens a new query on its first data source.
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, and the saved queries record keeps its type, so no
+  repository upgrade step ships with it.

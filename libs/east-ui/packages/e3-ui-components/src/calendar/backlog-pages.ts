@@ -58,6 +58,7 @@ import {
 } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { recordSlicePage, recordSliceRevision, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
+import { entryRow } from "../shared/records/entry-row.js";
 import { backlogNarrowed, backlogWhere, backlogWhole } from "../shared/schedule/backlog.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { eventKey, type CalendarItem, type CalendarKind } from "./model.js";
@@ -361,7 +362,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
         const out: BacklogPageEvent[] = [];
         for (const entry of got.value as RecordSliceEntry[]) {
             const key = idOf(entry.key);
-            const row = entry.row?.type === "some" ? entry.row.value : entry.value?.type === "some" ? entry.value.value : undefined;
+            const row = entryRow(entry);
             if (row === undefined) continue;
             const bytes = encode(row);
             const held = some(some(bytes));

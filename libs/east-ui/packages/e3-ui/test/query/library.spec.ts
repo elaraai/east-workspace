@@ -59,7 +59,11 @@ function bind($: BlockBuilder<UIComponentType>) {
 /** The handles a library is handed. */
 type Handles = ReturnType<typeof bind>;
 
-/** A page that mounts the library, built — and never run: what the tag takes, and refuses, is decided where the page is built. */
+/**
+ * A page that mounts the library, built — and never run: what the tag takes, and refuses, is decided where the page is
+ * built. Its payload is never decoded here: it carries the rail's chrome, whose functions are a binding's, which only a
+ * page on e3 runs — what the payload carries is the renderer's tests', on e3-web (`query/library.test.tsx`).
+ */
 const page = (make: (handles: Handles) => ReturnType<typeof Query.Library>) => () => East.function([], UIComponentType, ($) => make(bind($)));
 
 describe("<Query.Library> (#1063)", () => {
@@ -103,7 +107,7 @@ describe("<Query.Library> (#1063)", () => {
         assert.throws(other, /Query\.Library: `slice`'s `rows` source pages .*, not saved queries — its source is the saved queries record, of Query\.Types\.Saved/);
     });
 
-    test("#1668: the open query it is given is whatever its host gives its builder — a saved query's name, an expression of one, or the open query itself", () => {
+    test("#1668: the tag takes the open query as its host gives its builder — a saved query's name, an expression of one, or the open query itself — each read as a builder reads it (`openOf`, which `builder.spec.ts` decodes)", () => {
         const given = (query: NonNullable<Parameters<typeof Query.Library>[0]["query"]>) =>
             page(({ customers, slice }) => Query.Library({ datasets: { customers }, slice: { slice }, query, onOpen: heard }));
         for (const query of ["Revenue by region", East.value("Revenue by region", StringType), Query.open.on("customers"), variant("saved", "Revenue by region")] as const) {

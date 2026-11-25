@@ -44,7 +44,7 @@ import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
     StringType, equalFor, equivalentFor, fromEastTypeValue, isValueOf, none, parseFor, printFor, some, variant, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordSliceChosen, type RecordSliceBindType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { QueryLibraryComponent, QueryLibraryPayloadType, SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, useTrackedEvaluation, type LibraryItemValue, type ToolbarItem,
@@ -53,6 +53,8 @@ import {
     PagedGallery, recordSlicePage, recordSliceRevision, useRecordSlicesToolbarItems, useSlotStyles,
     type LibraryPageSource, type PagedLibraryGallery, type SlotStyles,
 } from "@elaraai/east-ui-components/internal";
+import { useEquivalent } from "../shared/equivalent.js";
+import { entryRow } from "../shared/records/entry-row.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { tellHost } from "../shared/open.js";
 import { queryAbout, refusalGlyph, whenWords, type QueryAbout } from "./about.js";
@@ -71,6 +73,13 @@ type RowsPart = ValueTypeOf<RecordSliceBindType>;
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryLibraryPayloadType);
+/**
+ * Who the host tells, and the slice's chrome, by the same equivalence: each kept while a new payload's is equivalent
+ * (`useEquivalent`), so a press — which moves the open query alone — makes neither again, nor the cards, the rail and
+ * the reads over them.
+ */
+const onOpenEquivalent = equivalentFor(QueryLibraryPayloadType.fields.onOpen);
+const sliceEquivalent = equivalentFor(QueryLibraryPayloadType.fields.slice);
 const nameEqual = equalFor(StringType);
 const readName = parseFor(StringType);
 /** A narrowing as text: what tells one narrowing's rows from another's. */
@@ -221,8 +230,9 @@ function useRailSource(rows: RowsPart | undefined, root: QueryRoot): string | un
 
 /**
  * The saved queries the rail narrows to, a page at a time: each page the `rows` source's own, under the rail's
- * choices, its entries' rows the queries; its count the narrowing's, from e3; and its revision the record's, so a
- * save in a builder reads the cards again. Every read is a tracked read of the source.
+ * choices, its entries' rows the queries — the row each joined, or the one its index carries (`entryRow`); its count
+ * the narrowing's, from e3; and its revision the record's, so a save in a builder reads the cards again. Every read is
+ * a tracked read of the source.
  *
  * @param rows - The `rows` source's part of the slice
  * @returns The page source the gallery reads
@@ -233,9 +243,9 @@ function useSavedPages(rows: RowsPart): LibraryPageSource<SavedQuery> {
         page: (offset, limit) => {
             const entries = recordSlicePage(rows, { where: rows.read().where, area: none }, offset, limit);
             if (entries.type === "none") return none;
-            return some(entries.value.flatMap((entry) => {
-                const row = (entry as { row?: option<unknown> }).row;
-                return row?.type === "some" && isValueOf(row.value, SavedQueryType) ? [row.value as SavedQuery] : [];
+            return some((entries.value as RecordSliceEntry[]).flatMap((entry) => {
+                const row = entryRow(entry);
+                return isValueOf(row, SavedQueryType) ? [row as SavedQuery] : [];
             }));
         },
         total: () => rows.count(),
@@ -298,7 +308,8 @@ const CardWireframe = memo(function CardWireframe({ about }: { about: QueryAbout
 /**
  * The gallery's cards: each saved query the Library's gallery card ({@link queryItem}), its media the query's
  * wireframe. A press on one tells the host its query, in a turn of its own; one that can't open here takes none, and
- * says why in the warning tone. What the library says of a query is worked out once a row.
+ * says why in the warning tone. What the library says of a query is worked out once a row, and kept as the open query
+ * moves: a press marks another card, and works out none again.
  *
  * @param root - The bound data sources
  * @param words - The words
@@ -307,15 +318,17 @@ const CardWireframe = memo(function CardWireframe({ about }: { about: QueryAbout
  * @returns The gallery the paged gallery draws
  */
 function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryOpen>, onOpen: QueryLibraryValue["onOpen"]): PagedLibraryGallery<SavedQuery> {
-    return useMemo((): PagedLibraryGallery<SavedQuery> => {
+    const aboutOf = useMemo(() => {
         const abouts = new WeakMap<SavedQuery, QueryAbout>();
-        const aboutOf = (saved: SavedQuery): QueryAbout => {
+        return (saved: SavedQuery): QueryAbout => {
             const held = abouts.get(saved);
             if (held !== undefined) return held;
             const about = queryAbout(saved, root, words);
             abouts.set(saved, about);
             return about;
         };
+    }, [root, words]);
+    return useMemo((): PagedLibraryGallery<SavedQuery> => {
         const isOpen = (saved: SavedQuery) => open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, saved.name);
         return {
             least: CARD_LEAST,
@@ -330,15 +343,16 @@ function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryO
             clicks: (saved) => aboutOf(saved).refusal === undefined,
             onOpen: (name) => tellHost(onOpen, variant("saved", name)),
         };
-    }, [root, words, open, onOpen]);
+    }, [aboutOf, words, open, onOpen]);
 }
 
 /** The cards over their page source: the shared paged gallery, saying so where the rail's choices leave none. */
 function QueryCards({ rows, id, words, gallery }: { rows: RowsPart; id: string; words: QueryWords; gallery: PagedLibraryGallery<SavedQuery> }) {
     const m = words.messages;
     const source = useSavedPages(rows);
-    // Whether a choice of the viewer's narrows the cards: what an empty grid says, and whether it offers Clear filters.
-    const readNarrowed = useCallback(() => rows.read().where.size > 0, [rows]);
+    // Whether a choice of the viewer's narrows the cards — never the page's scope, which Clear filters keeps: what an
+    // empty grid says, and whether it offers Clear filters.
+    const readNarrowed = useCallback(() => recordSliceChosen(rows), [rows]);
     const { result } = useTrackedEvaluation(readNarrowed);
     const narrowed = result.ok && result.value;
     const clear = useCallback(() => { rows.clearAll(); }, [rows]);
@@ -353,8 +367,10 @@ function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibr
     const styles = useSlotStyles("queryLibrary");
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => queryKeys(id), [id]);
-    const onOpen = value.onOpen;
-    const chrome = value.slice;
+    // Who to tell, and the slice: each the payload's last one while a new payload's is equivalent — the same function, the
+    // same captures — so a press, which moves the open query alone, makes neither again.
+    const onOpen = useEquivalent(value.onOpen, onOpenEquivalent);
+    const chrome = useEquivalent(value.slice, sliceEquivalent);
     const rows = useMemo(() => sourcePart(chrome, "rows"), [chrome]);
     const icons = useMemo(() => new Map(root.entries.map((entry) => [entry.name, sourceKind(fromEastTypeValue(entry.type)).icon])), [root]);
     const facts = useMemo((): QueryLibraryFacts => ({ root, words, styles, onOpen, icons }), [root, words, styles, onOpen, icons]);

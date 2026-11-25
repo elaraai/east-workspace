@@ -93,19 +93,27 @@ export const librarySlotRecipe = defineSlotRecipe({
             },
         },
         pagedSkeleton: { height: "48px" },
-        pagedRoot: { height: "100%", minWidth: 0 },
+        pagedRoot: {
+            height: "100%",
+            minWidth: 0,
+            /* A paged gallery's root is what its lines' end is measured against: its width, the scrollbar's gutter in it. */
+            "&[data-library-gallery]": { containerType: "inline-size" },
+        },
         pagedRow: { paddingX: "14px", paddingY: "3px" },
         /* A paged gallery (east-workspace#1761): the margin over its first line;
            a line of its grid, its cards 12px apart with the gap under them and
-           20px each side — 8 at the end, beside the 12px scrollbar gutter its
-           frame reserves there; and a card's place, which the card — or, while
-           its row is read, a skeleton — fills. */
+           20px in from each side of the gallery's root — at the end, 20 less the
+           gutter its scrollbar keeps there (the root's width, `100cqw`, less the
+           line's, `100%`), whatever the platform's bar: 12px where Chromium
+           draws the styled one, Firefox's thin one, none where the bar overlays
+           the cards, as iOS's does (east-workspace#1772); and a card's place,
+           which the card — or, while its row is read, a skeleton — fills. */
         pagedGalleryHead: { height: "20px" },
         pagedGalleryRow: {
             display: "grid",
             columnGap: "12px",
             paddingLeft: "20px",
-            paddingRight: "8px",
+            paddingRight: "max(0px, calc(20px - (100cqw - 100%)))",
             paddingBottom: "12px",
         },
         pagedGalleryCell: {
