@@ -36,8 +36,8 @@
  *   footer.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
- * slots' autocomplete hanging inside the builder; Save… names and describes it
- * in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
+ * slots' autocomplete hanging inside the builder; Save… names, describes and tags
+ * it in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
  * anywhere in the builder, and opening a saved query run it (#938, `run.ts`),
  * each run planned as one call or as a split call over a dataset larger than
  * one piece (#941, `plan.ts`): the results show what came back and how it was
@@ -55,7 +55,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, checkJq, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { SortedSet, StringType, checkJq, compareFor, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, EmptyStateView, NARROW_FRAME, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, useContainerWidth, usePersistedState,
@@ -87,7 +87,7 @@ import { QueryResults, ResultStrips, pickedView, resultFooter, resultToolbarItem
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
 import {
-    entriesQuery, queryEntries, queryProgram, rootRefusal, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
+    entriesQuery, noTags, queryEntries, queryProgram, rootRefusal, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
 } from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
 import { queryToolbarItems, type QueryView } from "./toolbar.js";
@@ -103,6 +103,7 @@ type QueryBuilderValue = ValueTypeOf<typeof QueryBuilderComponent.schema>;
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryBuilderPayloadType);
 const nameEqual = equalFor(StringType);
+const nameCompare = compareFor(StringType);
 
 /** The query's views, in the switch's order. */
 const QUERY_VIEWS = ["visual", "jq"] as const;
@@ -294,14 +295,16 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const planOptions = useQueryPlanOptions();
     const seams = useMemo(() => ({ call, split, explain, collection, status, options: planOptions }), [call, split, explain, collection, status, planOptions]);
     // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
-    // run sends the counting program, which is not the query — its name and what it read.
+    // run sends the counting program, which is not the query — its name and what it read. A run holds no tags: they
+    // are a saved query's, given as it is saved.
     const { recent, remember } = useRecentQueries(recentKey);
     const onRan = useCallback((result: QueryResult, plan: RunPlan) => {
         const own = checkJq(plan.canonical, root.type, { root: true }).program;
         if (own === null) return;
+        const read = result.inputs.map(input => ({ name: input.name, path: input.path }));
         remember({
-            name: plan.name, description: plan.description, program: own,
-            root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
+            name: plan.name, description: plan.description, tags: noTags(), program: own,
+            root: read, sources: queryEast().sources(read), saved_at: new Date(),
         });
     }, [remember, root]);
     const { state: lastRunState, run: start } = useQueryRun(root, seams, onRan);
@@ -478,14 +481,21 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     }, [record, base]);
     const generated = useMemo(() => (editor.checked === undefined ? "" : describeQuery(editor.query, editor.checked, words)),
         [editor.query, editor.checked, words]);
+    // The tags the saved queries hold, in East's order: what the save popover suggests as a tag is typed.
+    const knownTags = useMemo(() => {
+        const known = new SortedSet<string>([], nameCompare);
+        for (const query of record.values()) for (const tag of query.tags) known.add(tag);
+        return [...known];
+    }, [record]);
     const { current, gesture } = state;
-    const onSave = useCallback(async (name: string, description: option<string>): Promise<string | undefined> => {
-        // The jq as typed first, then the name and the description: one gesture each, on the drafts as they stand.
+    const onSave = useCallback(async (name: string, description: option<string>, tags: SavedQuery["tags"]): Promise<string | undefined> => {
+        // The jq as typed first, then the name, the description and the tags: one gesture each, on the drafts as they stand.
         leaveJq();
         const now = current();
         if (now === undefined) return undefined;
         const { header, query } = entriesQuery(now);
-        gesture(queryEntries({ ...header, name, description }, query.steps), "typed", m.nameGesture());
+        // The tags as a save keeps them, so the query holds what its record will.
+        gesture(queryEntries({ ...header, name, description, tags: queryEast().tags(tags) }, query.steps), "typed", m.nameGesture());
         // Nothing to save closes the popover; drafts that cannot be saved say why, and keep it open.
         if (session.pending > 0 && !session.canApply) return refusalOf(session, editingWords);
         await session.apply();
@@ -497,12 +507,12 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const trigger = useMemo(() => <Button size="sm" variant="outline" data-query-save-open="">{m.saveAs()}</Button>, [m]);
     const phoneTrigger = useMemo(() => <Button size="md" variant="outline" css={styles.phoneSave} data-query-save-open="">{m.saveAs()}</Button>, [m, styles]);
     const savePopover = (
-        <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger}
+        <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger} tags={editor.header.tags} knownTags={knownTags}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
     );
     // Save… folded into the toolbar's ⋯ chip (#1229): the popover hangs from the chip.
     const saveFrom = (anchor: ReactNode) => (
-        <QuerySavePopover open={naming} onOpenChange={setNaming} anchor={anchor}
+        <QuerySavePopover open={naming} onOpenChange={setNaming} anchor={anchor} tags={editor.header.tags} knownTags={knownTags}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
     );
 
@@ -559,6 +569,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                 ? <QueryPhoneView editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} elsewhere={openedNotice} save={save}
                     description={editor.header.description.type === "some" ? editor.header.description.value : generated} running={run.status === "running"} onRun={onRunFromView} drafted={session.pending > 0} onOpenLibrary={() => setTab("library")}
                     saveButton={<QuerySavePopover phone pending={session.pending} open={naming} onOpenChange={setNaming} trigger={phoneTrigger}
+                        tags={editor.header.tags} knownTags={knownTags}
                         name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />} />
                 : <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
             : (

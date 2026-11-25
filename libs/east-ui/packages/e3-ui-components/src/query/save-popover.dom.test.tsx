@@ -12,9 +12,11 @@
  * sentence, muted, with its hint; edited, its count and Use generated, which
  * returns it to the generated sentence; at most 140 characters; a query that
  * has one opens edited. Save — the button, ⏎ in the name, ⏎ but not Shift ⏎
- * in the description — hands the host the name and the description, `none`
- * untouched or cleared and the text once edited; it closes once the host has saved, and
- * shows what refused the save otherwise. While the save runs Save is loading
+ * in the description — hands the host the name, the description, `none`
+ * untouched or cleared and the text once edited, and the tags (#1758): the
+ * open query's as it opens, the saved queries' suggested, a tag added by ⏎ in
+ * their field, which saves nothing, and removed by its ×. It closes once the
+ * host has saved, and shows what refused the save otherwise. While the save runs Save is loading
  * and both buttons are disabled; Esc cancels, and each opening starts over.
  * Hung from the ⋯ chip Save… folds into (#1229), it opens from the chip's
  * menu, beside the chip, and gives the focus back to the chip as it closes.
@@ -25,7 +27,7 @@ import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { none, some, type option } from "@elaraai/east";
+import { SortedSet, StringType, compareFor, none, some, type option } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
 import { QuerySavePopover, type QuerySavePopoverProps } from "./save-popover.js";
 
@@ -46,6 +48,14 @@ const GENERATED = "Orders where total is at least 1,000.";
 const counted = (n: number) => `${n}/140 · shown under the name in the library`;
 
 type Save = QuerySavePopoverProps["onSave"];
+type Tags = QuerySavePopoverProps["tags"];
+
+/** A saved query's tags, in East's order. */
+const tagsOf = (...tags: string[]): Tags => new SortedSet(tags, compareFor(StringType));
+/** The tags the other saved queries hold: what the field suggests. */
+const KNOWN: readonly string[] = ["monthly", "sales", "weekly"];
+/** What each Save handed the host: the name, the description, and the tags in their order. */
+const saved = (onSave: { mock: { calls: Parameters<Save>[] } }) => onSave.mock.calls.map(([name, description, tags]) => [name, description, [...tags]]);
 
 /** What a harness gives the popover: all but what it hangs from and whether it is open. */
 type Given = Omit<QuerySavePopoverProps, "open" | "onOpenChange" | "trigger" | "anchor">;
@@ -86,12 +96,13 @@ async function open() {
  * Mount Save… over the open query "Big orders" — another saved query holds
  * "Order count" — and open the popover.
  */
-async function mount(options: { description?: option<string>; onSave?: Save } = {}) {
+async function mount(options: { description?: option<string>; tags?: Tags; onSave?: Save } = {}) {
     const onSave = vi.fn<Save>(options.onSave ?? (async () => undefined));
+    const tags = options.tags ?? tagsOf();
     render(
         <ChakraProvider value={system}>
             <SaveHarness name="Big orders" taken={new Set(["Order count"])} description={options.description ?? none}
-                generated={GENERATED} onSave={onSave} />
+                tags={tags} knownTags={KNOWN} generated={GENERATED} onSave={onSave} />
         </ChakraProvider>,
     );
     return { onSave, popover: await open() };
@@ -104,6 +115,12 @@ const nameField = (p: Popover) => p.getByRole("textbox", { name: "Query name" })
 const descriptionField = (p: Popover) => p.getByRole("textbox", { name: "What the query answers, in one sentence" }) as HTMLTextAreaElement;
 /** The words under the description — the hint the field is described by. */
 const hintOf = (field: HTMLElement) => document.getElementById(field.getAttribute("aria-describedby")!)!.textContent;
+/** The tags field: the shared form's, by its key. */
+const tagsField = (p: Popover) => p.getByText("Tags").closest<HTMLElement>("[data-field]")!;
+/** Its box, which a tag is typed in. */
+const tagsInput = (p: Popover) => tagsField(p).querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+/** The tags it shows, in order. */
+const tagsShown = (p: Popover) => [...tagsField(p).querySelectorAll("[data-scope=tags-input][data-part=item-text]")].map((tag) => tag.textContent);
 /** The foot's buttons. */
 const saveButton = (p: Popover) => p.getByRole("button", { name: "Save" }) as HTMLButtonElement;
 const cancelButton = (p: Popover) => p.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
@@ -153,7 +170,7 @@ describe("the query's save popover (#936)", () => {
         expect([field.value, hintOf(field)]).toEqual([`${"x".repeat(138)}yz`, counted(140)]);
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", some(`${"x".repeat(138)}yz`)]]);
+        expect(saved(onSave)).toEqual([["Big orders", some(`${"x".repeat(138)}yz`), []]]);
     });
 
     test("a name another saved query holds is the field's error and keeps Save off, ⏎ included; the open query's own name is not", async () => {
@@ -167,7 +184,7 @@ describe("the query's save popover (#936)", () => {
         expect([name.getAttribute("aria-invalid"), saveButton(popover).disabled]).toEqual(["true", true]);
         await userEvent.type(name, "{Enter}");
         await settle();
-        expect(onSave.mock.calls).toEqual([]);
+        expect(saved(onSave)).toEqual([]);
         expect(screen.getByRole("dialog")).toBeTruthy();
 
         await act(async () => { fireEvent.change(name, { target: { value: "  " } }); });
@@ -183,7 +200,7 @@ describe("the query's save popover (#936)", () => {
         const { popover, onSave } = await mount();
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []]]);
     });
 
     test("once edited, Save hands the host the description as written, trimmed — under the name as typed, trimmed", async () => {
@@ -192,7 +209,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.change(descriptionField(popover), { target: { value: "  Orders of 1,000 or more.\n" } }); });
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Large orders", some("Orders of 1,000 or more.")]]);
+        expect(saved(onSave)).toEqual([["Large orders", some("Orders of 1,000 or more."), []]]);
     });
 
     test("a description cleared is no description: Save hands the host none, and the generated sentence shows in its place", async () => {
@@ -200,7 +217,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.change(descriptionField(popover), { target: { value: "   " } }); });
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []]]);
     });
 
     test("a query that has a description opens edited, showing it; Use generated returns it to the generated sentence, saved as none", async () => {
@@ -211,14 +228,14 @@ describe("the query's save popover (#936)", () => {
         expect([field.value, field.hasAttribute("data-generated")]).toEqual([GENERATED, true]);
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []]]);
     });
 
     test("⏎ saves from the name, and from the description; Shift ⏎ in the description is a new line", async () => {
         const { popover, onSave } = await mount();
         await userEvent.type(nameField(popover), "{Enter}");
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []]]);
 
         const again = await open();
         const field = descriptionField(again);
@@ -228,7 +245,7 @@ describe("the query's save popover (#936)", () => {
         expect(screen.getByRole("dialog")).toBeTruthy();
         await userEvent.type(field, "Shipped only.{Enter}");
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none], ["Big orders", some(`${GENERATED}\nShipped only.`)]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []], ["Big orders", some(`${GENERATED}\nShipped only.`), []]]);
     });
 
     test("what refused the save shows in the popover, which stays open; a save that resolves undefined closes it", async () => {
@@ -244,7 +261,7 @@ describe("the query's save popover (#936)", () => {
 
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none], ["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []], ["Big orders", none, []]]);
     });
 
     test("while the save runs, Save is loading and Cancel and Save are disabled", async () => {
@@ -259,18 +276,62 @@ describe("the query's save popover (#936)", () => {
         await closed();
     });
 
-    test("Esc cancels — nothing is saved — and each opening starts over from the open query's name and description", async () => {
+    test("#1758: its tags field, labelled, under the description: the open query's tags, the saved queries' suggested; ⏎ in it adds the tag typed and saves nothing; a tag's × removes it; Save hands the host the tags", async () => {
+        const { popover, onSave } = await mount({ tags: tagsOf("sales") });
+        const field = tagsField(popover);
+        expect(field.getAttribute("data-editor")).toBe("tags");
+        expect(descriptionField(popover).compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(field.textContent).toContain("A word or two each, to find the query by.");
+        expect(tagsShown(popover)).toEqual(["sales"]);
+        expect([...field.querySelectorAll("datalist option")].map((o) => o.getAttribute("value"))).toEqual(["monthly", "sales", "weekly"]);
+
+        const user = userEvent.setup();
+        await user.click(tagsInput(popover));
+        await user.type(tagsInput(popover), "weekly{Enter}");
+        await settle();
+        expect(tagsShown(popover)).toEqual(["sales", "weekly"]);
+        // ⏎ added the tag: the popover is open, and nothing was saved.
+        expect([screen.queryByRole("dialog") !== null, saved(onSave)]).toEqual([true, []]);
+
+        await act(async () => { fireEvent.click(field.querySelector("[data-part=item-delete-trigger]")!); });
+        await settle();
+        expect(tagsShown(popover)).toEqual(["weekly"]);
+        await act(async () => { fireEvent.click(saveButton(popover)); });
+        await closed();
+        expect(saved(onSave)).toEqual([["Big orders", none, ["weekly"]]]);
+    });
+
+    test("#1758: a tag typed and not Entered is a tag as the keyboard leaves its box — Save, pressed, keeps it", async () => {
+        const { popover, onSave } = await mount();
+        const user = userEvent.setup();
+        await user.click(tagsInput(popover));
+        await user.type(tagsInput(popover), "monthly");
+        // A press as a person makes it: the button down, which takes the keyboard from the box, then up. A page's own
+        // events each run to their end before the next; one click dispatched whole from a test would not.
+        await user.pointer({ keys: "[MouseLeft>]", target: saveButton(popover) });
+        await settle();
+        expect([tagsShown(popover), tagsInput(popover).value]).toEqual([["monthly"], ""]);
+        await user.pointer({ keys: "[/MouseLeft]", target: saveButton(popover) });
+        await closed();
+        expect(saved(onSave)).toEqual([["Big orders", none, ["monthly"]]]);
+    });
+
+    test("Esc cancels — nothing is saved — and each opening starts over from the open query's name, description and tags", async () => {
         const { popover, onSave } = await mount();
         await act(async () => { fireEvent.change(nameField(popover), { target: { value: "Large orders" } }); });
         await userEvent.type(descriptionField(popover), " Drafted.");
+        await userEvent.type(tagsInput(popover), "weekly{Enter}");
+        await settle();
+        expect(tagsShown(popover)).toEqual(["weekly"]);
         await userEvent.keyboard("{Escape}");
         await closed();
-        expect(onSave.mock.calls).toEqual([]);
+        expect(saved(onSave)).toEqual([]);
 
         const again = await open();
         const field = descriptionField(again);
         expect([nameField(again).value, field.value, field.hasAttribute("data-generated"), hintOf(field)])
             .toEqual(["Big orders", GENERATED, true, "Generated from the steps · edit to write your own"]);
+        expect(tagsShown(again)).toEqual([]);
     });
 });
 
@@ -279,7 +340,7 @@ describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
     function mountAnchored(onSave: Save) {
         render(
             <ChakraProvider value={system}>
-                <AnchoredHarness name="Big orders" taken={new Set(["Order count"])} description={none} generated={GENERATED} onSave={onSave} />
+                <AnchoredHarness name="Big orders" taken={new Set(["Order count"])} description={none} tags={tagsOf()} knownTags={KNOWN} generated={GENERATED} onSave={onSave} />
             </ChakraProvider>,
         );
         return screen.getByRole("button", { name: "⋯" });
@@ -304,7 +365,7 @@ describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
         expect(popover.getByText("Save query ·").textContent).toBe("Save query · Big orders");
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
-        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        expect(saved(onSave)).toEqual([["Big orders", none, []]]);
         await waitFor(() => expect(document.activeElement).toBe(chip));
     });
 
@@ -316,7 +377,7 @@ describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
         await userEvent.keyboard("{Escape}");
         await closed();
         await waitFor(() => expect(document.activeElement).toBe(chip));
-        expect(onSave.mock.calls).toEqual([]);
+        expect(saved(onSave)).toEqual([]);
         // Opened again and left for another control: the focus stays where the viewer put it.
         await openFromMenu();
         const elsewhere = screen.getByRole("button", { name: "Elsewhere" });

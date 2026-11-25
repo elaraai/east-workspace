@@ -30,7 +30,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import {
-    OptionType, checkJq, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    OptionType, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
@@ -39,7 +39,7 @@ import { markOf } from "@elaraai/east-ui-components/testing";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { ReactiveDatasetCache } from "../platform/index.js";
 import { whenWords } from "./about.js";
-import { queryRoot, type QueryRoot } from "./one-shot.js";
+import { queryRoot } from "./one-shot.js";
 import { CustomersType, savedQuery } from "./fixture.test-utils.js";
 import { act, firstQuery, hostQuery, queryHarness, settle, sharedEntry } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
@@ -61,16 +61,6 @@ const DEFAULT_PROGRAM = [
     ".[:10]",
 ].join("\n| ");
 
-/** A saved query over another root, checked as a save there checks it. */
-function savedOver(name: string, program: string, root: QueryRoot): SavedQuery {
-    const checked = checkJq(program, root.type, { root: true });
-    if (checked.program === null) throw new Error(`${program}: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
-    return {
-        name, description: none, program: checked.program, saved_at: NOW,
-        root: root.entries.filter((e) => checked.reads.includes(e.name)).map((e) => ({ name: e.name, path: e.path })),
-    };
-}
-
 /** A root that binds regions, which no binding of the library's has. */
 const REGIONS_ROOT = queryRoot([{ name: "regions", path: [variant("field", "inputs"), variant("field", "regions")], type: toEastTypeValue(CustomersType) }]);
 /** Orders read at another path. */
@@ -79,7 +69,7 @@ const ARCHIVE: TreePath = [variant("field", "inputs"), variant("field", "archive
 const TOP: SavedQuery = { ...savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM), saved_at: new Date("2026-09-29T10:00:00Z") };
 const BIG: SavedQuery = { ...savedQuery("Big orders", ".orders\n| map(select(.total >= 1000))", some("Orders of 1,000 or more.")), saved_at: new Date("2026-10-01T09:30:00Z") };
 const COUNT: SavedQuery = { ...savedQuery("Customer count", ".customers\n| length"), saved_at: new Date("2026-09-12T10:00:00Z") };
-const MISSING: SavedQuery = { ...savedOver("Customers by region", ".regions\n| length", REGIONS_ROOT), saved_at: new Date("2025-12-01T10:00:00Z") };
+const MISSING: SavedQuery = { ...savedQuery("Customers by region", ".regions\n| length", none, REGIONS_ROOT), saved_at: new Date("2025-12-01T10:00:00Z") };
 const ELSEWHERE: SavedQuery = { ...savedQuery("Archived orders", ".orders\n| length"), root: [{ name: "orders", path: ARCHIVE }], saved_at: new Date("2026-09-30T10:00:00Z") };
 /** This viewer's runs: one never saved, and one of Big orders. */
 const CANCELLED: SavedQuery = { ...savedQuery("Cancelled orders", ".orders\n| map(select(.status.type == \"cancelled\"))\n| length"), saved_at: new Date("2026-10-01T11:00:00Z") };

@@ -22,13 +22,15 @@
  * | `datetime` | `DateTimeInput` |
  * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
  * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option — a String field's in the order the host gives them, any other field's in its keys' order at its type, never their text's (#1584); a key held as its text — a String as itself, any other key as East prints it, read back at the field's type — and a choice that reads as none of the field's values, chosen, saying so under the field |
- * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order |
+ * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order; a tag typed is one on Enter, or as the keyboard leaves its box |
  * | `checklist` | a `StringInput` adding an item on Enter, the items done of all in the help line, and a `Checkbox` per item, labelled with its text, each with its remove |
  * | `readonly` | the value printed, in a read-only `StringInput` |
  *
  * What is typed — a text, a number, a date — is one edit when the focus
  * leaves the field, or on Enter, as typing in a cell is; Esc puts it back. A
- * choice is an edit at once. An Option's text or number is emptied to none,
+ * tag typed is a tag the same way: on Enter, or as the keyboard leaves its
+ * box — never left in the box, unsaid, where its host's Save would pass it by
+ * (#1758). A choice is an edit at once. An Option's text or number is emptied to none,
  * and its select or reference set to none by choosing Not set or Unassigned;
  * any other Option has a Clear beside it, and a Set while it holds none. Any
  * other number's box emptied leaves its field no value: a host that takes one
@@ -1140,6 +1142,8 @@ const FieldRow = memo(function FieldRow({
                     suggestions: editor.value.options.length === 0 ? none : some([...editor.value.options]),
                     placeholder: some(m.tagPlaceholder()),
                     readOnly: readOnly ? some(true) : none,
+                    // A tag typed and not Entered is a tag as the keyboard leaves its box, as any typed edit is.
+                    blurBehavior: some(variant("add", null)),
                     // A Set holds a value once, in East's order.
                     onChange: some((next: string[]) => { emit(set ? new SortedSet(next, compareStrings) : next); return null; }),
                     style: TAGS_STYLE,

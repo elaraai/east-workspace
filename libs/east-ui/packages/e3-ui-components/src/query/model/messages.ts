@@ -522,7 +522,7 @@ export interface QueryMessages {
     moveStepGesture: (p: { n: string; up: boolean }) => string;
     /** The jq edited and left. */
     editJqGesture: () => string;
-    /** The query named, and described, as it saves. */
+    /** The query named, described and tagged, as it saves. */
     nameGesture: () => string;
 
     // ── The builder (#935) ───────────────────────────────────────────────
@@ -568,6 +568,10 @@ export interface QueryMessages {
     descriptionCount: (p: { count: string; max: string; n: number }) => string;
     /** Returns the description to the sentence generated from the steps. */
     restoreGenerated: () => string;
+    /** Its tags field's label (#1758). */
+    tagsLabel: () => string;
+    /** Under the tags: what they are for. */
+    tagsHelp: () => string;
     /** The save popover's commit. */
     saveConfirm: () => string;
     /** The save popover's cancel. */

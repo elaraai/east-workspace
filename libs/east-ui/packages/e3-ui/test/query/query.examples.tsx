@@ -295,7 +295,10 @@ export const historyTask = e3.task("order_history", [historyCount, accountCount]
  * The saved queries record: the mock's seven (`Query Editor Spec.md` §6),
  * each its canonical jq — what the builder's steps print — checked against the
  * data sources the builders bind when the package builds, and described where
- * the mock describes it; the rest describe themselves.
+ * the mock describes it; the rest describe themselves. Some are tagged, and
+ * each holds the names of the data sources it reads (#1758): the record's
+ * indexes are led by those, by a query's name and by when it was saved, so a
+ * page lists and narrows the saved queries by each.
  */
 export const queries = e3.record("queries", Query.Types.Saved, {
     initial: Query.value({ orders, customers, forecast, model, bom }, [
@@ -308,6 +311,7 @@ export const queries = e3.record("queries", Query.Types.Saved, {
     | map({order: .id, customer: .name, region, total, shipped: .status.value.date})
     | sort_by(-.total)
     | .[:10]`,
+            tags: ["sales", "weekly"],
             savedAt: new Date("2026-10-01T09:00:00Z"),
         },
         {
@@ -321,6 +325,7 @@ export const queries = e3.record("queries", Query.Types.Saved, {
     | sort_by(-.revenue)
     | .[:3]`,
             description: "Top 3 regions by shipped revenue in 2026, from orders of $100 or more.",
+            tags: ["sales", "regions"],
             savedAt: new Date("2026-09-29T09:00:00Z"),
         },
         {
@@ -331,6 +336,7 @@ export const queries = e3.record("queries", Query.Types.Saved, {
     | group_by(.ship_month)
     | map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})
     | sort_by(.ship_month)`,
+            tags: ["sales", "monthly"],
             savedAt: new Date("2026-09-12T09:00:00Z"),
         },
         {
@@ -356,6 +362,7 @@ export const queries = e3.record("queries", Query.Types.Saved, {
     | [recurse(.children[]) | {cost, sku}]
     | {total_cost: map(.cost) | add, parts: length, dearest: map(.cost) | max}`,
             description: "Total cost, part count and dearest part in the PUMP-A bill of materials.",
+            tags: ["costing"],
             savedAt: new Date("2026-08-20T09:00:00Z"),
         },
         {
@@ -370,6 +377,16 @@ export const queries = e3.record("queries", Query.Types.Saved, {
         // The record's one write.
         patch: mutation.patch(),
     }),
+    // What a page lists and narrows the saved queries by. A Set's index files a query once under each data source it
+    // reads and each tag it holds.
+    indexes: (index) => ({
+        queries_by_source: index.on(["sources"]),
+        queries_by_tag: index.on(["tags"]),
+        queries_by_name: index.on(["name"]),
+        queries_by_saved_at: index.on(["saved_at"]),
+    }),
+    // Queries saved before one held its data sources' names and its tags are carried by this one step.
+    migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 });
 
 
@@ -391,8 +408,9 @@ export const queryBuilder = example({
     keywords: [
         "Query", "Query.Builder", "query builder", "jq", "steps", "saved queries", "run", "results", "Table", "Value tree", "Download", "CSV",
         "Record.bind", "patch", "e3.record", "mutation.patch", "Data.bind", "datasets", "one-shot",
+        "tags", "sources", "Query.value", "index.on", "migration.rows", "Query.migrations.sourcesAndTags",
     ],
-    description: "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it; the query it shows is the surface's own state, given as `query` and changed in `onOpen` when its Datasets or Library tab asks for another",
+    description: "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it; Save… names, describes and tags the query, and a save writes its tags and the names of the data sources it reads, which the record's indexes are led by — a record written before a saved query held them is carried by its `migrations` step; the query it shows is the surface's own state, given as `query` and changed in `onOpen` when its Datasets or Library tab asks for another",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const saved = $.let(Record.bind(queries));
@@ -567,8 +585,10 @@ export const conflictQueries = e3.record("query_conflict_queries", Query.Types.S
             saved.map((_$2, query) => ({
                 name: query.name,
                 description: East.value(some("Saved again by someone else"), OptionType(StringType)),
+                tags: query.tags,
                 program: query.program,
                 root: query.root,
+                sources: query.sources,
                 saved_at: query.saved_at.addMinutes(1n),
             })))),
     }),

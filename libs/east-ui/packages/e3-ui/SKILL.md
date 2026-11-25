@@ -139,8 +139,8 @@ Task → What do you need?
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? alerts? /> (onOpen: a click, or an alert, that opens a page)
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
-    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
-    │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, savedAt }])
+    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)] })
+    │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, tags?, savedAt }])
     │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? onOpen? id? />
     │   ├─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen query? id? />
     │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen`
@@ -532,7 +532,13 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   `e3-ui:alerts.examples.tsx:studioAlertsPage`.
 - **Queries.** One `Query.Types.Saved` record with a patch mutation holds the
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
-  build. `<Query.Builder queries datasets />` edits a query as steps or jq,
+  build. Each holds its `tags`, given in the builder's Save popover, and its
+  `sources`, the names of the data sources it reads, which a save writes from
+  what the query reads: an index is led by either (`index.on(["sources"])`,
+  `index.on(["tags"])`), filing a query once under each. A record written
+  before a saved query held them is carried by listing
+  `Query.migrations.sourcesAndTags` as a rows step
+  (`e3-ui:query.examples.tsx:queryBuilder`). `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
   `<Query.Library>` lists them. Its steps say, beside the rest, a date in the
   last N hours, days or weeks, a group by several fields, and a ratio total

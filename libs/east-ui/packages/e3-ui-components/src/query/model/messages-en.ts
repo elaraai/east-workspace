@@ -511,6 +511,8 @@ export const queryMessages: QueryMessages = {
     descriptionGenerated: () => "Generated from the steps · edit to write your own",
     descriptionCount: ({ count, max }) => `${count}/${max} · shown under the name in the library`,
     restoreGenerated: () => "Use generated",
+    tagsLabel: () => "Tags",
+    tagsHelp: () => "A word or two each, to find the query by.",
     saveConfirm: () => "Save",
     cancel: () => "Cancel",
 
