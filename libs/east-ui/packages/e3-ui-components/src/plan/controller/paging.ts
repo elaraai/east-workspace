@@ -180,7 +180,7 @@
 import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementAtOffset, elementsIn,
+    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementAtOffset, elementsIn, reseed,
     type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, isEmpty, residentWindows, unpinAll,
     snapshotOf, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
@@ -368,8 +368,10 @@ export interface PagingDriverOptions {
     /** A skeleton's height under the CURRENT UI state — the body's own height
      *  arithmetic, so a band is exactly as tall as the rows it stands for. */
     heightOf: (sk: WindowSkeleton) => number;
-    /** A skeleton's height AT REST — declared collapse, no charts expanded, no
-     *  focus: what the ledger seeds its slot rate from. */
+    /** A skeleton's height AT REST — declared collapse, or what Collapse all or
+     *  Expand all left standing (#1777), no charts expanded, no focus: what the
+     *  ledger seeds its slot rate from, and seeds it from again as what stands
+     *  moves ({@link PagingDriver.remeasure}). */
     restHeightOf: (sk: WindowSkeleton) => number;
     /** Residency policy (defaults to {@link DEFAULT_RESIDENCY}). */
     policy?: ResidencyOptions | undefined;
@@ -443,7 +445,12 @@ export interface PagingDriver {
     refresh(): void;
     /** What the rows draw at changed (a collapse, the grain, a chart toggle,
      *  an expand focus, the density): measure every window each block has
-     *  seen again, from its skeleton, and settle (#823). */
+     *  seen again, from its skeleton, and settle (#823). What they draw at
+     *  rest may have moved with it — Collapse all or Expand all left standing
+     *  (#1777), under which every window still to land arrives — so each
+     *  block's rate is seeded again from the window that seeded it, at its
+     *  height at rest now: a screen of folded windows not read yet is a
+     *  screen's worth of them, read at once. */
     remeasure(): void;
     /** What a skeleton is taken with changed (the axis kind, which decides
      *  which rows are diagnostics): resident windows take theirs again. */
@@ -1471,6 +1478,11 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                         px: options.heightOf(held.sk), rows: held.rows, restPx: held.restPx,
                     });
                 }
+                // Every window not read yet lands as rest now is (#1777): described by the window the rate was seeded
+                // from, at its height at rest now — folded by Collapse all, a band each, so the demand reaches a screen
+                // of them and reads them together, where windows described open were read one a landing.
+                const seeded = lane.ledger.seed === undefined ? undefined : lane.skeletons.get(lane.ledger.seed);
+                if (seeded !== undefined) lane.ledger = reseed(lane.ledger, options.restHeightOf(seeded.sk));
             }
             settle();
         },

@@ -6,7 +6,7 @@
  */
 import { expect, test } from "vitest";
 import { initialPlanStore, planStoreReducer, type PlanAction, type PlanStore } from "./plan-state.js";
-import { GROUP_H, ROW_H, skeletonHeight, type RowHeightFacts, type WindowSkeleton } from "./model.js";
+import { GROUP_H, ROW_H, restUi, skeletonHeight, type RowHeightFacts, type WindowSkeleton } from "./model.js";
 import { persistedOf } from "./persisted.js";
 
 test("bulk folds include nested parents, retain selection, and survive reconciliation and page eviction", () => {
@@ -113,4 +113,15 @@ test("a window's height asks whether each of its rows has rows under it, for wha
     // Folded as a parent, its press is hidden; open, the press draws under it.
     expect(skeletonHeight(sk, { grain: "resource", collapsed: (_key, _declared, parent) => parent, chartsExpanded }, false)).toBe(GROUP_H);
     expect(skeletonHeight(sk, { grain: "resource", collapsed: () => false, chartsExpanded }, false)).toBe(GROUP_H + ROW_H);
+});
+
+test("at rest is what stands: a window read under Collapse all lands folded, under Expand all open, its declaration aside (#1777)", () => {
+    const facts = (kind: RowHeightFacts["kind"]): RowHeightFacts => ({ explicit: undefined, diagnostic: false, twoLine: false, kind });
+    // A hall declaring itself folded, a press under it.
+    const sk: WindowSkeleton = {
+        keys: ["hall", "press"], parents: [-1, 0], top: [true, false], pinned: [false, false], declared: [true, false],
+        parent: [true, false], facts: [facts({ t: "group", strip: false }), facts({ t: "row" })],
+    };
+    expect([undefined, true, false].map((standing) => skeletonHeight(sk, restUi("resource", standing), false)))
+        .toEqual([GROUP_H, GROUP_H, GROUP_H + ROW_H]);
 });

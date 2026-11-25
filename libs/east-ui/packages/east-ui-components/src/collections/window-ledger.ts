@@ -34,7 +34,11 @@
  * The one other revision is the caller's: when what a visited window's rows
  * draw at changes (the Plan's collapse, grain or chart toggles, #823) it
  * observes the window again at its new height, exactly as the rows would move
- * on an inline canvas.
+ * on an inline canvas. And when what a window draws AT REST moves — the Plan's
+ * Collapse all or Expand all left standing (#1777), under which every window
+ * not visited yet will land — it seeds the rate again from the window that
+ * seeded it, at that window's height at rest now ({@link reseed}): every
+ * unvisited window follows, once, at the gesture that moved them.
  *
  * **Eviction is free.** A visited window keeps its measured height forever, so
  * dropping its rows back to a spacer leaves the extent, and every offset below
@@ -96,6 +100,9 @@ export interface WindowLedger {
     readonly slotPx: number;
     /** Whether `slotPx` is the collection's declared pitch, which no window's measure seeds again (#1398, CL1). */
     readonly declared: boolean;
+    /** The window the rate was seeded from — the first to land — which {@link reseed} seeds it from again;
+     *  `undefined` before one has landed, and for a declared pitch. */
+    readonly seed: number | undefined;
     /** Measured windows by index; absent ⇒ never visited. */
     readonly measured: ReadonlyMap<number, WindowMeasure>;
     /** Running offset of each window, `windows + 1` entries (the last is the
@@ -163,6 +170,7 @@ export function createLedger(total: number, pageSize: number, pitch?: number): W
         windows,
         slotPx: declared ? slotRate(pitch, Math.max(0, total)) : DEFAULT_SLOT_PX,
         declared,
+        seed: undefined,
         measured: new Map(),
     };
     return { ...base, prefix: prefixOf(base) };
@@ -196,16 +204,40 @@ export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMe
     // its band and its lines (#855) — bounded only by the extent the browser
     // can describe (`MAX_DOC_PX`). A fixed per-element cap sized such a
     // sheet's unloaded windows at a third of their rows, and the extent grew
-    // under the scrollbar as each one landed.
+    // under the scrollbar as each one landed. Only where what rest is moved
+    // does the rate move, and then the caller says so ({@link reseed}).
     let slotPx = ledger.slotPx;
+    let seed = ledger.seed;
     // A declared pitch is the rate already: no window seeds it again (#1398, CL1).
     if (ledger.measured.size === 0 && !ledger.declared) {
         const elements = elementsIn(ledger, w);
         const perElement = elements > 0 ? (measure.restPx ?? measure.px) / elements : DEFAULT_SLOT_PX;
         slotPx = slotRate(perElement, ledger.total);
+        seed = w;
     }
 
-    const base: Omit<WindowLedger, "prefix"> = { ...ledger, measured, slotPx };
+    const base: Omit<WindowLedger, "prefix"> = { ...ledger, measured, slotPx, seed };
+    return { ...base, prefix: prefixOf(base) };
+}
+
+/**
+ * Seed the slot rate again from the window that seeded it, at its height AT
+ * REST now — what a caller does when what rest is moved: the Plan's Collapse
+ * all or Expand all left standing (#1777), under which every window not
+ * visited yet will land. Every unvisited window follows at once; a visited one
+ * keeps its measured height.
+ *
+ * @param ledger - The current ledger
+ * @param restPx - The height at rest, now, of the window that seeded the rate ({@link WindowLedger.seed})
+ * @returns A new ledger — the same one for a declared pitch, a ledger no
+ *   window has seeded, or a rate that holds
+ */
+export function reseed(ledger: WindowLedger, restPx: number): WindowLedger {
+    if (ledger.seed === undefined || ledger.declared) return ledger;
+    const elements = elementsIn(ledger, ledger.seed);
+    const slotPx = slotRate(elements > 0 ? restPx / elements : DEFAULT_SLOT_PX, ledger.total);
+    if (slotPx === ledger.slotPx) return ledger;
+    const base: Omit<WindowLedger, "prefix"> = { ...ledger, slotPx };
     return { ...base, prefix: prefixOf(base) };
 }
 

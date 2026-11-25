@@ -16,7 +16,7 @@
 import { describe, test, expect } from "vitest";
 import {
     createLedger, observeWindow, isObserved, slotHeight, elementsIn,
-    documentHeight, offsetOfWindow, windowAtOffset, elementAtOffset, offsetOfElement, rowsIn,
+    documentHeight, offsetOfWindow, windowAtOffset, elementAtOffset, offsetOfElement, rowsIn, reseed,
 } from "./window-ledger.js";
 
 const PAGE = 200;
@@ -71,6 +71,29 @@ describe("window ledger — the frozen slot rate", () => {
         // so the extent is the whole source's from the first landing.
         expect(slotHeight(l, 7)).toBe(200 * 150);
         expect(documentHeight(l)).toBe(2_000 * 150);
+    });
+
+    test("where what rest is moves, the rate is seeded again from the window that seeded it: every unvisited window follows (#1777)", () => {
+        // Two groups a window, open at rest: 6,452 px. A later window's rest never moves the rate.
+        let l = createLedger(80, 2);
+        l = observeWindow(l, 3, { px: 6_452, rows: 200, restPx: 6_452 });
+        l = observeWindow(l, 5, { px: 6_452, rows: 200, restPx: 9_000 });
+        expect([l.seed, l.slotPx]).toEqual([3, 3_226]);
+        // Collapse all stands: the seeding window's rest is two bands now, 52 px — so is every window not visited.
+        const folded = reseed(l, 52);
+        expect([folded.slotPx, slotHeight(folded, 7)]).toEqual([26, 52]);
+        // A visited window keeps what it measured; the extent is the two visited and 38 unvisited at the new rate.
+        expect([slotHeight(folded, 3), slotHeight(folded, 5)]).toEqual([6_452, 6_452]);
+        expect(documentHeight(folded)).toBe(2 * 6_452 + 38 * 52);
+        // Never under a pixel an element: two hundred elements folded to 52 px describe 200.
+        const wide = reseed(observeWindow(createLedger(2_000, PAGE), 0, { px: 6_452, rows: 400, restPx: 6_452 }), 52);
+        expect([wide.slotPx, slotHeight(wide, 7)]).toEqual([1, 200]);
+        // A rest that holds is the same ledger; so is a declared pitch, and a ledger no window has seeded.
+        expect(reseed(l, 6_452)).toBe(l);
+        const pitched = observeWindow(createLedger(2_000, PAGE, 36), 0, { px: 52, rows: 400, restPx: 52 });
+        expect([pitched.seed, reseed(pitched, 52)]).toEqual([undefined, pitched]);
+        const fresh = createLedger(2_000, PAGE);
+        expect(reseed(fresh, 52)).toBe(fresh);
     });
 
     test("the rate is clamped so a huge source stays inside the browser's height limit", () => {

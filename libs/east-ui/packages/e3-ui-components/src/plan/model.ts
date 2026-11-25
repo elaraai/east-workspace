@@ -688,13 +688,21 @@ const NO_CHARTS: ReadonlySet<RowKey> = new Set();
 
 /**
  * The UI state a window rests at — its declared collapse, no chart expanded,
- * no focus — under a grain.
+ * no focus — under a grain; and, while Collapse all or Expand all stands
+ * (#1777), every row with rows under it folded or open as it stands, and a row
+ * that declares itself folded open under Expand all: as a window read now
+ * lands ({@link PlanStore.standing}).
  *
  * @param grain - The DECLARED grain
+ * @param standing - What Collapse all (`true`) or Expand all (`false`) left standing; `undefined` for neither
  * @returns The state
  */
-export function restUi(grain: PlanGrain): SkeletonUi {
-    return { grain, collapsed: (_key, declared) => declared, chartsExpanded: NO_CHARTS };
+export function restUi(grain: PlanGrain, standing?: boolean): SkeletonUi {
+    return {
+        grain,
+        collapsed: (_key, declared, parent) => (parent && standing !== undefined ? standing : declared && standing !== false),
+        chartsExpanded: NO_CHARTS,
+    };
 }
 
 /**

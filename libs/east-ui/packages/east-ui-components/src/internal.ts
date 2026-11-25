@@ -54,7 +54,7 @@ export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-s
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
     createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
-    offsetOfWindow, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
+    offsetOfWindow, reseed, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
 } from "./collections/window-ledger.js";
 export {
     DEFAULT_RESIDENCY, NO_RESIDENCY, advance, demandRange, isEmpty, leftRun, pin, residentWindows, step, travelOf, trim, unpinAll,

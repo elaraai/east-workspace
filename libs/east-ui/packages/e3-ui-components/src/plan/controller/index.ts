@@ -609,8 +609,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         heightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, skeletonUi, denseOf(value), expandFocus())),
         // At rest (#613): declared collapse, no charts, no focus — what the
         // slot rate is seeded from, so a first window that landed mid-collapse
-        // does not describe every unvisited one by it.
-        restHeightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, restUi(declaredGrainOf(value)), denseOf(value))),
+        // does not describe every unvisited one by it. What Collapse all or
+        // Expand all left standing is rest (#1777): every window still to land
+        // arrives under it, so the rate follows it.
+        restHeightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, restUi(declaredGrainOf(value), store.standing), denseOf(value))),
         policy: options.policy,
         onChange: () => batch(() => {
             const landed = paging.getSnapshot();
