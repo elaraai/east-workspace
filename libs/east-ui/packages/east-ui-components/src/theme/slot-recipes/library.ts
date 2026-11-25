@@ -48,6 +48,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "groupTrigger", "dimTrigger", "menuCheck",
         "group", "groupHead", "groupLabel", "groupMark", "groupSummary", "grid",
         "body", "canvas", "row", "rowGrid", "pagedRoot", "pagedRow", "pagedSkeleton",
+        "pagedGalleryHead", "pagedGalleryRow", "pagedGalleryCell", "pagedGallerySkeleton",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel", "cardFigure",
         "cardSublabel", "cardNote", "cardRemove", "trailing", "statusPill", "glyph",
         "meter", "meterTrack", "meterFill", "meterText",
@@ -94,6 +95,26 @@ export const librarySlotRecipe = defineSlotRecipe({
         pagedSkeleton: { height: "48px" },
         pagedRoot: { height: "100%", minWidth: 0 },
         pagedRow: { paddingX: "14px", paddingY: "3px" },
+        /* A paged gallery (east-workspace#1761): the margin over its first line;
+           a line of its grid, its cards 12px apart with the gap under them and
+           20px each side — 8 at the end, beside the 12px scrollbar gutter its
+           frame reserves there; and a card's place, which the card — or, while
+           its row is read, a skeleton — fills. */
+        pagedGalleryHead: { height: "20px" },
+        pagedGalleryRow: {
+            display: "grid",
+            columnGap: "12px",
+            paddingLeft: "20px",
+            paddingRight: "8px",
+            paddingBottom: "12px",
+        },
+        pagedGalleryCell: {
+            display: "flex",
+            minWidth: "0",
+            minHeight: "0",
+            "& > *": { flex: "1", minWidth: "0" },
+        },
+        pagedGallerySkeleton: { borderRadius: "10px" },
         /* Virtualizer sizing canvas — height is bound per render. */
         canvas: {
             position: "relative",

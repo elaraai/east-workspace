@@ -369,7 +369,6 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Sheet strip's chip: mono's own 13px line, its capitals at the chip's middle (east-workspace#1748)", at(sheet, "stripChip"), "15px"],
         ["the Query builder's status line", at(queryBuilderSlotRecipe.base, "status"), "19px"],
         ["the Query results' footer", at(queryResultsSlotRecipe.base, "footer"), "17px"],
-        ["a Query library's row", at(queryLibrarySlotRecipe.base, "paneRow"), "20px"],
         ["a phone Query's Table · Tree", at(queryPhoneSlotRecipe.base, "segItem"), "16px"],
         ["a phone Query's Run", at(queryPhoneSlotRecipe.base, "run"), "18px"],
         ["a Studio library's row", at(studioLibrarySlotRecipe.base, "paneRow"), "20px"],

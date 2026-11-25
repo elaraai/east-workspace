@@ -157,3 +157,11 @@ What each step built, where it differs from the above.
 
 - **Step 1.** A recent run, kept in the browser, holds no tags: tags are a saved query's, given as it is saved. A tag typed into a form's tags field and not Entered is a tag as the keyboard leaves its box, in every form, so a Save pressed straight after typing one keeps it.
 - **Step 2.** `Studio.value` writes the pages and templates a solution ships, each built as every write builds one, so a seed never spells a project or a title out. `Studio.Types.PageEntry` goes, and `Studio.Types.EntryKind` is new.
+- **Step 3.** The query library is one toolbar over a grid of cards (ruled 25 Nov 2026, on seeing the table, then the panes): the rail and New query in the toolbar, and under it a saved query a card — the card the gallery drew: a wireframe of its query, its name, its description, its tags, and what it reads and gives and when it was saved. Where this differs from §1 to §4:
+  - **No table.** The cards stand in a responsive grid, as many across as fit at 300px each, read a window at a time through the record's indexes as the grid scrolls.
+  - **No Library pane and no Details.** `library` and `inspector` are not props of `<Query.Library>`, and `Query.library` is not built. A card says what its query is; New query's menu lists the bound data sources; a viewer's recent runs are the builder's.
+  - **No edit.** A press on a card, or ⏎ or Space on it, asks the host for its query (L6), and the library writes nothing: tags are edited in the query builder's Save popover alone (L8), so it takes no `queries` handle and binds no record.
+  - **L11 holds:** New query follows the rail.
+  - The library and a query builder are surfaces of their own, a `ui()` each. The library pages the saved queries, a surface that pages a record never loads it whole, and the builder reads them whole.
+  - The grid is the shared paged gallery (`PagedGallery`, beside the paged palette a builder's Backlog tab draws), so another library of cards pages the same way.
+  - The page library (step 4) is as designed until ruled otherwise.

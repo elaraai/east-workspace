@@ -139,11 +139,11 @@ Task → What do you need?
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? alerts? /> (onOpen: a click, or an alert, that opens a page)
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
-    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ queries_by_source: index.on(["sources"]), queries_by_tag: index.on(["tags"]) }), migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)] }) — a query holds the names of the data sources it reads (`sources`, written by a save) and its `tags`; an index led by either files it once under each, and the step carries a record written before a query held them (`e3-ui:query.examples.tsx:queryBuilder`)
+    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ queries_by_source: index.on(["sources"]), queries_by_tag: index.on(["tags"]), queries_by_name: index.on(["name"]), queries_by_saved_at: index.on(["saved_at"]) }), migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)] }) — a query holds the names of the data sources it reads (`sources`, written by a save) and its `tags`; an index led by either files it once under each, and the step carries a record written before a query held them (`e3-ui:query.examples.tsx:queryBuilder`)
     │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, tags?, savedAt }])
     │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? onOpen? id? />
-    │   ├─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen query? id? />
-    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen`
+    │   ├─ The saved queries, and where new ones start    → <Query.Library datasets slice onOpen query? id? /> — a grid of cards its rail narrows: `slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, { indexes }), … } }) }}`; it writes nothing, so it takes no `Record.bind` (`e3-ui:query.examples.tsx:queryLibrary`)
+    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen` — each on a `ui()` of its own: the library pages the saved queries, the builder reads them whole
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -544,7 +544,7 @@ end are `Option<DateTime>` when it can wait in the backlog. A
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it, tagged;
-  `<Query.Library>` lists them. Its steps say, beside the rest, a date in the
+  `<Query.Library>` lists them, a card each. Its steps say, beside the rest, a date in the
   last N hours, days or weeks, a group by several fields, and a ratio total
   (one field added up over another), each of which splits. A query may read
   `.now`, the minute it is asked: the root's last field — unless a data source

@@ -4,48 +4,57 @@
  */
 
 /**
- * `<Query.Library>` (#1063) — every saved query, and where new queries start,
- * set out as Studio's page library is.
+ * `<Query.Library>` (#1063, #1761) — every saved query as a card, in a grid
+ * its rail narrows, and where new queries start.
  *
- * The query library is a component of its own, apart from the builder: an
- * interface — the saved queries record bound with its patch, the data sources
- * a query may read, the query open in the builder, and who to tell when
- * another is asked for — which
- * the `QueryLibrary` renderer draws, headerless with one toolbar: the search,
- * Sort, Grid · List and the primary "+ New query on <data source>"; beside it
- * the data sources with their counts of saved queries, and this viewer's
- * recent runs; under it the saved queries, each card a wireframe of its steps.
- * It reads no dataset: a card draws a query, never its data.
+ * The query library is an interface: the rail's chrome over the `rows` source
+ * of its `slice` — the saved queries, paged through the record's indexes — the
+ * data sources a query may read, the query open in the builder, and who to
+ * tell when another is asked for. The `QueryLibrary` renderer draws it in a
+ * `BuilderFrame`: one toolbar holding the rail and New query, over the cards.
+ * It has no pane: a card says what its query is, and a query is edited — its
+ * tags too — in the builder.
  *
- * "Open in builder →" tells the host (`onOpen`), which shows the query in its
- * builder: the query library opens nothing itself, and shares no store entry
- * with a builder (#1668).
+ * Its cards are read a window at a time through the record's indexes, and the
+ * rail narrows them: the library reads no dataset, and never the record whole.
+ * A card, and New query, tell the host (`onOpen`), which shows the query in
+ * its builder: the query library opens nothing itself, writes nothing, and
+ * shares no store entry with a builder (#1668).
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType,
+    East,
     FunctionType,
     NullType,
     OptionType,
     StringType,
     StructType,
+    isTypeEqual,
     none,
+    printTypeSummary,
     some,
+    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
     EastUI,
+    RecordSlicesChromeType,
+    isRecordSlices,
     optionsTag,
+    resolveRowSource,
     type JsxTag,
     type OptionsProps,
+    type RecordSlicesChromeOptions,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
+import { recordSources } from "../utils/record-sources.js";
 import { QueryOpenType, openOf } from "./open.js";
-import { QueriesHandleType, type QueriesHandle } from "./queries.js";
+import { SavedQueryType } from "./types.js";
 
 // ============================================================================
 // Types
@@ -54,14 +63,14 @@ import { QueriesHandleType, type QueriesHandle } from "./queries.js";
 /**
  * The `QueryLibrary` renderer's payload — the query library's interface.
  *
- * @property queries - The saved queries record, bound with its patch — what it reads
+ * @property slice - The rail's chrome: the narrowing of the saved queries, whose `rows` source the renderer pages its cards through
  * @property datasets - The data sources a query may read, by the names it reads them
  * @property query - The query open in the builder, whose card is marked; `none`, no card is marked
  * @property onOpen - Told when a query is asked for, with that query — the host shows it in its builder
- * @property id - Names the builder that takes its cards and shares its recent runs; `none` for the one builder
+ * @property id - Keeps the library's frame apart from another's on its surface; `none` for the one library
  */
 export const QueryLibraryPayloadType = StructType({
-    queries: QueriesHandleType,
+    slice: RecordSlicesChromeType,
     datasets: ArrayType(DataSourceType),
     query: OptionType(QueryOpenType),
     onOpen: FunctionType([QueryOpenType], NullType),
@@ -88,15 +97,13 @@ export const QueryLibraryComponent = EastUI.component("QueryLibrary", QueryLibra
 /**
  * `<Query.Library>` options.
  *
- * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries)`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
+ * @property slice - The narrowing: `{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, { indexes }), … } }) }`
  * @property query - The query open in the builder, whose card is marked: a saved query's name, or a `Query.Types.Open`
  * @property onOpen - Told when a query is asked for, with that query — the host shows it in its builder
- * @property id - Names the builder that takes its cards and shares its recent runs, when a surface holds two
+ * @property id - Keeps the library's frame apart from another's, when a surface holds two
  */
 export interface QueryLibraryOptions {
-    /** The saved queries record, bound with its patch mutation — `Record.bind(queries)`. */
-    queries: QueriesHandle;
     /**
      * The data sources a query may read: each name, as a query reads it
      * (`orders` for `.orders`), to its `Data.bind`, `Data.bindPaged` or
@@ -105,77 +112,124 @@ export interface QueryLibraryOptions {
      */
     datasets: Readonly<Record<string, BoundSource>>;
     /**
+     * The narrowing, and where the cards come from: `slice={{ slice }}` over
+     * `Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, {
+     * indexes: [...] }), … } })`. Its `rows` source is the saved queries, paged
+     * from their record through its indexes, and its rail — one, in the
+     * toolbar — narrows them: by data source, by tag, by when a query was
+     * saved, and by the start of a name. It has that one source. `Slice.bind`
+     * and `Slice.bindRecord` are refused.
+     */
+    slice: RecordSlicesChromeOptions;
+    /**
      * The query open in the builder, whose card is marked — the value the
      * host gives its builder's `query`, in either form the builder takes it: a
      * saved query's name, or a `Query.Types.Open`. Omitted, no card is marked.
      */
     query?: SubtypeExprOrValue<StringType | QueryOpenType>;
     /**
-     * Told when a card or "+ New query on …" is pressed, with the query asked
-     * for: a saved query as itself, a recent run of one as the saved query, a
-     * run never saved as a new query begun as it, and a new query on the data
-     * source shown. The host shows it in its builder: it navigates, or writes
-     * the state its builder's `query` reads. The query library opens nothing
-     * itself.
+     * Told when a card or New query is pressed, with the query asked for: a
+     * saved query as itself, or a new query on a data source. The host shows it
+     * in its builder: it navigates, or writes the state its builder's `query`
+     * reads. The query library opens nothing itself.
      */
     onOpen: SubtypeExprOrValue<FunctionType<[QueryOpenType], NullType>>;
-    /** Names the builder that takes its cards and shares its recent runs — needed only when one surface holds two builders. */
+    /** Keeps the library's frame apart from another's — needed only when one surface holds two. */
     id?: string;
 }
 
+/** How a refusal writes the slice a query library takes. */
+const SLICE_CALL = "slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, { indexes: [...] }), … } }) }}";
+
 /**
- * Every saved query, and where new queries start.
+ * The type of the rows a slice's `rows` source pages: what each entry of a
+ * page joins, read off the source's own type.
+ *
+ * @param slice - The library's `slice`, checked a `Slice.bindRecords`
+ * @returns The rows' type; `undefined` where the source's entries join no row
+ */
+function rowsType(slice: RecordSlicesChromeOptions): EastType | undefined {
+    const handle = East.value(slice.slice) as unknown as { sources: Readonly<Record<string, { data: unknown }>> };
+    const entry = resolveRowSource(handle.sources["rows"]!.data, "Query.Library.slice's rows").elementType;
+    const joined = entry.type === "Struct" ? (entry.fields as Readonly<Record<string, EastType>>)["row"] : undefined;
+    return joined?.type === "Variant" ? (joined.cases as Readonly<Record<string, EastType>>)["some"] : undefined;
+}
+
+/**
+ * Every saved query, as a card in a grid, and where new queries start.
  *
  * @remarks
- * - **The toolbar**, one row: the search "Search N queries…", over names,
- *   descriptions and data sources; Sort · Recent or Name; Grid · List; and
- *   "+ New query on <data source>" — the data source the pane shows, else the
- *   first bound — which asks the host for a new query on it.
- * - **The pane**: All queries, then each bound data source with its count of
- *   the saved queries that start from it, the one shown in the brand; and, at
- *   its foot, Recent — this viewer's runs.
- * - **The gallery**: three across, or a row each, every card a wireframe of
- *   the query — its source and a bar per step — with its name, its
- *   description (the author's, else the sentence generated from its steps),
- *   what it starts from and gives, and "Open in builder →". A card drags onto
- *   the builder that shares `id`. A query whose data sources aren't bound
- *   here says why, and doesn't open.
+ * - **The toolbar**, one row: the rail — the fields its `rows` source lists,
+ *   its range and its search, its presets and `N of M queries` — then New
+ *   query, which follows the rail: with one data source chosen it reads "New
+ *   query on orders" and starts on it; with none or several it opens a menu
+ *   of the bound data sources.
+ * - **The cards**, a grid as many across as fit: a card a saved query, read a
+ *   window at a time in the order e3 returns them — a wireframe of its query,
+ *   its source and a bar a step; its name; its description (the author's,
+ *   else the sentence generated from its steps); its tags; and what it reads
+ *   and gives and when it was saved. A press on a card asks the host for its
+ *   query. A query whose data sources aren't bound here says why on its card,
+ *   and doesn't open. The query the host says is open is marked.
  *
- * The data source shown, the search, the order and the layout are the query
- * library's own; the open query is the host's, which gives it to the query
- * library and to its `<Query.Builder>` as `query` and changes it in `onOpen`.
- * The query library reads no dataset, and draws no border
- * around itself. Its data sources are the surface's bindings, which the host
- * loads with the surface as it loads any: bind a large one with
- * `Data.bindPaged`, which is declared and never loaded whole.
+ * The open query is the host's, which gives it to the query library and to its
+ * `<Query.Builder>` as `query` and changes it in `onOpen`. The two are surfaces
+ * of their own — a `ui()` each: the library pages the saved queries, and a
+ * surface that pages a record never loads it whole, which the builder does.
+ * The query library reads no dataset, writes nothing, and draws no border
+ * around itself. Its data sources are the surface's bindings: bind a large one
+ * with `Data.bindPaged`, which is declared and never loaded whole.
  *
- * @param options - The bound record, the data sources, the open query, who to tell and the builder's name ({@link QueryLibraryOptions})
+ * @param options - The data sources, the slice, the open query, who to tell and the library's name ({@link QueryLibraryOptions})
  * @returns An East expression of type `UIComponentType`
- * @throws {Error} When `datasets` is empty, or a name is not a jq identifier
+ * @throws {Error} When `datasets` is empty, or a name is not a jq identifier; and when `slice` is left out, is not `{ slice: Slice.bindRecords(…) }`, has no `rows` source or a source beside it, or its `rows` source does not page saved queries
  *
  * @example
  * ```tsx
  * import { East, NullType } from "@elaraai/east";
- * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Query, Record, ui } from "@elaraai/e3-ui";
+ * import { Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Query, ui } from "@elaraai/e3-ui";
  *
- * // The query library: every saved query, and where new queries start — over the builder's data sources.
- * // The surface holds the open query, which its builder shows.
+ * // The query library: every saved query as a card, narrowed by its rail, over the builder's data sources.
+ * // The surface holds the open query, which its builder — a surface of its own — shows.
  * export const library = ui("query_library", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const orders    = $.let(Data.bindPaged(d.orders));
  *         const customers = $.let(Data.bind(d.customers));
- *         const saved     = $.let(Record.bind(d.queries));
+ *         const rows      = $.let(Data.bindPaged(d.queries, { indexes: ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] }));
+ *         const slice     = $.let(Slice.bindRecords("analysis.library", {
+ *             rows: {
+ *                 source: rows, label: "Queries", range: "saved_at", search: ["name", "sources", "tags"],
+ *                 fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } },
+ *             },
+ *         }));
  *         const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.saved("Top shipped orders, 2026")));
  *         const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
- *         return <Query.Library queries={saved} datasets={{ orders, customers }} query={open.read()} onOpen={go} />;
+ *         return <Query.Library datasets={{ orders, customers }} slice={{ slice }} query={open.read()} onOpen={go} />;
  *     }}</Reactive>
  * )));
  * ```
  */
 function createLibrary(options: QueryLibraryOptions): ExprType<UIComponentType> {
+    const slice = options.slice as RecordSlicesChromeOptions | undefined;
+    if (slice === undefined) {
+        throw new Error(`Query.Library: needs \`slice\` — ${SLICE_CALL}: its cards are the saved queries read through it, a window at a time, and its rail narrows them`);
+    }
+    if (typeof slice !== "object" || slice === null || !("slice" in slice) || !isRecordSlices(slice.slice)) {
+        throw new Error(`Query.Library: \`slice\` takes { slice } over Slice.bindRecords — ${SLICE_CALL}: Slice.bind and a single Slice.bindRecord narrow no record's rows`);
+    }
+    // The slice has the one source, the saved queries': a source beside it is refused, naming it.
+    const sources = recordSources(slice, { builder: "Query.Library", names: ["rows"], what: "the saved queries" });
+    if (!sources.names.includes("rows") || sources.chrome.type === "none") {
+        throw new Error(`Query.Library: \`slice\` has no \`rows\` source — its cards are its \`rows\` source's rows: ${SLICE_CALL}`);
+    }
+    const rows = rowsType(slice);
+    if (rows === undefined || !isTypeEqual(rows, SavedQueryType)) {
+        throw new Error(`Query.Library: \`slice\`'s \`rows\` source pages ${rows === undefined ? "no rows" : printTypeSummary(rows)}, not saved queries — ` +
+            `its source is the saved queries record, of Query.Types.Saved: ${SLICE_CALL}`);
+    }
     return QueryLibraryComponent.Root({
-        queries: { read: options.queries.read, history: options.queries.history, commit: { patch: options.queries.commit.patch } },
+        slice: sources.chrome.value,
         datasets: dataSources("Query.Library", options.datasets),
         query: options.query === undefined ? none : some(openOf(options.query)),
         onOpen: options.onOpen,
@@ -188,7 +242,7 @@ function createLibrary(options: QueryLibraryOptions): ExprType<UIComponentType> 
 // ============================================================================
 
 /**
- * `<Query.Library>` — every saved query, and where new queries start. See
- * {@link createLibrary}.
+ * `<Query.Library>` — every saved query, as a card in a grid, and where new
+ * queries start. See {@link createLibrary}.
  */
 export const QueryLibrary: JsxTag<OptionsProps<typeof createLibrary>> = optionsTag(createLibrary);
