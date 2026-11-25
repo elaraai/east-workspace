@@ -106,7 +106,7 @@ indexes: (index) => ({
 migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
 ```
 
-A record lists the step after the steps it listed before, and no others: alone where it never listed one, and after `cell_content` where it listed that step. e3 runs the steps a record has not applied, so listing `cell_content` on a record that never did has the deploy refused.
+A record lists the steps it has not applied, and no others: `entry_fields` alone where it was first declared once a placement held content, and after `cell_content` where it lists that step or still holds the form before it, a placement a component's key. e3 runs the steps a record has not applied, so listing `cell_content` on a record first declared at the content form has the deploy refused, and so does listing `entry_fields` alone on one still at the form before it.
 
 An index on a Set field files a row once under each of its values, as the Roster files a person under each skill.
 

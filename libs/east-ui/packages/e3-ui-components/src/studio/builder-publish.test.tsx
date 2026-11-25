@@ -155,15 +155,21 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1440px");
     });
 
-    test("#1759: the page is named by the title its entry lists it under — the one the page library and the Pages tab show — where a writer of the solution's own left it apart from its layout's", async () => {
+    test("#1759: the page is named by its layout's title, the one its publish lists it under: the preview's heading and the published entry's title are one, whatever a writer of the solution's own left the entry's title at", async () => {
         const { container } = await mountBuilder();
-        // Another writer's entry: its title no longer its layout's.
+        // Another writer's entry: its title no longer its layout's, as no write of the builder's leaves one.
         const key = { project: "ops", page: "f-regional" };
         const entry = (await readRecord()).get(key)!;
         expect([entry.title, entry.draft.title]).toEqual(["Regional", "Regional"]);
         await h.patch(ex.studioPages, withEntry(key, { ...entry, title: "Regional, as listed" })(await readRecord()));
         await previewPage("f-regional");
-        expect(part(container, "frame")!.querySelector("h2")!.textContent).toBe("Regional, as listed");
+        expect([part(container, "frame")!.querySelector("h2")!.textContent, part(container, "versions")!.textContent]).toEqual(["Regional", "Regional · v3 → v4"]);
+        await act(async () => { fireEvent.click(publishButton(container)); });
+        await settle();
+        await waitFor(() => expect(part(container, "head")!.textContent).toBe("Up to date"));
+        // Published under the title the preview named it by.
+        const published = (await readRecord()).get(key)!;
+        expect([published.title, published.draft.title, part(container, "versions")!.textContent]).toEqual(["Regional", "Regional", "Regional · v4 live"]);
     });
 
     test("E3, E5: ready to publish — the version it replaces and the next, the changes since, and who sees it when", async () => {

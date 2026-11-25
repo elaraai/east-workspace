@@ -19,37 +19,20 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    East, SortedMap, SortedSet, StringType, applyFor, compareFor, equalFor, none, parseJq, printFor, some, variant,
+    East, SortedMap, applyFor, compareFor, equalFor, isValueOf, none, parseJq, some, variant,
     type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 
 import { Studio, StudioPagesType } from "@elaraai/e3-ui/internal";
+
+import { assertEntry, pageEntry, tagged, templateEntry } from "./entries.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Page = ValueTypeOf<typeof Studio.Types.Page>;
 
 const applyPages = applyFor(StudioPagesType);
-const sameEntry = equalFor(Studio.Types.Entry);
-const printEntry = printFor(Studio.Types.Entry);
 const sameTags = equalFor(Studio.Types.Entry.fields.tags);
-
-/** Tags, as an entry holds them. */
-const tagged = (...tags: string[]): Entry["tags"] => new SortedSet(tags, compareFor(StringType));
-
-/** A page as the record holds it, each field written out: what a write is held to. */
-const pageEntry = (key: Key, draft: Page, live: Entry["live"] = none, tags: Entry["tags"] = tagged()): Entry =>
-    ({ kind: variant("page", null), project: key.project, title: draft.title, tags, draft, live });
-
-/** A template as the record holds it, each field written out. */
-const templateEntry = (key: Key, layout: Page, tags: Entry["tags"] = tagged()): Entry =>
-    ({ kind: variant("template", null), project: key.project, title: layout.title, tags, draft: layout, live: none });
-
-/** Holds the entry a write left to the one expected, field for field. */
-function assertEntry(actual: Entry | undefined, expected: Entry, message?: string): void {
-    if (actual === undefined) assert.fail(`${message ?? "the entry"}: the record holds none`);
-    assert.ok(sameEntry(actual, expected), `${message ?? "the entry"}: got ${printEntry(actual)}, expected ${printEntry(expected)}`);
-}
 
 const publish = East.compile(Studio.publish, []);
 const revert = East.compile(Studio.revert, []);
@@ -400,5 +383,33 @@ describe("Studio.value (#1759)", () => {
         // @ts-expect-error — a template is written with no `live` version
         assert.throws(() => Studio.value([{ key: TEMPLATE_KEY, template: KPIS, live: { version: 1n, page: KPIS } }]),
             /Studio\.value: \(project="ops", page="tpl-kpis"\) is a template written with a `live` version — a template has no published version/);
+    });
+
+    test("a layout's fields may be written in any order: the entry built is the one East holds, its fields in its type's order", () => {
+        const [first, ...rest] = OVERVIEW.cells;
+        // The filters before the placements, and a placement's span before its key.
+        const shuffled = {
+            title: OVERVIEW.title, filters: OVERVIEW.filters,
+            cells: [{ span: first!.span, key: first!.key, row: first!.row, height: first!.height, align: first!.align, title: first!.title, content: first!.content }, ...rest],
+        };
+        const built = Studio.value([{ key: OVERVIEW_KEY, draft: shuffled, live: { page: shuffled, version: 1n } }]).get(OVERVIEW_KEY);
+        assertEntry(built, pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW })));
+        assert.ok(isValueOf(built, Studio.Types.Entry), "a value of the entry's type as East checks one, field order and all");
+    });
+
+    test("an entry written past the compiler, from data, is checked where it is built: a layout or a published version that is no value of its type is refused, naming the entry — never built into the record", () => {
+        // What a seed read from JSON holds where a page has no published version.
+        // @ts-expect-error — a page not yet published is written with no `live`
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW, live: null }]),
+            /Studio\.value: \(project="ops", page="overview"\)'s `live` is no published version/);
+        // @ts-expect-error — a version is an Integer, which JSON has none of
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW, live: { version: 1, page: OVERVIEW } }]),
+            /Studio\.value: \(project="ops", page="overview"\)'s `live` is no published version/);
+        // @ts-expect-error — a layout is its title, its placements and its starting filters
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: { title: "Overview" } }]),
+            /Studio\.value: \(project="ops", page="overview"\)'s `draft` is no layout/);
+        // @ts-expect-error — a template is written with its layout
+        assert.throws(() => Studio.value([{ key: TEMPLATE_KEY, template: null }]),
+            /Studio\.value: \(project="ops", page="tpl-kpis"\)'s `template` is no layout/);
     });
 });

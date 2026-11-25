@@ -110,11 +110,12 @@ block), `Studio.source`, which declares a source a surface's visuals may read
 `Studio.migrations`, the steps a pages record lists
 (`migration.rows("entry_fields", Studio.migrations.entryFields)` carries
 entries stored before one held what it is, its project, its title and its
-tags: a record that never listed a step lists it alone, and one that listed
+tags: a record first declared once a placement held content lists it alone,
+and one that lists
 `migration.rows("cell_content", Studio.migrations.cellContent)` — for pages
-stored when a placement held a component's key alone — lists it after that
-step. e3 runs the steps a record has not applied, so a step the record never
-listed is not added before it).
+stored when a placement held a component's key alone — or still holds that
+form lists it after that step. e3 runs the steps a record has not applied, so
+a step whose form the record never held is not added before it).
 
 ---
 

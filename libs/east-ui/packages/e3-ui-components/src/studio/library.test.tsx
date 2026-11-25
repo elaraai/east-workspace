@@ -19,7 +19,7 @@
 
 import { describe, test, expect, beforeEach } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, NullType, StringType, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, NullType, SortedSet, StringType, compareFor, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
@@ -30,7 +30,10 @@ import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import "./library.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
+type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
+
+const sameEntry = equalFor(Studio.Types.Entry);
 
 /** The listed components. */
 const components = [
@@ -337,10 +340,13 @@ describe("<Studio.Library> — a new page (#997)", () => {
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(await commits()).toEqual(["patch", ...before]);
-        // A page under its key's project and the title given, with no tags and no published version.
+        // A page under its key's project and the title given, with no tags and no published version: the entry whole.
         const made = (await readRecord()).get({ project: "ops", page: "Q3 review" })!;
-        expect([made.kind.type, made.project, made.title, [...made.tags], made.draft, made.live])
-            .toEqual(["page", "ops", "Q3 review", [], { title: "Q3 review", cells: [], filters: [] }, none]);
+        const expected: Entry = {
+            kind: variant("page", null), project: "ops", title: "Q3 review", tags: new SortedSet<string>([], compareFor(StringType)),
+            draft: { title: "Q3 review", cells: [], filters: [] }, live: none,
+        };
+        expect(sameEntry(made, expected)).toBe(true);
         expect(paneRows(container)).toContain("Q3 review");
     });
 
