@@ -13,7 +13,8 @@
  * requests go through: these tests stand a fake server in for it, refuse the
  * global `fetch`, and pin that every request of each flow reaches the given
  * one — the upload and the download among them, which carry no credentials,
- * since their URLs may be presigned.
+ * since their URLs may be presigned. An upload whose connection drops is sent
+ * again, as every other request of the flow is.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -112,6 +113,75 @@ describe('package transfer through a given fetch', () => {
       ['GET', `${BASE}/api/repos/r/import/${JOB}`, 'Bearer tok'],
     ]);
     assert.deepEqual(server.calls[1]!.body, archive, 'the upload is the zip');
+  });
+
+  /** A server whose upload URL drops the connection of the first `drops` PUTs, as a store does with an idle one. */
+  function droppingUploads(drops: number, imported: ValueTypeOf<typeof PackageImportResultType>) {
+    let puts = 0;
+    return givenServer((method, url) => {
+      if (method === 'POST' && url.pathname === '/api/repos/r/import') {
+        return success(PackageTransferInitResponseType, { id: TRANSFER, uploadUrl: `https://store.test/upload/${TRANSFER}` });
+      }
+      if (method === 'PUT' && url.host === 'store.test') {
+        if (++puts <= drops) {
+          throw new TypeError('fetch failed', { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) });
+        }
+        return new Response(null, { status: 200 });
+      }
+      if (method === 'POST' && url.pathname === `/api/repos/r/import/${TRANSFER}`) return success(PackageJobResponseType, { id: JOB });
+      if (method === 'GET' && url.pathname === `/api/repos/r/import/${JOB}`) {
+        return success(PackageImportStatusType, variant('completed', imported));
+      }
+      return new Response(`unexpected ${method} ${url.href}`, { status: 500 });
+    });
+  }
+
+  it('uploads the zip again, whole, when the connection drops while it is sent', async () => {
+    const imported: ValueTypeOf<typeof PackageImportResultType> = {
+      name: 'pkg', version: '1.0.0', packageHash: 'b'.repeat(64), objectCount: 2n,
+    };
+    const server = droppingUploads(1, imported);
+
+    assert.deepEqual(await packageImport(BASE, 'r', archive, { token: 'tok', fetch: server.fetch, retry: { baseDelayMs: 0 } }), imported);
+    assert.deepEqual(server.calls.map(({ method, url }) => [method, url]), [
+      ['POST', `${BASE}/api/repos/r/import`],
+      ['PUT', `https://store.test/upload/${TRANSFER}`],
+      ['PUT', `https://store.test/upload/${TRANSFER}`],
+      ['POST', `${BASE}/api/repos/r/import/${TRANSFER}`],
+      ['GET', `${BASE}/api/repos/r/import/${JOB}`],
+    ]);
+    assert.deepEqual(server.calls[2]!.body, archive, 'the second upload is the zip whole');
+  });
+
+  it('sends a progress-reported upload again from the start, the zip whole, when its connection drops', async () => {
+    const imported: ValueTypeOf<typeof PackageImportResultType> = {
+      name: 'pkg', version: '1.0.0', packageHash: 'c'.repeat(64), objectCount: 2n,
+    };
+    const server = droppingUploads(1, imported);
+    const progress: number[] = [];
+
+    const result = await packageImport(BASE, 'r', archive, { token: 'tok', fetch: server.fetch, retry: { baseDelayMs: 0 } }, {
+      onUploadProgress: (uploaded) => progress.push(uploaded),
+    });
+
+    assert.deepEqual(result, imported);
+    const puts = server.calls.filter(({ method }) => method === 'PUT');
+    assert.equal(puts.length, 2);
+    for (const put of puts) assert.deepEqual(put.body, archive, 'each attempt streams the zip whole');
+    assert.deepEqual(progress, [archive.length, archive.length], 'each attempt reports its own progress');
+  });
+
+  it('raises the dropped connection once the retry policy\'s attempts are spent, triggering no import', async () => {
+    const imported: ValueTypeOf<typeof PackageImportResultType> = {
+      name: 'pkg', version: '1.0.0', packageHash: 'd'.repeat(64), objectCount: 2n,
+    };
+    const server = droppingUploads(2, imported);
+
+    await assert.rejects(
+      packageImport(BASE, 'r', archive, { token: 'tok', fetch: server.fetch, retry: { attempts: 2, baseDelayMs: 0 } }),
+      (err: unknown) => err instanceof TypeError && err.message === 'fetch failed',
+    );
+    assert.deepEqual(server.calls.map(({ method }) => method), ['POST', 'PUT', 'PUT']);
   });
 
   it('downloads a package\'s export from the URL its job names', async () => {
