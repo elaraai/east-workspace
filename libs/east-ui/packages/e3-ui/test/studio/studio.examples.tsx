@@ -27,7 +27,7 @@ import {
     example, none, parseJq, some, variant,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
+    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Slice, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -501,22 +501,36 @@ export const studioConflicts = example({
 
 export const studioLibrary = example({
     keywords: [
-        "Studio", "Studio.Library", "page library", "pages", "templates", "Blank grid", "new page", "project", "Library",
-        "gallery", "wireframe", "search", "sort", "grid", "list", "Open in builder", "status", "Live", "Draft",
-        "Record.bind", "patch", "e3.record", "onOpen", "page", "State.bind", "navigate",
+        "Studio", "Studio.Library", "page library", "pages", "templates", "cards", "grid", "wireframe", "new page", "project", "tags",
+        "Slice.bindRecords", "Data.bindPaged", "scope", "kind", "indexes", "rail", "Record.bind", "patch", "e3.record", "onOpen", "page",
+        "State.bind", "navigate", "Open in builder", "Library",
     ],
-    description: "The page library over the same record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\", which tells the surface in `onOpen`: the surface writes the open page it holds, which the builder above shows and the pane marks; a new page takes a name and a template and is one patch commit",
+    description: "The page library over the same record: one toolbar — Pages · Templates, the rail over the view shown (Name, Project, Tag) and \"+ New page\" — over a responsive grid of cards, read a window at a time through the record's indexes and never whole: a page's card is a wireframe of its layout, its title, what it places, its tags, and its project and how many components it places, with \"Open in builder →\", which tells the surface in `onOpen`; a template's card starts a new page from it. A new page takes a name, its project and its tags, is one patch commit, and is then told to the surface. The surface holds the open page, which the builder above — a surface of its own — shows; this example says what it was asked to open",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
+            // The record bound to write a new page, and its rows paged through its indexes: the library never reads it whole.
             const pages = $.let(Record.bind(studioPages));
+            const rows = $.let(Data.bindPaged(studioPages, { indexes: ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] }));
+            // One rail over the pages and the templates, each source scoped to its kind of entry.
+            const slice = $.let(Slice.bindRecords("ex.studio.library", {
+                rows: {
+                    source: rows, label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+                    fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } },
+                },
+                templates: { source: rows, label: "Templates", scope: { kind: ["template"] }, search: ["title"], fields: { title: { label: "Name" } } },
+            }));
             // The open page is the surface's: the builder above shows it. A host with routes navigates here instead.
             const open = $.let(State.bind([Studio.Types.Key], "ex.studio.open", { project: "Ops console", page: "Account detail" }));
             const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+            const asked = $.let(East.str`Open in the builder: ${open.read().page}, in ${open.read().project}`);
             return (
-                <Box height="764px">
-                    <Studio.Library pages={pages} components={components} project="Ops console" page={open.read()} onOpen={go} />
-                </Box>
+                <VStack gap="2" align="stretch">
+                    <Text color="fg.muted">{asked}</Text>
+                    <Box height="720px">
+                        <Studio.Library pages={pages} components={components} project="Ops console" slice={{ slice }} page={open.read()} onOpen={go} />
+                    </Box>
+                </VStack>
             );
         }}</Reactive>
     )),

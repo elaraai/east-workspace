@@ -57,6 +57,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "galleryGrid", "galleryCard", "galleryMedia", "galleryFace", "galleryHead", "galleryTitle",
         "gallerySublabel", "galleryFoot", "galleryByline", "galleryBylineText", "galleryAction",
         "galleryAdd", "galleryAddIcon", "galleryAddLabel",
+        "newIcon", "newCaret",
     ],
     base: {
         /* Bare like the Table — identity chrome (title, outer frame)
@@ -822,5 +823,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             fontWeight: "500",
             color: "fg.muted",
         },
+        /* A library's New, in its host's toolbar (#1761, #1762): the plus
+           before its words, and the caret after them where it opens a menu. */
+        newIcon: { fontSize: "10px" },
+        newCaret: { fontSize: "9px" },
     },
 });

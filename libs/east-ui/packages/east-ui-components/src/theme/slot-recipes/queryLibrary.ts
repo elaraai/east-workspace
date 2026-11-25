@@ -6,13 +6,14 @@
 /**
  * Query library slot recipe — what `<Query.Library>` (#1063, #1761) draws of
  * its own: a card's media, the query's wireframe — its source and a bar per
- * step, or the dashed box that counts its problems — and New query's glyphs.
+ * step, or the dashed box that counts its problems — and a data source's icon
+ * in New query's menu.
  *
  * Everything else is another recipe's: the frame the `builderFrame`'s, the
  * toolbar and its rail the shared `toolbar`'s, the grid and a card — its name,
  * its status, its meta line, its note, its tags and its foot — the `library`
- * recipe's paged gallery and gallery card, the buttons the `button` recipe's
- * and New query's menu the `menu`'s.
+ * recipe's paged gallery and gallery card, New query the `library` recipe's
+ * New on the `button` recipe, and its menu the `menu`'s.
  *
  * @packageDocumentation
  */
@@ -33,14 +34,12 @@ const CAPTION = {
 export const queryLibrarySlotRecipe = defineSlotRecipe({
     className: "elara-query-library",
     slots: [
-        "caret", "buttonIcon", "menuIcon",
+        "menuIcon",
         "wireframe", "wireRow", "wireIcon", "wireTitle", "wireMore",
         "problems", "problemCount", "problemText",
     ],
     base: {
-        /* New query's caret and plus, and a data source's icon in its menu. */
-        caret: { fontSize: "9px" },
-        buttonIcon: { fontSize: "10px" },
+        /* A data source's icon in New query's menu. */
         menuIcon: {
             flexShrink: "0",
             width: "14px",

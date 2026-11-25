@@ -26,33 +26,27 @@
 
 import {
     ArrayType,
-    East,
     FunctionType,
     NullType,
     OptionType,
     StringType,
     StructType,
-    isTypeEqual,
     none,
-    printTypeSummary,
     some,
-    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
     EastUI,
     RecordSlicesChromeType,
-    isRecordSlices,
     optionsTag,
-    resolveRowSource,
     type JsxTag,
     type OptionsProps,
     type RecordSlicesChromeOptions,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
-import { recordSources } from "../utils/record-sources.js";
+import { libraryRows, librarySlice } from "../utils/record-sources.js";
 import { QueryOpenType, openOf } from "./open.js";
 import { SavedQueryType } from "./types.js";
 
@@ -142,20 +136,6 @@ export interface QueryLibraryOptions {
 const SLICE_CALL = "slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, { indexes: [...] }), … } }) }}";
 
 /**
- * The type of the rows a slice's `rows` source pages: what each entry of a
- * page joins, read off the source's own type.
- *
- * @param slice - The library's `slice`, checked a `Slice.bindRecords`
- * @returns The rows' type; `undefined` where the source's entries join no row
- */
-function rowsType(slice: RecordSlicesChromeOptions): EastType | undefined {
-    const handle = East.value(slice.slice) as unknown as { sources: Readonly<Record<string, { data: unknown }>> };
-    const entry = resolveRowSource(handle.sources["rows"]!.data, "Query.Library.slice's rows").elementType;
-    const joined = entry.type === "Struct" ? (entry.fields as Readonly<Record<string, EastType>>)["row"] : undefined;
-    return joined?.type === "Variant" ? (joined.cases as Readonly<Record<string, EastType>>)["some"] : undefined;
-}
-
-/**
  * Every saved query, as a card in a grid, and where new queries start.
  *
  * @remarks
@@ -211,25 +191,15 @@ function rowsType(slice: RecordSlicesChromeOptions): EastType | undefined {
  * ```
  */
 function createLibrary(options: QueryLibraryOptions): ExprType<UIComponentType> {
-    const slice = options.slice as RecordSlicesChromeOptions | undefined;
-    if (slice === undefined) {
-        throw new Error(`Query.Library: needs \`slice\` — ${SLICE_CALL}: its cards are the saved queries read through it, a window at a time, and its rail narrows them`);
-    }
-    if (typeof slice !== "object" || slice === null || !("slice" in slice) || !isRecordSlices(slice.slice)) {
-        throw new Error(`Query.Library: \`slice\` takes { slice } over Slice.bindRecords — ${SLICE_CALL}: Slice.bind and a single Slice.bindRecord narrow no record's rows`);
-    }
     // The slice has the one source, the saved queries': a source beside it is refused, naming it.
-    const sources = recordSources(slice, { builder: "Query.Library", names: ["rows"], what: "the saved queries" });
-    if (!sources.names.includes("rows") || sources.chrome.type === "none") {
-        throw new Error(`Query.Library: \`slice\` has no \`rows\` source — its cards are its \`rows\` source's rows: ${SLICE_CALL}`);
-    }
-    const rows = rowsType(slice);
-    if (rows === undefined || !isTypeEqual(rows, SavedQueryType)) {
-        throw new Error(`Query.Library: \`slice\`'s \`rows\` source pages ${rows === undefined ? "no rows" : printTypeSummary(rows)}, not saved queries — ` +
-            `its source is the saved queries record, of Query.Types.Saved: ${SLICE_CALL}`);
-    }
+    const { slice, chrome } = librarySlice(options.slice as RecordSlicesChromeOptions | undefined, {
+        builder: "Query.Library", names: ["rows"], what: "the saved queries", call: SLICE_CALL, cards: "the saved queries",
+    });
+    libraryRows(slice, "rows", {
+        builder: "Query.Library", call: SLICE_CALL, row: SavedQueryType, rows: "saved queries", record: "the saved queries record, of Query.Types.Saved",
+    });
     return QueryLibraryComponent.Root({
-        slice: sources.chrome.value,
+        slice: chrome,
         datasets: dataSources("Query.Library", options.datasets),
         query: options.query === undefined ? none : some(openOf(options.query)),
         onOpen: options.onOpen,

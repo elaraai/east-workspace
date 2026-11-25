@@ -85,6 +85,7 @@ import {
 import { Editing, SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { Record, RecordOutcomeType } from "../bind/record.js";
+import { keptTags } from "../utils/tags.js";
 import { StudioContentType, contentChange } from "./content.js";
 import { StudioKeyType } from "./key.js";
 
@@ -511,35 +512,30 @@ export const revertPage = East.function(
 );
 
 /**
- * Starts a page: its draft is a template's cells and starting filters under
- * the title given, or none at all (the blank grid), and it has no live
- * version and no tags.
+ * Starts a page: its draft is a layout's cells and starting filters — a
+ * template's, as the page library read it — under the title given, or none at
+ * all (the blank grid), with the tags given, kept as every record's tags are,
+ * and no live version.
  *
  * @remarks
- * The patch inserts the page, so a key another write took first is a conflict
- * naming it.
+ * It reads nothing of the record: the page library reads it a window at a
+ * time (#1762). The patch inserts the page, so a key another write took first
+ * — a page's or a template's of the project — is a conflict naming it, which
+ * is how a name the project holds is refused.
  */
 export const newPage = East.function(
-    [StudioPagesType, StudioKeyType, StringType, OptionType(StudioKeyType)],
+    [StudioKeyType, StringType, OptionType(StudioPageType), SetType(StringType)],
     StudioPagesPatchType,
-    ($, pages, key, title, template) => {
-        $.if(pages.has(key), ($2) => {
-            $2.error(East.str`${East.print(key)} already exists`);
-        });
+    ($, key, title, template, tags) => {
         const from = $.let(template.match({
-            some: (_$, at) => pages.tryGet(at).match({
-                some: (_$2, found) => found.kind.match({
-                    template: (_$3) => found.draft,
-                    page: ($3) => $3.error(East.str`${East.print(at)} is a page, not a template`),
-                }),
-                none: ($2) => $2.error(East.str`No template ${East.print(at)}`),
-            }),
+            some: (_$, layout) => layout,
             none: (_$) => East.value({ title, cells: [], filters: [] }, StudioPageType),
         }), StudioPageType);
         const before = $.let(new Map(), StudioPagesType);
         const after = $.let(new Map(), StudioPagesType);
         const entry = $.const(studioEntry);
-        $(after.insert(key, entry(key, variant("page", null), { title, cells: from.cells, filters: from.filters }, none, new Set())));
+        const kept = $.const(keptTags);
+        $(after.insert(key, entry(key, variant("page", null), { title, cells: from.cells, filters: from.filters }, none, kept(tags))));
         return East.diff(before, after);
     },
 );
@@ -841,7 +837,7 @@ export interface StudioPagesNamespace {
     publish: typeof publishPage;
     /** Reverts a page to its live version ({@link revertPage}). */
     revert: typeof revertPage;
-    /** Starts a page, from a template or blank ({@link newPage}). */
+    /** Starts a page, from a template's layout or blank, with its tags ({@link newPage}). */
     newPage: typeof newPage;
     /** Saves a page's draft as a template ({@link saveTemplate}). */
     saveTemplate: typeof saveTemplate;

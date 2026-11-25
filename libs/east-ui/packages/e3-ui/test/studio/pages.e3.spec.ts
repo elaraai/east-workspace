@@ -55,7 +55,7 @@ const sameLayout = equalFor(Studio.Types.Page);
 const diffPages = diffFor(StudioPagesType);
 const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
 const pagesPath = [variant("field", "records"), variant("field", "pages")];
-/** The pages record as the page library and the builder's Save as template hold it: its read, and its patch awaited. */
+/** The pages record as the builder's Save as template holds it, and the page library: its read — which the page library never makes — and its patch awaited. */
 const WriterType = StructType({
     read: FunctionType([], StudioPagesType),
     commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(StudioPagesType)], RecordOutcomeType) }),
@@ -324,7 +324,7 @@ describe("the pages record in e3 (#992)", () => {
         const templateKey: Key = { project: "ops", page: "tpl-overview" };
         const detailKey: Key = { project: "ops", page: "detail" };
         assert.equal((await commit(saveTemplate(await current(), OVERVIEW_KEY, templateKey, "Overview layout"), "ana")).kind, "committed");
-        assert.equal((await commit(newPage(await current(), detailKey, "Detail", some(templateKey)), "ana")).kind, "committed");
+        assert.equal((await commit(newPage(detailKey, "Detail", some((await current()).get(templateKey)!.draft), tagged()), "ana")).kind, "committed");
 
         const now = await current();
         // Each holds its key's project and its layout's title, and neither the tags of the page it came from: the entry whole.
@@ -334,20 +334,17 @@ describe("the pages record in e3 (#992)", () => {
     });
 
     it("D5, D7 (#997): Save as template and a new page from it are one commit each, as the builder and the page library write them; a name another write took first is refused in their popovers' words", async () => {
-        // The builder's Save as template and the page library's Create, over
-        // what the screen read: one patch commit, and what refused it.
+        // The builder's Save as template, over what the screen read, and the page
+        // library's Create, over the template's layout its card read: one patch
+        // commit, and what refused it.
         const saveAs = East.compileAsync(East.asyncFunction([WriterType, StringType], OptionType(StringType), ($, record, name) => {
             const outcome = $.let(record.commit.patch("", Studio.saveTemplate(record.read(), OVERVIEW_KEY, { project: "ops", page: name }, name)));
             return nameWriteRefusal(outcome, name);
         }), []) as unknown as (handle: unknown, name: string) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
-        const create = East.compileAsync(East.asyncFunction([WriterType, StringType, OptionType(StringType)], OptionType(StringType), ($, record, name, template) => {
-            const from = $.let(template.match({
-                some: (_$2, found) => East.value(some({ project: "ops", page: found }), OptionType(StudioKeyType)),
-                none: (_$2) => East.value(none, OptionType(StudioKeyType)),
-            }), OptionType(StudioKeyType));
-            const outcome = $.let(record.commit.patch("", Studio.newPage(record.read(), { project: "ops", page: name }, name, from)));
+        const create = East.compileAsync(East.asyncFunction([WriterType, StringType, OptionType(Studio.Types.Page)], OptionType(StringType), ($, record, name, template) => {
+            const outcome = $.let(record.commit.patch("", Studio.newPage({ project: "ops", page: name }, name, template, new Set())));
             return nameWriteRefusal(outcome, name);
-        }), []) as unknown as (handle: unknown, name: string, template: ValueTypeOf<OptionType<typeof StringType>>) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
+        }), []) as unknown as (handle: unknown, name: string, template: ValueTypeOf<OptionType<typeof Studio.Types.Page>>) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
         // The record over the repository, its read what the screen last read.
         let read = await current();
         const handle = {
@@ -369,7 +366,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.deepEqual(await saveAs(handle, "Overview template"), none, "D7: saved");
         const stale = read;
         read = await current();
-        assert.deepEqual(await create(handle, "Q3 review", some("Overview template")), none, "D5: made");
+        assert.deepEqual(await create(handle, "Q3 review", some(read.get({ project: "ops", page: "Overview template" })!.draft)), none, "D5: made");
         const now = await current();
         const reviewKey: Key = { project: "ops", page: "Q3 review" };
         const review = now.get(reviewKey)!;

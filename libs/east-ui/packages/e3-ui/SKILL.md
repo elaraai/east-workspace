@@ -134,7 +134,7 @@ Task → What do you need?
     │   ├─ Narrow one visual alone, or where readers start  → Studio.visual.of(source, view, { where: jq }) · a layout's filters: [{ key, source, where }], its starting filters
     │   ├─ Alerts: a condition on a visual's rows           → e3.record("alerts", Studio.Types.Alerts, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) }); alerts={Record.bind(alerts)} on the builder and the page · <Studio.AlertBell alerts onOpen? /> in the host's bar
     │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? alerts? env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
+    │   ├─ Pages, templates, and where new pages start      → <Studio.Library pages components project slice onOpen page? id? /> — Pages · Templates, a grid of cards its rail narrows: `slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(pages, { indexes }), scope: { kind: ["page"] }, … }, templates: { …, scope: { kind: ["template"] } } }) }}`; `pages={Record.bind(pages)}` writes a new page and is never read whole (`e3-ui:studio.examples.tsx:studioLibrary`)
     │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? alerts? /> (onOpen: a click, or an alert, that opens a page)
     │
@@ -481,7 +481,9 @@ end are `Option<DateTime>` when it can wait in the backlog. A
 - **The Studio.** `Studio.component(key, { name, category, icon, span?, … },
   fn)` declares a self-contained component written like a `ui()` body; the
   pages live in one `Studio.Types.Pages` record with a patch mutation.
-  `<Studio.Builder>` and `<Studio.Library>` take `Record.bind(pages)`;
+  `<Studio.Builder>` takes `Record.bind(pages)` and reads it whole;
+  `<Studio.Library>` takes it to write a new page, and pages the record
+  through its `slice` — so the two are `ui()`s of their own;
   `<Studio.Page>` takes `Data.bind(pages).read()`. Each takes the components
   as one `$.let([...])` list in palette order; the surface's manifest is the
   union of their reads. The open page is the host's: a builder shows the

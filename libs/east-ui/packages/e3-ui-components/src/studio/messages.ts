@@ -8,8 +8,8 @@
  * ONE typed message table: the builder's toolbar, its palette and its
  * placeholders; the inspector's section heads, its fields and its controls'
  * names, its footer, and what it says with nothing selected; the page
- * library's toolbar, pane, section heads and cards; the popovers that name a
- * new page or a template; the publish preview's bar and its rail; and what a
+ * library's toolbar, cards and empty states; the popovers that name a new page
+ * or a template; the publish preview's bar and its rail; and what a
  * page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
  * description, a placement's title, a project's, a page's and an
  * environment's names, the audience and the rollout — is data, and never
@@ -461,14 +461,18 @@ export interface StudioMessages {
     noPage: (p: { page: string }) => string;
     /** Under it. */
     noPageHint: (p: { project: string }) => string;
-    /** Blank grid's card — what it places. */
+    /** A page library's card of a layout that places nothing — what it places. */
     blankSummary: () => string;
-    /** A page card's count of placements — `3 components`. */
+    /** A page library's card's count of placements — `3 components`. */
     placements: (p: { n: number; count: string }) => string;
-    /** A page card's action. */
+    /** A page library's card's foot: its project, and its count of placements — `Ops console · 3 components`. */
+    entryByline: (p: { project: string; placements: string }) => string;
+    /** A page's card's action. */
     openInBuilder: () => string;
-    /** The Pages row's dashed last card. */
-    newPageFromTemplate: () => string;
+    /** A template's card's action, which starts a new page from it. */
+    startFromTemplate: () => string;
+    /** The mark on the card of the page open in the builder. */
+    openNow: () => string;
     /** The inspector's selection block — its eyebrow. */
     selectedComponent: () => string;
     /** Its eyebrow while a visual is selected. */
@@ -519,44 +523,46 @@ export interface StudioMessages {
     nothingSelected: () => string;
     /** Under it, what to do. */
     nothingSelectedHint: () => string;
-    /** The page library's search, counting what it searches — `Search 4 pages and 4 templates…`. */
-    searchLibrary: (p: { pages: string; templates: string; np: number; nt: number }) => string;
-    /** The search field's name. */
-    searchLabel: () => string;
-    /** The search's clear button. */
-    clearSearch: () => string;
-    /** The Sort menu's trigger. */
-    sortByName: () => string;
-    /** Name, A to Z. */
-    nameAz: () => string;
-    /** Name, Z to A. */
-    nameZa: () => string;
-    /** The primary action — `New page in Ops console`. */
+    /** The page library's frame, as its toolbar's landmark names it. */
+    pageLibrary: () => string;
+    /** Pages · Templates — the switch's name, for the keyboard. */
+    libraryView: () => string;
+    /** One template, and any other count — what the rail counts the templates in. */
+    templateNoun: () => { singular: string; plural: string };
+    /** The page library with no page: its heading, and under it what to do. */
+    noPages: () => string;
+    noPagesHint: () => string;
+    /** The page library with no template. */
+    noTemplates: () => string;
+    noTemplatesHint: () => string;
+    /** The rail's choices leaving the view no card — `No pages match the filters`. */
+    noneMatch: (p: { templates: boolean }) => string;
+    /** Under it. */
+    noneMatchHint: (p: { templates: boolean }) => string;
+    /** New page, while the rail has chosen one project — `New page in Ops console`. */
     newPageIn: (p: { project: string }) => string;
-    /** The primary action, folded, and the New page popover's head. */
+    /** New page, folded, and its popover's head. */
     newPage: () => string;
-    /** The pane's projects caption. */
-    projects: () => string;
-    /** The pane's pages caption, and the Pages section's head. */
+    /** The palette's Pages tab, and the page library's Pages view. */
     pages: () => string;
-    /** The legend's live status. */
+    /** A page live as it stands — the palette's status. */
     live: () => string;
-    /** The legend's draft status. */
+    /** A page drafted since, or never published — the palette's status. */
     draft: () => string;
-    /** The Templates section's head. */
+    /** The page library's Templates view. */
     templates: () => string;
-    /** Beside it. */
-    cloneToStart: () => string;
-    /** Beside the Pages head — `4 in Ops console`, or `1 of 4 in Ops console` while the search narrows. */
-    pagesIn: (p: { shown: string; total: string; project: string; narrowed: boolean }) => string;
     /** The New page popover's name field. */
     pageName: () => string;
     /** Under it, while it is empty. */
     pageNameMissing: () => string;
-    /** The New page popover's template field. */
-    template: () => string;
-    /** Blank grid — no template. */
-    blankGrid: () => string;
+    /** The New page popover's project field. */
+    pageProject: () => string;
+    /** A new page with no project, refused as it is made. */
+    pageProjectMissing: () => string;
+    /** Under the New page popover's tags. */
+    pageTagsHelp: () => string;
+    /** In the New page popover, the layout the page starts with — `Starts from Summary.`; with no template, a blank grid. */
+    startsFrom: (p: { template?: string | undefined }) => string;
     /** The New page popover's commit. */
     createPage: () => string;
     /** A popover's cancel. */

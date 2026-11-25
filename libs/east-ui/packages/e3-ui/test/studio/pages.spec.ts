@@ -145,17 +145,20 @@ describe("Studio writes (#992)", () => {
         assert.throws(() => applyPages(first, stale), /Cannot apply/);
     });
 
-    test("a new page starts from a template's cells and starting filters, or blank, with no live version and no tags, under its key's project and the title given, in one inserting patch", () => {
+    test("#1762: a new page starts from a template's layout — its cells and starting filters — or blank, with the tags given, kept, and no live version, under its key's project and the title given, in one inserting patch that reads nothing of the record", () => {
         const key: Key = { project: "ops", page: "detail" };
-        const fromTemplate = newPage(PAGES, key, "Detail", some(TEMPLATE_KEY));
+        const template = PAGES.get(TEMPLATE_KEY)!.draft;
+        const fromTemplate = newPage(key, "Detail", some(template), tagged());
         if (fromTemplate.type !== "patch") assert.fail(`expected a patch by key, got ${fromTemplate.type}`);
         assert.deepEqual([...fromTemplate.value.entries()].map(([k, op]) => [k, op.type]), [[key, "insert"]]);
         assertEntry(applyPages(PAGES, fromTemplate).get(key), pageEntry(key, { title: "Detail", cells: KPIS.cells, filters: [NSW] }));
-        assertEntry(applyPages(PAGES, newPage(PAGES, key, "Blank", none)).get(key), pageEntry(key, { title: "Blank", cells: [], filters: [] }));
+        // Its tags kept as every record's are: each without the spaces around it, once, and none empty.
+        assertEntry(applyPages(PAGES, newPage(key, "Blank", none, tagged(" weekly ", "weekly", "", "ops"))).get(key),
+            pageEntry(key, { title: "Blank", cells: [], filters: [] }, none, tagged("ops", "weekly")));
 
-        assert.throws(() => newPage(PAGES, OVERVIEW_KEY, "Again", none), /already exists/);
-        assert.throws(() => newPage(PAGES, key, "Detail", some(OVERVIEW_KEY)), /is a page, not a template/);
-        assert.throws(() => newPage(PAGES, key, "Detail", some({ project: "ops", page: "gone" })), /No template/);
+        // A name the project holds — a page's or a template's — is an insert that no longer applies: its commit is refused.
+        assert.throws(() => applyPages(PAGES, newPage(OVERVIEW_KEY, "Again", none, tagged())), /ConflictError: Cannot insert key \(project="ops", page="overview"\) - key already exists/);
+        assert.throws(() => applyPages(PAGES, newPage(TEMPLATE_KEY, "Again", none, tagged())), /ConflictError: Cannot insert key \(project="ops", page="tpl-kpis"\) - key already exists/);
     });
 
     test("save as template inserts a template of a page's draft — its placements and its starting filters, with no tags of the page's — in one patch", () => {

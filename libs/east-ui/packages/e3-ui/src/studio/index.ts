@@ -209,11 +209,7 @@ export {
     StudioLibrary,
     StudioLibraryComponent,
     StudioLibraryPayloadType,
-    StudioLibraryPageType,
-    StudioLibraryTemplateType,
-    libraryProjects,
-    libraryPages,
-    libraryTemplates,
+    StudioPagesWriteType,
     layoutSummary,
     nameWriteRefusal,
     type StudioLibraryOptions,
@@ -356,7 +352,7 @@ export interface StudioNamespace {
     migrations: typeof StudioMigrations;
     /** `<Studio.Builder>` — the builder: the open page's canvas, the palette and the inspector beside it, and the publish preview. */
     Builder: typeof StudioBuilder;
-    /** `<Studio.Library>` — a project's templates and pages, and where new pages start. */
+    /** `<Studio.Library>` — the pages and templates as cards, in a grid its rail narrows, and where new pages start. */
     Library: typeof StudioLibrary;
     /** `<Studio.Page>` — one page with no chrome, its live or draft layout on the snap grid. */
     Page: typeof StudioPage;
@@ -437,7 +433,7 @@ export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> 
     publish: typeof StudioPages.publish;
     /** Reverts a page: the patch that makes its live version's layout its draft. */
     revert: typeof StudioPages.revert;
-    /** Starts a page, from a template or blank: the patch that inserts it. */
+    /** Starts a page, from a template's layout or blank, with its tags: the patch that inserts it. */
     newPage: typeof StudioPages.newPage;
     /** Saves a page's draft as a template: the patch that inserts it. */
     saveTemplate: typeof StudioPages.saveTemplate;

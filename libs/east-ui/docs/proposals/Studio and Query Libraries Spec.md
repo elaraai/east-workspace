@@ -164,4 +164,11 @@ What each step built, where it differs from the above.
   - **L11 holds:** New query follows the rail.
   - The library and a query builder are surfaces of their own, a `ui()` each. The library pages the saved queries, a surface that pages a record never loads it whole, and the builder reads them whole.
   - The grid is the shared paged gallery (`PagedGallery`, beside the paged palette a builder's Backlog tab draws), so another library of cards pages the same way.
-  - The page library (step 4) is as designed until ruled otherwise.
+  - The page library is step 4's, below.
+- **Step 4.** The page library is the query library's concept too (ruled 25 Nov 2026): one toolbar over a grid of cards. Where this differs from §1 to §4:
+  - **No table, no Library pane and no Details.** The cards stand in the shared paged gallery: a page's card is its layout's wireframe, its title, what it places, its tags, and its project and how many components it places. `library` and `inspector` are not props of `<Studio.Library>`, and `Studio.library` is not built.
+  - **Pages · Templates.** Where `slice` has a `templates` source, the toolbar's first item switches the cards between the pages and the templates, and the rail shows the fields of the view shown. A press on a template's card opens New page from it, in place of the Templates tab's cards.
+  - **New page** takes a name, the project where the rail has chosen none (L12), and tags; it is one commit, and then the host is told (L10). A name the project holds is refused by the commit, not as it is typed: the library reads no record whole. `Studio.newPage` takes the template's layout and the tags in place of the record.
+  - **Tags** are given as a page is made. An existing page's tags are not edited here, since Details went with the pane: that is a follow-up, in the Studio builder.
+  - **L9 holds:** nothing says Live or Draft.
+  - The library takes `pages` (`Record.bind`) for its patch write alone, and pages the record through `slice`, each source scoped by `kind`. A surface that pages a record never loads it whole, so the library and a Studio builder are surfaces of their own, as the query library and a query builder are.

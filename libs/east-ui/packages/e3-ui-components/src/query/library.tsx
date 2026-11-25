@@ -37,24 +37,16 @@
  */
 
 import { createContext, memo, useCallback, useContext, useMemo } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
-import {
-    StringType, equalFor, equivalentFor, fromEastTypeValue, isValueOf, none, parseFor, printFor, some, variant, type ValueTypeOf, type option,
-} from "@elaraai/east";
-import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { StringType, equalFor, equivalentFor, fromEastTypeValue, isValueOf, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryLibraryComponent, QueryLibraryPayloadType, SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
-import {
-    BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, useTrackedEvaluation, type LibraryItemValue, type ToolbarItem,
-} from "@elaraai/east-ui-components";
-import {
-    PagedGallery, recordSlicePage, recordSliceRevision, useRecordSlicesToolbarItems, useSlotStyles,
-    type LibraryPageSource, type PagedLibraryGallery, type SlotStyles,
-} from "@elaraai/east-ui-components/internal";
+import { BannerView, BuilderFrame, getSomeorUndefined, implementUIComponent, type LibraryItemValue, type ToolbarItem } from "@elaraai/east-ui-components";
+import { useSlotStyles, type PagedLibraryGallery, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { tellHost } from "../shared/open.js";
+import { LibraryNewButton, SliceGallery, libraryCardMarks, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
 import { queryAbout, refusalGlyph, whenWords, type QueryAbout } from "./about.js";
 import { sourceKind } from "./datasets-tab.js";
 import { useQueryRoot } from "./hooks.js";
@@ -66,26 +58,15 @@ import { useQueryWords } from "./words.js";
 
 /** The renderer's payload, decoded. */
 type QueryLibraryValue = ValueTypeOf<typeof QueryLibraryComponent.schema>;
-/** The `rows` source's part of the library's slice. */
-type RowsPart = ValueTypeOf<RecordSliceBindType>;
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryLibraryPayloadType);
 const nameEqual = equalFor(StringType);
-const readName = parseFor(StringType);
-/** A narrowing as text: what tells one narrowing's rows from another's. */
-const printWhere = printFor(RecordSliceWhereType);
 
 /** The saved query's field that holds the names of the data sources it reads: what the rail's Data source filter narrows by. */
 const SOURCES_FIELD = "sources";
 /** How many of a query's steps its wireframe draws before it counts the rest: what a card's media holds. */
 const WIRE_STEPS = 4;
-/** The narrowest a card stands, and its height, px: the Library's gallery card, its wireframe over its face. */
-const CARD_LEAST = 300;
-const CARD_PX = 224;
-/** The secondary fact a card shows: its query's tags, as chips. */
-const TAGS = "tags";
-const CARD_DIMS = [TAGS] as const;
 
 /** What the library's parts read: the root, the words, and who to tell. */
 interface QueryLibraryFacts {
@@ -163,18 +144,16 @@ function queryItem(saved: SavedQuery, about: QueryAbout, open: boolean, words: Q
     const f = words.formatters;
     const steps = about.steps === undefined ? undefined : { count: f.number(about.steps.count), n: about.steps.count };
     const gives = about.gives ?? (about.problems > 0 ? m.problemCount({ count: f.number(about.problems), n: about.problems }) : "");
-    const tags = [...saved.tags];
     return {
         key: saved.name, label: saved.name,
         sublabel: about.refusal !== undefined || about.description === undefined ? none : some(about.description),
         icon: none,
-        status: open ? some({ label: m.openNow(), tone: variant("info", null), ring: false }) : none,
         trailing: refusalGlyph(about),
-        draggable: false, filtered: false, placed: open, media: none, avatar: none,
+        draggable: false, filtered: false, media: none, avatar: none,
         byline: some(m.libraryByline({ source: about.source, steps, gives, when: whenWords(saved.saved_at, new Date(), f), run: false })),
         action: about.refusal === undefined ? some(m.openInBuilder()) : none,
         search: none, groups: new Map(), facets: new Map(),
-        dims: new Map(tags.length === 0 ? [] : [[TAGS, variant("chips", tags)]]),
+        ...libraryCardMarks(open, m.openNow(), saved.tags),
     };
 }
 
@@ -201,77 +180,28 @@ export const EastChakraQueryLibrary = memo(function EastChakraQueryLibrary({ val
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 /**
- * The one data source the rail narrows the cards to, when it narrows to one that is bound here (L11): what New query
- * starts on. `undefined` with none chosen, several, or one this surface does not bind.
+ * A page's row, as the saved queries' source reads it: the saved query its entry joins, checked of its type.
  *
- * @param rows - The `rows` source's part of the slice
- * @param root - The bound data sources
- * @returns The data source's name, or `undefined`
+ * @param entry - An entry of a page of the `rows` source
+ * @returns The saved query; `undefined` for an entry that joins none
  */
-function useRailSource(rows: RowsPart | undefined, root: QueryRoot): string | undefined {
-    const read = useCallback((): string | undefined => {
-        const choice = rows?.read().where.get(SOURCES_FIELD);
-        if (choice === undefined || choice.type !== "values" || choice.value.length !== 1) return undefined;
-        const name = readName(choice.value[0]!);
-        return name.success && root.entries.some((entry) => nameEqual(entry.name, name.value)) ? name.value : undefined;
-    }, [rows, root]);
-    const { result } = useTrackedEvaluation(read);
-    return result.ok ? result.value : undefined;
-}
-
-/**
- * The saved queries the rail narrows to, a page at a time: each page the `rows` source's own, under the rail's
- * choices, its entries' rows the queries; its count the narrowing's, from e3; and its revision the record's, so a
- * save in a builder reads the cards again. Every read is a tracked read of the source.
- *
- * @param rows - The `rows` source's part of the slice
- * @returns The page source the gallery reads
- */
-function useSavedPages(rows: RowsPart): LibraryPageSource<SavedQuery> {
-    return useMemo((): LibraryPageSource<SavedQuery> => ({
-        id: rows.key,
-        page: (offset, limit) => {
-            const entries = recordSlicePage(rows, { where: rows.read().where, area: none }, offset, limit);
-            if (entries.type === "none") return none;
-            return some(entries.value.flatMap((entry) => {
-                const row = (entry as { row?: option<unknown> }).row;
-                return row?.type === "some" && isValueOf(row.value, SavedQueryType) ? [row.value as SavedQuery] : [];
-            }));
-        },
-        total: () => rows.count(),
-        revision: () => recordSliceRevision(rows),
-        query: () => printWhere(rows.read().where),
-    }), [rows]);
+function savedRow(entry: unknown): SavedQuery | undefined {
+    const row = (entry as { row?: option<unknown> }).row;
+    return row?.type === "some" && isValueOf(row.value, SavedQueryType) ? row.value as SavedQuery : undefined;
 }
 
 /** New query (L11): on the one data source the rail narrows to, or a menu of the bound data sources. */
 function NewQuery({ labelled, source }: { labelled: boolean; source: string | undefined }) {
     const { root, words, styles, onOpen, icons } = useQueryLibrary();
     const m = words.messages;
-    const button = useRecipe({ key: "button" });
-    const solid = useMemo(() => button({ variant: "solid", size: "sm" }) as SystemStyleObject, [button]);
     const start = useCallback((name: string) => tellHost(onOpen, newQuery(name)), [onOpen]);
-    const plus = <Box as="span" css={styles.buttonIcon} aria-hidden><FontAwesomeIcon icon={faPlus} /></Box>;
     if (source !== undefined) {
-        const label = m.newQueryOn({ source });
-        return (
-            <chakra.button type="button" css={solid} colorPalette="brand" data-query-library-new={source}
-                {...(labelled ? {} : { "aria-label": label, title: label })} onClick={() => start(source)}>
-                {plus}
-                {labelled ? label : null}
-            </chakra.button>
-        );
+        return <LibraryNewButton label={m.newQueryOn({ source })} labelled={labelled} data-query-library-new={source} onClick={() => start(source)} />;
     }
-    const label = m.newQuery();
     return (
         <ChakraMenu.Root positioning={{ placement: "bottom-end" }} onSelect={(picked) => start(picked.value)}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={solid} colorPalette="brand" data-query-library-new="" disabled={root.entries.length === 0}
-                    {...(labelled ? {} : { "aria-label": label, title: label })}>
-                    {plus}
-                    {labelled ? label : null}
-                    <Box as="span" css={styles.caret} aria-hidden><FontAwesomeIcon icon={faCaretDown} /></Box>
-                </chakra.button>
+                <LibraryNewButton label={m.newQuery()} labelled={labelled} caret data-query-library-new="" disabled={root.entries.length === 0} />
             </ChakraMenu.Trigger>
             <Portal>
                 <ChakraMenu.Positioner>
@@ -317,10 +247,7 @@ function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryO
             return about;
         };
         const isOpen = (saved: SavedQuery) => open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, saved.name);
-        return {
-            least: CARD_LEAST,
-            cardPx: CARD_PX,
-            dims: CARD_DIMS,
+        return libraryGallery({
             item: (saved) => queryItem(saved, aboutOf(saved), isOpen(saved), words),
             media: (saved) => <CardWireframe about={aboutOf(saved)} />,
             extras: (saved) => {
@@ -329,22 +256,8 @@ function useQueryGallery(root: QueryRoot, words: QueryWords, open: option<QueryO
             },
             clicks: (saved) => aboutOf(saved).refusal === undefined,
             onOpen: (name) => tellHost(onOpen, variant("saved", name)),
-        };
+        });
     }, [root, words, open, onOpen]);
-}
-
-/** The cards over their page source: the shared paged gallery, saying so where the rail's choices leave none. */
-function QueryCards({ rows, id, words, gallery }: { rows: RowsPart; id: string; words: QueryWords; gallery: PagedLibraryGallery<SavedQuery> }) {
-    const m = words.messages;
-    const source = useSavedPages(rows);
-    // Whether a choice of the viewer's narrows the cards: what an empty grid says, and whether it offers Clear filters.
-    const readNarrowed = useCallback(() => rows.read().where.size > 0, [rows]);
-    const { result } = useTrackedEvaluation(readNarrowed);
-    const narrowed = result.ok && result.value;
-    const clear = useCallback(() => { rows.clearAll(); }, [rows]);
-    const empty = useMemo(() => ({ title: m.noQueries(), description: m.saveInBuilder() }), [m]);
-    const narrowing = useMemo(() => (narrowed ? { empty: { title: m.noQueriesMatch(), description: m.changeFilters() }, onClear: clear, emptied: true } : undefined), [narrowed, m, clear]);
-    return <PagedGallery source={source} id={id} gallery={gallery} empty={empty} narrowing={narrowing} />;
 }
 
 /** The library over its root: the frame's one toolbar — the rail, then New query — over the cards. */
@@ -362,11 +275,12 @@ function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibr
 
     // The rail, counted in the library's noun, then New query, which follows it.
     const nouns = useMemo(() => ({ rows: m.savedNoun({ n: 2 }) }), [m]);
-    const affordances = useMemo(() => chrome.affordances.map((affordance) => affordance.type), [chrome]);
-    const rail = useRecordSlicesToolbarItems(chrome.slice, {
-        nouns, affordances, ...(chrome.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
-    });
-    const railSource = useRailSource(rows, root);
+    const rail = useLibraryRail(chrome, nouns);
+    // New query starts on the one data source the rail narrows the cards to, where it is bound here (L11).
+    const chosen = useRailValue(rows, SOURCES_FIELD);
+    const railSource = chosen !== undefined && root.entries.some((entry) => nameEqual(entry.name, chosen)) ? chosen : undefined;
+    const empty = useMemo(() => ({ title: m.noQueries(), description: m.saveInBuilder() }), [m]);
+    const narrowed = useMemo(() => ({ title: m.noQueriesMatch(), description: m.changeFilters() }), [m]);
     const toolbar = useMemo((): ReadonlyArray<ToolbarItem> => [...rail, {
         key: "query-library-new", side: "end",
         forms: [<NewQuery key="full" labelled source={railSource} />, <NewQuery key="compact" labelled={false} source={railSource} />],
@@ -375,7 +289,7 @@ function QueryLibraryView({ value, root, words, storageKey }: { value: QueryLibr
     return (
         <QueryLibraryContext.Provider value={facts}>
             <BuilderFrame storageKey={`${storageKey}.${keys.library}.frame`} label={m.tab({ tab: "library" })} toolbar={toolbar}>
-                {rows !== undefined && <QueryCards rows={rows} id={keys.library} words={words} gallery={gallery} />}
+                {rows !== undefined && <SliceGallery part={rows} id={keys.library} gallery={gallery} decode={savedRow} empty={empty} narrowed={narrowed} />}
             </BuilderFrame>
         </QueryLibraryContext.Provider>
     );
