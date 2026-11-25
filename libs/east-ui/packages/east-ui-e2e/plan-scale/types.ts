@@ -10,11 +10,27 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, DictType, FloatType, NullType, OptionType, StringType, StructType, VariantType } from "@elaraai/east";
+import { BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
 import { EventStateType } from "@elaraai/east-ui";
 
-/** A press: its name, its hall and the sheets it prints an hour. */
-export const LabPress = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
+/**
+ * A press: its name and hall, its model and how it stands, the sheets it prints an hour, its colour units, when it
+ * was last serviced, whether it perfects, and the shifts it runs — each a field the rail narrows the presses by.
+ */
+export const LabPress = StructType({
+    name: StringType,
+    hall: StringType,
+    model: StringType,
+    status: StringType,
+    sheets_per_hour: FloatType,
+    colours: IntegerType,
+    serviced: DateTimeType,
+    perfecting: BooleanType,
+    shifts: SetType(StringType),
+});
+
+/** The presses record: the presses by their keys. */
+export const LabPresses = DictType(StringType, LabPress);
 
 /**
  * A print job: when it runs and on which press — none of the three while it waits in the backlog — the lifecycle it
