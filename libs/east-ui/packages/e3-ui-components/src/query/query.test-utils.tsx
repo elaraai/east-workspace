@@ -264,8 +264,6 @@ export interface LibraryOptions {
     readonly builder?: boolean;
     /** Gives it no open query to mark: `false`; the surface's open query unless given. */
     readonly marked?: boolean;
-    /** Under the page's drag layer, as a surface whose cards drag is. */
-    readonly drag?: boolean;
     /** The page's scope of the saved queries: those of these tags alone, which is no choice of the viewer's (#1621). */
     readonly scope?: { readonly tags: readonly string[] };
 }
@@ -315,11 +313,10 @@ export interface QueryHarness extends E3Harness {
      * The query library over the saved queries and the same two data
      * sources, under a line saying what it last told the host was asked for
      * (`told Big orders`), which the surface holds as its open query; with the
-     * builder beside it, sharing its id and shown that query, when asked;
-     * under a drag layer when asked; its saved queries under the page's
-     * scope, given one.
+     * builder beside it, sharing its id and shown that query, when asked; its
+     * saved queries under the page's scope, given one.
      *
-     * @param options - The id, the builder, the drag layer, the page's scope
+     * @param options - The id, the builder, the page's scope
      * @returns The render
      */
     mountLibrary(options?: LibraryOptions): Promise<RenderResult>;
@@ -473,7 +470,7 @@ export function queryHarness(options: { readonly measure?: boolean } = {}): Quer
                 const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
                 return Query.Builder({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen: go, ...named });
             }))) };
-            const mounted = mountOver(library, { drag: options.drag === true, storageKey: "query-library" });
+            const mounted = mountOver(library, { drag: false, storageKey: "query-library" });
             return withBuilder ? mounted.then(async (shelf) => { await mountOver(builder, { drag: false, storageKey: "query-builder" }); return shelf; }) : mounted;
         },
         refuseRuns: () => h.e3.fail(isRun, { status: 500, type: "internal", message: "the test refused the run" }),

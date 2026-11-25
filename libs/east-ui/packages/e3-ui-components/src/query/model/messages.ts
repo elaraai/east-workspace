@@ -848,20 +848,8 @@ export interface QueryMessages {
     startedOn: (p: { name: string }) => string;
     /** The notice after a query is opened from the Library tab — `Opened “Big orders” from the library.` */
     openedFromLibrary: (p: { name: string }) => string;
-    /** The notice after a query library's card is dropped on the builder — `Opened “Big orders” from the query library.` */
-    openedFromQueryLibrary: (p: { name: string }) => string;
     /** The notice after the builder's host opens a query in it — `Opened “Big orders”.` */
     opened: (p: { name: string }) => string;
-
-    // ── Dropping (#939) ──────────────────────────────────────────────────
-    /** Over the builder while a query library's card rests on it — `Drop to open “Revenue by region”`. */
-    dropToOpen: (p: { name: string }) => string;
-    /** Under it: how many steps that query has — `5 steps.` */
-    dropSteps: (p: { count: string; n: number }) => string;
-    /** The builder, as the drag layer names it in what it says — `Revenue by region is over the query builder.` */
-    dropTargetName: () => string;
-    /** The builder refusing a card, as the drag layer names it, with why — `the query builder (Reads customers, which isn't here) does not take Big orders.` */
-    dropRefusedName: (p: { reason: string }) => string;
 
     // ── The query library (#1063) ────────────────────────────────────────
     /** Its search's placeholder — `Search 7 queries…`. */

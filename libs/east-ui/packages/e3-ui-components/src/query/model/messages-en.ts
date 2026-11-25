@@ -711,13 +711,7 @@ export const queryMessages: QueryMessages = {
     recentGroup: () => "Recent",
     startedOn: ({ name }) => `Started a new query on ${name}.`,
     openedFromLibrary: ({ name }) => `Opened “${name}” from the library.`,
-    openedFromQueryLibrary: ({ name }) => `Opened “${name}” from the query library.`,
     opened: ({ name }) => `Opened “${name}”.`,
-
-    dropToOpen: ({ name }) => `Drop to open “${name}”`,
-    dropSteps: ({ count, n }) => `${count} ${n === 1 ? "step" : "steps"}.`,
-    dropTargetName: () => "the query builder",
-    dropRefusedName: ({ reason }) => `the query builder (${reason})`,
 
     librarySearch: ({ count, n }) => `Search ${count} ${n === 1 ? "query" : "queries"}…`,
     librarySearchLabel: () => "Search queries",

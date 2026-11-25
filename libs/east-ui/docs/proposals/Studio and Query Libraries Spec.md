@@ -164,6 +164,7 @@ What each step built, where it differs from the above.
   - **L11 holds:** New query follows the rail.
   - The library and a query builder are surfaces of their own, a `ui()` each. The library pages the saved queries, a surface that pages a record never loads it whole, and the builder reads them whole.
   - The grid is the shared paged gallery (`PagedGallery`, beside the paged palette a builder's Backlog tab draws), so another library of cards pages the same way.
+  - The query builder's drop target for a card dragged from the gallery went with it (§7): no card is dragged, and the library is another surface.
   - The page library is step 4's, below.
 - **Step 4.** The page library is the query library's concept too (ruled 25 Nov 2026): one toolbar over a grid of cards. Where this differs from §1 to §4:
   - **No table, no Library pane and no Details.** The cards stand in the shared paged gallery: a page's card is its layout's wireframe, its title, what it places, its tags, and its project and how many components it places. `library` and `inspector` are not props of `<Studio.Library>`, and `Studio.library` is not built.
