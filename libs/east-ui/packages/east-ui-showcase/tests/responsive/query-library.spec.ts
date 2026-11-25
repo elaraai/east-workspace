@@ -10,9 +10,10 @@
  * many cards across as fit at 300px each — five in 1800px, three in 1240px,
  * two in 846px, one in 560px and on a phone — 12px apart and 20px in from the
  * frame, each 224px tall with its wireframe, its name and its foot inside it,
- * in the order e3 pages them; the open query's card is the brand's; and a
- * press on a card asks the surface for its query. Every measurement is polled
- * until it holds, on a page at rest.
+ * the foot at the card's end whatever stands over it, in the order e3 pages
+ * them; the open query's card is the brand's; and a press on a card asks the
+ * surface for its query. Every measurement is polled until it holds, on a page
+ * at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test query-library --project desktop`.
@@ -43,7 +44,7 @@ async function openLibrary(page: Page, width?: number, theme: "light" | "dark" =
     return frame;
 }
 
-/** The grid as it is laid out: how many cards stand on its first line, a card's size, the gaps between them and their inset from main, and whether each card holds what it draws. */
+/** The grid as it is laid out: how many cards stand on its first line, a card's size, the gaps between them and their inset from main, whether each card holds what it draws, and how far each card's foot ends from its card's end. */
 function grid(frame: Locator) {
     return frame.evaluate((root) => {
         const main = root.querySelector('[data-frame-slot="main"]')!.getBoundingClientRect();
@@ -56,11 +57,13 @@ function grid(frame: Locator) {
                 const r = el.getBoundingClientRect();
                 return r.left >= box.left - 0.5 && r.right <= box.right + 0.5 && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
             };
-            const title = card.querySelector("[data-library-media]")!.nextElementSibling!.firstElementChild!.firstElementChild as HTMLElement;
-            // The wireframe's lines, the foot and the name: all inside the card, the name whole.
+            const title = card.querySelector<HTMLElement>("[data-library-title]")!;
+            // The wireframe's lines, the foot, the tags and the name: all inside the card, the name whole.
             return [...card.querySelectorAll("[data-query-wireframe] > [data-wire]")].every(inside) && inside(card.querySelector("[data-library-foot]")!)
-                && title.scrollWidth <= title.clientWidth;
+                && [...card.querySelectorAll("[data-library-dim]")].every(inside) && title.scrollWidth <= title.clientWidth;
         });
+        // Each card's foot, from its end to its card's: the same on every card, with tags or without.
+        const feet = [...new Set(cards.map((card) => Math.round(card.getBoundingClientRect().bottom - card.querySelector("[data-library-foot]")!.getBoundingClientRect().bottom)))];
         const gallery = root.querySelector("[data-library-gallery]")!;
         return {
             across,
@@ -68,6 +71,7 @@ function grid(frame: Locator) {
             apart: [across > 1 ? Math.round(boxes[1]!.left - boxes[0]!.right) : null, boxes[across] === undefined ? null : Math.round(boxes[across]!.top - boxes[0]!.bottom)],
             inset: [Math.round(boxes[0]!.left - main.left), Math.round(main.right - boxes[across - 1]!.right), Math.round(boxes[0]!.top - main.top)],
             fits,
+            feet,
             sideways: gallery.scrollWidth > gallery.clientWidth + 1,
         };
     });
@@ -111,12 +115,12 @@ test.describe("Query library (#1761)", () => {
         test("the saved queries a card each, in the order e3 pages them, as many across as fit: five in 1800px, three in 1240px, two in 846px, one in 560px — 12px apart, 20px in, 224px tall, each holding what it draws", async ({ page }) => {
             const frame = await openLibrary(page, 1240);
             await expect.poll(() => frame.evaluate((root) => [...root.querySelectorAll("[data-library-gallery] [data-library-card]")].map((card) => card.getAttribute("data-library-card")))).toEqual(NAMES);
-            await expect.poll(() => grid(frame)).toEqual({ across: 3, card: [392, 224], apart: [12, 12], inset: [20, 20, 20], fits: true, sideways: false });
+            await expect.poll(() => grid(frame)).toEqual({ across: 3, card: [392, 224], apart: [12, 12], inset: [20, 20, 20], fits: true, feet: [11], sideways: false });
             for (const [width, across, card] of [[1800, 5, 342], [846, 2, 397], [560, 1, 520]] as const) {
                 await frame.evaluate((root, px) => { (root as HTMLElement).style.width = `${px}px`; }, width);
                 await settled(page);
                 await expect.poll(() => grid(frame), { message: `${width}px` }).toEqual({
-                    across, card: [card, 224], apart: [across > 1 ? 12 : null, 12], inset: [20, 20, 20], fits: true, sideways: false,
+                    across, card: [card, 224], apart: [across > 1 ? 12 : null, 12], inset: [20, 20, 20], fits: true, feet: [11], sideways: false,
                 });
             }
         });
@@ -132,9 +136,10 @@ test.describe("Query library (#1761)", () => {
                     media: Math.round(media.height),
                     lines: [...wire.querySelectorAll("[data-wire]")].map((line) => [line.getAttribute("data-wire"), Math.round(line.getBoundingClientRect().height)]),
                     more: wire.lastElementChild!.textContent,
-                    tags: [...card.querySelectorAll("[data-query-library-tags] > *")].map((tag) => tag.textContent),
-                    byline: (card.querySelector("[data-query-library-byline]")!.textContent ?? "").startsWith("orders · 5 steps · up to 10 orders · saved "),
-                    marked: [...root.querySelectorAll("[data-library-card][data-open]")].map((el) => el.getAttribute("data-library-card")),
+                    tags: [...card.querySelectorAll('[data-library-dim="tags"] > *')].map((tag) => tag.textContent),
+                    byline: (card.querySelector("[data-library-byline]")!.textContent ?? "").startsWith("orders · 5 steps · up to 10 orders · saved "),
+                    status: card.querySelector("[data-library-status]")!.textContent,
+                    marked: [...root.querySelectorAll("[data-library-card][data-placed]")].map((el) => el.getAttribute("data-library-card")),
                     brand: edge("Top shipped orders, 2026") !== edge("Units by SKU"),
                 };
             })).toEqual({
@@ -143,6 +148,7 @@ test.describe("Query library (#1761)", () => {
                 more: "+2 more",
                 tags: ["sales", "weekly"],
                 byline: true,
+                status: "Open",
                 marked: ["Top shipped orders, 2026"],
                 brand: true,
             });
@@ -153,7 +159,7 @@ test.describe("Query library (#1761)", () => {
             const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
             const asked = () => entry.evaluate((el) => [...el.querySelectorAll("*")].find((node) => node.children.length === 0 && /^Asked to open/.test(node.textContent ?? ""))?.textContent);
             await frame.locator('[data-library-card="Pump parts cost"]').click();
-            await expect.poll(() => frame.evaluate((root) => [...root.querySelectorAll("[data-library-card][data-open]")].map((el) => el.getAttribute("data-library-card")))).toEqual(["Pump parts cost"]);
+            await expect.poll(() => frame.evaluate((root) => [...root.querySelectorAll("[data-library-card][data-placed]")].map((el) => el.getAttribute("data-library-card")))).toEqual(["Pump parts cost"]);
             await expect.poll(asked).toBe("Asked to open in the builder: the saved query “Pump parts cost”");
             await frame.locator("[data-query-library-new]").click();
             await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent))).toEqual(["orders", "customers", "forecast", "model", "bom"]);
@@ -170,8 +176,8 @@ test.describe("Query library (#1761)", () => {
             await expect.poll(async () => {
                 const laid = await grid(frame);
                 const phone = await frame.evaluate((root) => ({ phone: root.hasAttribute("data-phone"), page: document.documentElement.scrollWidth > document.documentElement.clientWidth }));
-                return { ...phone, across: laid.across, height: laid.card[1], apart: laid.apart[1], inset: laid.inset, fits: laid.fits, sideways: laid.sideways };
-            }).toEqual({ phone: true, page: false, across: 1, height: 224, apart: 12, inset: [20, 20, 20], fits: true, sideways: false });
+                return { ...phone, across: laid.across, height: laid.card[1], apart: laid.apart[1], inset: laid.inset, fits: laid.fits, feet: laid.feet, sideways: laid.sideways };
+            }).toEqual({ phone: true, page: false, across: 1, height: 224, apart: 12, inset: [20, 20, 20], fits: true, feet: [11], sideways: false });
         });
     });
 });

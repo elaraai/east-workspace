@@ -13,11 +13,11 @@
  *   or layout switch of its own.
  * - **The cards**: a card a saved query, in the order e3 pages them — a
  *   wireframe of its query, its name, its description, its tags, and what it
- *   reads and gives and when it was saved; one whose data sources aren't bound
- *   here says why, in the warning tone, and opens nothing; the query the host
- *   says is open is marked.
+ *   reads and gives and when it was saved — the Library's gallery card; one
+ *   whose data sources aren't bound here says why, in the warning tone, and is
+ *   no button; the query the host says is open is marked.
  * - **Opening**: a press on a card, or ⏎ or Space on it, tells the host its
- *   query and does nothing else.
+ *   query and does nothing else; ⌘ or Ctrl ⏎ is left as it came.
  * - **What it reads**: its rows a window at a time through the record's
  *   indexes — never the record whole, and no dataset — and again when the
  *   record moves.
@@ -88,17 +88,17 @@ const cards = (container: HTMLElement) => [...container.querySelectorAll<HTMLEle
 const names = (container: HTMLElement) => cards(container).map((card) => card.getAttribute("data-library-card"));
 /** A query's card. */
 const cardOf = (container: HTMLElement, name: string) => cards(container).find((card) => card.getAttribute("data-library-card") === name)!;
-/** A part of a query's card, as it reads; `undefined` where the card draws none. */
-const partOf = (container: HTMLElement, name: string, part: string) => cardOf(container, name).querySelector(`[data-query-library-${part}]`)?.textContent;
+/** A part of a query's card — the Library's gallery card's — as it reads; `undefined` where the card draws none. */
+const partOf = (container: HTMLElement, name: string, part: string) => cardOf(container, name).querySelector(`[data-library-${part}]`)?.textContent;
 /** A card's wireframe: what it draws, and its lines. */
 const wireOf = (card: HTMLElement) => {
     const wire = card.querySelector<HTMLElement>("[data-query-wireframe]")!;
     return [wire.getAttribute("data-query-wireframe"), [...wire.children].map((line) => line.textContent)];
 };
 /** A card's tags. */
-const tagsOf = (container: HTMLElement, name: string) => [...cardOf(container, name).querySelectorAll("[data-query-library-tags] > *")].map((tag) => tag.textContent);
+const tagsOf = (container: HTMLElement, name: string) => [...cardOf(container, name).querySelectorAll('[data-library-dim="tags"] > *')].map((tag) => tag.textContent);
 /** The cards the host's open query marks. */
-const marked = (container: HTMLElement) => cards(container).filter((card) => card.hasAttribute("data-open")).map((card) => card.getAttribute("data-library-card"));
+const marked = (container: HTMLElement) => cards(container).filter((card) => card.hasAttribute("data-placed")).map((card) => card.getAttribute("data-library-card"));
 /** What the surface says its `onOpen` was told. */
 const told = () => screen.getByText(/^told /).textContent;
 /** The toolbar's words. */
@@ -146,9 +146,9 @@ describe("<Query.Library> — its frame (#1761)", () => {
         expect(screen.queryByRole("textbox", { name: "Search queries" })).toBeNull();
         expect(container.querySelector("[data-query-library-sort]")).toBeNull();
         expect(screen.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
-        // Its recipe frames nothing: what it styles is what a card adds, its wireframe and its glyphs.
+        // Its recipe frames nothing and draws no card: what it styles is a card's wireframe, and New query's glyphs.
         const recipe = system.getSlotRecipe("queryLibrary") as { base: Record<string, Record<string, unknown>> };
-        expect(Object.keys(recipe.base)).not.toContain("root");
+        expect(Object.keys(recipe.base).filter((slot) => slot === "root" || slot.startsWith("card"))).toEqual([]);
     });
 });
 
@@ -160,26 +160,27 @@ describe("<Query.Library> — its cards (#1761)", () => {
         expect(names(container)).toEqual(NAMES);
         expect(wireOf(cardOf(container, TOP.name))).toEqual(["steps", ["orders", "Keep rows where", "Look up from another dataset", "Show only these fields", "+2 more"]]);
         expect(wireOf(cardOf(container, BIG.name))).toEqual(["steps", ["orders", "Keep rows where"]]);
-        expect(partOf(container, BIG.name, "description")).toBe("Orders of 1,000 or more.");
-        expect(partOf(container, TOP.name, "description")).toMatch(/^Top 10 orders by total where status is shipped/);
+        expect(partOf(container, BIG.name, "title")).toBe("Big orders");
+        expect(partOf(container, BIG.name, "sublabel")).toBe("Orders of 1,000 or more.");
+        expect(partOf(container, TOP.name, "sublabel")).toMatch(/^Top 10 orders by total where status is shipped/);
         expect([tagsOf(container, TOP.name), tagsOf(container, BIG.name)]).toEqual([["sales", "weekly"], []]);
         expect(partOf(container, TOP.name, "byline")).toMatch(/^orders · 5 steps · up to 10 orders · saved /);
         expect(partOf(container, COUNT.name, "byline")).toMatch(/^customers · 1 step · one whole number · saved /);
         expect(cardOf(container, BIG.name).querySelector("[data-library-action]")!.textContent).toBe("Open in builder →");
     });
 
-    test("a query whose data sources aren't bound here says why on its card, in the warning tone, and a press on it asks for nothing", async () => {
+    test("a query whose data sources aren't bound here says why on its card, in the warning tone, in its description's place; it is no button, and a press on it asks for nothing", async () => {
         const { container } = await mount();
-        expect([partOf(container, MISSING.name, "refusal"), partOf(container, ELSEWHERE.name, "refusal"), partOf(container, BIG.name, "refusal")]).toEqual([
+        expect([partOf(container, MISSING.name, "note"), partOf(container, ELSEWHERE.name, "note"), partOf(container, BIG.name, "note")]).toEqual([
             "Reads regions, which isn't here", `Reads ${pathToString(ARCHIVE)}, not this builder's orders`, undefined,
         ]);
         expect(wireOf(cardOf(container, MISSING.name))).toEqual(["problems", ["1 problem", "Reads regions, which isn't here"]]);
         const refused = cardOf(container, MISSING.name);
-        expect([refused.querySelector("[data-library-action]"), refused.getAttribute("aria-disabled"), refused.querySelector("[role=img]")!.getAttribute("data-tone")]).toEqual([null, "true", "warning"]);
+        expect([partOf(container, MISSING.name, "sublabel"), refused.querySelector("[data-library-note]")!.getAttribute("data-tone")]).toEqual([undefined, "warning"]);
+        expect([refused.querySelector("[data-library-action]"), refused.getAttribute("role"), refused.hasAttribute("tabindex")]).toEqual([null, null, false]);
+        expect(within(refused).getByRole("img", { name: "Reads regions, which isn't here" }).getAttribute("data-tone")).toBe("warning");
         await press(refused);
         expect([told(), hostQuery()]).toEqual(["told nothing", firstQuery("orders")]);
-        const recipe = system.getSlotRecipe("queryLibrary") as { base: Record<string, Record<string, unknown>> };
-        expect(recipe.base["cardRefusal"]!["color"]).toBe("fg.warning");
     });
 });
 
@@ -191,15 +192,19 @@ describe("<Query.Library> — opening a query (#1761)", () => {
         expect(marked(container)).toEqual([]);
         await press(cardOf(container, BIG.name));
         expect([told(), hostQuery(), marked(container)]).toEqual(["told Big orders", variant("saved", "Big orders"), [BIG.name]]);
-        expect(cardOf(container, BIG.name).querySelector("[data-query-library-open]")!.textContent).toBe("Open");
+        expect(partOf(container, BIG.name, "status")).toBe("Open");
         expect(sharedEntry()).toBeUndefined();
     });
 
-    test("⏎ and Space on a card, the keyboard on it, each tell the host its query", async () => {
+    test("⏎ and Space on a card, the keyboard on it, each tell the host its query; ⌘ or Ctrl ⏎ tells nothing", async () => {
         const { container } = await mount();
         const card = cardOf(container, COUNT.name);
         expect([card.getAttribute("role"), card.tabIndex]).toEqual(["button", 0]);
-        await act(async () => { card.focus(); fireEvent.keyDown(card, { key: "Enter" }); });
+        // A chord is a builder's shortcut: the card leaves it as it came.
+        await act(async () => { card.focus(); fireEvent.keyDown(card, { key: "Enter", metaKey: true }); fireEvent.keyDown(card, { key: "Enter", ctrlKey: true }); });
+        await settle();
+        expect(told()).toBe("told nothing");
+        await act(async () => { fireEvent.keyDown(card, { key: "Enter" }); });
         await settle();
         expect(told()).toBe("told Customer count");
         const other = cardOf(container, TOP.name);
