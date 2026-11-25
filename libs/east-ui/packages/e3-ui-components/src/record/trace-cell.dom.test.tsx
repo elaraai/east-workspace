@@ -110,13 +110,14 @@ describe("a Record's trace cells (east-workspace#1728)", () => {
             const history = cell(container, id, "history");
             expect([traces(history).length, absent(history), history.title], id).toEqual([0, "no history", "no history"]);
         }
-        // The strip says what the cell says (east-workspace#1734's review): the column's words, or the Record's dash.
+        // The strip says what the cell says (east-workspace#1734's review): the column's words, or the Record's dash — and
+        // names no key, as a cell that takes none says none (east-workspace#1743).
         await press(cell(container, "M-04", "history"));
-        expect(stripSays(container)).toEqual(["Last year", "no history", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Last year", "no history", ""]);
         await press(cell(container, "M-07", "history"));
-        expect(stripSays(container)).toEqual(["Last year", "no history", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Last year", "no history", ""]);
         await press(cell(container, "M-07", "load"));
-        expect(stripSays(container)).toEqual(["Load", m.absent(), "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Load", m.absent(), ""]);
     });
 
     test("read only: a clear, typing and a paste pass a trace by, the status line saying so — its steps as they were (T1)", async () => {

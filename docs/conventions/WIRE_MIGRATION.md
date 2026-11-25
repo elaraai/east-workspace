@@ -1713,7 +1713,6 @@ Each wire changed under this rule, with the kind it is.
   each UI task's output again under the new type. A UI task's output is not
   stored state, and an application's records keep their types, so no
   repository upgrade step ships with it.
-
 - **e3-ui's `Record` draws a row's numbers with east-ui's Trace, Sparkline
   and Meter (#1726, #1728, #1729, #1730)** — package-borne.
   `Sheet.Types.ColumnKind` gains `trace`, `sparkline` and `meter`, the display

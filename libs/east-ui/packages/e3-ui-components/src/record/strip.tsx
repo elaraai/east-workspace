@@ -204,7 +204,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
         case "trace":
         case "sparkline":
         case "meter":
-            return cellIsBlank(cell) ? { label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? m.absent(), keys: m.stripEdit({ editable: steps }) } : undefined;
+            return cellIsBlank(cell) ? { label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? m.absent(), keys: "" } : undefined;
         default:
             return undefined;
     }
