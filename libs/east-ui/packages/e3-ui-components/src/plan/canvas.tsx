@@ -686,14 +686,16 @@ export function usePlanCanvas({
     // already has its vanished rows' focus / collapse gone and its fresh
     // declared collapse applied — no flash frame — and `setValue` commits the
     // same transition (#815). A paged source's resident rows are not all its
-    // rows, so its key set says nothing is gone (#813). Selection is not in
-    // the view: each row reads its own, so a click renders two rows and never
-    // this.
+    // rows, so its key set says nothing is gone (#813). A row with rows under it
+    // takes what Collapse all or Expand all left standing as it is drawn, as
+    // the commit gives it (#1777). Selection is not in the view: each row
+    // reads its own, so a click renders two rows and never this.
     const reconcileModel = useMemo<PlanReconcileModel>(() => ({
         alive: new Set(index.byKey.keys()),
         complete: !paged,
         declaredCollapsed: index.initiallyCollapsed,
         declaredGrain: declaredGrainOf(data),
+        parents: [...index.children.keys()],
     }), [index, paged, data]);
     const selectView = useCallback((s: PlanSnapshot) => uiViewOf(s, reconcileModel), [reconcileModel]);
     const view = useControllerSelector(controller, selectView, sameUiView);

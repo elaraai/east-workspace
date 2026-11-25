@@ -13,7 +13,9 @@
  * end, the rail's summary, counting each source, the overlaps chip and the
  * history item. The fold toggle acts on every parent, including nested rows,
  * and keeps the same per-row state as the disclosure buttons. There is no
- * Series button: the library's Series tab holds the series (#1195). The
+ * Series button: the library's Series tab holds the series (#1195). What the
+ * fold toggle leaves stands (#1777): every parent read later arrives so, and
+ * while Collapse all stands the toggle says Expand all. The
  * overlaps chip (#1198, PB52) counts the pairs of events that overlap in the
  * window; a click selects the first pair, earliest first, and brings it into
  * view.
@@ -134,7 +136,9 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const controller = usePlanController();
     const folded = usePlanSelector(snapshot => {
         const keys = controller.groupKeys();
-        return keys.length === 0 ? undefined : snapshot.store.ui.grain === "group" || keys.some(key => snapshot.store.ui.collapsed.has(key));
+        return keys.length === 0
+            ? undefined
+            : snapshot.store.standing === true || snapshot.store.ui.grain === "group" || keys.some(key => snapshot.store.ui.collapsed.has(key));
     });
     const words = usePlanWords();
     const slices = chrome?.slices;

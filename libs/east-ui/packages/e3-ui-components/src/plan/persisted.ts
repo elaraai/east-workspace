@@ -64,6 +64,9 @@ export interface PlanPersisted {
     collapse: Array<[string, boolean]>;
     /** The chart rows the user expanded. */
     charts: string[];
+    /** What Collapse all (`true`) or Expand all (`false`) left standing for
+     *  the rows read later (#1777). Absent until either is pressed. */
+    standing?: boolean;
     /** Where the scroll rests, once the user has scrolled a bounded frame. */
     anchor: PlanAnchor | null;
     /**
@@ -103,7 +106,7 @@ function ownWindowOf(stored: unknown): PlanOwnWindow | undefined {
  */
 export function persistedOf(stored: unknown): PlanPersisted {
     if (typeof stored !== "object" || stored === null) return NOT_PERSISTED;
-    const { collapse, charts, anchor, window } = stored as Partial<Record<keyof PlanPersisted, unknown>>;
+    const { collapse, charts, standing, anchor, window } = stored as Partial<Record<keyof PlanPersisted, unknown>>;
     const okCollapse = Array.isArray(collapse) && collapse.every((e) =>
         Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && typeof e[1] === "boolean");
     const okCharts = Array.isArray(charts) && charts.every((k) => typeof k === "string");
@@ -121,6 +124,7 @@ export function persistedOf(stored: unknown): PlanPersisted {
     return {
         collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
         charts: okCharts ? charts as string[] : [],
+        ...(standing === true || standing === false ? { standing } : {}),
         anchor: okAnchor ? { ...(a as PlanAnchor), block: a.block ?? null } : null,
         ...(own === undefined ? {} : { window: own }),
     };

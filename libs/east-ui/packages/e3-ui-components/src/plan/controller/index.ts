@@ -269,7 +269,11 @@ export interface PlanController {
     dispatch(e: PlanEvent): void;
     /** Parent rows in the current canvas, including nested parents. */
     groupKeys(): readonly RowKey[];
-    /** Fold all parents in one action, retaining offscreen overrides. */
+    /**
+     * Fold or open every parent in one action, retaining offscreen overrides —
+     * and it stands (#1777): every parent the canvas reads from then on
+     * arrives so, but one the user toggles, until the other is asked for.
+     */
     setGroupsCollapsed(collapsed: boolean): void;
     /**
      * Select events from outside the canvas (#1198) — the overlaps chip's
@@ -445,6 +449,10 @@ export interface PlanReconcileModel {
     declaredCollapsed: ReadonlySet<RowKey>;
     /** The declared grain. */
     declaredGrain: PlanGrain;
+    /** The keys of the rows among them that rows nest under: what Collapse all
+     *  or Expand all, left standing, folds or opens (#1777). The canvas always
+     *  gives them; absent, none moves. */
+    parents?: readonly RowKey[];
 }
 
 /** Each snapshot's element rows, once. */
@@ -572,13 +580,18 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
 
     /** The UI state a paged window's height reads (#823) — the store's grain
      *  and charts, and each row's collapse as the canvas draws it: a declared
-     *  collapse not seeded yet is the collapse its landing will seed, so a
-     *  window measures the same before and after its rows seed. */
+     *  collapse not seeded yet is the collapse its landing will seed, and a
+     *  parent the user never toggled takes what Collapse all or Expand all left
+     *  standing as it lands (#1777), so a window measures the same before and
+     *  after its rows land. */
     const skeletonUi: SkeletonUi = {
         get grain() { return store.ui.grain; },
-        collapsed: (key, declared) => (declared && !store.seeded.has(key)
-            ? store.overrides.get(key) ?? true
-            : store.ui.collapsed.has(key)),
+        collapsed: (key, declared, parent) => {
+            const own = store.overrides.get(key);
+            if (own !== undefined) return own;
+            if (parent && store.standing !== undefined) return store.standing;
+            return declared && !store.seeded.has(key) ? store.standing !== false : store.ui.collapsed.has(key);
+        },
         get chartsExpanded() { return store.ui.chartsExpanded; },
     };
     /** The expand focus's context strips — what a window's rows draw at under
@@ -617,8 +630,12 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             replacing = landed.replacing;
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
-            // appears — in the same notification as the rows themselves.
-            store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
+            // appears — in the same notification as the rows themselves — and
+            // each parent takes what Collapse all or Expand all left standing
+            // (#1777), unless the user toggled it.
+            store = planStoreReducer(store, {
+                t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows), parents: groupKeysOf(landed.rows),
+            }).store;
             // A window landing says nothing in the canvas's live region: what the source reads is the footer's
             // loading line's to say, once a load (#1398, CL12).
             // The source's data moved off the snapshot a search was answered
@@ -665,7 +682,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
 
     // What the paged windows' heights were last measured under (#823).
     let measuredUnder: {
-        grain: PlanGrain; overrides: PlanStore["overrides"]; charts: ReadonlySet<RowKey>;
+        grain: PlanGrain; overrides: PlanStore["overrides"]; standing: boolean | undefined; charts: ReadonlySet<RowKey>;
         expand: RowKey | undefined; dense: boolean;
     } | undefined;
 
@@ -680,9 +697,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         const expand = store.ui.focus?.kind === "expand" ? store.ui.focus.key : undefined;
         const dense = denseOf(value);
         const m = measuredUnder;
-        if (m !== undefined && m.grain === store.ui.grain && m.overrides === store.overrides
+        if (m !== undefined && m.grain === store.ui.grain && m.overrides === store.overrides && m.standing === store.standing
             && m.charts === store.ui.chartsExpanded && m.expand === expand && m.dense === dense) return;
-        measuredUnder = { grain: store.ui.grain, overrides: store.overrides, charts: store.ui.chartsExpanded, expand, dense };
+        measuredUnder = {
+            grain: store.ui.grain, overrides: store.overrides, standing: store.standing, charts: store.ui.chartsExpanded, expand, dense,
+        };
         if (m !== undefined) paging.remeasure();
     }
 
@@ -781,14 +800,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         return data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.getSnapshot().rows;
     }
 
-    /** Write the user's toggles when they differ from what storage holds (#813)
-     *  — unless the root binds a `ui` state, which holds them instead (#824). */
+    /** Write the user's toggles, and what Collapse all or Expand all left
+     *  standing (#1777), when they differ from what storage holds (#813) —
+     *  unless the root binds a `ui` state, which holds them instead (#824). */
     function persistToggles(): void {
         if (bound !== undefined) return;
         const collapse = [...store.overrides];
         const charts = [...store.ui.chartsExpanded];
-        if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)) return;
+        if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)
+            && persisted.standing === store.standing) return;
         persisted = { ...persisted, collapse, charts };
+        if (store.standing !== undefined) persisted.standing = store.standing;
         options.persist?.(persisted);
     }
 
@@ -822,6 +844,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             complete: inline,
             declaredCollapsed: declaredCollapsedOf(current),
             declaredGrain: declaredGrainOf(v),
+            parents: groupKeysOf(current),
         }).store;
         persistToggles();
     }

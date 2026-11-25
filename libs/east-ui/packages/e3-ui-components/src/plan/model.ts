@@ -626,6 +626,10 @@ export interface WindowSkeleton {
     readonly pinned: readonly boolean[];
     /** Whether the row declares itself collapsed. */
     readonly declared: readonly boolean[];
+    /** Whether rows of the window nest under the row: what Collapse all or
+     *  Expand all, left standing, folds or opens as the row lands (#1777).
+     *  Absent, no row of the window has rows under it. */
+    readonly parent?: readonly boolean[];
     /** Each row's height facts. */
     readonly facts: readonly RowHeightFacts[];
 }
@@ -652,12 +656,16 @@ export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxi
     // Rows whose parent is outside the window root the derivation.
     const rooted = rows.map((r) => (r.parent.type === "some" && !at.has(r.parent.value) ? { ...r, parent: none } : r));
     const derived = derivePlan(indexRows(rooted), undefined, axisKind);
+    const parents = rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1));
+    const parent = rows.map(() => false);
+    for (const p of parents) if (p >= 0) parent[p] = true;
     return {
         keys: rows.map((r) => r.key),
-        parents: rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1)),
+        parents,
         top: rows.map((r) => r.parent.type === "none"),
         pinned: rows.map((r) => r.pinned),
         declared: rows.map((r) => r.collapsed),
+        parent,
         facts: rows.map((r) => heightFactsOf(r, derived)),
     };
 }
@@ -666,9 +674,11 @@ export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxi
 export interface SkeletonUi {
     /** The active grain. */
     grain: PlanGrain;
-    /** Whether a row's subtree is collapsed — given its key and whether it
-     *  declares itself collapsed (a paged row may not have been seeded yet). */
-    collapsed: (key: RowKey, declared: boolean) => boolean;
+    /** Whether a row's subtree is collapsed — given its key, whether it
+     *  declares itself collapsed (a paged row may not have been seeded yet),
+     *  and whether rows nest under it (what Collapse all or Expand all left
+     *  standing folds or opens those as they land, #1777). */
+    collapsed: (key: RowKey, declared: boolean, parent: boolean) => boolean;
     /** The chart rows the user expanded. */
     chartsExpanded: ReadonlySet<RowKey>;
 }
@@ -712,7 +722,7 @@ export function skeletonHeight(sk: WindowSkeleton, ui: SkeletonUi, dense: boolea
         }
         const key = sk.keys[i]!;
         const f = sk.facts[i]!;
-        const collapsed = ui.collapsed(key, sk.declared[i]!) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
+        const collapsed = ui.collapsed(key, sk.declared[i]!, sk.parent?.[i] === true) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
         sum += factsHeight(f, key, collapsed, dense, ui.chartsExpanded, focus?.kind === "expand" ? focus : undefined);
         if (collapsed) closed[i] = true;
     }
