@@ -10,6 +10,7 @@ import { faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFieldNaming } from "../../hooks/useFieldNaming";
 import { useValueSync } from "../../hooks/useValueSync";
 import { FramePhoneLayer } from "../../layout/builder-frame/frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -102,6 +103,9 @@ const TagsSuggestions = memo(function TagsSuggestions({ suggestions, held, typed
  * Renders an East UI TagsInput value using Chakra UI TagsInput component.
  * A tag's delete is Font Awesome's xmark, never Chakra's own icon (#1263).
  * Its suggestions are a native <datalist> — on a phone, a row of chips under it.
+ * Inside a Field with no label of its own, the box a tag is typed in is named
+ * by the field's label and described by its help (#1758): the field's label is
+ * `for` the hidden input that carries the tags, which no one focuses.
  */
 export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: EastChakraTagsInputProps) {
     const [props, setProps] = useState(toChakraTagsInput(value));
@@ -150,6 +154,8 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     const hasSuggestions = suggestions !== undefined && suggestions.length > 0;
     const listed = hasSuggestions && !phone;
     const chipped = hasSuggestions && phone && props.readOnly !== true && props.disabled !== true;
+    // The box's name where it draws no label of its own: its field's.
+    const naming = useFieldNaming();
 
     return (
         <ChakraTagsInput.Root
@@ -170,7 +176,7 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
                         </ChakraTagsInput.Item>
                     ))}
                 </ChakraTagsInput.Context>
-                <ChakraTagsInput.Input placeholder={placeholder} list={listed ? listId : undefined} style={typedStyle} />
+                <ChakraTagsInput.Input placeholder={placeholder} list={listed ? listId : undefined} style={typedStyle} {...(label === undefined ? naming : {})} />
             </ChakraTagsInput.Control>
             {listed && (
                 <datalist id={listId}>

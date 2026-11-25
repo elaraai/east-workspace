@@ -11,12 +11,16 @@
  * desktop-style popover (ruled 4 Nov 2026), the suggestions are a row of chips
  * under the box instead (east-workspace#1741): those the tags don't hold, what
  * is typed narrowing them, a press taking one as a tag and clearing the box.
+ *
+ * Its name (#1758): inside a Field, the box a tag is typed in is named by the
+ * field's label and described by its help — the label is `for` the hidden
+ * input that carries the tags — and outside one it carries neither.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ChakraProvider } from "@chakra-ui/react";
+import { ChakraProvider, Field } from "@chakra-ui/react";
 import { defaultValue, some, none } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
@@ -106,5 +110,34 @@ describe("TagsInput suggestions in a phone's frame (east-workspace#1741)", () =>
         cleanup();
         const { container } = phoneUi(tagsValue(REGISTER, REGISTER));
         expect(container.querySelector("[data-tags-suggestions]")).toBeNull();
+    });
+});
+
+describe("TagsInput in a Field (#1758)", () => {
+    /** The box a tag is typed in. */
+    const box = (container: HTMLElement) => container.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+
+    test("the box a tag is typed in is named by its field's label and described by its help, which the label's own `for` does not reach", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <Field.Root>
+                    <Field.Label>Finishes</Field.Label>
+                    <EastChakraTagsInput value={tagsValue(["matte", "gloss"])} />
+                    <Field.HelperText>A word or two each.</Field.HelperText>
+                </Field.Root>
+            </ChakraProvider>,
+        );
+        const label = container.querySelector("label")!;
+        // The label is for the hidden input that carries the tags: the box a person types in is another element.
+        expect(label.getAttribute("for")).not.toBe(box(container).id);
+        expect(box(container).getAttribute("aria-labelledby")).toBe(label.id);
+        expect(screen.getByRole("combobox", { name: "Finishes" })).toBe(box(container));
+        const help = document.getElementById(box(container).getAttribute("aria-describedby") ?? "");
+        expect(help?.textContent).toBe("A word or two each.");
+    });
+
+    test("outside a Field it names nothing: the input is as its value says", () => {
+        const { container } = ui(tagsValue());
+        expect([box(container).getAttribute("aria-labelledby"), box(container).getAttribute("aria-describedby")]).toEqual([null, null]);
     });
 });
