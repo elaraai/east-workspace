@@ -84,6 +84,32 @@ export async function openExample(page: Page, name: string, file = PLAN_EXAMPLES
     return entry;
 }
 
+/**
+ * Presses one of a Plan's periods (#1740), in whichever form its toolbar draws its resolution at this width: the
+ * segment, the menu the segment folds into, or the View every control folds into. A period pressed sets its range from
+ * the window's start — the columns the plot holds at the preset's width, a week of days at the least where they hold a
+ * column's floor — so an example whose stated window opens coarser than a check reads is one press from the period it
+ * reads.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ * @param period - The period, as its control writes it: `DAY`, `WEEK`, …
+ */
+export async function pressPeriod(page: Page, entry: Locator, period: string): Promise<void> {
+    const strip = entry.locator('[data-plan-seg="resolution"]');
+    const menu = entry.locator('[data-plan-segmenu="resolution"]');
+    if (await strip.isVisible()) await strip.getByRole("radio", { name: period, exact: true }).click();
+    else if (await menu.isVisible()) {
+        await menu.click();
+        await page.getByRole("menuitem", { name: period, exact: true }).click();
+    } else {
+        await entry.getByRole("button", { name: "View", exact: true }).click();
+        await page.getByRole("dialog").getByRole("radio", { name: period, exact: true }).click();
+        await page.keyboard.press("Escape");
+    }
+    await settled(page);
+}
+
 /** The box a Plan's frame fills: its wrapper's host, which the page lays out (the wrapper itself does not). */
 export const planBox = (entry: Locator): Locator => entry.locator("[data-plan-frame]").first().locator("xpath=..");
 

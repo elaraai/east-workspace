@@ -51,7 +51,7 @@ const WEEKS = 12;
 /** planTargetState's Van 1, a row on a desktop and a card on a phone. */
 const VAN1 = rowId("vans", "van1");
 
-/** Van 1's Aug 24 cell, which holds two tiles: a ✓ (a7) and a resting proposal (a8). */
+/** Van 1's Aug 24 cell, which holds two tiles: a ✓ (a7) and a resting proposal (a8) — a week's on the canvas, and on a phone's card, a month a column, August's, with the month's two earlier proposals (a5, a6). */
 const VAN1_CELL = `:is([data-plan-row=${JSON.stringify(VAN1)}], [data-plan-card=${JSON.stringify(VAN1)}]) [data-plan-cell]:has([data-event='a7'])`;
 
 /** A tile or a chip in its cell: where it stands, in px from the cell's corner, and what it draws. */
@@ -727,15 +727,15 @@ test.describe("Plan bucket tiles (#1735) @desktop", () => {
  * A cell's `+n` under a touch pointer (#1267): its tap target is its 44px
  * halo, held to its cell, less the tiles in it — so a tile beside it, or in
  * another cell, keeps its own taps. On the phone planTargetState's Van 1 card
- * holds its Aug 24 week's tiles in a `+2` in the week's one slot, its target the
- * whole cell; on a touch screen 1280px wide, planTaskTiles' Wednesday at 60 a
+ * draws a month a column (#1740), its August a tile beside a `+3`, the halo
+ * reaching over the tile, which keeps its taps; on a touch screen 1280px wide, planTaskTiles' Wednesday at 60 a
  * day draws a ✓ beside `+2`, the halo reaching over the ✓, which keeps its taps.
  * A lone tile a day with no room draws as a mark across itself takes the
  * chip's halo (#1710).
  */
 test.describe("Plan bucket tiles' +n on touch (#1267) @mobile", () => {
 
-    test("planTargetState at the phone's width: Van 1's Aug 24 cell is a +2 in its week's one slot, a tile tall; a tap anywhere in the cell lands on it, every tile of the card keeps its own; a tap opens its menu, and a pick does what the tile's tap does", async ({ page }) => {
+    test("planTargetState at the phone's width: Van 1's August cell draws a tile and a +3 beside it, a tile tall; a tap in the +3's halo lands on it, or on the tile there, and every tile of the card keeps its own; a tap opens its menu, and a pick does what the tile's tap does", async ({ page }) => {
         const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES);
         // The narrow layout's Rows tab holds Van 1's card: its first rows drawn, a "more rows" button for the rest.
         await entry.locator("[data-plan-narrow] [data-plan-tab='rows']").tap();
@@ -746,16 +746,21 @@ test.describe("Plan bucket tiles' +n on touch (#1267) @mobile", () => {
             await more.first().tap();
             await settled(page);
         }
+        // A card's twelve weeks are narrower than a column may be, so its columns are months (#1740): August's holds
+        // four drops — the first its tile (a5), the Aug 10 proposal and the week of Aug 24's two in the +3.
         const cell = entry.locator(VAN1_CELL);
         const chip = cell.locator("[data-tile-more]");
-        await expect(chip).toHaveText("+2");
+        await expect(chip).toHaveText("+3");
+        await expect(cell.locator("[data-event='a5']")).not.toHaveAttribute("data-folded", "");
         // A tile's height: the halo makes the target, never the chip's own box.
         expect(await chip.evaluate((el) => Math.abs(el.getBoundingClientRect().height - Number.parseFloat(getComputedStyle(el).getPropertyValue("--plan-tile-h"))) <= 0.5)).toBe(true);
-        await expect.poll(() => chip.evaluate(tapFaults)).toEqual({ bad: [], onTile: 0 });
+        // The halo reaches over the tile beside it, which keeps its taps.
+        await expect.poll(() => chip.evaluate(tapFaults)).toMatchObject({ bad: [] });
+        expect((await chip.evaluate(tapFaults)).onTile, "the halo's taps on the tile").toBeGreaterThan(0);
         await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
         await chip.tap();
         const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
-        await expect(items).toHaveText(["Event, Week of Aug 24, 2026, confirmed", "Event, Week of Aug 24, 2026, recommended"]);
+        await expect(items).toHaveText(["Event, August 2026, recommended", "Event, August 2026, confirmed", "Event, August 2026, recommended"]);
         await items.first().tap();
         await expect(entry.locator(`[data-plan-card=${JSON.stringify(VAN1)}]`)).toHaveAttribute("data-selected", "");
         await expect(chip).toBeFocused();

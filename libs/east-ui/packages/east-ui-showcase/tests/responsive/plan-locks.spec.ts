@@ -14,7 +14,8 @@
  *   label, where the bar has room for one, starts after the lock and clear of
  *   it. A job that is not locked draws no lock.
  * - A locked bar is not picked up: it wears no grab cursor and has no end
- *   handles, where a job beside it has both; dragged a day on it stays where
+ *   handles, where a job beside it has both; dragged a column on — a week, the
+ *   period the works' four weeks draw at this width (#1740) — it stays where
  *   it is, and nothing is drafted.
  * - Each other way an event draws wears the lock too (`planLocks`): a chip's,
  *   an 8px square whole inside it at the least width the canvas draws a chip,
@@ -239,21 +240,22 @@ test.describe("A locked event on the Plan, and a card that makes one (#1541)", (
         expect(bad).toEqual([]);
     });
 
-    test("planPrintWorks: a locked job dragged a day on stays where it is, and nothing is drafted; the job beside it moves @desktop", async ({ page }) => {
+    test("planPrintWorks: a locked job dragged a week on stays where it is, and nothing is drafted; the job beside it moves @desktop", async ({ page }) => {
         const entry = await openPrintWorks(page, "pinned");
         // Its library closed, so main takes the pointer where its bars are.
         await entry.locator("[data-builder-frame]").first().getByRole("button", { name: "Collapse Library" }).click();
         await expect(libraryOf(entry)).toHaveAttribute("data-collapsed", "");
         await settled(page);
         const plot = entry.locator(`${PRESS_A1} [data-plan-plot]`);
-        const day = (await boxOf(plot)).width / 28;
+        // The works' four weeks, a week a column.
+        const week = (await boxOf(plot)).width / 4;
         // The event posters are under way.
         const posters = printWorksBars(entry, "a1", "Event posters");
         await expect(posters).toHaveAttribute("data-locked", "");
         const stood = await boxOf(posters);
         await page.mouse.move(stood.x + stood.width / 2, stood.y + stood.height / 2);
         await page.mouse.down();
-        await page.mouse.move(stood.x + stood.width / 2 + day, stood.y + stood.height / 2, { steps: 8 });
+        await page.mouse.move(stood.x + stood.width / 2 + week, stood.y + stood.height / 2, { steps: 8 });
         // No drag began: no ghost, and no landing lit.
         await expect(page.locator("[data-drag-caption]")).toHaveCount(0);
         await page.mouse.up();
@@ -261,13 +263,13 @@ test.describe("A locked event on the Plan, and a card that makes one (#1541)", (
         expect((await boxOf(posters)).x).toBe(stood.x);
         await expect(posters).not.toHaveAttribute("data-draft", /.*/);
         await expect(entry.locator('[data-plan-count="pending"]')).toHaveText("0 pending");
-        // The course handbook, confirmed and not locked, carried a day on, moves.
+        // The course handbook, confirmed and not locked, carried a week on, moves.
         const handbook = printWorksBars(entry, "a1", "Course handbook");
         const from = await boxOf(handbook);
         await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
         await page.mouse.down();
-        await page.mouse.move(from.x + from.width / 2 + day, from.y + from.height / 2, { steps: 8 });
-        await expect(page.locator("[data-drag-caption]")).toHaveText("Course handbook · Press A1 · Tue, Oct 20, 2026 · 06:00");
+        await page.mouse.move(from.x + from.width / 2 + week, from.y + from.height / 2, { steps: 8 });
+        await expect(page.locator("[data-drag-caption]")).toHaveText("Course handbook · Press A1 · Mon, Oct 26, 2026 · 06:00");
         await page.mouse.up();
         await expect(handbook).toHaveAttribute("data-draft", "");
         await expect(entry.locator('[data-plan-count="pending"]')).toHaveText("1 pending");

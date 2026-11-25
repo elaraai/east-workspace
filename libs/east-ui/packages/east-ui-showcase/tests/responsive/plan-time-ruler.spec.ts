@@ -5,26 +5,15 @@
 
 import { expect } from "playwright/test";
 import { test } from "./kept-page";
-import { clickRowControl, openExample, PLAN_EVENT_EXAMPLES } from "./plan-page";
+import { clickRowControl, openExample, PLAN_EVENT_EXAMPLES, pressPeriod } from "./plan-page";
 import { cutText, rulerFaults } from "./plan-text";
-import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
 for (const theme of LAYOUT_THEMES) {
     test(`Plan time bands and short spans stay readable (${theme})`, async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
         for (const resolution of ["WEEK", "DAY"] as const) {
-            const strip = entry.locator('[data-plan-seg="resolution"]');
-            if (await strip.isVisible()) await strip.getByRole("radio", { name: resolution, exact: true }).click();
-            else if (await entry.locator('[data-plan-segmenu="resolution"]').isVisible()) {
-                await entry.locator('[data-plan-segmenu="resolution"]').click();
-                await page.getByRole("menuitem", { name: resolution, exact: true }).click();
-            } else {
-                await entry.getByRole("button", { name: "View", exact: true }).click();
-                await page.getByRole("dialog").getByRole("radio", { name: resolution, exact: true }).click();
-                await page.keyboard.press("Escape");
-            }
-            await settled(page);
+            await pressPeriod(page, entry, resolution);
             const units = entry.locator('[data-plan-ruler="units"]:visible');
             const ticks = entry.locator('[data-plan-ruler="ticks"]:visible');
             await expect(units).toHaveCount(1);

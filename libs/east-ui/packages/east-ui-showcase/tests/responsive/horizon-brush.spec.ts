@@ -15,7 +15,8 @@
  * the window and clear it. jsdom lays nothing out, so what the strip's DOM
  * tests cannot see is measured here. And the Plan's horizon over a source
  * whose data fills a few days of the window (`planPressTasks`): it holds the
- * window the canvas shows, saying the navigator's days, and keeps a window
+ * window the canvas shows, saying the navigator's dates — its four weeks
+ * drawn as weeks, a week of them as days (#1740) — and keeps a window
  * once one steps past the data (#1680's review); a window at the track's ends
  * draws each tab inside it, every point of a tab its own handle's — the
  * resource column's resize, beside the track's start, never under it.
@@ -120,7 +121,7 @@ test.describe("the horizon brush (#1438)", { tag: "@desktop" }, () => {
         await expect(band).toHaveCount(0);
     });
 
-    test("planPressTasks: the Plan's horizon holds the window the canvas shows, though the tasks fill four days of it — saying the navigator's days — and a narrower window stepped past the tasks stays on it (#1680's review)", async ({ page }) => {
+    test("planPressTasks: the Plan's horizon holds the window the canvas shows, though the tasks fill four days of it — saying the navigator's dates, its four weeks drawn as weeks — and a narrower window, a week of days, stepped past the tasks stays on it (#1680's review, #1740)", async ({ page }) => {
         const route = "e3/plan/plan-events/planPressTasks";
         await page.goto(`/?theme=light#${route}`);
         await page.waitForSelector("header");
@@ -139,24 +140,29 @@ test.describe("the horizon brush (#1438)", { tag: "@desktop" }, () => {
             expect(navigator.locator("[data-time-label]")).toHaveText(label),
             expect(navigator.locator("[data-time-trigger]")).toHaveAttribute("title", title),
         ]);
-        // The stated four weeks, the days the navigator names: the tasks fall on 6 to 9 October.
+        // The stated four weeks, more days than this plot holds at a column's floor: its columns are weeks, which the
+        // navigator's label names, its title their dates (#1740). The tasks fall on 6 to 9 October.
         await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Nov 1, 2026");
-        await names(ranged("Oct 5", "Nov 1"), ranged("Oct 5", "Nov 1, 2026"));
+        await names(ranged("W41", "W44"), ranged("Oct 5", "Nov 1, 2026"));
         await expect(horizon.locator("[data-brush-handle='lo']")).toHaveAttribute("aria-valuenow", "0");
         await expect(horizon.locator("[data-brush-handle='hi']")).toHaveAttribute("aria-valuenow", "100");
-        // Ten days off its end from the end handle, committed.
+        // Ten columns off its end from the end handle, committed: it keeps the one a window must, a week, and a week's
+        // columns are days.
         await horizon.locator("[data-brush-handle='hi']").focus();
         await page.keyboard.press("Shift+ArrowLeft");
-        await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Oct 22, 2026");
+        await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Oct 11, 2026");
         await settled(page);
-        await names(ranged("Oct 5", "22"), ranged("Oct 5", "22, 2026"));
-        // Moved by the navigator to start on 11 October, past every task — its calendar, as the toolbar draws it compact
-        // here: the window is the canvas's still, its days kept, and on the strip.
+        await names(ranged("Oct 5", "11"), ranged("Oct 5", "11, 2026"));
+        await expect(entry.locator("[data-slot='rulerTick']")).toHaveCount(7);
+        // Moved by the navigator to the week after, past every task — its calendar, as the toolbar draws it compact
+        // here, open on its weeks, the window being a whole one: the window is the canvas's still, its days kept, and on
+        // the strip.
         await entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first().click();
-        await page.locator(`[data-time-picker='plan'] [data-time-day='${Date.UTC(2026, 9, 11)}']`).click();
+        await page.locator(`[data-time-picker='plan'] [data-time-week='${Date.UTC(2026, 9, 12)}']`).click();
         await settled(page);
-        await expect(window).toHaveAttribute("aria-valuetext", "Oct 11, 2026 – Oct 28, 2026");
-        await names(ranged("Oct 11", "28"), ranged("Oct 11", "28, 2026"));
+        await expect(window).toHaveAttribute("aria-valuetext", "Oct 12, 2026 – Oct 18, 2026");
+        await names(ranged("Oct 12", "18"), ranged("Oct 12", "18, 2026"));
+        await expect(entry.locator("[data-slot='rulerTick']")).toHaveCount(7);
     });
 
     test("planPressTasks: a window at the track's ends draws each tab inside the track, every point of it its own handle's — the start's never the resource column's resize beside it (#1680's review)", async ({ page }) => {

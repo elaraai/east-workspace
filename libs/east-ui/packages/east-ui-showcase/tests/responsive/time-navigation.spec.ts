@@ -40,9 +40,10 @@ for (const theme of LAYOUT_THEMES) {
             // Repeating it in mobile-narrow would use the same viewport again.
             await page.setViewportSize({ width: 2160, height: 1080 });
             const frame = await open(page, scope, theme);
-            if (scope !== "roster") await chooseView(page, frame, scope === "plan" ? "DAY" : "Day");
-            // A Calendar's and a Roster's arrows step a day; the Plan's its window's own length, its four weeks of days (#1740).
-            const [next, step] = scope === "plan" ? ["Next 28 days", 28 * DAY] as const : ["Next day", DAY] as const;
+            if (scope === "calendar") await chooseView(page, frame, "Day");
+            // A Calendar's and a Roster's arrows step a day; the Plan's its window's own length — its four weeks, said in
+            // the period its columns take at the width, days or weeks (#1740).
+            const [next, step] = scope === "plan" ? [/^Next (28 days|4 weeks)$/, 28 * DAY] as const : ["Next day", DAY] as const;
             // At every fold Today stays in the popup, and arrows follow the active unit.
             for (const width of [1440, 1024, 768, 390, 360, 294]) {
                 await resize(page, frame, width);
@@ -62,11 +63,13 @@ for (const theme of LAYOUT_THEMES) {
                 // Chakra can retain closed content for its exit animation.
                 await expect(nav.locator('[data-time-trigger]')).toHaveAttribute('aria-expanded', 'false');
                 await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
-                const today = scope === 'calendar' ? Date.UTC(2026, 9, 1) : Date.UTC(2028, 2, 16);
+                // A Plan's Today is the start of the column holding it: a week a column, that week's Monday (#1740).
+                const weeks = scope === 'plan' && await nav.getAttribute('data-time-period') === 'week';
+                const today = scope === 'calendar' ? Date.UTC(2026, 9, 1) : weeks ? Date.UTC(2028, 2, 13) : Date.UTC(2028, 2, 16);
                 await expect(nav).toHaveAttribute('data-time-anchor', String(today));
-                // The Roster's popup opens on its weeks while no tab has been chosen: read before the Days tab is, which
-                // every later opening comes back to (#1740).
-                if (scope === 'roster' && width === 1440) {
+                // The Roster's popup opens on its weeks while no tab has been chosen, and so does a Plan's a week a
+                // column: read before the Days tab is, which every later opening comes back to (#1740).
+                if ((scope === 'roster' || weeks) && width === 1440) {
                     await nav.locator('[data-time-trigger]').click();
                     const current = page.locator('[data-time-week][aria-current="date"]');
                     await expect(current).toHaveAttribute('data-selected', '');
@@ -79,10 +82,13 @@ for (const theme of LAYOUT_THEMES) {
                     await nav.locator('[data-time-trigger]').click();
                     await page.getByRole('dialog').getByRole('radio', { name: 'Days', exact: true }).click();
                     const todayCell = page.locator('[data-time-day][aria-current="date"]');
-                    await expect(todayCell).toHaveAttribute('data-selected', '');
-                    await expect(todayCell).toHaveCSS('box-shadow', 'none');
-                    await expect(todayCell).toHaveCSS('border-bottom-width', '0px');
-                    await expect(todayCell).toHaveCSS('border-left-width', '0px');
+                    // A Plan a week a column selects its week's Monday, which today's cell is not.
+                    if (!weeks) {
+                        await expect(todayCell).toHaveAttribute('data-selected', '');
+                        await expect(todayCell).toHaveCSS('box-shadow', 'none');
+                        await expect(todayCell).toHaveCSS('border-bottom-width', '0px');
+                        await expect(todayCell).toHaveCSS('border-left-width', '0px');
+                    } else await expect(page.locator('[data-time-day][data-selected]')).toHaveAttribute('data-time-day', String(today));
                     await page.keyboard.press('Escape');
                     await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
                     // The popup opens again on the tab chosen last, in every builder.

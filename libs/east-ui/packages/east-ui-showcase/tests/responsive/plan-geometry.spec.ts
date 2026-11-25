@@ -1009,22 +1009,47 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
         });
     }
 
-    test("planPrintWorks: its ruler never paints labels it does not rest on — its frame narrowed 3px at a time from 1440px to 1000px, every frame at one width draws the labels that width rests on, across the widths its labels thin at (#1269)", async ({ page }) => {
+    /** The box planPrintWorks' four weeks are days in: its plot, beside its library and its pinned inspector, holds each day over the column's floor. */
+    const DAYS_BOX = 1680;
+    /** The narrowest box that keeps them days: narrower, the inspector still pinned, a day falls under the squeeze floor
+     *  and the columns turn to weeks. */
+    const DAYS_KEPT = 1200;
+
+    /**
+     * planPrintWorks' four weeks drawn as days (#1740). They open as weeks on the plot the page gives the example, where
+     * a day's column would be under its floor; so its box is widened ({@link DAYS_BOX}) and its window moved a column
+     * on — which reads the period again, for the plot as it then is — and the seven days back. A change of width alone
+     * keeps the period, so the days stand as the box narrows again, down to {@link DAYS_KEPT}.
+     */
+    async function fourWeeksOfDays(page: Page, entry: Locator): Promise<void> {
+        await sizeBox(page, planBox(entry), DAYS_BOX);
+        await entry.locator("[data-plan-row]").first().click();
+        await page.keyboard.press("]");
+        await expect(entry.locator("[data-slot='ruler'] [data-slot='rulerTick']")).toHaveCount(28);
+        for (let day = 0; day < 7; day++) await page.keyboard.press("[");
+        await settled(page);
+        await expect(entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first()).toHaveAttribute("title", /^Oct 5\s–\sNov 1, 2026$/);
+    }
+
+    test("planPrintWorks: its ruler never paints labels it does not rest on — its four weeks of days narrowed 3px at a time from a box of 1680px to one of 1200px, every frame at one width draws the labels that width rests on, across the widths its labels thin at (#1269)", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
+        await fourWeeksOfDays(page, entry);
         const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
         const ruler = entry.locator("[data-slot='ruler']").first();
         await startRulerPaint(ruler);
-        await host.evaluate(async (el: HTMLElement) => {
+        await host.evaluate(async (el: HTMLElement, { from, to }) => {
             const frames = (n: number) => new Promise<void>((resolve) => {
                 const step = (k: number) => { if (k === 0) resolve(); else requestAnimationFrame(() => step(k - 1)); };
                 step(n);
             });
-            for (let width = 1440; width >= 1000; width -= 3) {
+            for (let width = from; width >= to; width -= 3) {
                 el.style.width = `${width}px`;
                 await frames(3);
             }
-        });
+        }, { from: DAYS_BOX, to: DAYS_KEPT });
+        // The days stood: the ruler sampled is the one drawn.
+        await expect(entry.locator("[data-slot='ruler'] [data-slot='rulerTick']")).toHaveCount(28);
         const painted = await stopRulerPaint(ruler);
         expect(painted.length, "the frames sampled").toBeGreaterThan(300);
         // Every frame at one width drew the same labels — what that width rests on, never the width before it's.
@@ -1039,6 +1064,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     test("planPrintWorks: a mark's label runs no further than the next mark on its row, and a mark before the window shows none of its words in it (#1680's review)", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1400 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
+        await fourWeeksOfDays(page, entry);
         /** Each events row's labels its plot shows, and those that run over the next mark or stand for a mark before the window. */
         const markLabelFaults = (root: Element): { labels: number; faults: string[] } => {
             const faults: string[] = [];
@@ -1065,10 +1091,10 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             }
             return { labels, faults };
         };
-        // As it opens: the platesetter's plates three days apart, the presses' stops.
+        // Its stated four weeks, by the day: the platesetter's plates three days apart, the presses' stops.
         const opened = await entry.evaluate(markLabelFaults);
         expect(opened.labels, "the labels in view").toBeGreaterThan(5);
-        expect.soft(opened.faults, "as it opens").toEqual([]);
+        expect.soft(opened.faults, "its stated four weeks").toEqual([]);
         // Thirteen days on, a day a press: the Handbook plates' mark two days before the window, where a pan would slide
         // it in from — mounted, out of view.
         await entry.locator("[data-plan-row]").first().click();
@@ -1081,7 +1107,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     /** The elements a state's border is drawn on, each where it is laid out at a width its cell sets: a bar, a tile, a chip. */
     const STATE_EDGES: readonly { name: string; file: string; sel: string; narrow: boolean }[] = [
         { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-run]", narrow: false },
-        // At four weeks its tiles are a few pixels across: five days give each its day's slot.
+        // Its four weeks open as weeks (#1740): one week of them gives each tile its day's slot.
         { name: "planPressTasks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-event]", narrow: true },
         { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-chip]", narrow: false },
     ];
@@ -1090,10 +1116,11 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             await page.setViewportSize({ width: 1440, height: 1200 });
             const entry = await openExample(page, name, file);
             if (narrow) {
+                // Ten columns off the window's end leave the one it must keep: a week, whose columns are days.
                 await entry.locator("[data-slot='horizon'] [data-brush-handle='hi']").focus();
-                for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowLeft");
-                for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+                await page.keyboard.press("Shift+ArrowLeft");
                 await settled(page);
+                await expect(entry.locator("[data-slot='ruler'] [data-slot='rulerTick']")).toHaveCount(7);
             }
             const { checked, shrunk } = await entry.evaluate((root, sel) => {
                 /** The room inside an element's padding: what its words have. */
@@ -1397,28 +1424,44 @@ test.describe("Plan row controls on touch (#1258, #1749)", { tag: "@mobile" }, (
 });
 
 /**
- * planMeasures' resolution is its toolbar's (#1258): its rail's `weeks` source
- * holds the window and the resolution (#1344), so the toolbar's segment
- * switches MONTH and WEEK — nothing outside the Plan chooses it — and a
- * record's resolution re-buckets the window it holds: the twelve weeks.
+ * planMeasures' period is its toolbar's (#1258, #1740): its rail's `weeks`
+ * source holds the window (#1344), whose twelve weeks its plot draws by the
+ * week, and the toolbar's segment shows the period its columns take and sets
+ * MONTH's and WEEK's ranges from the window's start — nothing outside the Plan
+ * chooses it.
  */
 test.describe("planMeasures' resolution (#1258)", { tag: "@desktop" }, () => {
 
-    test("the toolbar's segment switches MONTH and WEEK, and nothing outside the frame chooses the resolution", async ({ page }) => {
+    test("the toolbar's segment shows the period the window's columns take, a period pressed sets its range from the window's start, and nothing outside the frame chooses the resolution (#1740)", async ({ page }) => {
         const entry = await openExample(page, "planMeasures");
         const seg = entry.locator("[data-builder-frame] [data-frame-slot='toolbar'] [data-plan-seg='resolution']");
         await expect(seg.getByRole("radio")).toHaveText(["MONTH", "WEEK"]);
-        await expect(seg.getByRole("radio", { name: "MONTH" })).toBeChecked();
         const outside = () => entry.evaluate((root) => [...root.querySelectorAll("[role='radio']")]
             .filter((r) => /^(MONTH|WEEK)$/.test(r.textContent?.trim() ?? "") && r.closest("[data-builder-frame]") === null).length);
         expect(await outside()).toBe(0);
         const ticks = entry.locator("[data-slot='ruler'] [data-slot='rulerTick']");
-        await expect(ticks).toHaveText(["JUN", "JUL", "AUG"]);
+        /** How many columns the ruler draws, and a column's width among them: months differ, so their mean. */
+        const columns = () => ticks.evaluateAll((all) => {
+            const across = all.reduce((sum, t) => sum + t.getBoundingClientRect().width, 0);
+            return { count: all.length, mean: all.length === 0 ? 0 : across / all.length };
+        });
+        // The window the source holds, W23 to W35: each of its weeks holds the column's floor, so they are weeks.
+        await expect(seg.getByRole("radio", { name: "WEEK" })).toBeChecked();
+        await expect(ticks).toHaveText(Array.from({ length: 12 }, (_x, i) => `W${23 + i}`));
+        await expect.poll(() => mismatches(entry), "as it opens").toEqual([]);
+        // MONTH pressed: months from the window's start, at the preset's width or wider — never fewer than three.
+        await seg.getByRole("radio", { name: "MONTH" }).click();
+        await expect(seg.getByRole("radio", { name: "MONTH" })).toBeChecked();
+        await expect(ticks.first()).toHaveText("JUN");
+        const months = await columns();
+        expect(months.count, "the months MONTH sets").toBeGreaterThanOrEqual(3);
+        expect(months.mean, "a month's column").toBeGreaterThanOrEqual(50);
         await expect.poll(() => mismatches(entry), "MONTH").toEqual([]);
+        // WEEK pressed: weeks from the same start.
         await seg.getByRole("radio", { name: "WEEK" }).click();
         await expect(seg.getByRole("radio", { name: "WEEK" })).toBeChecked();
-        // The window stands, W23 to W35, and is drawn by the week.
-        await expect(ticks).toHaveText(Array.from({ length: 12 }, (_x, i) => `W${23 + i}`));
+        await expect(ticks.first()).toHaveText("W23");
+        expect((await columns()).mean, "a week's column").toBeGreaterThanOrEqual(50);
         await expect.poll(() => mismatches(entry), "WEEK").toEqual([]);
     });
 });
@@ -1665,10 +1708,12 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
         const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
         const window = track.locator("[data-brush-window]");
-        // Home on the start's tab, then on the end's: the strip's first week, a pixel or so of a decade.
-        for (const edge of ["lo", "hi"]) {
+        // Home on the end's tab, which leaves the window its first week, then on the window, which takes it to the
+        // strip's start: the strip's first week, a pixel or so of a decade. (The start's tab first would widen the
+        // window to years, whose columns its end's tab would then keep one of, #1740.)
+        for (const target of ['[data-brush-handle="hi"]', "[data-brush-window]"]) {
             const before = await window.getAttribute("aria-valuetext");
-            await track.locator(`[data-brush-handle="${edge}"]`).focus();
+            await track.locator(target).focus();
             await page.keyboard.press("Home");
             await expect(window).not.toHaveAttribute("aria-valuetext", before!);
             await settled(page);

@@ -31,6 +31,11 @@
  *   row's height, its text in the table's numerals — on a phone, a popover
  *   anchored to the cell, inside the frame — and its works' sum moving by it.
  *
+ * The window is thirteen weeks, which the plot at 1440 draws by the week. A
+ * phone's plot is too narrow for a week's column at its floor, so there they
+ * open as months (#1740), and a check of a week's cells first sets WEEK's
+ * range: the weeks the plot holds, from the window's start.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-nested`.
  */
@@ -230,7 +235,7 @@ function movedIn(frames: readonly Frame[]): string[] {
     return bad;
 }
 
-/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of the dates, a zoom to a month. */
+/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of the dates, a zoom to a month — or to another period named. */
 const GESTURES = {
     // At 1440 the canvas scrolled to its 76th row; on a phone, the list's next cards shown.
     scroll: async (_page: Page, entry: Locator, narrow: boolean) => {
@@ -238,36 +243,37 @@ const GESTURES = {
         else await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 75 * 32; });
     },
     // The dates moved on: at 1440 a week, the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a
-    // phone the window's own thirteen weeks (#1740), the date navigator's popover's Next — the View its toolbar folds
-    // the navigator into, the window's weeks named whole (#1680's review).
+    // phone the window's own length, its thirteen weeks drawn there as four months (#1740), the date navigator's
+    // popover's Next — the View its toolbar folds the navigator into, the window's columns named whole (#1680's review).
     pan: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
             await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
-            await page.getByRole("button", { name: "Next 13 weeks", exact: true }).click();
+            await page.getByRole("button", { name: "Next 4 months", exact: true }).click();
             await page.keyboard.press("Escape");
         } else {
             await entry.locator("[data-plan-row]").first().focus();
             await page.keyboard.press("]");
         }
     },
-    // To a month: the toolbar's resolution, at 1440 — its strip, or the menu its button opens where the toolbar folds it,
-    // as it does beside a navigator that keeps its arrows (#1740); on a phone, the View's resolution, which the
-    // navigator holds there.
-    zoom: async (page: Page, entry: Locator, narrow: boolean) => {
+    // To a month, or the period named: the toolbar's resolution, at 1440 — its strip, or the menu its button opens where
+    // the toolbar folds it, as it does beside a navigator that keeps its arrows (#1740); on a phone, the View's
+    // resolution, which the navigator holds there. A period pressed sets its range from the window's start.
+    zoom: async (page: Page, entry: Locator, narrow: boolean, to: "week" | "month" = "month") => {
         const toolbar = entry.locator("[data-frame-slot='toolbar']");
+        const named = new RegExp(`^${to}$`, "i");
         if (narrow) {
             await toolbar.getByRole("button", { name: "View", exact: true }).click();
-            await page.getByRole("radio", { name: /^month$/i }).click();
+            await page.getByRole("radio", { name: named }).click();
             await page.keyboard.press("Escape");
             return;
         }
         const folded = toolbar.getByRole("button", { name: "Resolution", exact: true });
         if (await folded.count() === 0) {
-            await toolbar.getByRole("radio", { name: /^month$/i }).click();
+            await toolbar.getByRole("radio", { name: named }).click();
             return;
         }
         await folded.click();
-        await page.getByRole("menuitem", { name: /^month$/i }).click();
+        await page.getByRole("menuitem", { name: named }).click();
     },
 } as const;
 
@@ -310,6 +316,11 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         expect(took).toBeLessThan(START_BUDGET_MS);
         const narrow = narrowOf(page);
         await onlySeries(page, entry, ["Crew hours"]);
+        // A crew's hours are typed a week at a time: on a phone, where the window opens as months, WEEK's range.
+        if (narrow) {
+            await GESTURES.zoom(page, entry, narrow, "week");
+            await settled(page);
+        }
         const works = entry.locator(drawnSel("crews", WORKS));
         const crews = CREWS.map((crew) => entry.locator(drawnSel("crew", WORKS, crew)));
         const folded = await numbersOf(works);
@@ -443,6 +454,11 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         const entry = await openExample(page, ALL, NESTED, theme);
         const narrow = narrowOf(page);
         await onlySeries(page, entry, ["Jobs"]);
+        // By the week first: on a phone, where the window opens as months, WEEK's range, which holds both weeks read below.
+        if (narrow) {
+            await GESTURES.zoom(page, entry, narrow, "week");
+            await settled(page);
+        }
         const kind = (key: string) => {
             const row = entry.locator(drawnSel("works", key));
             return narrow ? row.locator("[data-plan-cardbody]") : row;

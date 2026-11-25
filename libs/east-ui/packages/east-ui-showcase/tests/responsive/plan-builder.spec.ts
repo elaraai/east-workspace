@@ -17,9 +17,10 @@
  *   open, main between them — and each on its rail, opened, over main from
  *   its own edge, main where it was, under the scrim, never so wide that less
  *   than 48px of the scrim shows beside it;
- * - a template dropped on a press and a bar's end dragged a day on, saved on
- *   the e3 the page runs: the drafts retire, and the Plan mounted again over
- *   the jobs record draws the new job and the longer one as saved.
+ * - a template dropped on a press and a bar's end dragged a column on — a
+ *   week, the period the works' four weeks draw at this width (#1740) — saved
+ *   on the e3 the page runs: the drafts retire, and the Plan mounted again
+ *   over the jobs record draws the new job and the longer one as saved.
  *
  * Measured elsewhere, and not again here: the frame — no border, the panes it
  * is given, one toolbar row with the history last — at the desktop and phone
@@ -178,28 +179,28 @@ test.describe("the print works' panes (#1200, PB57)", () => {
 test.describe("the print works' drag and drop, saved on e3-web (#1200, PB56)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "saved once, at the desktop width");
 
-    test("planPrintWorks: a template dropped on a press and a bar's end dragged a day on are drafts; Save commits both to the jobs record on the e3 the page runs — the drafts retire, no banner — and the Plan mounted again draws the new job and the longer one as saved", async ({ page }) => {
+    test("planPrintWorks: a template dropped on a press and a bar's end dragged a week on are drafts; Save commits both to the jobs record on the e3 the page runs — the drafts retire, no banner — and the Plan mounted again draws the new job and the longer one as saved", async ({ page }) => {
         const entry = await openPrintWorks(page, "pinned");
         const frame = entry.locator("[data-builder-frame]").first();
         const save = frame.locator(":scope > [data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true });
         await expect(save).toBeDisabled();
         const plot = entry.locator(`${PRESS_A1} [data-plan-plot]`);
-        // The brochure run's template onto Press A1's Monday 12 October, the second week's first day.
+        // The brochure run's template onto Press A1's second week, at its Wednesday: it lands on that week's Monday, 12 October.
         await pickUp(page, openCards(libraryOf(entry)).filter({ hasText: "Brochure run" }));
-        const on = await dayOf(plot, 7);
+        const on = await dayOf(plot, 9);
         await page.mouse.move(on.x, on.y, { steps: 8 });
         await expect(plot).toHaveAttribute("data-drop-active", "");
         await page.mouse.up();
         const made = entry.locator(`${PRESS_A1} [data-run]`, { hasText: "Brochure run" });
         await expect(made).toHaveAttribute("data-draft", "");
         await settled(page);
-        // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a day on.
+        // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a week on.
         const handbook = entry.locator(`${PRESS_A1} [data-run]`, { hasText: "Course handbook" });
         const end = await centre(handbook.locator("[data-plan-edge='end']"));
-        const day = (await boxOf(plot)).width / PRINT_WORKS_DAYS;
+        const week = (await boxOf(plot)).width / (PRINT_WORKS_DAYS / 7);
         await page.mouse.move(end.x, end.y);
         await page.mouse.down();
-        await page.mouse.move(end.x + day, end.y, { steps: 8 });
+        await page.mouse.move(end.x + week, end.y, { steps: 8 });
         await expect(plot).toHaveAttribute("data-drop-active", "");
         await page.mouse.up();
         await expect(handbook).toHaveAttribute("data-draft", "");
@@ -216,7 +217,7 @@ test.describe("the print works' drag and drop, saved on e3-web (#1200, PB56)", (
         await expect(madeAgain).toHaveAttribute("aria-label", /^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
         await expect(madeAgain).not.toHaveAttribute("data-draft", /.*/);
         const handbookAgain = again.locator(`${PRESS_A1} [data-run]`, { hasText: "Course handbook" });
-        await expect(handbookAgain).toHaveAttribute("aria-label", /^Course handbook, Oct 19, 2026, 06:00 – Oct 20, 2026, 18:00/);
+        await expect(handbookAgain).toHaveAttribute("aria-label", /^Course handbook, Oct 19, 2026, 06:00 – Oct 26, 2026, 18:00/);
         await expect(handbookAgain).not.toHaveAttribute("data-draft", /.*/);
     });
 });
