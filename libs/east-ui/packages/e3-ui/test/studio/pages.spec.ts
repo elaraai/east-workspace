@@ -9,25 +9,47 @@
  * page no longer applies (R2); `Studio.changes` is exact for every layout edit
  * and a retitle (R5), for a placement whose content changed (#1669), and for
  * the page's starting filters (#1673), which a template and a new page from it
- * carry; and a page's status. Each surface's manifest (R4) is its own spec's.
+ * carry; and a page's status. An entry holds what it is, its project, its
+ * title and its tags beside its layout (#1759): every write builds it so, and
+ * `Studio.value` writes the entries a solution ships the same way. Each
+ * surface's manifest (R4) is its own spec's.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    East, SortedMap, applyFor, compareFor, none, parseJq, some, variant,
+    East, SortedSet, StringType, applyFor, compareFor, equalFor, none, parseJq, printFor, some, variant,
     type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 
-import { Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui/internal";
+import { Studio, StudioPagesType } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Page = ValueTypeOf<typeof Studio.Types.Page>;
 
-const keys = compareFor(StudioKeyType);
 const applyPages = applyFor(StudioPagesType);
+const sameEntry = equalFor(Studio.Types.Entry);
+const printEntry = printFor(Studio.Types.Entry);
+const sameTags = equalFor(Studio.Types.Entry.fields.tags);
+
+/** Tags, as an entry holds them. */
+const tagged = (...tags: string[]): Entry["tags"] => new SortedSet(tags, compareFor(StringType));
+
+/** A page as the record holds it, each field written out: what a write is held to. */
+const pageEntry = (key: Key, draft: Page, live: Entry["live"] = none, tags: Entry["tags"] = tagged()): Entry =>
+    ({ kind: variant("page", null), project: key.project, title: draft.title, tags, draft, live });
+
+/** A template as the record holds it, each field written out. */
+const templateEntry = (key: Key, layout: Page, tags: Entry["tags"] = tagged()): Entry =>
+    ({ kind: variant("template", null), project: key.project, title: layout.title, tags, draft: layout, live: none });
+
+/** Holds the entry a write left to the one expected, field for field. */
+function assertEntry(actual: Entry | undefined, expected: Entry, message?: string): void {
+    if (actual === undefined) assert.fail(`${message ?? "the entry"}: the record holds none`);
+    assert.ok(sameEntry(actual, expected), `${message ?? "the entry"}: got ${printEntry(actual)}, expected ${printEntry(expected)}`);
+}
 
 const publish = East.compile(Studio.publish, []);
 const revert = East.compile(Studio.revert, []);
@@ -72,22 +94,25 @@ const EDITED: Page = { title: "Overview", cells: OVERVIEW.cells.slice(1), filter
 const OVERVIEW_KEY: Key = { project: "ops", page: "overview" };
 const TEMPLATE_KEY: Key = { project: "ops", page: "tpl-kpis" };
 
-/** The record: the Overview, never published, and a template. */
-const PAGES = new SortedMap<Key, Entry>([
-    [OVERVIEW_KEY, variant("page", { draft: OVERVIEW, live: none })],
-    [TEMPLATE_KEY, variant("template", {
-        title: "KPIs",
-        cells: [
-            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-        ],
-        filters: [NSW],
-    })],
-], keys);
+/** The template's layout: a KPI rail, its readers starting on New South Wales. */
+const KPIS: Page = {
+    title: "KPIs",
+    cells: [
+        { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+    ],
+    filters: [NSW],
+};
+
+/** The record: the Overview, never published and tagged, and a template. */
+const PAGES = Studio.value([
+    { key: OVERVIEW_KEY, draft: OVERVIEW, tags: ["weekly"] },
+    { key: TEMPLATE_KEY, template: KPIS },
+]);
 
 /** The Overview published as version 1, then its draft saved without the KPI rail. */
-const SAVED = new SortedMap<Key, Entry>([
-    [OVERVIEW_KEY, variant("page", { draft: EDITED, live: some({ version: 1n, page: OVERVIEW }) })],
-], keys);
+const SAVED = Studio.value([
+    { key: OVERVIEW_KEY, draft: EDITED, live: { version: 1n, page: OVERVIEW }, tags: ["weekly"] },
+]);
 
 describe("Studio writes (#992)", () => {
     test("R3: a publish is one patch of the page, and its live version is its draft, numbered from 1", () => {
@@ -96,18 +121,24 @@ describe("Studio writes (#992)", () => {
         assert.deepEqual([...patch.value.entries()].map(([key, op]) => [key, op.type]), [[OVERVIEW_KEY, "update"]], "it touches the page alone");
 
         const once = applyPages(PAGES, patch);
-        assert.deepEqual(once.get(OVERVIEW_KEY), variant("page", { draft: OVERVIEW, live: some({ version: 1n, page: OVERVIEW }) }));
-        assert.deepEqual(once.get(TEMPLATE_KEY), PAGES.get(TEMPLATE_KEY), "nothing else changed");
+        assertEntry(once.get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")), "its fields and its tags as they were");
+        assertEntry(once.get(TEMPLATE_KEY), templateEntry(TEMPLATE_KEY, KPIS), "nothing else changed");
 
         const again = applyPages(SAVED, publish(SAVED, OVERVIEW_KEY));
-        assert.deepEqual(again.get(OVERVIEW_KEY), variant("page", { draft: EDITED, live: some({ version: 2n, page: EDITED }) }), "the next publish is version 2");
+        assertEntry(again.get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, EDITED, some({ version: 2n, page: EDITED }), tagged("weekly")), "the next publish is version 2");
     });
 
     test("R3: a revert makes the draft exactly the live version's layout, in one patch of the page", () => {
         const patch = revert(SAVED, OVERVIEW_KEY);
         if (patch.type !== "patch") assert.fail(`expected a patch by key, got ${patch.type}`);
         assert.deepEqual([...patch.value.keys()], [OVERVIEW_KEY]);
-        assert.deepEqual(applyPages(SAVED, patch).get(OVERVIEW_KEY), variant("page", { draft: OVERVIEW, live: some({ version: 1n, page: OVERVIEW }) }));
+        assertEntry(applyPages(SAVED, patch).get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")));
+    });
+
+    test("#1759: a revert to a version under another title takes its title too — an entry's title is its layout's", () => {
+        const renamed = Studio.value([{ key: OVERVIEW_KEY, draft: { ...EDITED, title: "Overview, drafted" }, live: { version: 1n, page: OVERVIEW } }]);
+        assert.equal(renamed.get(OVERVIEW_KEY)?.title, "Overview, drafted");
+        assertEntry(applyPages(renamed, revert(renamed, OVERVIEW_KEY)).get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW })));
     });
 
     test("R2: a publish drafted before another landed no longer applies", () => {
@@ -116,34 +147,25 @@ describe("Studio writes (#992)", () => {
         assert.throws(() => applyPages(first, stale), /Cannot apply/);
     });
 
-    test("a new page starts from a template's cells and starting filters, or blank, with no live version, in one inserting patch", () => {
+    test("a new page starts from a template's cells and starting filters, or blank, with no live version and no tags, under its key's project and the title given, in one inserting patch", () => {
         const key: Key = { project: "ops", page: "detail" };
         const fromTemplate = newPage(PAGES, key, "Detail", some(TEMPLATE_KEY));
         if (fromTemplate.type !== "patch") assert.fail(`expected a patch by key, got ${fromTemplate.type}`);
         assert.deepEqual([...fromTemplate.value.entries()].map(([k, op]) => [k, op.type]), [[key, "insert"]]);
-        assert.deepEqual(applyPages(PAGES, fromTemplate).get(key), variant("page", {
-            draft: {
-                title: "Detail",
-                cells: [
-                    { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                ],
-                filters: [NSW],
-            },
-            live: none,
-        }));
-        assert.deepEqual(applyPages(PAGES, newPage(PAGES, key, "Blank", none)).get(key), variant("page", { draft: { title: "Blank", cells: [], filters: [] }, live: none }));
+        assertEntry(applyPages(PAGES, fromTemplate).get(key), pageEntry(key, { title: "Detail", cells: KPIS.cells, filters: [NSW] }));
+        assertEntry(applyPages(PAGES, newPage(PAGES, key, "Blank", none)).get(key), pageEntry(key, { title: "Blank", cells: [], filters: [] }));
 
         assert.throws(() => newPage(PAGES, OVERVIEW_KEY, "Again", none), /already exists/);
         assert.throws(() => newPage(PAGES, key, "Detail", some(OVERVIEW_KEY)), /is a page, not a template/);
         assert.throws(() => newPage(PAGES, key, "Detail", some({ project: "ops", page: "gone" })), /No template/);
     });
 
-    test("save as template inserts a template of a page's draft — its placements and its starting filters — in one patch", () => {
+    test("save as template inserts a template of a page's draft — its placements and its starting filters, with no tags of the page's — in one patch", () => {
         const key: Key = { project: "ops", page: "tpl-overview" };
         const patch = saveTemplate(SAVED, OVERVIEW_KEY, key, "Overview layout");
         if (patch.type !== "patch") assert.fail(`expected a patch by key, got ${patch.type}`);
         assert.deepEqual([...patch.value.entries()].map(([k, op]) => [k, op.type]), [[key, "insert"]]);
-        assert.deepEqual(applyPages(SAVED, patch).get(key), variant("template", { title: "Overview layout", cells: EDITED.cells, filters: [NSW] }));
+        assertEntry(applyPages(SAVED, patch).get(key), templateEntry(key, { title: "Overview layout", cells: EDITED.cells, filters: [NSW] }));
 
         assert.throws(() => saveTemplate(PAGES, OVERVIEW_KEY, TEMPLATE_KEY, "Taken"), /already exists/);
         assert.throws(() => saveTemplate(PAGES, TEMPLATE_KEY, key, "From a template"), /is a template, not a page/);
@@ -316,8 +338,38 @@ describe("Studio.changes — a placement's content (#1669)", () => {
 
 describe("Studio.status (#992)", () => {
     test("a page is live when its draft is its published layout, and a draft otherwise", () => {
-        assert.equal(status({ draft: OVERVIEW, live: none }).type, "draft");
-        assert.equal(status({ draft: OVERVIEW, live: some({ version: 1n, page: OVERVIEW }) }).type, "live");
-        assert.equal(status({ draft: EDITED, live: some({ version: 1n, page: OVERVIEW }) }).type, "draft");
+        assert.equal(status(pageEntry(OVERVIEW_KEY, OVERVIEW)).type, "draft");
+        assert.equal(status(pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }))).type, "live");
+        assert.equal(status(pageEntry(OVERVIEW_KEY, EDITED, some({ version: 1n, page: OVERVIEW }))).type, "draft");
+    });
+});
+
+describe("Studio.value (#1759)", () => {
+    const build = East.compile(Studio.entry, []);
+
+    test("an entry is built from its key and its layout: its project is its key's and its title its layout's, whatever it is", () => {
+        assertEntry(build(OVERVIEW_KEY, variant("page", null), OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")),
+            pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")));
+        assertEntry(build(TEMPLATE_KEY, variant("template", null), KPIS, none, tagged()), templateEntry(TEMPLATE_KEY, KPIS));
+    });
+
+    test("the record a solution ships is each page and template it writes, by key: a page its draft, its published version and its tags; a template its layout", () => {
+        assert.deepEqual([...PAGES.keys()], [OVERVIEW_KEY, TEMPLATE_KEY], "in key order");
+        assertEntry(PAGES.get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, OVERVIEW, none, tagged("weekly")));
+        assertEntry(PAGES.get(TEMPLATE_KEY), templateEntry(TEMPLATE_KEY, KPIS));
+        assertEntry(SAVED.get(OVERVIEW_KEY), pageEntry(OVERVIEW_KEY, EDITED, some({ version: 1n, page: OVERVIEW }), tagged("weekly")));
+        assert.equal(Studio.value([]).size, 0, "none written, none held");
+    });
+
+    test("its tags are kept without the spaces around each, once", () => {
+        const kept = Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW, tags: [" weekly", "weekly ", "sales desk"] }]).get(OVERVIEW_KEY);
+        assert.ok(kept !== undefined && sameTags(kept.tags, tagged("sales desk", "weekly")));
+    });
+
+    test("an empty tag and a key written twice are refused, each naming the entry", () => {
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW, tags: ["weekly", "  "] }]),
+            /Studio\.value: \(project="ops", page="overview"\) has an empty tag — a tag is a word or two to find the entry by/);
+        assert.throws(() => Studio.value([{ key: OVERVIEW_KEY, draft: OVERVIEW }, { key: OVERVIEW_KEY, template: KPIS }]),
+            /Studio\.value: \(project="ops", page="overview"\) is written twice/);
     });
 });

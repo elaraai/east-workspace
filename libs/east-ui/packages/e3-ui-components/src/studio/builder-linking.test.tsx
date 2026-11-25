@@ -16,29 +16,26 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, NullType, none, some, variant } from "@elaraai/east";
+import { East, NullType, some, variant } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, settle } from "../e3-web-mount.test-utils.js";
-import { components, PAGES, h, ASKED, withEntry, readRecord, tile, placed, press, type Key, type Entry } from "./builder.test-utils.js";
+import { components, PAGES, h, ASKED, withEntry, pageAt, readRecord, tile, placed, press, type Key } from "./builder.test-utils.js";
 
 describe("<Studio.Builder> — linking on the canvas (#1673)", () => {
     const LINKS: Key = { project: "ops", page: "h-links" };
     const v = Studio.visual;
     /** The Links page, never published: the regions as a list, whose click selects; the sales as bars, whose click filters; their count; and a note. */
-    const LINKS_PAGE: Entry = variant("page", {
-        draft: {
-            title: "Links",
-            cells: [
-                placed("l-regions", "r1", 4n, v.of("sales", v.list({ item: v.group("region"), values: [v.sum("revenue")] }))),
-                placed("l-channels", "r1", 4n, v.of("sales", v.bar({ x: v.group("channel"), values: [v.sum("revenue")] }))),
-                placed("l-count", "r1", 4n, v.of("sales", v.kpi({ value: v.count() }))),
-                placed("l-note", "r2", 12n, v.text("Figures are to last night.")),
-            ],
-            filters: [],
-        },
-        live: none,
+    const LINKS_PAGE = pageAt(LINKS, {
+        title: "Links",
+        cells: [
+            placed("l-regions", "r1", 4n, v.of("sales", v.list({ item: v.group("region"), values: [v.sum("revenue")] }))),
+            placed("l-channels", "r1", 4n, v.of("sales", v.bar({ x: v.group("channel"), values: [v.sum("revenue")] }))),
+            placed("l-count", "r1", 4n, v.of("sales", v.kpi({ value: v.count() }))),
+            placed("l-note", "r2", 12n, v.text("Figures are to last night.")),
+        ],
+        filters: [],
     });
 
     /** A builder over the sales, its surface holding the Links page open. */
@@ -63,8 +60,8 @@ describe("<Studio.Builder> — linking on the canvas (#1673)", () => {
     /** The Links page's visuals as the record holds them, by their placements' keys. */
     async function saved() {
         const stored = (await readRecord()).get(LINKS)!;
-        if (stored.type !== "page") throw new Error("expected a page");
-        return new Map(stored.value.draft.cells.flatMap((cell) => (cell.content.type === "visual" ? [[cell.key, cell.content.value] as const] : [])));
+        if (stored.kind.type !== "page") throw new Error("expected a page");
+        return new Map(stored.draft.cells.flatMap((cell) => (cell.content.type === "visual" ? [[cell.key, cell.content.value] as const] : [])));
     }
     /** A builder's action on a visual, as a pointer presses it: its tile selected, then its frame's button of that name (#1673). */
     async function frameAction(c: HTMLElement, key: string, name: string) {

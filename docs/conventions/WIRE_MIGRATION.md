@@ -1785,3 +1785,26 @@ Each wire changed under this rule, with the kind it is.
   prints it, and the open query of a builder that holds its own — does not
   read under the new type, and is nothing kept: the recent runs start empty,
   and such a builder opens a new query on its first data source.
+- **e3-ui's Studio pages record's entry is a struct that holds what it is,
+  its project, its title and its tags (#1759)** — an application's record,
+  and package-borne. `Studio.Types.Entry` was a variant, `page` — a draft and
+  a live version — or `template` — a layout. It is a struct: `kind` (page or
+  template), `project` (its key's), `title` (its layout's), `tags` (a set of
+  text), `draft` (a page's draft, a template's layout) and `live` (a page's
+  published version, none for a template). A pages record is an application's
+  own, declared at e3-ui's type, and one an earlier release wrote is carried
+  by that record's own migration: the release ships the step,
+  `Studio.migrations.entryFields` — listed as `migration.rows("entry_fields",
+  …)` after `cell_content`, its types frozen copies (`e3-ui`'s
+  `studio/migrations.ts`) — which a deploy runs, giving each entry its fields
+  from its key and its layout and no tags; a record declared at the new type
+  without it is refused, where it is declared if it lists `cell_content`
+  alone, else at the deploy, the workspace keeping what it held. A seed
+  written by hand writes the new form, or `Studio.value`, which builds it.
+  The type travels in the builder's, the page library's and the page's
+  payloads — the bound record's `read`, and the record's value a page is
+  given — so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A browser keeps none of it: the page a
+  builder has open is kept by its key, and its drafts are of a page's
+  placements and starting filters, whose types are as they were.

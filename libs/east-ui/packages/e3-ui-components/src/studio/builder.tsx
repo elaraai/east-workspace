@@ -215,7 +215,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const first = useMemo((): StudioKey => {
         if (pages !== undefined) {
             for (const [key, entry] of pages) {
-                if (stringEqual(key.project, project) && entry.type === "page") return key;
+                if (stringEqual(key.project, project) && entry.kind.type === "page") return key;
             }
         }
         return { project, page: "" };
@@ -261,14 +261,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
 
     // The open page's placements as saved, and as the canvas draws them (its
     // drafts in place).
-    const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.cells : entry.value.cells), [entry]);
+    const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.draft.cells), [entry]);
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
-    const title = entry === undefined ? "" : entry.type === "page" ? entry.value.draft.title : entry.value.title;
+    const title = entry === undefined ? "" : entry.draft.title;
 
     // ── The page's starting filters (#1673) ─────────────────────────────
     // What every reader of the page starts with, as its draft saved them, and as the builder draws them: one history over
     // them and the canvas's placements, kept per page — each edit of either one step of it, and Save each one's own patch.
-    const savedFilters = useMemo((): readonly StartingFilter[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.filters : entry.value.filters), [entry]);
+    const savedFilters = useMemo((): readonly StartingFilter[] => (entry === undefined ? [] : entry.draft.filters), [entry]);
     const history = useKeptHistory<SnapGridEntryRef>(`${storageKey}.history.${openName}`);
     const startingLabels = useMemo((): StartingFilterLabels => ({
         add: m.addStartingFilter(), change: m.changeStartingFilter(), remove: m.removeStartingFilter(), clear: m.clearStartingFilters(),
@@ -303,7 +303,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const previewStartsWith = useCallback((page: StudioKey): readonly PageFilter[] => {
         if (keyEqual(page, open)) return startingOf(starting.drafted);
         const found = pages === undefined ? undefined : entryOf(pages, page);
-        return found === undefined ? [] : startingOf(found.type === "page" ? found.value.draft.filters : found.value.filters);
+        return found === undefined ? [] : startingOf(found.draft.filters);
     }, [open, starting.drafted, pages]);
     // The placements the canvas draws, as a dropped visual reads them for its source.
     const cellsRef = useRef(cells);
@@ -512,9 +512,9 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
-        : entry.type === "template" ? { label: m.statusTemplate(), tone: "neutral" as const, ring: false }
-            : entry.value.live.type === "none" ? { label: m.statusDraft(), tone: "neutral" as const, ring: true }
-                : east.changes(entry.value.live.value.page, entry.value.draft, sourceNames, componentNames).length === 0
+        : entry.kind.type === "template" ? { label: m.statusTemplate(), tone: "neutral" as const, ring: false }
+            : entry.live.type === "none" ? { label: m.statusDraft(), tone: "neutral" as const, ring: true }
+                : east.changes(entry.live.value.page, entry.draft, sourceNames, componentNames).length === 0
                     ? { label: m.statusLive(), tone: "success" as const, ring: false }
                     : { label: m.statusLiveEdited(), tone: "warning" as const, ring: false };
     const statusStyles = status === undefined ? undefined : statusRecipe({ status: status.tone, size: "md", ring: status.ring }) as Styles;
@@ -529,7 +529,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }, [pages, open.project]);
     const saveTemplate = useMemo(() => ({
         title,
-        enabled: entry !== undefined && entry.type === "page",
+        enabled: entry !== undefined && entry.kind.type === "page",
         taken,
         // The open page, as last saved, as a template under a name — one commit.
         onSave: async (name: string) => {
@@ -719,8 +719,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     // ── The publish preview, in the canvas's place ───────────────────────
     // The layout that publishes, its drafts in place, against the page as saved — its placements and its starting filters.
     const summary = useMemo(() => (entry === undefined ? undefined
-        : east.publishSummary(components, sourceNames, entry.type === "page" ? entry.value.live : none,
-            { title, cells: [...cells], filters: [...starting.drafted] }, { title, cells: [...saved], filters: [...savedFilters] }, entry.type === "template")),
+        : east.publishSummary(components, sourceNames, entry.live,
+            { title, cells: [...cells], filters: [...starting.drafted] }, { title, cells: [...saved], filters: [...savedFilters] }, entry.kind.type === "template")),
     [east, components, sourceNames, entry, title, cells, saved, starting.drafted, savedFilters]);
     const preview = useMemo(() => (summary === undefined ? undefined : {
         project: open.project,

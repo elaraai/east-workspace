@@ -199,17 +199,13 @@ export const libraryPages = East.function(
     ($, pages, project) => {
         const listed = $.let([], ArrayType(StudioLibraryPageType));
         $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project), ($3) => {
-                $3.match(entry, {
-                    page: ($4, page) => {
-                        $4(listed.pushLast({
-                            page: key.page,
-                            title: page.draft.title,
-                            live: pageStatus(page).hasTag("live"),
-                            cells: page.draft.cells,
-                        }));
-                    },
-                });
+            $2.if(key.project.equal(project).and(() => entry.kind.hasTag("page")), ($3) => {
+                $3(listed.pushLast({
+                    page: key.page,
+                    title: entry.title,
+                    live: pageStatus(entry).hasTag("live"),
+                    cells: entry.draft.cells,
+                }));
             });
         });
         return listed;
@@ -223,17 +219,13 @@ export const libraryTemplates = East.function(
     ($, pages, project, components) => {
         const listed = $.let([], ArrayType(StudioLibraryTemplateType));
         $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project), ($3) => {
-                $3.match(entry, {
-                    template: ($4, layout) => {
-                        $4(listed.pushLast({
-                            name: key.page,
-                            title: layout.title,
-                            summary: layoutSummary(components, layout.cells),
-                            cells: layout.cells,
-                        }));
-                    },
-                });
+            $2.if(key.project.equal(project).and(() => entry.kind.hasTag("template")), ($3) => {
+                $3(listed.pushLast({
+                    name: key.page,
+                    title: entry.title,
+                    summary: layoutSummary(components, entry.draft.cells),
+                    cells: entry.draft.cells,
+                }));
             });
         });
         return listed;

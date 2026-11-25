@@ -24,7 +24,8 @@ import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import type { RecordPlan } from '@elaraai/e3-types';
 import {
-    LocalStorage, LocalTaskRunner, RecordDeployRefusedError, packageImport, recordHistory, repoInit, workspaceCreate, workspaceDeploy, workspaceGetDataset,
+    LocalStorage, LocalTaskRunner, RecordDeployRefusedError, packageImport, recordDescribe, recordHistory, repoInit, workspaceCreate, workspaceDeploy,
+    workspaceGetDataset,
 } from '@elaraai/e3-core';
 import { assertThisTreesRunner, runnerFile } from './runners.js';
 
@@ -39,16 +40,15 @@ const WORKSPACE = 'main';
 
 /** A suite's repositories, and what a test does with the one it has. */
 export interface RecordDeploy {
-    /** The storage the repositories are in. */
-    readonly storage: LocalStorage;
-    /** The repository of the test running. */
-    readonly repo: () => string;
-    /** The workspace a test deploys to. */
-    readonly workspace: string;
     /** Exports, imports and deploys a package to the workspace, on the runner; the plan the deploy made for each record. */
     readonly deploy: (pkg: Package) => Promise<RecordPlan[]>;
     /** The names of a record's commits, newest first. */
     readonly history: (record: string) => Promise<string[]>;
+    /**
+     * A record's indexes as the workspace holds them, in name order: each by its name, whether a row may stand under
+     * several of its keys — an index on a Set files a row once under each element — and whether the record holds it built.
+     */
+    readonly indexes: (record: string) => Promise<(readonly [name: string, multi: boolean, built: boolean])[]>;
     /** A dataset's value in the workspace. */
     readonly read: (path: DatasetPath) => Promise<unknown>;
 }
@@ -106,11 +106,13 @@ export function recordDeploy(name: string, first: () => Package): RecordDeploy {
     });
 
     return {
-        storage,
-        repo: () => repo,
-        workspace: WORKSPACE,
         deploy,
         history: async (record) => (await recordHistory(storage, repo, WORKSPACE, record)).map((entry) => entry.commit.mutation),
+        indexes: async (record) => {
+            const described = await recordDescribe(storage, repo, WORKSPACE, record);
+            if (described === null || described === undefined) assert.fail(`the workspace holds no record '${record}'`);
+            return described.indexes.map((index) => [index.name, index.multi, index.built] as const);
+        },
         read: (path) => workspaceGetDataset(storage, repo, WORKSPACE, path),
     };
 }

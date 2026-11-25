@@ -38,8 +38,9 @@ export const studioComponent = example({
             }}</Reactive>
         ))));
         const components = $.let([counter]);
-        const pages = $.let(new Map([
-            [{ project: "demo", page: "counters" }, variant("page", {
+        const pages = $.let(Studio.value([
+            {
+                key: { project: "demo", page: "counters" },
                 draft: {
                     title: "Counters",
                     cells: [
@@ -48,8 +49,7 @@ export const studioComponent = example({
                     ],
                     filters: [],
                 },
-                live: none,
-            })],
+            },
         ]), Studio.Types.Pages);
         return <Studio.Page pages={pages} components={components} page={{ project: "demo", page: "counters" }} version="draft" />;
     }),

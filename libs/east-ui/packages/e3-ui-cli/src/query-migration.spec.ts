@@ -37,7 +37,6 @@ import {
     ArrayType, DictType, Expr, FloatType, IntegerType, SortedMap, SortedSet, StringType, StructType, checkJq, compareFor, equalFor, none, some, variant,
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { recordDescribe } from '@elaraai/e3-core';
 import { Query } from '@elaraai/e3-ui';
 import { assertRefusedWithoutStep, recordDeploy } from './testing/record-deploy.js';
 
@@ -133,9 +132,8 @@ describe('the query builder\'s saved queries record through a deploy (E3_UI_INTE
 
         // The indexes over the new fields are built over the carried rows, beside those by name and by time: each by its
         // name, whether a row may stand under several of its keys, and whether the record holds it built.
-        const described = await recordDescribe(suite.storage, suite.repo(), suite.workspace, 'queries');
         assert.deepEqual(
-            described?.indexes.map((index) => [index.name, index.multi, index.built]),
+            await suite.indexes('queries'),
             [['queries_by_name', false, true], ['queries_by_saved_at', false, true], ['queries_by_source', true, true], ['queries_by_tag', true, true]],
             'a Set\'s index files a query once under each data source it reads and each tag it holds',
         );

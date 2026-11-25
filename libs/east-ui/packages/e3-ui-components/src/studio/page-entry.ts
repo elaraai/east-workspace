@@ -51,9 +51,9 @@ export function entryOf(pages: ValueTypeOf<typeof StudioPagesType>, key: Key): E
  * @returns The layout; `undefined` for a live version a page has not published
  */
 export function layoutOf(entry: Entry, version: "live" | "draft"): Layout | undefined {
-    if (entry.type === "template") return entry.value;
-    if (version === "draft") return entry.value.draft;
-    return entry.value.live.type === "some" ? entry.value.live.value.page : undefined;
+    // A template's layout is its draft, and it has no other.
+    if (entry.kind.type === "template" || version === "draft") return entry.draft;
+    return entry.live.type === "some" ? entry.live.value.page : undefined;
 }
 
 /**
@@ -69,7 +69,7 @@ export function layoutOf(entry: Entry, version: "live" | "draft"): Layout | unde
  */
 export function liveVisualOf(pages: ValueTypeOf<typeof StudioPagesType>, key: Key, cell: string): Visual | undefined {
     const entry = entryOf(pages, key);
-    const layout = entry === undefined || entry.type !== "page" ? undefined : layoutOf(entry, "live");
+    const layout = entry === undefined || entry.kind.type !== "page" ? undefined : layoutOf(entry, "live");
     const content = layout?.cells.find((held) => held.key === cell)?.content;
     return content?.type === "visual" ? content.value : undefined;
 }
