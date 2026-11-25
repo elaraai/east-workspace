@@ -20,10 +20,11 @@
  * - **A new page** (L10, L12): from New page or a template's card, a name, the
  *   project where the rail has chosen none, and tags; one commit, the page the
  *   template's layout or a blank grid; then the host is told. A name the
- *   project holds is refused by the commit, in the popover.
+ *   project holds is refused by the commit, in the popover, as a name taken.
  * - **What it reads**: the record a window at a time through its indexes —
  *   never whole — and again as it moves; with no row, and with a narrowing
- *   that leaves none, it says so.
+ *   that leaves none, it says so. A press works out no card again
+ *   (east-workspace#1779), and its name keys what it keeps.
  */
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
@@ -37,6 +38,7 @@ import { StateRuntime, getRegisteredPlatformImplementations, system } from "@ela
 import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { studioEast } from "./studio-east.js";
 // The page library is an extension: its renderer registers as it loads.
 import "./library.js";
 
@@ -171,12 +173,21 @@ function pagesRail(): ValueTypeOf<RecordSliceBindType> {
 /** Where the surface holds the page open in its builder. */
 const OPEN = "library-test.open";
 
+/** How the library is mounted: given no open page, or no `templates` source, or a name. */
+interface MountOptions {
+    readonly marked?: boolean;
+    readonly templates?: boolean;
+    readonly id?: string;
+}
+
 /**
  * The page library over the record, as a surface mounts it: the record bound to write, its rows paged through the rail,
  * and the open page the surface holds — the Detail to begin with — given to it, and written when told of another, with
- * a line saying which page is open. Given no open page, it is told which page was asked for, and says so.
+ * a line saying which page is open. Given no open page, it is told which page was asked for, and says so. Given a name,
+ * the library is named.
  */
-function surface(options: { marked?: boolean; templates?: boolean } = {}) {
+function surface(options: MountOptions = {}) {
+    const named = options.id === undefined ? {} : { id: options.id };
     return {
         fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const listed = $.let(components);
@@ -186,8 +197,8 @@ function surface(options: { marked?: boolean; templates?: boolean } = {}) {
             const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
             const page = $.let(open.read());
             const library = $.let(options.marked === false
-                ? Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, onOpen })
-                : Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, page, onOpen }));
+                ? Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, onOpen, ...named })
+                : Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, page, onOpen, ...named }));
             return Stack.VStack([Text.Root(East.str`open ${page.project}/${page.page}`), library]);
         }))),
     };
@@ -242,7 +253,7 @@ async function press(el: Element) {
 }
 
 /** Mounts the library, and waits for its first cards. */
-async function mount(options: { marked?: boolean; templates?: boolean } = {}) {
+async function mount(options: MountOptions = {}) {
     const mounted = await h.mount(surface(options), { storageKey: "studio-library" });
     await vi.waitFor(() => expect(cards(mounted.container).length).toBeGreaterThan(0));
     await settle();
@@ -270,7 +281,8 @@ describe("<Studio.Library> — its frame (#1762)", () => {
         expect(within(views).getAllByRole("radio").map((radio) => [radio.textContent, radio.getAttribute("aria-checked")])).toEqual([["Pages", "true"], ["Templates", "false"]]);
         expect([...toolbar.querySelectorAll("[data-record-slice-field]")].map((field) => field.textContent)).toEqual(["Name", "Project", "Tag"]);
         expect(within(toolbar).getByRole("button", { name: "New page" })).toBeTruthy();
-        expect(slot(container, "main").querySelector("[data-library-gallery]")).not.toBeNull();
+        // What it keeps is under the library's own key, each view's apart, the payload given no name.
+        expect(slot(container, "main").querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.pages");
         expect([container.querySelector('[data-frame-slot="start"]'), container.querySelector('[data-frame-slot="end"]')]).toEqual([null, null]);
         expect([screen.queryByRole("textbox", { name: "Search pages and templates" }), screen.queryByRole("button", { name: "Sort · Name" }), screen.queryByRole("radiogroup", { name: "Layout" })])
             .toEqual([null, null, null]);
@@ -283,6 +295,13 @@ describe("<Studio.Library> — its frame (#1762)", () => {
         const { container } = await mount({ templates: false });
         expect(within(slot(container, "toolbar")).queryByRole("radiogroup", { name: "Pages or templates" })).toBeNull();
         expect(titles(container)).toEqual(PAGE_TITLES);
+    });
+
+    test("named, it keeps what it keeps under its name, each view's apart: two libraries on a surface keep theirs apart", async () => {
+        const { container } = await mount({ id: "ops" });
+        expect(container.querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.ops.pages");
+        await showTemplates(container);
+        expect(container.querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.ops.templates");
     });
 });
 
@@ -384,13 +403,13 @@ describe("<Studio.Library> — a new page (#1762 L10, L12)", () => {
         expect(hostPage()).toEqual({ project: "ops", page: "Board" });
     });
 
-    test("a name the project holds — a page's or a template's — is refused by the commit, in the popover, which stays open; a page with no project is refused before it is written", async () => {
+    test("a name the project holds — a page's or a template's — is refused by the commit, in the popover, which stays open, as a name taken; a page with no project is refused before it is written", async () => {
         const { container } = await mount();
         await press(within(slot(container, "toolbar")).getByRole("button", { name: "New page" }));
         await create("a-detail");
-        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("Another write took the name a-detail first — choose another"));
+        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("a-detail is already a page or a template here."));
         await create("t-summary");
-        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("Another write took the name t-summary first — choose another"));
+        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("t-summary is already a page or a template here."));
         await act(async () => { fireEvent.change(projectBox()!, { target: { value: "  " } }); });
         await create("Somewhere");
         await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("Give the page a project to create it."));
@@ -419,6 +438,19 @@ describe("<Studio.Library> — what it reads (#1762)", () => {
         await press(cardOf(container, "Overview"));
         expect(h.requests("read").filter((request) => request.record === ex.studioPages.name)).toEqual([]);
         expect(h.requests("mutate")).toEqual([]);
+    });
+
+    test("a press works out no card again: what a layout places is worked out once an entry, the open mark alone moving (east-workspace#1779)", async () => {
+        const { container } = await mount();
+        const summary = vi.spyOn(studioEast(), "layoutSummary");
+        try {
+            await press(cardOf(container, "Overview"));
+            await press(cardOf(container, "Weekly"));
+            expect(marked(container)).toEqual(["Weekly"]);
+            expect(summary).not.toHaveBeenCalled();
+        } finally {
+            summary.mockRestore();
+        }
     });
 
     test("a page made meanwhile — in another session — shows as the record moves", async () => {

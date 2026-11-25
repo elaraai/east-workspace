@@ -9,9 +9,10 @@
  * one toolbar over a grid of cards:
  *
  * - **The cards**: the shared paged gallery over a source of the slice, read a
- *   page at a time under the rail's choices and again as the record moves;
- *   with no row its host's words, and while the rail narrows the source, the
- *   narrowing's, with Clear filters ({@link SliceGallery}). A card stands at
+ *   page at a time under the rail's choices and again as the record moves,
+ *   each entry made its row once ({@link rowsOnce}); with no row its host's
+ *   words, and while the rail narrows the source, the narrowing's, with Clear
+ *   filters ({@link SliceGallery}). A card stands at
  *   the gallery's one size, its tags its one fact ({@link libraryGallery}), and
  *   the row its host says is open is marked ({@link libraryCardMarks}).
  * - **The toolbar**: the rail over the slice ({@link useLibraryRail}), and New,
@@ -78,6 +79,25 @@ export function libraryCardMarks(open: boolean, openWord: string, tags: Iterable
     };
 }
 
+/**
+ * A page's entries read as a library's rows, each once (east-workspace#1779): an entry is made its row the first time
+ * it is read, and the same row given each time it is read again — the window a page reads keeps its entries — so a
+ * card's memo of its row, and what its host makes of the row, hold across reads.
+ *
+ * @param decode - An entry made the gallery's row; `undefined` for one that is none
+ * @returns The same, made once an entry
+ */
+export function rowsOnce<T>(decode: (entry: RecordSliceEntry) => T | undefined): (entry: RecordSliceEntry) => T | undefined {
+    const read = new WeakMap<RecordSliceEntry, { readonly row: T | undefined }>();
+    return (entry) => {
+        const held = read.get(entry);
+        if (held !== undefined) return held.row;
+        const row = decode(entry);
+        read.set(entry, { row });
+        return row;
+    };
+}
+
 /** Props of {@link SliceGallery}. */
 export interface SliceGalleryProps<T> {
     /** The source's part of the slice: what the cards are read through, and what Clear filters clears. */
@@ -104,20 +124,22 @@ export interface SliceGalleryProps<T> {
  * @returns The gallery
  */
 export function SliceGallery<T>({ part, id, gallery, decode, empty, narrowed }: SliceGalleryProps<T>) {
+    // Each entry made its row once: the same entry read again is the same row (`rowsOnce`).
+    const rowOf = useMemo(() => rowsOnce(decode), [decode]);
     const source = useMemo((): LibraryPageSource<T> => ({
         id: part.key,
         page: (offset, limit) => {
             const entries = recordSlicePage(part, { where: part.read().where, area: none }, offset, limit);
             if (entries.type === "none") return none;
             return some((entries.value as RecordSliceEntry[]).flatMap((entry) => {
-                const row = decode(entry);
+                const row = rowOf(entry);
                 return row === undefined ? [] : [row];
             }));
         },
         total: () => part.count(),
         revision: () => recordSliceRevision(part),
         query: () => printWhere(part.read().where),
-    }), [part, decode]);
+    }), [part, rowOf]);
     // Whether a choice of the viewer's narrows the source: what an empty gallery says, and whether it offers Clear filters.
     const readChosen = useCallback(() => recordSliceChosen(part), [part]);
     const { result } = useTrackedEvaluation(readChosen);

@@ -220,7 +220,12 @@ function bind($: BlockBuilder<UIComponentType>) {
 type Handles = ReturnType<typeof bind>;
 type Options = Parameters<typeof Studio.Library>[0];
 
-/** A page that mounts the library, built — and never run: what the tag takes, and refuses, is decided where the page is built. */
+/**
+ * A page that mounts the library, built — and never run: what the tag takes, and refuses, is decided where the page is
+ * built. Its payload is never decoded here: it carries the rail's chrome, whose functions are a binding's, which only a
+ * page on e3 runs — what the payload carries, its name among it, is the renderer's tests', on e3-web
+ * (`studio/library.test.tsx`).
+ */
 const page = (make: (handles: Handles) => ReturnType<typeof Studio.Library>) => () => East.function([], UIComponentType, ($) => make(bind($)));
 /** The library over the handles, with the slice given. */
 const libraryOver = ({ components, record }: Handles, slice: Options["slice"], more: Partial<Options> = {}) =>

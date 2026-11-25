@@ -95,7 +95,7 @@ const card = (tree: Tree): LibraryItemValue => ({
     byline: some("planted long ago"), action: tree.felled === true ? none : some("Climb →"),
     search: none, groups: new Map(), facets: new Map(), dims: new Map([["kinds", variant("chips", ["tall", "old"])]]),
 });
-/** What the gallery was told to open, newest last. */
+/** What the gallery was told to open, newest last: each card's key, where the row it was told is that card's tree. */
 const opened: string[] = [];
 /** A gallery whose cards stand 300 wide at least and 200 tall: each tree its card, its media its name's initial, a felled one taking no press and saying why. */
 const GALLERY: PagedLibraryGallery<Tree> = {
@@ -104,7 +104,7 @@ const GALLERY: PagedLibraryGallery<Tree> = {
     media: (tree) => <span data-tree-media="">{tree.name.slice(-1)}</span>,
     extras: (tree) => (tree.felled === true ? { title: "Felled last winter", note: { text: "Felled last winter", tone: "warning" } } : undefined),
     clicks: (tree) => tree.felled !== true,
-    onOpen: (key) => { opened.push(key); },
+    onOpen: (key, tree) => { opened.push(key === tree.name ? key : `${key}, told ${tree.name}`); },
 };
 const view = (rows: LibraryPageSource<Tree>, props: Partial<Parameters<typeof PagedGallery<Tree>>[0]> = {}) => (
     <ChakraProvider value={system}><PagedGallery source={rows} id="trees" gallery={GALLERY} {...props} /></ChakraProvider>
@@ -190,7 +190,7 @@ describe("a paged gallery (east-workspace#1761)", () => {
         expect(drawn("tree-1").querySelector("[data-library-status]")!.textContent).toBe("Marked");
     });
 
-    test("a press on a card, and ⏎ or Space with the keyboard on it, tell its host the card's key; a chord is left as it came, for the builder the gallery is in", async () => {
+    test("a press on a card, and ⏎ or Space with the keyboard on it, tell its host the card's key and its row; a chord is left as it came, for the builder the gallery is in", async () => {
         render(view(source(trees(3))));
         await waitFor(() => expect(lines().flat()).toHaveLength(3));
         const first = drawn("tree-0");

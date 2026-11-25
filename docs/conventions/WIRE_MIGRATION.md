@@ -1812,12 +1812,13 @@ Each wire changed under this rule, with the kind it is.
   at the deploy, the workspace keeping what it held. A seed
   written by hand writes the new form, or `Studio.value`, which builds it.
   The type travels in the builder's, the page library's and the page's
-  payloads — the bound record's `read`, and the record's value a page is
-  given — so a UI value encoded under either type does not decode under the
-  other: packages are re-exported, and the dataflow computes each UI task's
-  output again under the new type. A browser keeps none of it: the page a
-  builder has open is kept by its key, and its drafts are of a page's
-  placements and starting filters, whose types are as they were.
+  payloads — the builder's bound record, the page library's patch write of
+  the record, and the record's value a page is given — so a UI value encoded
+  under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A browser keeps none of it: the page a builder has open is kept by
+  its key, and its drafts are of a page's placements and starting filters,
+  whose types are as they were.
 - **e3-ui's query library pages the saved queries through a Slice (#1761)** —
   package-borne. The `QueryLibrary` extension's payload trades `queries`, the
   saved queries record's bound handle, for `slice`, in its place: the chrome of
@@ -1830,3 +1831,17 @@ Each wire changed under this rule, with the kind it is.
   computes each UI task's output again under the new type. A UI task's output
   is not stored state, and the saved queries record keeps its type, so no
   repository upgrade step ships with it.
+- **e3-ui's page library pages the pages record through a Slice, and writes it
+  by its patch alone (#1762)** — package-borne. The `StudioLibrary`
+  extension's payload trades `pages`, the record's bound handle, for the
+  handle's patch write alone (`StudioPagesWriteType`, its `commit`), and gains
+  `slice`, after it — the chrome of a Slice over the record
+  (`RecordSlicesChromeType`), its `rows` source paging the pages and a
+  `templates` source, where it has one, the templates, each scoped by what an
+  entry is — and `id`, last, the library's name. The library reads the record
+  a window at a time and never whole, so its surface's manifest lists the
+  record among what it pages, beside the records it binds to write. A UI value
+  encoded under either payload type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and the pages record
+  keeps its type, so no repository upgrade step ships with it.

@@ -25,6 +25,7 @@ import { expect } from "playwright/test";
 import { galleryGrid, openGallery } from "./gallery";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 const HASH = "e3/studio/studio/studioLibrary";
 
@@ -36,10 +37,8 @@ const PAGES = ["Ledger", "Rota", "Account detail", "Overview", "Regional rollup"
 const TEMPLATES = ["Ops board", "Report brief", "Summary"];
 
 test.describe("Studio page library (#997, #1762)", () => {
-    test.describe("at the desktop width", () => {
-        test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
-
-        for (const theme of ["light", "dark"] as const) {
+    test.describe("at the desktop width", { tag: "@desktop" }, () => {
+        for (const theme of LAYOUT_THEMES) {
             test(`one borderless frame with no pane: a 44px toolbar row holding Pages · Templates, the rail and then New page, over the cards; nothing says Live or Draft (${theme})`, async ({ page }) => {
                 const frame = await openGallery(page, HASH, 1240, theme);
                 await expect.poll(() => frame.evaluate((root) => {
@@ -144,9 +143,7 @@ test.describe("Studio page library (#997, #1762)", () => {
         });
     });
 
-    test.describe("on a phone", () => {
-        test.skip(({ viewport }) => (viewport?.width ?? 0) > 560, "measured at a phone's width");
-
+    test.describe("on a phone", { tag: "@mobile" }, () => {
         test("the frame is a phone's, and the cards stand one across, each holding what it draws, with nothing scrolling sideways", async ({ page }) => {
             const frame = await openGallery(page, HASH);
             await expect.poll(async () => {

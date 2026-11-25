@@ -111,8 +111,11 @@ export interface PagedLibraryGallery<T> {
     extras?: ((row: T) => LibraryCardExtras | undefined) | undefined;
     /** Which rows' cards take a press: those it answers `true` for, and every one where it is not given. A card that takes none is no button. */
     clicks?: ((row: T) => boolean) | undefined;
-    /** A press on a card, or ⏎ or Space with the keyboard on it: told the card's key. */
-    onOpen(key: string): void;
+    /**
+     * A press on a card, or ⏎ or Space with the keyboard on it: told the card's key, and the row the card was drawn
+     * from — what its host acts on, holding none of the rows it has drawn (east-workspace#1779).
+     */
+    onOpen(key: string, row: T): void;
     /** The secondary facts its cards show, by their keys in a card's `dims`, in their order; none where it is not given. */
     dims?: readonly string[] | undefined;
 }
@@ -290,8 +293,10 @@ function PagedGalleryCard<T>({ row, gallery, id, styles }: { row: T; gallery: Pa
     const renderMedia = useMemo(() => (media === undefined ? undefined : () => media(row)), [media, row]);
     const dims = gallery.dims ?? EMPTY_DIMS;
     const takes = gallery.clicks?.(row) ?? true;
+    // A press tells its host the card's key and its row: what the host acts on, which it then holds none of.
+    const onCardClick = useMemo(() => (takes ? (key: string) => gallery.onOpen(key, row) : undefined), [takes, gallery, row]);
     return <LibraryGalleryCard libraryId={id} item={item} dimOrder={dims} activeDims={dims} filtered={item.filtered} styles={styles}
-        onCardClick={takes ? gallery.onOpen : undefined} onCardEnter={undefined} storageKey={id} renderMedia={renderMedia} extras={extras} />;
+        onCardClick={onCardClick} onCardEnter={undefined} storageKey={id} renderMedia={renderMedia} extras={extras} />;
 }
 
 /** Props of {@link PagedRows}: a palette's, its cards the Library's compact ones or — with a `gallery` — its host's own. */

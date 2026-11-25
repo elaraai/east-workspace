@@ -16,9 +16,10 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { LibraryNewButton, libraryCardMarks, libraryGallery } from "./slice-gallery.js";
+import { LibraryNewButton, libraryCardMarks, libraryGallery, rowsOnce } from "./slice-gallery.js";
 
 afterEach(() => { cleanup(); });
 
@@ -29,6 +30,19 @@ describe("a library of cards (#1761, #1762)", () => {
         const gallery = libraryGallery<string>({ item, onOpen });
         expect([gallery.least, gallery.cardPx, gallery.dims]).toEqual([300, 224, ["tags"]]);
         expect([gallery.item, gallery.onOpen, gallery.media, gallery.extras, gallery.clicks]).toEqual([item, onOpen, undefined, undefined, undefined]);
+    });
+
+    test("a page's entries made rows once each (east-workspace#1779): the same entry read again is the same row, made once; another entry its own; one that is none, none", () => {
+        const decode = vi.fn((entry: RecordSliceEntry) => (entry.row?.type === "some" ? { entry } : undefined));
+        const rowOf = rowsOnce(decode);
+        const first: RecordSliceEntry = { ik: variant("by_name", "fir"), key: "fir", row: some({ name: "fir" }) };
+        const second: RecordSliceEntry = { ik: variant("by_name", "tall"), key: "tall", row: some({ name: "tall" }) };
+        const bare: RecordSliceEntry = { ik: variant("by_name", "stump"), key: "stump", row: none };
+        const row = rowOf(first);
+        expect(rowOf(first)).toBe(row);
+        expect(rowOf(second)).not.toBe(row);
+        expect([rowOf(bare), rowOf(bare)]).toEqual([undefined, undefined]);
+        expect(decode).toHaveBeenCalledTimes(3);
     });
 
     test("a card's marks: the row its host says is open placed, its status the word in the info tone; its tags chips in their order; none of either otherwise", () => {

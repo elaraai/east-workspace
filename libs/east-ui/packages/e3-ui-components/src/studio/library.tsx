@@ -52,14 +52,17 @@ import {
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { StudioCellType, StudioEntryType, StudioKeyType, StudioLibraryComponent, StudioLibraryPayloadType } from "@elaraai/e3-ui/internal";
 import {
     BuilderFrame, FieldForm, SnapGridTiles, getSomeorUndefined, implementUIComponent, useFormatters, usePersistedState,
     type Formatters, type LibraryItemValue, type SnapGridLayoutCell, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { keptRead, useSlotStyles, type PagedLibraryGallery } from "@elaraai/east-ui-components/internal";
+import { useEquivalent } from "../shared/equivalent.js";
 import { NamePopover } from "../shared/name-popover.js";
 import { tellHost } from "../shared/open.js";
+import { entryRow } from "../shared/records/entry-row.js";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { LibraryNewButton, SliceGallery, libraryCardMarks, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
@@ -88,7 +91,17 @@ interface Starting {
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(StudioLibraryPayloadType);
+/**
+ * Its write, who it tells, the components and the slice, by the same equivalence: each kept while a new payload's is
+ * equivalent (`useEquivalent`), so a press — which moves the open page alone — makes none of them again, nor the cards,
+ * the rail and the reads over them.
+ */
+const pagesEquivalent = equivalentFor(StudioLibraryPayloadType.fields.pages);
+const onOpenEquivalent = equivalentFor(StudioLibraryPayloadType.fields.onOpen);
+const componentsEquivalent = equivalentFor(StudioLibraryPayloadType.fields.components);
+const sliceEquivalent = equivalentFor(StudioLibraryPayloadType.fields.slice);
 const keyEqual = equalFor(StudioKeyType);
+const textEqual = equalFor(StringType);
 /** A card's key: its page's key, as East prints it. */
 const printKey = printFor(StudioKeyType);
 
@@ -112,16 +125,15 @@ const NONE_TAKEN: ReadonlySet<string> = new Set();
 const readView = keptRead.record<{ view: View }>({ view: keptRead.oneOf("pages", "templates") });
 
 /**
- * A page's row, as a source of the pages record reads it: its key and the entry its entry joins, each checked of its
- * type.
+ * A page's row, as a source of the pages record reads it: its key and the entry it holds — the row it joins, or the
+ * one its index carries (`entryRow`) — each checked of its type.
  *
  * @param entry - An entry of a page of the source
- * @returns The row; `undefined` for an entry that joins none
+ * @returns The row; `undefined` for an entry that holds none, or a row of another type
  */
-function pageRow(entry: unknown): PageRow | undefined {
-    const { key, row } = entry as { key?: unknown; row?: option<unknown> };
-    return row?.type === "some" && isValueOf(key, StudioKeyType) && isValueOf(row.value, StudioEntryType)
-        ? { key: key as Key, entry: row.value as Entry } : undefined;
+function pageRow(entry: RecordSliceEntry): PageRow | undefined {
+    const row = entryRow(entry);
+    return isValueOf(entry.key, StudioKeyType) && isValueOf(row, StudioEntryType) ? { key: entry.key as Key, entry: row as Entry } : undefined;
 }
 
 /** A placement holds no content in a wireframe: its frame alone. */
@@ -154,7 +166,7 @@ function entryItem(row: PageRow, view: View, open: boolean, summary: string, m: 
     const n = row.entry.draft.cells.length;
     return {
         key: printKey(row.key), label: row.entry.title,
-        sublabel: some(summary === "" ? m.blankSummary() : summary),
+        sublabel: some(textEqual(summary, "") ? m.blankSummary() : summary),
         icon: none,
         trailing: none, draggable: false, filtered: false, media: none, avatar: none,
         byline: some(m.entryByline({ project: row.key.project, placements: m.placements({ n, count: words.number(n) }) })),
@@ -166,7 +178,9 @@ function entryItem(row: PageRow, view: View, open: boolean, summary: string, m: 
 
 /**
  * A view's gallery: each entry the Library's gallery card ({@link entryItem}), its media its layout's wireframe. A
- * press on a card is told the entry its card drew. What a layout places is worked out once a row.
+ * press on a card is told the entry its card was drawn from, so the library holds none of the rows it draws. What a
+ * layout places is worked out once an entry, and kept as the view and the open page move: a press marks another card,
+ * and works out none again.
  *
  * @param view - The pages, or the templates
  * @param open - The page its host says is open
@@ -177,31 +191,22 @@ function entryItem(row: PageRow, view: View, open: boolean, summary: string, m: 
 function useEntryGallery(view: View, open: option<Key>, components: StudioLibraryValue["components"], onPress: (row: PageRow) => void): PagedLibraryGallery<PageRow> {
     const m = useStudioMessages();
     const words = useFormatters();
-    return useMemo((): PagedLibraryGallery<PageRow> => {
+    const summaryOf = useMemo(() => {
         const east = studioEast();
-        const summaries = new WeakMap<PageRow, string>();
-        const summaryOf = (row: PageRow): string => {
-            const held = summaries.get(row);
+        const summaries = new WeakMap<Entry, string>();
+        return (row: PageRow): string => {
+            const held = summaries.get(row.entry);
             if (held !== undefined) return held;
             const summary = east.layoutSummary(components, row.entry.draft.cells);
-            summaries.set(row, summary);
+            summaries.set(row.entry, summary);
             return summary;
         };
-        // The rows whose cards are drawn, by their cards' keys: what a press is told of.
-        const drawn = new Map<string, PageRow>();
-        return libraryGallery({
-            item: (row) => {
-                const item = entryItem(row, view, view === "pages" && open.type === "some" && keyEqual(open.value, row.key), summaryOf(row), m, words);
-                drawn.set(item.key, row);
-                return item;
-            },
-            media: (row) => <LayoutWireframe cells={row.entry.draft.cells} />,
-            onOpen: (key) => {
-                const row = drawn.get(key);
-                if (row !== undefined) onPress(row);
-            },
-        });
-    }, [view, open, components, onPress, m, words]);
+    }, [components]);
+    return useMemo((): PagedLibraryGallery<PageRow> => libraryGallery({
+        item: (row) => entryItem(row, view, view === "pages" && open.type === "some" && keyEqual(open.value, row.key), summaryOf(row), m, words),
+        media: (row) => <LayoutWireframe cells={row.entry.draft.cells} />,
+        onOpen: (_key, row) => onPress(row),
+    }), [view, open, summaryOf, onPress, m, words]);
 }
 
 /** Props of {@link NewPage}. */
@@ -252,7 +257,7 @@ function NewPage({ labelled, fixed, starting, onStarting, home, onCreate }: NewP
     }, []);
     const create = (name: string) => {
         const project = (fixed ?? latest.current.project).trim();
-        if (project === "") return Promise.resolve(m.pageProjectMissing());
+        if (textEqual(project, "")) return Promise.resolve(m.pageProjectMissing());
         return onCreate({ project, page: name }, starting?.from, latest.current.tags);
     };
     return (
@@ -297,7 +302,12 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const m = useStudioMessages();
     const id = getSomeorUndefined(value.id);
     const libraryKey = id === undefined ? "studio.library" : `studio.library.${id}`;
-    const chrome = value.slice;
+    // Its write, who to tell, the components and the slice: each the payload's last one while a new payload's is
+    // equivalent, so a press, which moves the open page alone, makes none of them again.
+    const pages = useEquivalent(value.pages, pagesEquivalent);
+    const onOpen = useEquivalent(value.onOpen, onOpenEquivalent);
+    const components = useEquivalent(value.components, componentsEquivalent);
+    const chrome = useEquivalent(value.slice, sliceEquivalent);
     const parts = useMemo(() => ({ pages: sourcePart(chrome, SOURCE.pages), templates: sourcePart(chrome, SOURCE.templates) }), [chrome]);
 
     // The view shown: the pages, or — where the slice has them — the templates; the viewer's, kept.
@@ -316,22 +326,24 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     // New page: open from a blank grid by its button, or from a template by its card. Made, it is one commit, and the host
     // is told of it (L10).
     const [starting, setStarting] = useState<Starting | undefined>(undefined);
-    const { pages, onOpen } = value;
     const onCreate = useCallback(async (key: Key, from: PageRow | undefined, tags: Tags): Promise<string | undefined> => {
         const east = studioEast();
         const outcome = await pages.commit.patch("", east.newPage(key, key.page, from === undefined ? none : some(from.entry.draft), tags));
+        // A conflict is a name the project holds — before the popover opened, or since: the library holds no page's name
+        // to refuse it by sooner, so it says the name is taken, never that another write took it first.
+        if (outcome.type === "conflict") return m.nameTaken({ name: key.page });
         const refused = east.nameWriteRefusal(outcome, key.page);
         if (refused.type === "some") return refused.value;
         tellHost(onOpen, key);
         return undefined;
-    }, [pages, onOpen]);
+    }, [pages, onOpen, m]);
 
     // A press on a page's card asks the host for it; on a template's, New page opens from it.
     const onPress = useCallback((row: PageRow) => {
         if (view === "pages") tellHost(onOpen, row.key);
         else setStarting({ from: row });
     }, [view, onOpen]);
-    const gallery = useEntryGallery(view, value.page, value.components, onPress);
+    const gallery = useEntryGallery(view, value.page, components, onPress);
     const empty = useMemo(() => (view === "pages" ? { title: m.noPages(), description: m.noPagesHint() } : { title: m.noTemplates(), description: m.noTemplatesHint() }), [view, m]);
     const narrowed = useMemo(() => ({ title: m.noneMatch({ templates: view === "templates" }), description: m.noneMatchHint({ templates: view === "templates" }) }), [view, m]);
 
