@@ -19,7 +19,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { INTENT_DWELL_MS, INTENT_SLOW_MS, ScrollIntent, VirtualRows } from "./virtual-rows.js";
+import { INTENT_DWELL_MS, INTENT_SLOW_MS, ScrollIntent, VirtualRows, setVirtualRowsBoxProbe } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** The viewport's height: what the virtualizer reads, and what a slow scroll travels less than per 200 ms. */
@@ -40,6 +40,7 @@ beforeEach(() => {
 
 afterEach(() => {
     cleanup();
+    setVirtualRowsBoxProbe(undefined);
     vi.useRealTimers();
     if (originalOffsetH !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetH);
     if (originalOffsetW !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetW);
@@ -199,5 +200,59 @@ describe("VirtualRows names the rows its view shows, beside the mounted range (#
         const foot = Math.ceil((10 * ROW_H + VIEW_H) / ROW_H) - 1;
         expect(atTen!.shown).toEqual({ startIndex: 10, endIndex: foot });
         expect(atTen!.range).toEqual({ startIndex: 8, endIndex: foot + 2 });
+    });
+});
+
+describe("VirtualRows draws a row's box only as the row moves (east-workspace#1776)", () => {
+    // A wheel step draws the frame three times over — the scroll's event, its intent read at the dwell, the
+    // virtualizer's own settle — and the page felt each: every mounted row's box was drawn again each time.
+    test.each([
+        ["fixed rows, in the window's one column", false],
+        ["measured rows, each translated to its place", true],
+    ])("%s: a wheel step draws the boxes of the rows it brings in, and the frame drawn again at the dwell and at its settle draws none", (_name, measureRows) => {
+        // A measured row is measured by its drawn box, which jsdom does not lay out.
+        const originalRect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const height = this.hasAttribute("data-index") ? ROW_H : VIEW_H;
+            return { x: 0, y: 0, top: 0, left: 0, right: 240, width: 240, height, bottom: height, toJSON: () => ({}) } as DOMRect;
+        };
+        try {
+            const boxes: number[] = [];
+            setVirtualRowsBoxProbe((index) => boxes.push(index));
+            const heard: boolean[] = [];
+            const ui = render(
+                <ChakraProvider value={system}>
+                    <VirtualRows height={`${VIEW_H}px`} maxHeight={undefined} count={2_000} estimateSize={() => ROW_H}
+                        measureRows={measureRows} overscan={2} getItemKey={(i) => `r${i}`}
+                        onRangeChange={(_range, isScrolling) => heard.push(isScrolling)}
+                        renderRow={(i) => <div>row {i}</div>} />
+                </ChakraProvider>,
+            );
+            const scroller = ui.container.querySelector<HTMLElement>("[data-virtual-rows='bounded']")!;
+            const mounted = () => [...ui.container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => Number(el.dataset["index"]));
+            const atRest = mounted();
+            expect(atRest.length).toBeGreaterThan(2);
+
+            // One wheel step, three rows down: the boxes of the rows it brought in, each once, and no other.
+            boxes.length = 0;
+            act(() => {
+                scroller.scrollTop = 3 * ROW_H;
+                fireEvent.scroll(scroller);
+            });
+            const came = mounted().filter((i) => !atRest.includes(i));
+            expect(came.length).toBeGreaterThan(0);
+            expect([...boxes].sort((a, b) => a - b)).toEqual(came);
+
+            // Held still: the dwell reads the range again, at rest, and the virtualizer settles after it. The frame is
+            // drawn again for each — it reports — and no row's box with it.
+            boxes.length = 0;
+            const reported = heard.length;
+            act(() => { vi.advanceTimersByTime(INTENT_DWELL_MS); });
+            expect(heard.slice(reported), "the dwell's read, at rest").toContain(false);
+            act(() => { vi.advanceTimersByTime(400); });
+            expect(boxes).toEqual([]);
+        } finally {
+            Element.prototype.getBoundingClientRect = originalRect;
+        }
     });
 });

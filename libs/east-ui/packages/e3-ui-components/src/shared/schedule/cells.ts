@@ -200,7 +200,10 @@
  * they are made from moves — the cells' entries, the rows read by key, what
  * the narrowing answered of them — and once for kinds made from the same:
  * the cases of one record read through one source over the same slots hold
- * one set of spans, and one set of rows. A window's own rows, which its kind
+ * one set of spans, and one set of rows. The events a series read's entries
+ * hold are filed by their keys once, and stand while the entries do: the rows
+ * in view moving within the blocks held — a wheel's step — reads the same
+ * entries, and orders none of them again. A window's own rows, which its kind
  * hands the reader as bytes, are unpacked once, when they are first read. A
  * row's own bytes, which a gesture or an inspector begins from, are made when
  * one is asked for. The rows the last few reads its host drew name stand; the
@@ -1269,6 +1272,17 @@ function readByCells(kind: ScheduleCellKind, paged: ScheduleCellPaged | undefine
 const readersGone = new FinalizationRegistry<Set<string>>((made) => releaseCellRows(made));
 
 /**
+ * Test-only probe of a reader filing a series read's events by their keys —
+ * lets "the rows in view moving within the blocks held files none of them
+ * again" be asserted. `undefined` outside tests.
+ */
+let filedProbe: (() => void) | undefined;
+/** Install (or clear) the test probe of a reader filing a series read's events. Test use only. */
+export function setScheduleCellsFiledProbe(fn: (() => void) | undefined): void {
+    filedProbe = fn;
+}
+
+/**
  * The reader's state across reads: the cells it holds, each kind's codec and
  * the series keys it has asked its kinds for.
  */
@@ -1285,6 +1299,13 @@ class CellsReader {
     private readonly orders = new WeakMap<object, Map<string, KeyOrder>>();
     private readonly literals = new WeakMap<object, Map<string, string | undefined>>();
     private readonly unassigned = new WeakMap<object, { literal: string | undefined }>();
+    /**
+     * The events a series read's entries hold, each once by its key, as last filed — by the spans the kinds read through
+     * one source over the same slots share (#1771), the cases of one record, whose keys are one type's: a read made from
+     * the same entries, the next kind's or the next read's, files none of them again (east-workspace#1776). Never
+     * changed once filed.
+     */
+    private readonly filed = new WeakMap<SpansByIndex, { readonly from: readonly (readonly RecordSliceEntry[])[]; readonly rows: SortedMap<unknown, unknown> }>();
     /** Each kind's rows as it last made them, by its slot (#1771): a read again made from the same makes nothing. */
     private readonly generations = new Map<string, Generation>();
     /** Every handle it holds rows under, made and not yet let go (#1771). */
@@ -1455,8 +1476,9 @@ class CellsReader {
      * A kind's rows, held under a handle its seams read them by, and the rows by the event's key's text (#1771): made
      * again only when what they are made from moved — the cells' entries, the rows read by key and what the narrowing
      * answered of them — and made once for kinds made from the same: the cases of one record read over the same blocks.
+     * `rows` gives them by key when they are first read, which a read made from the same never asks.
      */
-    private hold(slot: string, codec: KindCodec, from: readonly unknown[], rows: ReadonlyMap<unknown, unknown>): Generation {
+    private hold(slot: string, codec: KindCodec, from: readonly unknown[], rows: () => Iterable<readonly [unknown, unknown]>): Generation {
         const same = (made: Generation | undefined): made is Generation =>
             made !== undefined && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
         const last = this.generations.get(slot);
@@ -1467,7 +1489,7 @@ class CellsReader {
             return other;
         }
         let entries: readonly CellEntry[] | undefined;
-        const rowsOf = (): readonly CellEntry[] => (entries ??= [...rows].map(([key, row]) => ({ key, row })));
+        const rowsOf = (): readonly CellEntry[] => (entries ??= [...rows()].map(([key, row]) => ({ key, row })));
         const handle = holdCellRows(rowsOf);
         this.made.add(handle);
         const made: Generation = { from, handle, held: new CellRows(codec, rowsOf) };
@@ -1928,17 +1950,27 @@ class CellsReader {
         }
         if (reads.some((one) => one === READING)) return READING;
         const read = { entries: (reads as SeriesEntries[]).flatMap((one) => one.entries), revision: revision.value };
-        // Each event once, by its key: one past a year is under every year it touches.
-        const rows = new SortedMap<unknown, unknown>([], codec.compareKey);
-        for (const entries of read.entries) {
-            for (const entry of entries) if (entry.row?.type === "some") rows.set(entry.key, entry.row.value);
+        // Each event once, by its key: one past a year is under every year it touches. Filed once for the entries read:
+        // the rows in view moving within the blocks held — a wheel's step — reads the same entries, and ordering every
+        // one of them by its key again, for each kind, was a third of what the step cost (east-workspace#1776). Never
+        // changed once filed: every read made from the same entries reads these, each kind of the record's cases.
+        const lastFiled = this.filed.get(spansHeld);
+        const fileAgain = lastFiled === undefined || lastFiled.from.length !== read.entries.length
+            || !lastFiled.from.every((entries, n) => Object.is(entries, read.entries[n]));
+        const cells = fileAgain ? new SortedMap<unknown, unknown>([], codec.compareKey) : lastFiled.rows;
+        if (fileAgain) {
+            filedProbe?.();
+            for (const entries of read.entries) {
+                for (const entry of entries) if (entry.row?.type === "some") cells.set(entry.key, entry.row.value);
+            }
+            this.filed.set(spansHeld, { from: read.entries, rows: cells });
         }
         // The events not read whose rows are wanted: those drafted, and those its host wants by key — a link's ends.
         const kindDrafts = drafts.get(kind.key);
         const extra: { id: string; key: unknown }[] = [];
         const wanted = (id: string) => {
             const key = codec.keyOf(id);
-            if (key !== undefined && !rows.has(key) && !extra.some((e) => stringEqual(e.id, id))) extra.push({ id, key });
+            if (key !== undefined && !cells.has(key) && !extra.some((e) => stringEqual(e.id, id))) extra.push({ id, key });
         };
         const narrowing = withoutTiled(where, tiled.from);
         if (narrowing.size > 0) for (const id of kindDrafts?.keys() ?? []) wanted(id);
@@ -1949,7 +1981,7 @@ class CellsReader {
         const asked: { key: unknown; row: unknown }[] = [];
         // What the narrowing chooses beside an index's leading fields: asked of every row read, where any index leaves some.
         const residual = [...plans.values()].some((plan) => residualOf(plan.series, where).length > 0);
-        if (residual) for (const [key, row] of rows) asked.push({ key, row });
+        if (residual) for (const [key, row] of cells) asked.push({ key, row });
         const storedRows: { id: string; key: unknown; row: unknown }[] = [];
         if (stored.type === "some") {
             stored.value.forEach((row, i) => { if (row.type === "some") storedRows.push({ ...extra[i]!, row: row.value }); });
@@ -1961,24 +1993,33 @@ class CellsReader {
             if (answer.type !== "some") return READING;
             within = answer.value;
         }
-        // What the narrowing does not hold draws nowhere, nor does a draft of it.
+        // What the narrowing does not hold draws nowhere, nor does a draft of it: the kind's rows are the cells' but
+        // those of them the narrowing leaves out, with the rows read by key it holds beside them.
         const dropped = new Set<string>();
+        const outside: unknown[] = [];
+        const beside: { key: unknown; row: unknown }[] = [];
         let i = 0;
         if (residual) {
-            for (const [key] of [...rows]) {
-                if (!within[i++]) {
-                    rows.delete(key);
-                    dropped.add(codec.idOf(key));
-                }
+            for (const [key] of cells) {
+                if (within[i++]) continue;
+                outside.push(key);
+                dropped.add(codec.idOf(key));
             }
         }
         for (const { id, key, row } of storedRows) {
             const holds = narrowing.size === 0 || within[i++] === true;
-            if (holds) rows.set(key, row);
+            if (holds) beside.push({ key, row });
             else dropped.add(id);
         }
-        // Drafts of events whose rows are still in flight show as drafted until they land.
-        const made = this.hold(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], rows);
+        // Drafts of events whose rows are still in flight show as drafted until they land. The cells' events are copied
+        // only where the kind's rows differ from them, and only once what the rows are made from has moved.
+        const made = this.hold(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], () => {
+            if (outside.length === 0 && beside.length === 0) return cells;
+            const rows = new SortedMap<unknown, unknown>(cells, codec.compareKey);
+            for (const key of outside) rows.delete(key);
+            for (const { key, row } of beside) rows.set(key, row);
+            return rows;
+        });
         return { mode: "cells", handle: made.handle, held: made.held, dropped, revision: read.revision, paged: true, unread: unread.size === 0 ? NO_RESOURCES : unread };
     }
 

@@ -53,7 +53,7 @@ import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { SCHEDULE_CELL_BLOCK } from "../../shared/schedule/cells.js";
+import { SCHEDULE_CELL_BLOCK, setScheduleCellsFiledProbe } from "../../shared/schedule/cells.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { emulateWindowScroll, scrollStopped } from "../window-scroll.test-utils.js";
 import { act, planHarness, settle } from "./harness.test-utils.js";
@@ -403,6 +403,24 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(searchesOf(from)).toBeGreaterThan(0);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // A wheel's step on from there, a press down, inside the blocks read: the rows in view move, so the jobs are
+            // read again — from the cells held, asking e3 nothing, and ordering none of the jobs by their keys again
+            // (east-workspace#1776): each step of a wheel did, every job of the blocks held.
+            let filed = 0;
+            setScheduleCellsFiledProbe(() => { filed += 1; });
+            try {
+                from = h.requests().length;
+                const rows = mounted(container);
+                act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + 6 * pressPx }); });
+                await waitFor(() => expect(mounted(container)).not.toEqual(rows), { timeout: 600_000 });
+                await scrollStopped();
+                await settle();
+                expect(findsOf(SERIES, from)).toEqual([]);
+                expect(filed).toBe(0);
+            } finally {
+                setScheduleCellsFiledProbe(undefined);
+            }
 
             // The same hall's own row at the top of the view: no press of its own, so the presses beneath it are the ends.
             from = h.requests().length;

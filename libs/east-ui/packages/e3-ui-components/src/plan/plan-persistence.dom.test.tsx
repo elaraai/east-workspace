@@ -25,7 +25,7 @@ import { system } from "@elaraai/east-ui-components";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { act, e3Harness } from "../e3-web-mount.test-utils.js";
-import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import { EastChakraPlan, setPlanRootRenderProbe, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type RailChrome } from "./rail.test-utils.js";
@@ -66,6 +66,7 @@ beforeEach(() => {
 });
 // The harness unmounts what a test rendered and clears the viewer's storage after it.
 afterEach(() => {
+    setPlanRootRenderProbe(undefined);
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
     Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
     Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
@@ -219,6 +220,23 @@ describe("Plan UI state survives a remount (#813)", () => {
         await scrollAndSettle(c, 0);
         expect(c.querySelector(rowSel("a1"))).toBeTruthy();
         expect(c.querySelector(rowSel("b1"))).toBeNull();
+    });
+
+    test("the place a scroll rests at is kept without the canvas drawn again for it: what it keeps it reads as it mounts, and writes after (east-workspace#1776)", async () => {
+        const { container } = renderPlan(planRoot(rows()), "plan-1776-rest");
+        let roots = 0;
+        setPlanRootRenderProbe(() => { roots += 1; });
+        // A wheel step and its rest, then another: each rest's place is kept.
+        await scrollAndSettle(container, 20 * 32);
+        const first = storedAt("plan-1776-rest").anchor;
+        expect(first).not.toBeNull();
+        await scrollAndSettle(container, 40 * 32);
+        const second = storedAt("plan-1776-rest").anchor;
+        expect(second).not.toBeNull();
+        expect(second!.key).not.toBe(first!.key);
+        // Kept as state the canvas read, each rest drew the canvas again — its header, its toolbar, its footer, and
+        // every row's renderer — a wheel step after it had come to rest.
+        expect(roots).toBe(0);
     });
 
     test("a persisted key that no longer exists is ignored; an anchor whose row is gone lands on its clamped index", async () => {

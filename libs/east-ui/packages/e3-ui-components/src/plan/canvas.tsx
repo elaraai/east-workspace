@@ -89,7 +89,7 @@ import {
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, kept as keptState, keptJson, recordSliceNoun,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
@@ -395,11 +395,15 @@ export function usePlanCanvas({
     // was shown at (#1438): the slice holds the zoom, but a page's store may
     // not outlive the page. Never the selection — a transient act, and
     // restoring it would re-fire `onSelect`. The controller restores from it
-    // once and writes through the latest setter.
-    const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED, persistedOf);
-    const [restored] = useState(() => persistedOf(stored));
-    const persistTo = useRef(setStored);
-    useLayoutEffect(() => { persistTo.current = setStored; });
+    // once and writes through the latest handle. It is read as the canvas
+    // mounts and never drawn from after: where the scroll rests is written each
+    // time a scroll settles, and a canvas that held it as state drew itself —
+    // its header, its toolbar and its footer — again at every wheel step's rest
+    // (east-workspace#1776).
+    const persistedAt = useMemo(() => keptState(storageKey, keptJson<PlanPersisted>(persistedOf)), [storageKey]);
+    const [restored] = useState(() => persistedAt.read() ?? NOT_PERSISTED);
+    const persistTo = useRef(persistedAt.write);
+    useLayoutEffect(() => { persistTo.current = persistedAt.write; });
     // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
     // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
     const [windowHold] = useState(() => {
@@ -2171,6 +2175,29 @@ export function usePlanCanvas({
     const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
     const rowsNoun = rowsSource !== undefined ? recordSliceNoun(rowsSource, nouns, words.locale) : words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const bound = declaredBound ? { height, maxHeight } : undefined;
+    // Each body item's row. The same function while the body, the facts its rows share and what a run says hold: the
+    // frame draws a row again only as its index or this function moves, so a canvas drawn again around rows that hold —
+    // a read's line moving, the gutter's width kept — draws none of them (east-workspace#1776).
+    const renderRow = useCallback((i: number): ReactNode => {
+        const item = body.items[i];
+        switch (item?.kind) {
+            case undefined: return null;
+            // A links focus's band (#1680's review): a role's, or the one its other rows fold into.
+            case "focus":
+                return <PlanFocusBandRow band={item.band} h={body.heights[i] ?? 0} styles={styles}
+                    gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
+            // A rule it opens for its family's lanes.
+            case "lanes":
+                return <PlanLaneBandRow band={item.lanes} h={body.heights[i] ?? 0} styles={styles} gridTemplate={gridTemplate} />;
+            // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
+            case "band":
+            case "failed":
+                return <PlanRunRow band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                    styles={styles} gridTemplate={gridTemplate} pitch={runPitch} noun={rowsNoun} onRetry={controller.retry} />;
+            case "row":
+                return renderPlanRow(item.row, rowCtx);
+        }
+    }, [body.items, body.heights, styles, gridTemplate, controller, runPitch, rowsNoun, rowCtx]);
 
     // A source that cannot be READ no longer replaces the canvas (#811): its
     // windows fail one by one, each as its own band with the reason and a
@@ -2540,26 +2567,7 @@ export function usePlanCanvas({
                     // row (#813).
                     onAnchorChange={onAnchorChange}
                     restoreAnchor={anchor.restore}
-                    renderRow={(i) => {
-                        const item = body.items[i];
-                        switch (item?.kind) {
-                            case undefined: return null;
-                            // A links focus's band (#1680's review): a role's, or the one its other rows fold into.
-                            case "focus":
-                                return <PlanFocusBandRow band={item.band} h={body.heights[i] ?? 0} styles={styles}
-                                    gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
-                            // A rule it opens for its family's lanes.
-                            case "lanes":
-                                return <PlanLaneBandRow band={item.lanes} h={body.heights[i] ?? 0} styles={styles} gridTemplate={gridTemplate} />;
-                            // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
-                            case "band":
-                            case "failed":
-                                return <PlanRunRow band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
-                                    styles={styles} gridTemplate={gridTemplate} pitch={runPitch} noun={rowsNoun} onRetry={controller.retry} />;
-                            case "row":
-                                return renderPlanRow(item.row, rowCtx);
-                        }
-                    }}
+                    renderRow={renderRow}
                     headerZIndex={5}
                     rootCss={styles.root}
                 />
