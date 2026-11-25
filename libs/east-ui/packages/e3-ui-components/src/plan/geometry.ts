@@ -136,6 +136,9 @@ export interface PlanGeometry {
     lockWidth: number;
     /** One glyph of a bar's label — its mono face at the bar's size draws every glyph this wide (`1ch`). */
     barGlyphWidth: number;
+    /** The right axis's rail (#1750): the column after every row's plot where the Plan declares one, which a chart row's
+     *  right axis reads its numbers in. */
+    railWidth: number;
 }
 
 const DEFAULT: PlanGeometry = {
@@ -160,6 +163,8 @@ const DEFAULT: PlanGeometry = {
     markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
     // A bar's label: Chivo Mono at the bar's 11px draws every glyph 7 across (measured in the showcase, #1680's review).
     barPadWidth: 7, barPadLockedWidth: 4, barGapWidth: 4, lockWidth: 8, barGlyphWidth: 7,
+    // The rail, ruled 25 Nov 2026: room for a right axis's three or four figures beside the plot.
+    railWidth: 40,
 };
 
 /** The two densities' tables. Dense tightens the shared row — the heat row

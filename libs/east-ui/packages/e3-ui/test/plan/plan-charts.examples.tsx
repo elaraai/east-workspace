@@ -12,7 +12,8 @@
  *   axis and on two: combos, stacks of columns and of areas, columns side by
  *   side, a sparse line, every stroke and curve, a row with more series than
  *   room, and sparks at a row's own height. Each row's legend names its series
- *   in their colours with their units, and hovering a week reads them all.
+ *   in their colours with their units, and hovering a week reads them all. The
+ *   right axes read their numbers in a rail after every row's plot.
  *
  * @packageDocumentation
  */
@@ -280,7 +281,10 @@ export const planChartMeasures = e3.input("plan_chart_measures", DictType(String
  *
  * Each row taller than its own lines names its series down its gutter in their
  * colours, with their units (#1750), and hovering a week reads every series
- * there; the lines after now are planned, drawn dashed.
+ * there; the lines after now are planned, drawn dashed. The Plan declares the
+ * right axis's rail (`rightAxis`): every row has a column after its plot, where
+ * a two-axis row reads its right numbers, so the plot is one width on every row
+ * and the weeks run straight down the page.
  */
 export const planCharts = example({
     keywords: [
@@ -289,9 +293,9 @@ export const planCharts = example({
         "label", "unit", "curve", "monotoneX", "natural", "stepAfter", "step", "width", "dash", "dots", "opacity", "fillOpacity",
         "size", "stack", "stacked", "side by side", "order", "breach", "grid", "numTicks", "tickValues", "domain", "left", "right",
         "two axes", "dual axis", "target zone", "sparse", "gap", "scatter", "spark", "expandable", "expandedHeight", "Plan.fixed",
-        "section", "Plan.series.section", "now", "planned", "#1753", "#1750",
+        "section", "Plan.series.section", "now", "planned", "rightAxis", "right axis", "rail", "#1753", "#1750",
     ],
-    description: "A print works' chart rows over ten weeks, each styled its own way: columns under a smooth forecast in its range and a dashed target; halls' columns stacked under a dotted plan; jobs planned and done side by side, a breach in warn; stacked areas; an area on the left axis beside a stepped line on the right, their ticks shared; columns beside an on-time line with dots in its target zone; a sparse line whose lone readings draw as dots, on no gridlines; two scatters under a limit; every stroke and curve; six presses in a short row, its legend's last line saying how many more; sparks at a row's own height that open taller — each row's legend naming its series in their colours with their units, and hovering a week reading every series there",
+    description: "A print works' chart rows over ten weeks, each styled its own way: columns under a smooth forecast in its range and a dashed target; halls' columns stacked under a dotted plan; jobs planned and done side by side, a breach in warn; stacked areas; an area on the left axis beside a stepped line on the right, their ticks shared; columns beside an on-time line with dots in its target zone; a sparse line whose lone readings draw as dots, on no gridlines; two scatters under a limit; every stroke and curve; six presses in a short row, its legend's last line saying how many more; sparks at a row's own height that open taller — each row's legend naming its series in their colours with their units, and hovering a week reading every series there; the right axes read their numbers in a rail after every row's plot (rightAxis), so every plot is one width",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The rows' readings, read whole.
@@ -302,6 +306,8 @@ export const planCharts = example({
                     resolution: "week", resolutions: ["week", "month"], now: new Date("2026-07-13T00:00:00Z"),
                 })}
                 data={measures}
+                // The right axes' numbers in a rail after every row's plot: every plot one width, down the page.
+                rightAxis
                 series={[
                     Plan.series.section(ChartMeasure, { key: "one-axis", title: "One axis" }, [
                         // A combo: the sheets printed as columns, the forecast a smooth line over its range — one series

@@ -95,7 +95,7 @@ import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
     type PlanResolvers,
 } from "./context.js";
-import { PLAN_GUTTER_VAR, planGeometry, planGeometryStyle } from "./geometry.js";
+import { PLAN_GUTTER_VAR, planGeometry, planGeometryStyle, planGeometryVar } from "./geometry.js";
 import { PlanRunRow } from "./rows/RunRow.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
@@ -264,6 +264,8 @@ const GUTTER_MIN = 168;
 const GUTTER_MAX = 360;
 /** The rows' columns: the gutter at the width its rule's drag writes (`--plan-gutter-w`), then the plot. */
 const GUTTER_TEMPLATE = `var(${PLAN_GUTTER_VAR}) 1fr`;
+/** The rows' columns where the Plan declares the right axis's rail (#1750): the gutter, the plot, then the rail. */
+const RAIL_TEMPLATE = `var(${PLAN_GUTTER_VAR}) 1fr var(${planGeometryVar("railWidth")})`;
 
 /**
  * The gutter's width the viewer dragged its rule to, as storage holds it: a finite number of pixels, else none.
@@ -1046,7 +1048,11 @@ export function usePlanCanvas({
     const gutterRange = useMemo(() => gutterBounds(declaredGutter, GUTTER_MIN, GUTTER_MAX), [declaredGutter]);
     const { state: draggedGutter, setState: keepGutter } = usePersistedState<number | null>(`${storageKey}.gutter`, null, keptGutter);
     const gutterW = clampGutter(draggedGutter ?? declaredGutter, gutterRange);
-    const gridTemplate = GUTTER_TEMPLATE;
+    // The right axis's rail (#1750), where the Plan declares one: a column after every row's plot, which every band
+    // takes — a chart row with a right axis reads its numbers in it, the ruler and every other band leave it blank — so
+    // the plot is the rows' width less the gutter and the rail. The narrow layout's cards have none.
+    const railPx = data.rightAxis ? geometry.railWidth : 0;
+    const gridTemplate = railPx > 0 ? RAIL_TEMPLATE : GUTTER_TEMPLATE;
     // A drag's width, written where the rows read it, with no render.
     const applyGutter = useCallback((width: number) => { focusBodyRef.current?.style.setProperty(PLAN_GUTTER_VAR, `${width}px`); }, []);
     // While the rule moves the links stand where it was: they go until it is let go (the `ribbons` slot).
@@ -1194,12 +1200,12 @@ export function usePlanCanvas({
     // its links end where it is (#1680's review). The driver's, read as the paging moves — which renews the body.
     const placed = useCallback((key: RowKey) => paged && controller.placeOf(key) !== undefined, [paged, controller]);
     // A links focus opens the rules its family's lanes and one-row captions take into bands of their tracks (#1680's
-    // review), planned from where the elements draw across the plot — the rows' width less the gutter's, as the links
-    // layer measures it — at the weights its ribbons draw at. A click opens the focus, and its effects run before the
-    // frame paints, so the first frame has the width. The reading is kept as the focus goes, read only under one: a
-    // focus that goes commits once (#815).
+    // review), planned from where the elements draw across the plot — the rows' width less the gutter's and the rail's,
+    // as the links layer measures it — at the weights its ribbons draw at. A click opens the focus, and its effects run
+    // before the frame paints, so the first frame has the width. The reading is kept as the focus goes, read only under
+    // one: a focus that goes commits once (#815).
     const rowsWidth = useElementWidth(frameFills ? scrollElRef : focusBodyRef, view.focus?.kind === "links", true);
-    const plotPx = rowsWidth !== undefined ? rowsWidth - gutterW : 0;
+    const plotPx = rowsWidth !== undefined ? rowsWidth - gutterW - railPx : 0;
     const laneFamily = focusCtx?.kind === "links" ? focusCtx.links?.family : undefined;
     const lanes = useMemo(() => {
         if (focusCtx === undefined || laneFamily === undefined || focusVisibleKeys === undefined || scale === undefined || plotPx <= 0) return undefined;
@@ -1546,11 +1552,12 @@ export function usePlanCanvas({
     }, [inFlight, index]);
     const unreadOrInFlight = useMemo(() => (rowsInFlight.size === 0 ? unread
         : (row: PlanRowValue) => rowsInFlight.has(row.key) || unread?.(row) === true), [unread, rowsInFlight]);
+    const rail = railPx > 0;
     const rowCtx = useMemo<PlanRowContext>(() => ({
-        styles, gridTemplate, dense, storageKey, index, derived,
+        styles, gridTemplate, rail, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkedKeys,
         canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread: unreadOrInFlight,
-    }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
+    }), [styles, gridTemplate, rail, dense, storageKey, index, derived, controller, chartsExpanded,
         focusCtx, heightCtx, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
         groupEnds, unreadOrInFlight]);
     // The rows each role band of a links focus gathers, which its caption counts (#1680's review).
@@ -2508,12 +2515,12 @@ export function usePlanCanvas({
                             <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
                                 <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                     body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
-                                    gutterPx={gutterW} lanes={lanes} standBack={standBack}
+                                    gutterPx={gutterW} railPx={railPx} lanes={lanes} standBack={standBack}
                                     frame={frameFills ? frameRefs : undefined} unlink={unlink} />
                             </PlanPartBoundary>
                         ) : null}
                         {/* Connect's draft line (#1541, U10), while its tool is held: with or without a links focus. */}
-                        {connecting !== undefined && <ConnectOverlay styles={styles} store={editStore} gutterPx={gutterW} />}
+                        {connecting !== undefined && <ConnectOverlay styles={styles} store={editStore} gutterPx={gutterW} railPx={railPx} />}
                     </>}
                     count={body.items.length}
                     // Heights move at a constant count — a chart toggle, a

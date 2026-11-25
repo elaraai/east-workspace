@@ -97,6 +97,8 @@ export interface LinksOverlayProps {
     element: (rowKey: string, runKey: string) => LinkedElement | undefined;
     /** The grid's fixed track before the plot: the gutter (px). */
     gutterPx: number;
+    /** The grid's fixed track after the plot: the right axis's rail (px, #1750); 0 where the Plan declares none. */
+    railPx: number;
     /** The focus's lane plan (`planFocusLanes`), whose rules the body opened into bands (#1680's review); left out, none. */
     lanes?: RibbonLanes | undefined;
     /** The boxes the links stand back from: each bar's label, with its bar's padding (`labelBoxes`, #1680's review). */
@@ -127,7 +129,7 @@ const selectElements = (s: { store: { ui: { elements: readonly string[] } } }): 
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, lanes, standBack, frame, unlink,
+    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, railPx, lanes, standBack, frame, unlink,
 }: LinksOverlayProps) {
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
@@ -144,9 +146,9 @@ export function LinksOverlay({
     // One link selected alone carries its ×.
     const lone = selected.length === 1 ? selected[0] : undefined;
     const layerRef = useRef<HTMLDivElement | null>(null);
-    // The plot's px are the layer's width less the gutter's.
+    // The plot's px are the layer's width less the gutter's and the rail's.
     const width = useElementWidth(layerRef, true);
-    const plotWidth = width !== undefined ? width - gutterPx : 0;
+    const plotWidth = width !== undefined ? width - gutterPx - railPx : 0;
     // ── The view (a bounded frame only) — what clamps an endpoint ──
     // The rows sit under the sticky chrome, so the view in the rows' own
     // coordinates starts at the scroll offset and is the viewport less that

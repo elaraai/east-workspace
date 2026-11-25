@@ -47,6 +47,9 @@ export interface KindPlotProps {
     plotHeight: number;
     /** Chart rows: render at expanded density (breach rectangles, ref labels). */
     chartExpanded: boolean;
+    /** Chart rows: the canvas reads a right axis's numbers in its rail (#1750), so the plot draws none. A narrow card
+     *  has no rail. */
+    rail?: boolean | undefined;
 }
 
 /**
@@ -96,7 +99,7 @@ export function KindPlot(props: KindPlotProps) {
 }
 
 /** The kind switch: one row kind's own plot content. */
-function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
+function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded, rail }: KindPlotProps) {
     const kind = v.row.kind;
     const rowKey = v.row.key;
     const rowId = v.row.id;
@@ -121,7 +124,7 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             // where a bucket holds several of their points.
             return (
                 <ChartRowPlot kind={derived.charts.get(rowKey) ?? kind.value} styles={styles} height={plotHeight}
-                    expanded={chartExpanded} rowKey={rowKey} ctx={ctx} />
+                    expanded={chartExpanded} rowKey={rowKey} ctx={ctx} railed={rail === true} />
             );
         case "heat":
             // A declared-aggregate parent draws its derived cells, and any row

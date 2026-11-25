@@ -7,14 +7,16 @@
  * A Plan's chart rows, each styled its own way (#1753): the readings — ten
  * weeks a row, each week holding every series its chart reads, a gap a `NaN` —
  * and the Plan over them, which reads them whole and builds. What it draws,
- * measured in the page, is the showcase's (`plan-charts`).
+ * measured in the page, is the showcase's (`plan-charts`). And the right axis's
+ * rail (#1750): the Plan's own switch, which its root carries, off unless it is
+ * turned on.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DateTimeType, decodeBeast2For, encodeBeast2For, printFor, type EastIR } from "@elaraai/east";
+import { DateTimeType, DictType, East, StringType, StructType, decodeBeast2For, encodeBeast2For, printFor, type EastIR } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { deriveManifest } from "@elaraai/e3-ui/internal";
+import { Plan, deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-charts.examples.js";
 
 const printWeek = printFor(DateTimeType);
@@ -67,5 +69,27 @@ describe("a Plan's chart rows, each styled its own way (#1753)", () => {
         assert.deepEqual(manifest.pages, []);
         const component = (ex.planCharts.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+    });
+
+    test("the right axis's rail is the Plan's own switch (#1750): its root carries it on where the Plan turns it on, and off where the Plan leaves it out", () => {
+        const Row = StructType({ id: StringType });
+        const railed = East.compile(East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(new Map(), DictType(StringType, Row));
+            return Plan.Root({
+                axis: Plan.axis({ window: { min: new Date("2026-06-01T00:00:00Z"), max: new Date("2026-08-10T00:00:00Z") }, resolution: "week" }),
+                data,
+                series: [],
+                rightAxis: true,
+            });
+        }), [])();
+        const bare = East.compile(East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(new Map(), DictType(StringType, Row));
+            return Plan.Root({
+                axis: Plan.axis({ window: { min: new Date("2026-06-01T00:00:00Z"), max: new Date("2026-08-10T00:00:00Z") }, resolution: "week" }),
+                data,
+                series: [],
+            });
+        }), [])();
+        assert.deepEqual([railed.rightAxis, bare.rightAxis], [true, false]);
     });
 });

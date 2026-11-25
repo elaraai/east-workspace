@@ -14,6 +14,7 @@
 
 import {
     ArrayType,
+    BooleanType,
     EastTypeType,
     FunctionType,
     IntegerType,
@@ -123,6 +124,9 @@ export const PlanRootType = StructType({
     // The interaction state a host holds — a bound `State.bind` handle (#824).
     ui: OptionType(PlanUiBindType),
     style: OptionType(PlanStyleType),
+    // The right axis's rail (#1750): a column after every row's plot, where a chart row that declares a right axis reads
+    // its numbers — so the plot is one width on every row. Off, a right axis reads them inside its plot's right edge.
+    rightAxis: BooleanType,
 });
 /** Type alias for {@link PlanRootType}. */
 export type PlanRootType = typeof PlanRootType;

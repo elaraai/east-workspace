@@ -12,9 +12,12 @@
  *   draws on both axes, its axis; its stroke in the ink its marks draw in, from
  *   the tokens, in both themes; a row with no room for every series ending on
  *   how many more there are; a spark listing none;
- * - its axes — the left's numbers in the gutter, the right's inside the plot's
- *   right edge, each right number at a left number's height, on one gridline;
- *   a row with its grid off reading its scale by its numbers alone;
+ * - its axes — the left's numbers in the gutter, the right's in the rail after
+ *   every row's plot, which the page's Plan declares, each right number at a
+ *   left number's height, on one gridline; every plot ending at one edge, the
+ *   date ruler's track with them; a phone card, which has no rail, reading its
+ *   right numbers inside its plot; a row with its grid off reading its scale by
+ *   its numbers alone;
  * - its marks — each stroke as its layer gives it, a dot at every point where
  *   a layer asks for them, and a reading with none either side drawn as one;
  * - its readout — the row under the pointer reading the week's name and a line
@@ -39,7 +42,7 @@ interface ChartRead {
     readonly legend: readonly (readonly string[])[];
     /** Each line's stroke, as its ink computes. */
     readonly strokes: readonly string[];
-    /** The left axis's numbers in the gutter, and the right's in the plot: what each reads, and its middle down the row. */
+    /** The left axis's numbers in the gutter, and the right's after the plot: what each reads, and its middle down the row. */
     readonly left: readonly (readonly [string, number])[];
     readonly right: readonly (readonly [string, number])[];
     readonly gridlines: number;
@@ -159,7 +162,7 @@ test.describe("Plan chart page (#1753) @desktop", () => {
         });
     }
 
-    test("planCharts: on two axes, the left reads its numbers in the gutter and the right reads its own inside the plot's right edge, each at a left number's height — one gridline for both; a row with its grid off reads its scale by its numbers alone, and a spark by its gridlines alone", async ({ page }) => {
+    test("planCharts: on two axes, the left reads its numbers in the gutter and the right reads its own after the plot, each at a left number's height — one gridline for both; a row with its grid off reads its scale by its numbers alone, and a spark by its gridlines alone", async ({ page }) => {
         const entry = await openExample(page, "planCharts", PLAN_CHART_EXAMPLES);
         const shared = (read: ChartRead) => read.left.map(([left, y], i) => [left, read.right[i]?.[0], Math.abs(y - (read.right[i]?.[1] ?? Number.NaN)) <= 0.5]);
         const climate = await readChart(chartRow(entry, "climate", "climate"));
@@ -174,6 +177,38 @@ test.describe("Plan chart page (#1753) @desktop", () => {
         // A spark: its gridlines, no number.
         const spark = await readChart(chartRow(entry, "spark-line", "on-time"));
         expect([spark.gridlines > 0, spark.left, spark.right]).toEqual([true, [], []]);
+    });
+
+    test("planCharts: its Plan declares the right axis's rail — every row's plot ends at one edge, the date ruler's track with them, and a right axis reads its numbers in the rail after it, inside the canvas; on a phone, which has no rail, a card reads them inside its plot (#1750, ruled 25 Nov 2026)", async ({ page }) => {
+        const entry = await openExample(page, "planCharts", PLAN_CHART_EXAMPLES);
+        const canvas = await entry.evaluate((root) => {
+            const box = (el: Element) => el.getBoundingClientRect();
+            return {
+                plots: [...root.querySelectorAll("[data-plan-row] [data-plan-plot]")].map((p) => box(p).right),
+                track: box(root.querySelector("[data-slot='ruler'] > :nth-child(2)")!).right,
+                rails: [...root.querySelectorAll("[data-plan-rail]")].map((r) => [box(r).left, box(r).width]),
+                numbers: [...root.querySelectorAll("[data-plan-rail] [data-plan-tick-right]")].map((t) => [box(t).left, box(t).right]),
+                rows: box(root.querySelector("[data-plan-row]")!).right,
+            };
+        });
+        const edge = canvas.plots[0]!;
+        expect(canvas.plots.every((right) => same(right, edge)), `every plot ends at ${edge}: ${canvas.plots.join(", ")}`).toBe(true);
+        expect(same(canvas.track, edge), "the ruler's track ends where the plots do").toBe(true);
+        // The rail's cell on the two-axis rows, after the plot and the canvas's width for it; its numbers inside it.
+        expect(canvas.rails.length).toBeGreaterThan(0);
+        expect(canvas.rails.every(([left, width]) => same(left!, edge) && same(width!, 40)), JSON.stringify(canvas.rails)).toBe(true);
+        expect(canvas.numbers.length).toBeGreaterThan(0);
+        expect(canvas.numbers.every(([left, right]) => left! >= edge - 0.5 && right! <= canvas.rows + 0.5), JSON.stringify(canvas.numbers)).toBe(true);
+        // A phone's width: cards, its chart rows under Measures.
+        await sizeBox(page, planBox(entry), 360);
+        await entry.getByRole("tab", { name: /Measures/ }).click();
+        await settled(page);
+        const card = await entry.locator(drawnSel("climate", "climate")).evaluate((el) => {
+            const plot = el.querySelector("[data-plan-chart]")!.getBoundingClientRect();
+            const numbers = [...el.querySelectorAll("[data-plan-tick-right]")].map((t) => t.getBoundingClientRect());
+            return { numbers: numbers.length, inside: numbers.every((b) => b.left >= plot.left - 0.5 && b.right <= plot.right + 0.5) };
+        });
+        expect([card, await entry.locator("[data-plan-rail]").count()]).toEqual([{ numbers: 5, inside: true }, 0]);
     });
 
     test("planCharts: each stroke as its layer gives it — its width, its dash and its strength — and a dot at every point where a layer asks for them; a reading with none either side drawn as its dot", async ({ page }) => {

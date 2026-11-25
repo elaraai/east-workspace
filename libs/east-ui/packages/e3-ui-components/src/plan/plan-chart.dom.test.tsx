@@ -21,7 +21,9 @@
  * line's own dash and colour, and target zones; and a row's switches — its grid
  * and its tooltip — and how many numbers an axis asks for. And its legend
  * (#1750): a line a named series down its gutter, in place of its meta and its
- * swatches, as many as the row has room for.
+ * swatches, as many as the row has room for. And the right axis's rail (#1750):
+ * where the Plan declares it, a track after every row's plot, which a right
+ * axis reads its numbers in.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -813,5 +815,58 @@ describe("the chart row's legend (#1750)", () => {
         // A 56px row's 55px plot, less its two lines' 41: no room for a line of 24.
         const short = container.querySelector(rowSel("short"))!;
         expect([legendOf(short), meta(short)]).toEqual([null, "k sheets"]);
+    });
+});
+
+describe("the right axis's rail (#1750, ruled 25 Nov 2026)", () => {
+    const template = (el: Element | null) => (el as HTMLElement).style.gridTemplateColumns;
+
+    test("a Plan that declares it gives every row and the ruler a track after the plot: a chart row with a right axis reads its numbers there, each at its left number's line, none inside its plot; any other row leaves it empty, and the ruler's cell is blank", () => {
+        const { container } = renderPlan({
+            ...planRoot([
+                planRow("both", chartKind([
+                    variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("Load"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("line", { points: [pt(0.5, 20)], axis: right, breach: none, fold: MEAN,
+                        style: { label: some("Temp"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                ], { left: valueAxis({ min: 0, max: 16, ticks: [0, 4, 8, 12, 16] }), right: valueAxis({ min: 0, max: 40 }) })),
+                planRow("one", chartKind([
+                    variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("Load"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                ], { left: valueAxis({ min: 0, max: 16, ticks: [0, 8, 16] }) })),
+                planRow("span", variant("span", { runs: [], decisions: [], ports: [], rollup: none })),
+            ], 1),
+            rightAxis: true,
+        } as unknown as PlanRootValue, "chart-1750-rail");
+        // One template for every row and the ruler: the gutter, the plot, then the rail.
+        const railed = "var(--plan-gutter-w) 1fr var(--plan-rail-w)";
+        expect(["both", "one", "span"].map((key) => template(container.querySelector(rowSel(key))))).toEqual([railed, railed, railed]);
+        const ruler = container.querySelector("[data-slot='ruler']")!;
+        // The ruler's caption and its track, and nothing in the rail's cell.
+        expect([template(ruler), ruler.children.length]).toEqual([railed, 2]);
+        const both = container.querySelector(rowSel("both"))!;
+        const rail = both.querySelector("[data-plan-rail]")!;
+        // The row's last cell, after its plot: the right axis's numbers at the left's ticks, each on its left number's line.
+        expect([...both.children].indexOf(rail)).toBe(2);
+        const rights = [...rail.querySelectorAll<HTMLElement>("[data-plan-tick-right]")];
+        expect(rights.map((t) => t.textContent)).toEqual(["0", "10", "20", "30", "40"]);
+        expect(rights.map((t) => t.style.top)).toEqual([...both.querySelectorAll<HTMLElement>("[data-plan-tickpx]")].map((t) => t.style.top));
+        expect(both.querySelector("[data-plan-plot] [data-plan-tick-right]")).toBeNull();
+        // A chart on one axis reads nothing there; a row of another kind has nothing there.
+        expect([container.querySelector(`${rowSel("one")} [data-plan-tick-right]`), container.querySelector(`${rowSel("span")} [data-plan-rail]`)])
+            .toEqual([null, null]);
+    });
+
+    test("a Plan that declares none keeps the gutter and the plot alone, and a right axis reads its numbers inside its plot's right edge", () => {
+        const { container } = renderPlan(planRoot([planRow("both", chartKind([
+            variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.5, 20)], axis: right, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+        ], { left: valueAxis({ min: 0, max: 16, ticks: [0, 4, 8, 12, 16] }), right: valueAxis({ min: 0, max: 40 }) }))], 1), "chart-1750-no-rail");
+        const both = container.querySelector(rowSel("both"))!;
+        expect([template(both), template(container.querySelector("[data-slot='ruler']")), container.querySelector("[data-plan-rail]")])
+            .toEqual(["var(--plan-gutter-w) 1fr", "var(--plan-gutter-w) 1fr", null]);
+        expect(both.querySelectorAll("[data-plan-plot] [data-plan-tick-right]")).toHaveLength(5);
     });
 });

@@ -12,8 +12,9 @@
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
  * through when an arrow key moves between them (`CSS.escape`, #819). A chart
- * card taller than a row's own lines names its series under its title, and a
- * band's caption on it stands past the numbers inside its plot (#1750).
+ * card taller than a row's own lines names its series under its title, a
+ * band's caption on it stands past the numbers inside its plot, and a card has
+ * no rail: its right numbers stay inside its plot (#1750).
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
@@ -578,10 +579,33 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // Its numbers inside the plot: 80, 90 and 100, the widest three glyphs.
         expect([...card.querySelectorAll("[data-plan-tickpx]")].map((tick) => tick.textContent)).toEqual(["80", "90", "100"]);
         const plot = card.querySelector<HTMLElement>("[data-plan-chart]")!;
-        expect([plot.hasAttribute("data-left-ticks"), plot.style.getPropertyValue("--plan-left-glyphs")]).toEqual([true, "3"]);
+        expect([plot.hasAttribute("data-left-ticks"), plot.style.getPropertyValue("--left-glyphs")]).toEqual([true, "3"]);
         // The zone runs across the plot, so its caption's start is the plot's left edge.
         const caption = screen.getByText("ON TARGET");
         expect([caption.hasAttribute("data-plan-band-caption"), caption.style.getPropertyValue("--caption-at")]).toEqual([true, "0%"]);
+    });
+
+    test("a card has no rail: on a Plan that declares the right axis's rail, a two-axis chart card reads its right numbers inside its plot, as it does without one (#1750, ruled 25 Nov 2026)", () => {
+        const { container } = renderPlan({
+            ...planRoot([
+                planRow("climate", variant("chart", {
+                    layers: [
+                        variant("line", { points: [{ t: t(W27), y: 50 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                            style: { label: some("Load"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                        variant("line", { points: [{ t: t(W27), y: 20 }], axis: variant("right", null), breach: none, fold: variant("mean", null),
+                            style: { label: some("Temp"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    ],
+                    left: some({ domain: some(variant("number", { min: 0, max: 100 })), tickValues: some(variant("number", [0, 50, 100])), numTicks: none, format: none, label: none }),
+                    right: some({ domain: some(variant("number", { min: 0, max: 40 })), tickValues: none, numTicks: none, format: none, label: none }),
+                    height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+                })),
+            ]),
+            rightAxis: true,
+        } as unknown as PlanRootValue, "plan-1750-card-rail");
+        const card = container.querySelector(rowSel("climate", "data-plan-card"))!;
+        // Its right numbers at the left's ticks, inside its plot — and nothing of a rail anywhere on the list.
+        expect([...card.querySelectorAll("[data-plan-cardbody] [data-plan-tick-right]")].map((tick) => tick.textContent)).toEqual(["0", "20", "40"]);
+        expect(container.querySelector("[data-plan-rail]")).toBeNull();
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

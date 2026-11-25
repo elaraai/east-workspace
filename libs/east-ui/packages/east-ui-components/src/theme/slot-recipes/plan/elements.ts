@@ -30,7 +30,7 @@ import { GUTTER_SLOT_W, PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 /** The slots this part styles. */
 export const elementsSlots = [
     "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
-    "chartTickGutter", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
+    "chartTickGutter", "chartTickRail", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
     "chartReadout", "chartReadoutValue", "chartTooltip", "chartTooltipTitle", "chartTooltipValue",
     "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
@@ -438,6 +438,16 @@ export const elementsBase = {
         fontVariantNumeric: "tabular-nums",
         [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
     },
+    // A canvas row's right-axis tick, in the rail after its plot where the Plan declares one (#1750): at the rail's
+    // start, beside the plot it scales, in the gutter's numbers' face — as the left axis's stand at the value slot's end,
+    // the gap between them the gutter line's.
+    chartTickRail: {
+        ...chartTick,
+        left: "6px",
+        fontSize: "10px",
+        fontWeight: "medium",
+        fontVariantNumeric: "tabular-nums",
+    },
     // A chart row's legend (#1750), down its gutter under the row's lines, which the renderer places it beneath: a line a
     // named series, in the spec's room each, from the name's x — the gutter's own indent, which it takes from the cell,
     // then past the caret's cell and its gap on a row that folds — to the value slot and its gap, which the left axis's
@@ -512,12 +522,13 @@ export const elementsBase = {
         pointerEvents: "none",
         "&[data-ink]": { color: "var(--mark-ink)" },
         // A band's caption stands at the band's start (`--caption-at`). On a phone card, whose left numbers stand
-        // inside its plot (#1750), it never stands under them: it starts past the widest of them (`--plan-left-glyphs`,
-        // in glyphs — a caption and a number share the mono face at one size, so a glyph of one is a glyph of the other)
-        // and the paper either side of it.
+        // inside its plot (#1750), it never stands under them: it starts past the widest of them (`--left-glyphs`, in
+        // glyphs — a caption and a number share the mono face at one size, so a glyph of one is a glyph of the other)
+        // and the paper either side of it. Both are the recipe's own properties, so not `--plan-…` names, which are the
+        // canvas's geometry.
         "&[data-plan-band-caption]": {
             left: "var(--caption-at)",
-            "[data-plan-cardbody] [data-left-ticks] &": { left: `max(var(--caption-at), calc(var(--plan-left-glyphs) * 1ch + 2 * ${TICK_INSET}))` },
+            "[data-plan-cardbody] [data-left-ticks] &": { left: `max(var(--caption-at), calc(var(--left-glyphs) * 1ch + 2 * ${TICK_INSET}))` },
         },
     },
     // The crosshair readout (#743) of every chart row but the one under the

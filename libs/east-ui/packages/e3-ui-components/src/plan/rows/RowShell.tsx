@@ -6,7 +6,9 @@
 /**
  * The alignment contract, mechanically (`Plan Spec.md` §3): every body row is
  * one two-column grid — the fixed gutter cell and a plot of `n` buckets — so
- * every kind aligns by construction. The shell renders the gutter identity
+ * every kind aligns by construction; where the Plan declares the right axis's
+ * rail (#1750), a third, fixed column after the plot, which a chart row's right
+ * axis reads its numbers in and every other row leaves empty. The shell renders the gutter identity
  * vocabulary (name / id / sub / value / meta / swatches / status / caret, one
  * grid of caret, name and value slot, a level's indent the caret's cell and
  * its gap), the plot's bucket grid lines, and the shared now / cursor
@@ -178,6 +180,10 @@ export interface RowShellProps {
      *  kind draws it, where it has room; the shell gives it the cell, and leaves out the meta and the swatches, which
      *  stood in for it. */
     gutterLegend?: ReactNode;
+    /** A right axis's numbers, in the rail after the plot where the Plan declares one (#1750): the row's kind draws them,
+     *  and the shell gives them the template's last track. Given only on a canvas with the rail; a row without them
+     *  leaves it empty. */
+    railAxis?: ReactNode;
     /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
      *  line says them, then its own sub — which tells two rows of one name apart. */
     path?: readonly string[] | undefined;
@@ -226,7 +232,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, noGrid,
-    controls, lanes: gutterLanes, gutterTop, gutterAxis, gutterLegend, path, axisMode, ctx, keep, drop, draft, children,
+    controls, lanes: gutterLanes, gutterTop, gutterAxis, gutterLegend, railAxis, path, axisMode, ctx, keep, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -845,6 +851,9 @@ export function RowShell({
                 {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline data-plan-now />}
             </Box>
+            {/* The right axis's rail (#1750): its numbers, beside the plot they scale. The plot's own name says its
+                values to a reader (#819), so a reader skips the cell. */}
+            {railAxis !== undefined && <Box css={styles.railCell} data-plan-rail="" aria-hidden="true">{railAxis}</Box>}
         </Box>
     );
 }

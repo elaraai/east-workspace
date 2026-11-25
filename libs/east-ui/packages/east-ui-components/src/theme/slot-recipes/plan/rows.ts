@@ -26,7 +26,8 @@ import { wholeOrNone } from "./whole-or-none.js";
 /** The slots this part styles. */
 export const rowsSlots = [
     "row", "gutterCell", "plot", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
-    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterAxis", "gutterHandle", "caret",
+    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterAxis", "railCell", "railAxis",
+    "gutterHandle", "caret",
     "statusIcon", "statusDot", "rowControls", "rowControl", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
     "stickyParent", "stickyPath",
@@ -469,6 +470,25 @@ export const rowsBase = {
         right: "12px",
         width: GUTTER_SLOT_W,
         pointerEvents: "none",
+    },
+    // The right axis's rail (#1750), where the Plan declares one: the row's last track, after its plot and as tall as it,
+    // the row's ground and rule running under it — which a chart row's right axis reads its numbers in. It takes no
+    // pointer: a click there is the row's.
+    railCell: {
+        position: "relative",
+        minWidth: 0,
+        overflow: "hidden",
+        pointerEvents: "none",
+    },
+    // A chart row's right axis, down its rail (#1750): the cell's width and height — on a row open on its render, its
+    // band's, which the renderer sets — that its tick labels stand in, each at its tick's share of it, as the left axis's
+    // stand in the gutter's value slot.
+    railAxis: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
     },
     // The gutter's right rule, as a handle (#1680's review): a drag moves it,
     // and the gutter with it — the arrow keys too. Over the rows and their

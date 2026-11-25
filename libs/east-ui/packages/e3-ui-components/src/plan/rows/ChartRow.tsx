@@ -35,9 +35,10 @@
  *   scales the marks use (#1750): on a chart taller than a row's own lines the
  *   left axis reads it in the gutter's value slot beside it — a narrow card's,
  *   which has no gutter, inside its plot's left edge — and a right axis reads
- *   its own value at the same line, inside the plot's right edge; a chart at a
- *   row's own height reads its scale by its gridlines alone. A row whose
- *   `grid` is off draws no gridline, its numbers standing alone (#1753);
+ *   its own value at the same line, inside the plot's right edge, or in the
+ *   rail after the plot where the Plan declares one; a chart at a row's own
+ *   height reads its scale by its gridlines alone. A row whose `grid` is off
+ *   draws no gridline, its numbers standing alone (#1753);
  * - a chart taller than a row's own lines lists its named series down its
  *   gutter under its name (#1750), each in its colour — a phone card on one
  *   line under its title;
@@ -184,10 +185,12 @@ export interface ChartRowPlotProps {
     /** R2 context strip (#591) — re-encode as a tone strip; see {@link ToneStrip}. */
     ctx?: boolean | undefined;
     rowKey: string;
+    /** The right axis reads its numbers in the canvas's rail (#1750, {@link ChartRailTicks}): the plot draws none. */
+    railed?: boolean | undefined;
 }
 
 /** The chart-row plot content (SVG marks + HTML tick/ref labels + the readout). */
-export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: ChartRowPlotProps) {
+export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, railed }: ChartRowPlotProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     const { scale, stacks, left: leftScale, right: rightScale } = useChartScales(kind, height);
@@ -501,7 +504,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     return (
         <Box ref={chartRef} position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
             data-left-ticks={leftGlyphs > 0 ? "" : undefined}
-            style={leftGlyphs > 0 ? ({ "--plan-left-glyphs": leftGlyphs } as CSSProperties) : undefined}
+            style={leftGlyphs > 0 ? ({ "--left-glyphs": leftGlyphs } as CSSProperties) : undefined}
             onClick={() => dispatch({ t: "row.select", key: rowKey })}
             onPointerMove={() => { hovered.current = true; }}
             onPointerLeave={() => { hovered.current = false; }}>
@@ -585,8 +588,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 return null;
             })}
             {/* What the right axis reads at each gridline, at the plot's right edge — on a chart taller than a row's
-                own lines, as the left's numbers are: a shorter one reads its scale by its gridlines alone. */}
-            {height >= CHART_TALL_PX && ticks.map((t, i) => t.right === undefined ? null : (
+                own lines, as the left's numbers are: a shorter one reads its scale by its gridlines alone. Where the
+                Plan declares the rail, it reads them there instead (#1750). */}
+            {!railed && height >= CHART_TALL_PX && ticks.map((t, i) => t.right === undefined ? null : (
                 <Box key={`rt-${i}`} css={styles.chartTickRight} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="">
                     {t.right}
                 </Box>
@@ -669,6 +673,45 @@ export function ChartGutterTicks({ kind, styles, height, banded, taken, controls
                 <Box key={i} css={styles.chartTickGutter} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tickpx={t.y}
                     data-under-controls={controls && t.y - TICK_HALF < firstLine ? "" : undefined}>
                     {t.left}
+                </Box>
+            ))}
+        </Box>
+    );
+}
+
+/**
+ * The right axis's tick labels in the canvas's rail (#1750), where the Plan
+ * declares one: the column after every row's plot, each label with its middle
+ * on its gridline, beside the plot it scales and clear of its marks — as the
+ * left axis's stand in the gutter. A chart with no right axis draws none, and
+ * leaves the rail empty.
+ *
+ * `height` is the PLOT's height, and a label stands at its share of it: the
+ * rail is as tall as the plot, so a label and its gridline share a pixel. A
+ * focus-expanded row is taller than its band (#591), so there the column is
+ * the band's own height (`banded`). A chart at a row's own height — shorter
+ * than {@link CHART_TALL_PX} — draws no label.
+ *
+ * @param props.kind - The chart the row draws
+ * @param props.styles - The Plan's slot styles
+ * @param props.height - The plot's height, px
+ * @param props.banded - The plot is a band at the top of a taller row
+ */
+export function ChartRailTicks({ kind, styles, height, banded }: {
+    kind: ChartKindValue;
+    styles: Styles;
+    height: number;
+    banded: boolean;
+}) {
+    const ticks = useChartTicks(kind, height).filter((t) => t.right !== undefined);
+    if (height < CHART_TALL_PX || ticks.length === 0) return null;
+    // The axis labels the plot's scale for the eye; the plot's own name says
+    // its values (#819), so a reader skips these.
+    return (
+        <Box css={styles.railAxis} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
+            {ticks.map((t, i) => (
+                <Box key={i} css={styles.chartTickRail} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="" data-plan-rail-tick="">
+                    {t.right}
                 </Box>
             ))}
         </Box>

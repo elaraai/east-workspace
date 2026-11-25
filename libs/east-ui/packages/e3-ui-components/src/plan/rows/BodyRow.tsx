@@ -30,7 +30,7 @@
 import { memo, useEffect, type ReactNode } from "react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
-import { ChartGutterLegend, ChartGutterTicks } from "./ChartRow.js";
+import { ChartGutterLegend, ChartGutterTicks, ChartRailTicks } from "./ChartRow.js";
 import { chartLegend, legendFit } from "./chart-geometry.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
@@ -79,6 +79,9 @@ export interface PlanBodyRowProps {
     h: number;
     styles: Styles;
     gridTemplate: string;
+    /** The Plan declares the right axis's rail (#1750): a chart row reads its right axis's numbers there, never inside
+     *  its plot. */
+    rail: boolean;
     /** Whether the row nests children (its caret, and a collapsed parent's
      *  slimmer bars). */
     hasChildren: boolean;
@@ -168,7 +171,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 
 /** One body row — a group band, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
-    v, h, styles, gridTemplate, hasChildren, derived,
+    v, h, styles, gridTemplate, rail, hasChildren, derived,
     dispatch, focusRole, axisMode,
     showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd, unread,
     expandBody, expandGutter, bandHeight,
@@ -277,6 +280,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         gutterTop?: boolean;
         gutterAxis?: ReactNode;
         gutterLegend?: ReactNode;
+        railAxis?: ReactNode;
     } = {};
     // The plot height a chart row scales against (see the chart case).
     let plotH = h;
@@ -346,6 +350,13 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                             controls={rowControls.length > 0} />
                     </PlanPartBoundary>
                 ),
+                // Its right axis, in the rail after its plot where the Plan declares one (#1750) — on a strip and a
+                // diagnostic row none, as its left axis. A chart with no right axis leaves the rail empty.
+                railAxis: !rail || isCtx || diagnostic !== undefined ? undefined : (
+                    <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
+                        <ChartRailTicks kind={drawn} styles={styles} height={plotH} banded={isFocal} />
+                    </PlanPartBoundary>
+                ),
             };
             break;
         }
@@ -368,7 +379,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}
                         hasChildren={hasChildren} ctx={isCtx}
-                        plotHeight={plotH} chartExpanded={chartExpanded_} />
+                        plotHeight={plotH} chartExpanded={chartExpanded_} rail={rail} />
                 </PlanPartBoundary>
             )}
         </RowShell>

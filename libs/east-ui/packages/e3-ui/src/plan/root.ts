@@ -20,6 +20,7 @@ import {
     Expr,
     ArrayType,
     BlobType,
+    BooleanType,
     DictType,
     FunctionType,
     IntegerType,
@@ -212,6 +213,7 @@ export interface PlanBindHandle {
  * @property onGrainChange - Grain segment change
  * @property ui - A bound interaction state (`State.bind` at `Plan.Types.UiState`, #824)
  * @property style - Sizing, density and gutter width
+ * @property rightAxis - The right axis's rail (#1750): a column after every row's plot, where a chart row's right axis reads its numbers
  */
 export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
     /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`.
@@ -379,6 +381,18 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
          *  between 168 and 360 (widened to take this), and the canvas keeps where they left it. */
         gutterWidth?: SubtypeExprOrValue<StringType>;
     };
+    /**
+     * The right axis's rail (#1750) — `<Plan … rightAxis />`. On, every row has a column after its plot, so the plot is
+     * one width on every row and the date columns run straight down the canvas: a chart row whose series declares a
+     * right axis reads its numbers there, any other row leaves it empty, and the ruler leaves a blank cell over it. Off
+     * (the default), a right axis reads its numbers inside its plot's right edge.
+     *
+     * @remarks
+     * A chart that declares a right axis never turns it on by itself: a series list that is stored or bound cannot be read
+     * as the page is built, and one chart on two axes would narrow every row's plot. A phone's cards have no rail: a card
+     * reads its right numbers inside its plot, as it does without one.
+     */
+    rightAxis?: SubtypeExprOrValue<BooleanType>;
 }
 
 /** The source collection a series list's East type reads — its `derive`'s input, when the list's element is a series variant. */
@@ -713,6 +727,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         onGrainChange: config.onGrainChange !== undefined ? some(config.onGrainChange) : none,
         ui:       config.ui !== undefined ? some(East.value(config.ui, PlanUiBindType)) : none,
         style:    styleValue,
+        rightAxis: config.rightAxis ?? false,
     }, PlanRootType);
 }
 

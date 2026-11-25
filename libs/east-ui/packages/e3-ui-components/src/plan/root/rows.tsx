@@ -41,6 +41,9 @@ type UIValue = ComponentProps<typeof EastChakraComponent>["value"];
 export interface PlanRowContext {
     styles: Styles;
     gridTemplate: string;
+    /** The Plan declares the right axis's rail (#1750): the template's last track, which a chart row's right axis reads
+     *  its numbers in. */
+    rail: boolean;
     dense: boolean;
     storageKey: string;
     index: PlanRowIndex;
@@ -103,6 +106,7 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             h={h}
             styles={styles}
             gridTemplate={ctx.gridTemplate}
+            rail={ctx.rail}
             // A gathered row opens nothing: its subtree is the others' (#1680's review).
             hasChildren={v.gathered === undefined && (ctx.index.children.get(v.row.key)?.length ?? 0) > 0}
             derived={ctx.derived}
