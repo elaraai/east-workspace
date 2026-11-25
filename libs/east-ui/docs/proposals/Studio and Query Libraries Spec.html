@@ -100,7 +100,7 @@ pre .c { color: var(--muted); }
 .trow b { font-weight: 600; }
 .trow small { display: block; color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trow > span { min-width: 0; }
-.cols-s { grid-template-columns: 2.4fr 1.2fr 1.5fr 0.9fr 1.1fr; }
+.cols-s { grid-template-columns: 2.4fr 1.2fr 1.5fr 1.1fr; }
 .cols-q { grid-template-columns: 2.4fr 1fr 0.6fr 1.4fr 0.9fr 1.1fr; }
 .tg { display: inline-flex; align-items: center; height: 17px; padding: 0 6px; border-radius: 4px; background: var(--chip); font-size: 10.5px; margin-right: 3px; }
 .act { color: var(--accent); font-weight: 500; white-space: nowrap; }
@@ -204,7 +204,7 @@ ol.steps li { padding-left: 4px; }
     <div class="wf-head"><h2>Studio.Library</h2><span class="muted">Schematic, not to scale</span></div>
     <div class="wf"><div class="frame">
       <div class="tb">
-        <span class="num">1</span><span class="src">Pages</span><span class="chip on">Project: Ops console</span><span class="chip on">Tag: weekly</span><span class="chip">Updated</span><span class="count">12 of 214 pages</span>
+        <span class="num">1</span><span class="src">Pages</span><span class="chip on">Project: Ops console</span><span class="chip on">Tag: weekly</span><span class="count">12 of 214 pages</span>
         <span class="find">Search pages by title…</span>
         <span class="sp"></span>
         <span class="prim">+ New page</span>
@@ -221,11 +221,11 @@ ol.steps li { padding-left: 4px; }
           </div>
         </div>
         <div class="main">
-          <div class="trow h cols-s"><span><span class="num">3</span> Name</span><span>Project</span><span>Tags</span><span>Updated</span><span></span></div>
-          <div class="trow cols-s sel"><span><b>Overview</b><small>7 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">exec</span></span><span>2 days ago</span><span class="act"><span class="num">5</span> Open in builder</span></div>
-          <div class="trow cols-s"><span><b>Regions</b><small>4 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span>5 days ago</span><span class="act">Open in builder</span></div>
-          <div class="trow cols-s"><span><b>Returns</b><small>5 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">quality</span></span><span>12 Nov</span><span class="act">Open in builder</span></div>
-          <div class="trow cols-s"><span><b>Carrier scorecard</b><small>9 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span>3 Nov</span><span class="act">Open in builder</span></div>
+          <div class="trow h cols-s"><span><span class="num">3</span> Name</span><span>Project</span><span>Tags</span><span></span></div>
+          <div class="trow cols-s sel"><span><b>Overview</b><small>7 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">exec</span></span><span class="act"><span class="num">5</span> Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Regions</b><small>4 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span class="act">Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Returns</b><small>5 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span><span class="tg">quality</span></span><span class="act">Open in builder</span></div>
+          <div class="trow cols-s"><span><b>Carrier scorecard</b><small>9 placements</small></span><span>Ops console</span><span><span class="tg">weekly</span></span><span class="act">Open in builder</span></div>
           <div class="tfoot">Rows 1 to 12 of 12</div>
         </div>
         <div class="pane end">
@@ -234,14 +234,13 @@ ol.steps li { padding-left: 4px; }
             <div class="preview"><u style="width:45%"></u><u></u><u style="width:70%"></u></div>
             <div><small>Title</small>Overview</div>
             <div><small>Tags</small><span><span class="tg">weekly</span><span class="tg">exec</span><span class="tg">+ Add</span></span></div>
-            <div><small>Updated</small>2 days ago</div>
             <div><span class="ctl" style="align-self:flex-start">Open in builder</span></div>
           </div>
         </div>
       </div>
     </div></div>
     <ol class="legend">
-      <li><span><b>The rail</b> is the Slice's: Project, Tag and the Updated range as chips, each with its counts, and <code>N of M</code>. Search finds by the start of a title.</span></li>
+      <li><span><b>The rail</b> is the Slice's: Project and Tag as chips, each with its counts, and <code>N of M</code>. Search finds by the start of a title.</span></li>
       <li><span><b>The Library pane</b> is the one every builder has. Its tabs are what <code>library</code> lists. Templates are things to start from: a click opens New page with that template picked.</span></li>
       <li><span><b>The table</b> is the <code>&lt;Record&gt;</code> table: rows read a window at a time as it scrolls, counts from e3, and on a phone the Name column pinned.</span></li>
       <li><span><b>Details</b> is the selected row: its layout's wireframe, its title and its tags, edited here and saved through the record. Shown when <code>inspector</code> is given.</span></li>
@@ -399,7 +398,6 @@ ol.steps li { padding-left: 4px; }
                 <span class="ds-hint">Includes one value</span>
                 <span class="ds-sp"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="q">weekly</span><span class="kh">×</span></span>
               </div>
-              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb">Updated</span></div>
             </div>
             <div class="ft"><span class="ds-gh">× Clear all</span><span class="acts"><span class="ds-bt">Done</span></span></div>
           </div>
@@ -426,7 +424,6 @@ ol.steps li { padding-left: 4px; }
                 </div>
                 <div class="ds-line"><span class="ds-gh">× Clear tag</span></div>
               </div>
-              <div class="ds-ar"><svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lb">Updated</span></div>
             </div>
             <div class="ft"><span class="ds-gh">× Clear all</span><span class="acts"><span class="ds-bt">Done</span></span></div>
           </div>
@@ -454,10 +451,10 @@ ol.steps li { padding-left: 4px; }
     <p class="muted">Green is proposed. The rest is today's API, as the Roster and Record examples use it.</p>
 <pre><span class="c">// The page library</span>
 const pages     = $.let(Record.bind(d.pages));
-<span class="n">const rows      = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title", "pages_by_kind_updated_at"] }));</span>
+<span class="n">const rows      = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] }));</span>
 <span class="n">const slice = $.let(Slice.bindRecords("ops.library", {
-    rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, range: "updated_at", search: ["title", "project", "tags"],
-                 fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" }, updated_at: { label: "Updated" } } },
+    rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+                 fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } } },
     templates: { source: rows, label: "Templates", scope: { kind: ["template"] }, search: ["title"], fields: { title: { label: "Name" } } },
 }));</span>
 return &lt;Studio.Library <span class="n">id="ops"</span> pages={pages} <span class="n">slice={{ slice }}</span>
@@ -508,7 +505,7 @@ return &lt;Query.Library id="analysis" queries={saved} datasets={{ orders, custo
         <thead><tr><th>Record</th><th>Today</th><th>Needs</th></tr></thead>
         <tbody>
           <tr><td class="k">Saved queries</td><td>Rows are structs with <code>name</code>, <code>description</code>, <code>saved_at</code>. The data source is inside the query's <code>root</code> list.</td><td><code>sources</code>, the names of the data sources it reads, and <code>tags</code>: each a set of text.</td></tr>
-          <tr><td class="k">Pages</td><td>Each entry is a variant, <code>page</code> or <code>template</code>, keyed by <code>{ project, page }</code>. It has no fields to show in a column or to index.</td><td>Each entry a struct with <code>kind</code> (page or template), <code>project</code>, <code>title</code>, <code>tags</code> and <code>updated_at</code> (none until its first Save after the migration). Templates stay in this record, told apart by <code>kind</code>: a migration step changes one record, so a deploy could not move them into another.</td></tr>
+          <tr><td class="k">Pages</td><td>Each entry is a variant, <code>page</code> or <code>template</code>, keyed by <code>{ project, page }</code>. It has no fields to show in a column or to index.</td><td>Each entry a struct with <code>kind</code> (page or template), <code>project</code>, <code>title</code> and <code>tags</code>. It holds no time it was last saved: the builder's Save sends a page's placements and its starting filters as two patches at once, and a time both wrote would make the second a conflict. Templates stay in this record, told apart by <code>kind</code>: a migration step changes one record, so a deploy could not move them into another.</td></tr>
         </tbody>
       </table>
     </div>
@@ -523,7 +520,7 @@ return &lt;Query.Library id="analysis" queries={saved} datasets={{ orders, custo
         <tbody>
           <tr><td>The gallery of large wireframe cards</td><td>The table. The wireframe is in Details, and on the Templates cards.</td></tr>
           <tr><td>The pane's Projects and Pages lists, and Data sources as a filter list</td><td>Project and Data source as chips on the rail and columns in the table.</td></tr>
-          <tr><td>Sort: Z to A, Recent first</td><td>The order e3 pages the rows in. The rail's Updated and Saved ranges find recent work.</td></tr>
+          <tr><td>Sort: Z to A, Recent first</td><td>The order e3 pages the rows in. For saved queries the rail's Saved range finds recent work; a page holds no time.</td></tr>
           <tr><td>Search over any part of a title, name or description</td><td>Search by the start of a title, a name, a project, a source or a tag.</td></tr>
           <tr><td>Dragging a query's card onto the builder</td><td>Open in builder. A table row is not dragged.</td></tr>
           <tr><td>Live and Draft in the page library</td><td>Nothing.</td></tr>
@@ -546,7 +543,7 @@ return &lt;Query.Library id="analysis" queries={saved} datasets={{ orders, custo
     <h2>The epic, in the order it lands</h2>
     <ol class="steps">
       <li><b>The saved queries record.</b> <code>sources</code> and <code>tags</code> on a saved query, the index declarations, the migration step. The query builder's Save writes them, and its Save popover takes tags.</li>
-      <li><b>The pages record.</b> Each entry a struct with <code>kind</code>, <code>project</code>, <code>title</code>, <code>tags</code> and <code>updated_at</code>, the index declarations, the migration step. The Studio builder's writes follow.</li>
+      <li><b>The pages record.</b> Each entry a struct with <code>kind</code>, <code>project</code>, <code>title</code> and <code>tags</code>, the index declarations, the migration step. The Studio builder's writes follow.</li>
       <li><b>The query library.</b> Swapped whole: the frame, the Library pane, the table, the rail, Details and tags.</li>
       <li><b>The page library.</b> The same, with Live and Draft gone and a new page told to the host.</li>
       <li><b>The set filter.</b> Several values with Any · All, the browsable list, and the reads under them, in the shared rail.</li>

@@ -25,10 +25,10 @@ Why a table: a gallery of large wireframe cards shows a handful at a time, has n
 ```tsx
 // The page library
 const pages = $.let(Record.bind(d.pages));
-const rows  = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title", "pages_by_kind_updated_at"] }));
+const rows  = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] }));
 const slice = $.let(Slice.bindRecords("ops.library", {
-    rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, range: "updated_at", search: ["title", "project", "tags"],
-                 fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" }, updated_at: { label: "Updated" } } },
+    rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+                 fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } } },
     templates: { source: rows, label: "Templates", scope: { kind: ["template"] }, search: ["title"], fields: { title: { label: "Name" } } },
 }));
 return <Studio.Library id="ops" pages={pages} components={components} project="Ops console" slice={{ slice }}
@@ -53,9 +53,9 @@ return <Query.Library id="analysis" queries={saved} datasets={{ orders, customer
 
 | Region | `Studio.Library` | `Query.Library` |
 | --- | --- | --- |
-| Toolbar | The rail (Project, Tag, the Updated range, search by the start of a title, presets, `N of M pages`), then New page | The rail (Data source, Tag, the Saved range, search by the start of a name, presets, `N of M queries`), then New query |
+| Toolbar | The rail (Project, Tag, search by the start of a title, presets, `N of M pages`), then New page | The rail (Data source, Tag, the Saved range, search by the start of a name, presets, `N of M queries`), then New query |
 | Library pane (`library`) | Templates: a card starts a new page from it | Data sources: a card starts a new query on it. Recent: this viewer's runs |
-| Main | The Record table: Name, Project, Tags, Updated, Open in builder | The Record table: Name and description, Data sources, Steps, Tags, Saved, Open in builder |
+| Main | The Record table: Name, Project, Tags, Open in builder | The Record table: Name and description, Data sources, Steps, Tags, Saved, Open in builder |
 | Details (`inspector`) | The selected page's wireframe, title and tags, and Open in builder | The selected query's wireframe, description and tags, and Open in builder |
 
 ## 4 · The rules
@@ -94,14 +94,14 @@ indexes: (index) => ({
 migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 ```
 
-**A pages record's entry** (`Studio.Types.Entry`) becomes a struct: `kind` (page or template), `project`, `title`, `tags: Set<String>`, `updated_at` (none until its first Save after the migration), `draft` and `live`. Templates stay in the pages record, told apart by `kind`: a migration step changes one record, so a deploy could not move them into another. Its indexes are each led by `kind`, so the pages and the templates are read apart:
+**A pages record's entry** (`Studio.Types.Entry`) becomes a struct: `kind` (page or template), `project`, `title`, `tags: Set<String>`, `draft` (a page's draft, a template's layout) and `live` (a page's published version). It holds no time it was last saved (ruled 25 November 2026): the builder's Save sends a page's placements and its starting filters as two patches at once, and a time both wrote would make the second a conflict. Templates stay in the pages record, told apart by `kind`: a migration step changes one record, so a deploy could not move them into another. Its indexes are each led by `kind`, so the pages and the templates are read apart, and the one on `kind` alone is how a rail scoped to one kind finds a row by its key:
 
 ```ts
 indexes: (index) => ({
-    pages_by_kind_project:    index.on(["kind", "project"]),
-    pages_by_kind_tag:        index.on(["kind", "tags"]),
-    pages_by_kind_title:      index.on(["kind", "title"]),
-    pages_by_kind_updated_at: index.on(["kind", "updated_at"]),
+    pages_by_kind:         index.on(["kind"]),
+    pages_by_kind_project: index.on(["kind", "project"]),
+    pages_by_kind_tag:     index.on(["kind", "tags"]),
+    pages_by_kind_title:   index.on(["kind", "title"]),
 }),
 migrations: (migration) => [
     migration.rows("cell_content", Studio.migrations.cellContent),
@@ -134,7 +134,7 @@ Underneath: a narrowing holds several values for a set field, and the match; a r
 | --- | --- |
 | The galleries of wireframe cards | The table. The wireframe is in Details and on the Templates cards. |
 | The pane's Projects, Pages and Data sources lists | Project and Data source as rail fields and columns. |
-| Sort (Z to A, Recent first) | The order e3 pages the rows in. The rail's Updated and Saved ranges find recent work. |
+| Sort (Z to A, Recent first) | The order e3 pages the rows in. For saved queries the rail's Saved range finds recent work; a page holds no time. |
 | Search over any part of a title, name or description | Search by the start of a field the source lists in `search`. |
 | Dragging a query's card onto the builder | Open in builder. |
 | Live and Draft in the page library | Nothing. |
@@ -144,7 +144,7 @@ Out of this design: who created a page or a query; the pages record's draft and 
 ## 8 · The order it lands in
 
 1. **The saved queries record.** `sources` and `tags` on a saved query, the index declarations, the migration step. The query builder's Save writes them, and its Save popover takes tags.
-2. **The pages record.** Each entry a struct with `kind`, `project`, `title`, `tags` and `updated_at`, the index declarations, the migration step. The Studio builder's writes follow.
+2. **The pages record.** Each entry a struct with `kind`, `project`, `title` and `tags`, the index declarations, the migration step. The Studio builder's writes follow.
 3. **The query library.** Swapped whole: the frame, the Library pane, the table, the rail, Details and tags.
 4. **The page library.** The same, with Live and Draft gone and a new page told to the host.
 5. **The set filter.** Several values with Any · All, the browsable list, and the reads under them, in the shared rail.
@@ -157,3 +157,4 @@ Each library is swapped in one step, once its record has the fields, so no stage
 What each step built, where it differs from the above.
 
 - **Step 1.** A recent run, kept in the browser, holds no tags: tags are a saved query's, given as it is saved. A tag typed into a form's tags field and not Entered is a tag as the keyboard leaves its box, in every form, so a Save pressed straight after typing one keeps it.
+- **Step 2.** `Studio.value` writes the pages and templates a solution ships, each built as every write builds one, so a seed never spells a project or a title out. `Studio.Types.PageEntry` goes, and `Studio.Types.EntryKind` is new.
