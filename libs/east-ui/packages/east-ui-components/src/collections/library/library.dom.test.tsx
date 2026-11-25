@@ -18,7 +18,9 @@
  * gets it, while Space still picks the card up — in retained content (#1398,
  * CL8) neither, nor a card's × or the add, while a click still selects. A
  * compact Library's add action is Font Awesome's plus beside its words (#1263).
- * A drag picked up and put down draws no card's face again (#1594).
+ * A drag picked up and put down draws no card's face again (#1594). A card
+ * that is a button leaves a ⏎ held with ⌘ or Ctrl — a shortcut of the builder
+ * it is in — and a key a handler before it took (#1758).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -640,6 +642,58 @@ describe("Library — a host's ⏎ (#1187)", () => {
         await tick();
         expect(edge.hasAttribute("data-dragging")).toBe(false);
     });
+});
+
+describe("Library — a key a button card leaves (#1758)", () => {
+    /** A card that cannot be dragged: a button. */
+    const pinned: LibraryItemValue = {
+        key: "pinned", label: "pinned", sublabel: none, icon: none, status: none, trailing: none, draggable: false, filtered: false, placed: false,
+        media: none, avatar: none, byline: none, action: none, search: some("pinned"), groups: new Map(), facets: new Map(), dims: new Map(),
+    };
+    /** A Library of that one card, drawn as it says, its clicks counted. */
+    const library = (clicked: string[], drawn: LibraryValue["variant"]): LibraryValue => ({
+        id: "templates", hint: none, items: [pinned], groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [],
+        filterOptions: [], searchable: false, noun: none, addLabel: none, onAdd: none,
+        onCardClick: some((key: string) => { clicked.push(key); return null; }), slice: none, style: none, variant: drawn, layout: none, toolbar: false,
+    });
+
+    /**
+     * Presses keys on the card inside a host that hears every key the card lets through: a chord and a key already
+     * taken are not its click and reach the host; a plain ⏎ and a Space click it and go no further.
+     */
+    async function leaves(drawn: LibraryValue["variant"], attribute: string) {
+        const clicked: string[] = [];
+        const heard: string[] = [];
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <div onKeyDown={(event) => { heard.push(`${event.metaKey ? "⌘ " : ""}${event.ctrlKey ? "Ctrl " : ""}${event.key}`); }}>
+                    <EastChakraLibrary value={library(clicked, drawn)} storageKey="library-test" />
+                </div>
+            </ChakraProvider>,
+        );
+        const card = container.querySelector<HTMLElement>(`[${attribute}="pinned"]`)!;
+        expect(card.getAttribute("role")).toBe("button");
+        // ⌘ ⏎ and Ctrl ⏎: its host's shortcut — a query builder's Run.
+        await act(async () => { fireEvent.keyDown(card, { key: "Enter", metaKey: true }); });
+        await act(async () => { fireEvent.keyDown(card, { key: "Enter", ctrlKey: true }); });
+        expect([clicked, heard]).toEqual([[], ["⌘ Enter", "Ctrl Enter"]]);
+        // A ⏎ a handler took as the key came down to the card is that handler's.
+        const take = (event: KeyboardEvent) => { event.preventDefault(); };
+        document.addEventListener("keydown", take, true);
+        try {
+            await act(async () => { fireEvent.keyDown(card, { key: "Enter" }); });
+        } finally {
+            document.removeEventListener("keydown", take, true);
+        }
+        expect([clicked, heard]).toEqual([[], ["⌘ Enter", "Ctrl Enter", "Enter"]]);
+        // A plain ⏎, and a Space, are its click, and go no further.
+        await act(async () => { fireEvent.keyDown(card, { key: "Enter" }); });
+        await act(async () => { fireEvent.keyDown(card, { key: " " }); });
+        expect([clicked, heard]).toEqual([["pinned", "pinned"], ["⌘ Enter", "Ctrl Enter", "Enter"]]);
+    }
+
+    test("a compact card leaves a chord and a key already taken, and still takes a plain ⏎ and a Space", () => leaves(none, "data-library-item"));
+    test("a gallery card leaves a chord and a key already taken, and still takes a plain ⏎ and a Space", () => leaves(some(variant("gallery", null)), "data-library-card"));
 });
 
 describe("Library — a drag picked up and put down (#1594)", () => {

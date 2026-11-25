@@ -102,6 +102,9 @@ const editingRequests = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>()
 
 const stateHandleCache = new Map<string, Record<string, unknown>>();
 
+/** The kept values a read found written under another type than the state's, each said once. */
+const unreadable = new WeakSet<Uint8Array>();
+
 /**
  * Platform implementation for `State.bind` and its backing primitives.
  *
@@ -128,15 +131,29 @@ export const StateImpl: PlatformFunction[] = [
     }),
     // Primitive: read the key (registering the reactive dependency), falling back
     // to the captured default when the key is absent — e.g. after decode, where
-    // `bind` did not re-run to eager-init it.
+    // `bind` did not re-run to eager-init it — and when what the store keeps
+    // under it does not read as the state's type (#1758). A store outlives a
+    // release: a persistent one across sessions, a page left open across a
+    // deploy. A key can then hold a value written under the type an earlier
+    // release gave the state — a saved query before it held its sources —
+    // which beast2 refuses to read as another. That is nothing kept: the state
+    // reads its default until it is written, and says so once a value, so two
+    // states sharing a key by mistake are not silent.
     StateBindPrimitives.read.implement((type: EastTypeValue) => {
         const decode = decodeBeast2For(type); // built once per type-resolution, not per read()
         return (key: unknown, defaultValue: unknown) => {
             const k = key as string;
             trackKey(k);
             const raw = getStore().read(k);
-            if (raw === undefined) return defaultValue;
-            return decode(raw);
+            if (raw === undefined || unreadable.has(raw)) return defaultValue;
+            try {
+                return decode(raw);
+            } catch (error) {
+                // The store keeps the buffer it holds until other bytes are written: said once, and not decoded again.
+                unreadable.add(raw);
+                console.warn(`[east-ui] the state kept under "${k}" does not read as its type, and reads its default`, error);
+                return defaultValue;
+            }
         };
     }),
     // Primitive: write the key.

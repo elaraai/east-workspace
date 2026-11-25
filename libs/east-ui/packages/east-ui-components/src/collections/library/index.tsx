@@ -382,6 +382,35 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
 }
 
 /**
+ * A card's click, its host's: a click on it, and — where the card cannot be dragged, so it is a button — a ⏎ or a Space
+ * on it, the key going no further (`takeKey`). A compact card's and a gallery's alike.
+ *
+ * A key held with ⌘ or Ctrl is a chord, a shortcut of the builder the card is in — ⌘/Ctrl ⏎ runs a query builder's
+ * query — and a key a handler took as it came down to the card is that handler's: the card leaves both as they came
+ * (#1758). It took every ⏎ once, so a builder that runs on ⌘/Ctrl ⏎ ran its query and then opened the card as well.
+ *
+ * @param key - The card's key
+ * @param drag - The card's drag handle, `undefined` when it cannot be dragged
+ * @param onCardClick - The host's click, where the card takes one
+ * @returns What the card's element spreads: nothing where it takes no click
+ */
+function cardClick(key: string, drag: DragHandle | undefined, onCardClick: ((key: string) => void) | undefined) {
+    if (onCardClick === undefined) return {};
+    if (drag !== undefined) return { onClick: () => onCardClick(key) };
+    return {
+        onClick: () => onCardClick(key),
+        role: "button",
+        tabIndex: 0,
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            if (event.metaKey || event.ctrlKey || event.defaultPrevented) return;
+            takeKey(event);
+            onCardClick(key);
+        },
+    };
+}
+
+/**
  * What follows the pointer as a card is carried, the same for a compact card and a gallery's: its name, a plain element
  * of a class made as the card is drawn. A rule first added to the page's styles as the drag starts has the browser work
  * out the whole page's styles and lay it all out again (`useSlotClass`), before the ghost can be measured.
@@ -499,18 +528,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     // A click reports the card; a drag never clicks (the sensor swallows the
     // click it ends with). A card that cannot be dragged is a button, so the
     // keyboard clicks it too, the key going no further.
-    const click = onCardClick === undefined ? {} : {
-        onClick: () => onCardClick(item.key),
-        ...(drag === undefined ? {
-            role: "button",
-            tabIndex: 0,
-            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                takeKey(event);
-                onCardClick(item.key);
-            },
-        } : {}),
-    };
+    const click = cardClick(item.key, drag, onCardClick);
 
     return (
         <Box
@@ -631,18 +649,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const ghost = useCardGhost(item.label, styles);
     const drag = useDragSourceItem(from, ghost, !draggable);
     const handle = useEnterHandle(drag, item.key, onCardEnter);
-    const click = onCardClick === undefined ? {} : {
-        onClick: () => onCardClick(item.key),
-        ...(drag === undefined ? {
-            role: "button",
-            tabIndex: 0,
-            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                takeKey(event);
-                onCardClick(item.key);
-            },
-        } : {}),
-    };
+    const click = cardClick(item.key, drag, onCardClick);
 
     return (
         <Box
