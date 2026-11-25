@@ -234,6 +234,17 @@ describe("residency — demand reaches a screen of pixels, where a policy gives 
         expect(demandRange(l, 0, { ...DEFAULT_RESIDENCY, reachPx: 300 })).toEqual({ from: 0, to: 2 });
     });
 
+    test("windows of groups folded to their bands count what they draw: a screen of them is all demanded (#1777)", () => {
+        // Two groups a window, two hundred rows under them: 6,452 px open, the rate the first window seeded; folded, 52 px.
+        let l = createLedger(40 * 2, 2);
+        for (let w = 0; w < 40; w++) l = observeWindow(l, w, { px: 52, rows: 200, restPx: 6452 });
+        // Half a 900 px view each way: nine folded windows each way, where the rate stopped it at `behind` and `ahead`.
+        expect(demandRange(l, 20, { ...DEFAULT_RESIDENCY, reachPx: 450 })).toEqual({ from: 11, to: 29 });
+        // Settled, and kept: the rows under the folded groups are within the budget the demand spends.
+        const r = settle(l, 20, { ...DEFAULT_RESIDENCY, reachPx: 450 });
+        expect([r.lo, r.hi]).toEqual([11, 29]);
+    });
+
     test("settled, the run holds every window the reach demands, and eviction keeps them", () => {
         const l = rowEach(40);
         const r = settle(l, 7, reach);

@@ -85,8 +85,9 @@ export interface ResidencyOptions {
      * The least the demand reaches each way from the viewport's window, in
      * pixels (#1710): past `behind` and `ahead`, windows are demanded until
      * their heights reach it, so a screen of windows too small to fill one —
-     * a series that draws an entry a row, paged an entry a window — is all
-     * demanded. A window counts at least the ledger's estimate of it, so
+     * a series that draws an entry a row, paged an entry a window, or groups
+     * folded to their bands (#1777) — is all demanded. A window counts what
+     * it draws; one that draws nothing counts the ledger's estimate of it, so
      * windows that draw nothing never carry the demand to the source's end.
      * Left out, or `0` (the shipped policy), the demand is `behind` and
      * `ahead` windows alone.
@@ -152,9 +153,14 @@ export function demandRange(
     let to = Math.min(last, at + (travel === 1 ? opts.ahead : opts.behind));
     const reach = opts.reachPx ?? 0;
     if (reach > 0 && ledger.windows > 0 && ledger.slotPx > 0) {
-        // A window counts at least the ledger's estimate of it: windows that draw nothing never carry the reach on to
-        // the source's end.
-        const heightOf = (w: number) => Math.max(slotHeight(ledger, w), ledger.slotPx * elementsIn(ledger, w));
+        // A window counts what it draws — measured, else the ledger's estimate. One that draws nothing counts the
+        // estimate, so windows that draw nothing never carry the reach on to the source's end. Never the estimate over
+        // what a window draws (#1777): the slot rate is a window's height at rest, and groups folded to their bands
+        // counted so stopped the demand a window or two from the view, its screen of bands left unread.
+        const heightOf = (w: number) => {
+            const px = slotHeight(ledger, w);
+            return px > 0 ? px : ledger.slotPx * elementsIn(ledger, w);
+        };
         // The pixels each side reaches already, then a window more while they fall short.
         let before = 0;
         for (let w = from; w < at; w++) before += heightOf(w);
