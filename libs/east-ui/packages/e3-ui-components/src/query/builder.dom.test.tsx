@@ -15,7 +15,8 @@
  *   Font Awesome's (#1263); the status line; the save popover and its
  *   description; no border.
  * - **U1**: a condition built by clicks, each pick opening the next slot; the
- *   autocomplete's keys, and ⌘⏎ running; a fix; the history over a pick.
+ *   autocomplete's keys, and ⌘⏎ running — once, and alone, on a card of the
+ *   Library or the Datasets tab too (#1758); a fix; the history over a pick.
  * - **U2**: Visual · jq and back — its notes and notices, a syntax error
  *   keeping jq; Copy jq and Run; saving — an update, a rename, a taken name,
  *   a stale entry's refusal at its commit and before it, and a new query
@@ -346,6 +347,32 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
             some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);
         expect(container.querySelector("[data-query-run]")!.textContent).toBe("Run⌘⏎");
+    });
+
+    test("⌘/Ctrl ⏎ on a card of the Library tab or the Datasets tab runs the open query, once, and is not the card's click: no other query opens and none starts (#1758)", async () => {
+        const { container } = await mount();
+        await openQuery(variant("saved", BIG.name));
+        const shown = () => builderOf(container).getAttribute("data-query-open");
+        const runs = () => h.oneShots().length;
+        /** A tab's card by its name: a button, as a card that cannot be dragged is. */
+        async function cardIn(tab: "Library" | "Datasets", name: string) {
+            await act(async () => { fireEvent.click(screen.getByRole("tab", { name: tab })); });
+            await settle();
+            const card = [...container.querySelectorAll<HTMLElement>(`[data-query-tab=${tab.toLowerCase()}] [role=button][data-clickable]`)]
+                .find((c) => within(c).queryByText(name, { exact: true }) !== null);
+            if (card === undefined) throw new Error(`no card “${name}” in ${tab}`);
+            return card;
+        }
+        const ran: number[] = [];
+        for (const [tab, name, held] of [["Library", COUNT.name, { metaKey: true }], ["Datasets", "customers", { ctrlKey: true }]] as const) {
+            const card = await cardIn(tab, name);
+            const before = runs();
+            await act(async () => { fireEvent.keyDown(card, { key: "Enter", ...held }); });
+            await settle();
+            ran.push(runs() - before);
+            expect(shown(), `after the chord on ${tab}'s “${name}”`).toBe(`query.saved:"Big orders"`);
+        }
+        expect(ran).toEqual([1, 1]);
     });
 
     test("a fix: a payload's field read before the rows are narrowed says so, and Keep only shipped orders first narrows them", async () => {
