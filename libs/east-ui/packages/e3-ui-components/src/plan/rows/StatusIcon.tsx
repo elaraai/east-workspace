@@ -5,11 +5,12 @@
 
 /**
  * A row's status in its gutter line's value slot (#1749): its tone's icon,
- * told by its shape as by its ink — a row's and a group band's alike.
+ * told by its shape as by its ink — a row's and a group band's alike. A plain
+ * element of its slot's class, made once a theme (`useSlotClass`, #1780).
  */
 
-import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import {
     faCheck, faCircleExclamation, faCircleInfo, faTriangleExclamation, type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
@@ -57,11 +58,12 @@ export function PlanStatusIcon({ tone, styles, ctx, keep }: {
     keep?: "" | undefined;
 }) {
     const words = usePlanWords();
+    const slot = useSlotClass();
     const icon = tone === undefined ? undefined : STATUS_ICONS[tone];
     if (tone === undefined || icon === undefined) return null;
     return (
-        <Box as="span" css={styles.statusIcon} data-tone={tone} data-ctx={ctx} data-keep={keep} role="img" aria-label={statusText(tone, words)}>
+        <span className={slot(styles.statusIcon)} data-tone={tone} data-ctx={ctx} data-keep={keep} role="img" aria-label={statusText(tone, words)}>
             <FontAwesomeIcon icon={icon} />
-        </Box>
+        </span>
     );
 }

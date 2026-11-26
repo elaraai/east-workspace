@@ -25,15 +25,18 @@
  * (#1196), and wears the brand tint in a brand border while its drafts change
  * it (`data-draft`). A locked bar (#1541, U9) leads with a lock and takes no
  * move: no handle, no end handles, nothing for Space to pick up.
+ *
+ * Every part is a plain element of its slot's class, made once a theme
+ * (`useSlotClass`, #1780): a bar mounting works no style out.
  */
 
 import { useMemo } from "react";
-import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { decisionName, runName } from "../a11y.js";
 import { statusAttributes } from "../../shared/status.js";
@@ -90,6 +93,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
 }) {
     const scale = usePlanScale();
     const words = usePlanWords();
+    const slot = useSlotClass();
     // A locked run takes no move (#1541, U9).
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !run.locked
         ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
@@ -115,8 +119,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
     const op = usePlanElementOp(run.key);
     const optimised = drafted ? op : undefined;
     return (
-        <Box
-            css={styles.bar}
+        <div
+            className={slot(styles.bar)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
@@ -146,20 +150,20 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             onClick={select.onClick}
         >
             {/* Its lock (#1541, U9), ahead of its label: whole, or not drawn. */}
-            {run.locked && <Box as="span" css={styles.lock} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
+            {run.locked && <span className={slot(styles.lock)} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></span>}
             {/* Its label (`data-plan-label`): hidden below a letter and the ellipsis, its hover saying it (#1264). */}
-            <Box as="span" css={styles.barLabel} data-plan-label="">{run.label}</Box>
-            {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
+            <span className={slot(styles.barLabel)} data-plan-label="">{run.label}</span>
+            {qty !== undefined && <span className={slot(styles.barQty)}>{qty}</span>}
             {moved !== undefined && moved > 0 && (
-                <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
+                <span className={slot(styles.barQty)}>{words.m.moved({ n: moved, count: words.number(moved) })}</span>
             )}
             {edges !== undefined && (
                 <>
-                    <Box css={styles.moveEdge} {...edges.start} />
-                    <Box css={styles.moveEdge} {...edges.end} />
+                    <div className={slot(styles.moveEdge)} {...edges.start} />
+                    <div className={slot(styles.moveEdge)} {...edges.end} />
                 </>
             )}
-        </Box>
+        </div>
     );
 }
 
@@ -169,6 +173,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const { onElementClick } = usePlanResolvers();
 
     const bars = useMemo(() => kind.runs.map((run) => {
@@ -210,11 +215,11 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                     quantity: band.quantity,
                 });
                 return (
-                    <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
+                    <div key={`band-${i}`} className={slot(styles.rollBand)} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
                         data-plan-band="" style={{ left: `${left * 100}%`, width: `${width * 100}%` }}>
                         {/* Ellipsized, or hidden below a letter and the ellipsis, its hover saying it (#1264). */}
-                        <Box as="span" css={styles.rollBandLabel} data-plan-label="">{caption}</Box>
-                    </Box>
+                        <span className={slot(styles.rollBandLabel)} data-plan-label="">{caption}</span>
+                    </div>
                 );
             })}
             {kind.ports.map((port, i) => {
@@ -223,11 +228,11 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                 // ports sit clipped at rest and slide in on a brush pan.
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
-                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} />;
+                if (label === undefined) return <div key={`port-${i}`} className={slot(styles.port)} style={{ left: `${x * 100}%` }} />;
                 // The label is the port's accessible name, and the canvas's
                 // one tooltip shows it on hover (#816) — the design-system
                 // tooltip, never the native `title=` (#617).
-                return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} data-port={i}
+                return <div key={`port-${i}`} className={slot(styles.port)} style={{ left: `${x * 100}%` }} data-port={i}
                     role="img" aria-label={label} />;
             })}
             {kind.decisions.map((dec) => {
@@ -235,7 +240,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const ref = variant("mark", { row: rowId, mark: dec.key }) as PlanElementRefValue;
                 return (
-                    <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
+                    <div key={dec.key} className={slot(styles.diamond)} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
                         data-mark={dec.key} data-plan-frac={x.toFixed(4)} style={{ left: `${x * 100}%` }} tabIndex={-1}
                         role="button" aria-label={decisionName(dec, scale, words)}
                         // Selects its row like every other element — Enter on
@@ -244,7 +249,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                             e.stopPropagation();
                             dispatch({ t: "row.select", key: rowKey });
                             onElementClick?.(ref);
-                        }} cursor="pointer" />
+                        }} />
                 );
             })}
         </>

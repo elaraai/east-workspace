@@ -36,7 +36,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 
 /** The slots this part styles. */
 export const cellsSlots = [
-    "heatCell", "heatLabel", "bandCounts", "weightBar", "segmentTrack", "segmentPart", "cellsMeasure", "cell", "cellTiles",
+    "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellsMeasure", "cell", "cellTiles",
     "tile", "tileLabel", "tileMore", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
@@ -70,84 +70,72 @@ const PLAN_CHIP_LINE = "calc(var(--plan-chip-h) - 4px)";
  */
 const LONE_MARK_HALO = coarseHitArea({ pseudo: "_after" }) as { readonly _coarse: SystemStyleObject };
 
-/**
- * A heat cell — a heat row's, and a group band's count (`bandCounts`, #1716). A size container (#1638), as a bucket's
- * cell is: its value's line is the cell's own height (`100cqh`), whatever its row's.
- */
-const HEAT_CELL: SystemStyleObject = {
-    position: "absolute",
-    containerType: "size",
-    top: "var(--plan-heat-inset-h)",
-    bottom: "var(--plan-heat-inset-h)",
-    borderRadius: "2px",
-    minHeight: "var(--plan-heat-cell-min-h)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    // Its value whole, or not drawn (#1269).
-    ...wholeOrNone,
-    zIndex: 2,
-    // No-data: 45° hatch + the em-dash (content set by the renderer).
-    "&[data-nodata]": { backgroundImage: NO_DATA_HATCH },
-    "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
-    // The cell's step on the design system's heat ramp (#949) — five
-    // steps, `--heat-1` … `--heat-5`, in each theme; `heatLabel` inks the
-    // value to match. A level counts from 0, a step from 1.
-    "&[data-level='0']": { background: "heat.1" },
-    "&[data-level='1']": { background: "heat.2" },
-    "&[data-level='2']": { background: "heat.3" },
-    "&[data-level='3']": { background: "heat.4" },
-    "&[data-level='4']": { background: "heat.5" },
-    // ── R2 VALUE → TONE STRIP — the reference case (#591) ──
-    // A heat row IS the tone strip that chart and table collapse INTO,
-    // so there is nothing to convert: drop the 3px inset and centre a
-    // 7px band. The colour ramp — the whole information — survives.
-    "&[data-ctx]": {
-        top: "50%",
-        bottom: "auto",
-        transform: "translateY(-50%)",
-        height: "var(--plan-strip-mark-h)",
-        minHeight: 0,
-        borderRadius: "1px",
-        transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
-        "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-    },
-    ...planElementFocus,
-};
-
-/**
- * A heat value (#949) — 10.5px, in the ink the design system pairs with its cell's step: `--ink` on steps 1–3,
- * `--paper` on 4–5 (charts.md › Sequential ramp), at least 4.5:1 on that step in both themes. Its line is its cell's
- * own height (#1638). A cell is its row less 3px above and below, and a row draws a rule on the canvas and none in a
- * phone's card: 25px in a canvas row, 26px in a card, 18px in a group's strip there. No one line is centred at a whole
- * pixel in all three — the theme's 15.75px in none — and a line the cell's height has nothing to centre.
- */
-const HEAT_LABEL: SystemStyleObject = {
-    fontFamily: "mono",
-    fontSize: "10.5px",
-    lineHeight: "100cqh",
-    fontWeight: "semibold",
-    fontVariantNumeric: "tabular-nums",
-    whiteSpace: "nowrap",
-    "&[data-level='0'], &[data-level='1'], &[data-level='2']": { color: "fg" },
-    "&[data-level='3'], &[data-level='4']": { color: "bg.surface" },
-    // No data: the em-dash on the hatch, in the label ink.
-    "&:not([data-level])": { color: "fg.subtle" },
-    "&[data-ctx]": { display: "none" },
-};
-
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
     // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
-    heatCell: HEAT_CELL,
-    heatLabel: HEAT_LABEL,
-    // A group band's counts (#1716): its cells plain elements, each taking the heat cell's look by its
-    // `data-plan-band-count` and its number the heat value's by its `data-plan-label` — one style a band works out as it
-    // mounts, never two a cell: a screen of folded groups mounts a thousand of them (#1792).
-    bandCounts: {
-        "& > [data-plan-band-count]": HEAT_CELL,
-        "& > [data-plan-band-count] > [data-plan-label]": HEAT_LABEL,
+    // A size container (#1638), as a bucket's cell is: its value's line is the
+    // cell's own height (`100cqh`), whatever its row's.
+    heatCell: {
+        position: "absolute",
+        containerType: "size",
+        top: "var(--plan-heat-inset-h)",
+        bottom: "var(--plan-heat-inset-h)",
+        borderRadius: "2px",
+        minHeight: "var(--plan-heat-cell-min-h)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        // Its value whole, or not drawn (#1269).
+        ...wholeOrNone,
+        zIndex: 2,
+        // No-data: 45° hatch + the em-dash (content set by the renderer).
+        "&[data-nodata]": { backgroundImage: NO_DATA_HATCH },
+        "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
+        // The cell's step on the design system's heat ramp (#949) — five
+        // steps, `--heat-1` … `--heat-5`, in each theme; `heatLabel` inks the
+        // value to match. A level counts from 0, a step from 1.
+        "&[data-level='0']": { background: "heat.1" },
+        "&[data-level='1']": { background: "heat.2" },
+        "&[data-level='2']": { background: "heat.3" },
+        "&[data-level='3']": { background: "heat.4" },
+        "&[data-level='4']": { background: "heat.5" },
+        // ── R2 VALUE → TONE STRIP — the reference case (#591) ──
+        // A heat row IS the tone strip that chart and table collapse INTO,
+        // so there is nothing to convert: drop the 3px inset and centre a
+        // 7px band. The colour ramp — the whole information — survives.
+        "&[data-ctx]": {
+            top: "50%",
+            bottom: "auto",
+            transform: "translateY(-50%)",
+            height: "var(--plan-strip-mark-h)",
+            minHeight: 0,
+            borderRadius: "1px",
+            transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+        },
+        ...planElementFocus,
+    },
+    // A heat value (#949) — 10.5px, in the ink the design system pairs with
+    // its cell's step: `--ink` on steps 1–3, `--paper` on 4–5 (charts.md ›
+    // Sequential ramp), at least 4.5:1 on that step in both themes. Its line is
+    // its cell's own height (#1638). A cell is its row less 3px above and
+    // below, and a row draws a rule on the canvas and none in a phone's card:
+    // 25px in a canvas row, 26px in a card, 18px in a group's strip there. No
+    // one line is centred at a whole pixel in all three — the theme's 15.75px
+    // in none — and a line the cell's height has nothing to centre.
+    heatLabel: {
+        fontFamily: "mono",
+        fontSize: "10.5px",
+        lineHeight: "100cqh",
+        fontWeight: "semibold",
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+        "&[data-level='0'], &[data-level='1'], &[data-level='2']": { color: "fg" },
+        "&[data-level='3'], &[data-level='4']": { color: "bg.surface" },
+        // No data: the em-dash on the hatch, in the label ink.
+        "&:not([data-level])": { color: "fg.subtle" },
+        "&[data-ctx]": { display: "none" },
     },
     // The Matrix `.wbar`: a single left-anchored bar (no track) at the
     // span-bar height; planned buckets render pale.
@@ -304,6 +292,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "& [data-plan-done]": { color: "{colors.status.pos}" },
         // Stretched down (#1735): its lane's room, 2px inside its rules.
         "&[data-stretch]": { top: "2px", height: "calc(100% - 4px)" },
+        // Where its author stands its parts across (`data-justify`), at the tile's own weight: in place of the start.
+        "&:where([data-justify='start'])": { justifyContent: "start" },
+        "&:where([data-justify='center'])": { justifyContent: "center" },
+        "&:where([data-justify='end'])": { justifyContent: "end" },
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
         // Its status (#1541, U8): its tone's ring, and the open ring a tentative one draws as. A confirmed tile

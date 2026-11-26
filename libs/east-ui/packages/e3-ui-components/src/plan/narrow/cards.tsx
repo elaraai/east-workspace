@@ -5,15 +5,16 @@
 
 /**
  * One data row as a narrow card — the gutter identity as its head, the kind
- * plot as its body (split out of `narrow/index.tsx`, #815).
+ * plot as its body (split out of `narrow/index.tsx`, #815). Its parts are
+ * plain elements of their slots' classes, made once a theme (`useSlotClass`,
+ * #1780), as a canvas row's are.
  *
  * @packageDocumentation
  */
 
 import { memo, useMemo, type ComponentProps } from "react";
-import { Box } from "@chakra-ui/react";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
-import { LoadingRowBar } from "@elaraai/east-ui-components/internal";
+import { LoadingRowBar, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
@@ -93,6 +94,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const v = useMemo(() => ({ row, depth: 0, collapsed: false }), [row]);
     const isChart = row.kind.type === "chart";
     const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
@@ -114,7 +116,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     const drawsLegend = legend !== undefined && legend.entries.length > 0 && diagnostic === undefined && h >= CHART_TALL_PX;
     const meta = gutter.meta.type === "some" && !drawsLegend ? gutter.meta.value : undefined;
     return (
-        <Box ref={watch} css={styles.narrowCard} data-plan-card={row.key}
+        <div ref={watch} className={slot(styles.narrowCard)} data-plan-card={row.key}
             data-selected={selected ? "" : undefined}
             data-expanded={drill !== undefined ? "" : undefined}
             // A drafted row (#880) — the canvas row's marks.
@@ -127,26 +129,27 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 ? { t: "focus.expand", key: row.key }
                 : { t: "row.select", key: row.key })}
         >
-            <Box css={styles.narrowCardHead}>
-                <Box css={styles.narrowCardTitle} data-id={isId ? "" : undefined}>{gutter.label}</Box>
-                {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                    {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
+            <div className={slot(styles.narrowCardHead)}>
+                <div className={slot(styles.narrowCardTitle)} data-id={isId ? "" : undefined}>{gutter.label}</div>
+                {meta !== undefined && <span className={slot(styles.gutterMeta)}>{meta}</span>}
+                <div className={slot(styles.narrowCardEnd)}>
+                    {value !== undefined && <span className={slot(styles.gutterValue)}>{value}</span>}
                     {/* The dot's colour IS the status — its name says it, as the canvas row's does (#819). */}
-                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                    {statusTone !== undefined && <span className={slot(styles.statusDot)} data-tone={statusTone}
                         role="img" aria-label={statusText(statusTone, words)} />}
-                </Box>
-            </Box>
-            {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
+                </div>
+            </div>
+            {sub !== undefined && <div className={slot(styles.narrowCardSub)}>{sub}</div>}
             {drawsLegend && <ChartCardLegend legend={legend} styles={styles} />}
             {drill !== undefined && drill.gutter !== null && (
-                <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
+                // Inset under the head by the card (`narrowCard`).
+                <div className={slot(styles.expandGutterBody)} data-plan-expandgutter>
                     <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={drill.gutter} styles={styles}>
                         <EastChakraComponent value={drill.gutter} storageKey={`${storageKey}.${row.key}.expandgutter`} />
                     </PlanPartBoundary>
-                </Box>
+                </div>
             )}
-            <Box css={styles.narrowCardBody} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
+            <div className={slot(styles.narrowCardBody)} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
                 aria-busy={unread ? true : undefined} data-plan-unread={unread ? "" : undefined}>
                 {/* Under everything the body draws after it, as in the canvas's row's plot (#1398, CL2; #1764). */}
                 {unread && <LoadingRowBar />}
@@ -162,14 +165,14 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                     </PlanPartBoundary>
                 )}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline />}
-            </Box>
+            </div>
             {drill !== undefined && (
-                <Box css={styles.narrowRender} data-plan-expandrender style={{ height: `${renderPx}px` }}>
+                <div className={slot(styles.narrowRender)} data-plan-expandrender style={{ height: `${renderPx}px` }}>
                     <PlanPartBoundary part={{ kind: "expandRender" }} resetKey={drill.body} styles={styles}>
                         <EastChakraComponent value={drill.body} storageKey={`${storageKey}.${row.key}.expand`} />
                     </PlanPartBoundary>
-                </Box>
+                </div>
             )}
-        </Box>
+        </div>
     );
 }, sameCard);

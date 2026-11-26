@@ -22,16 +22,16 @@
  * columns nor takes them off the band.
  *
  * A treegrid row (#819) at its level, expanded or not, its name the
- * `rowheader`.
+ * `rowheader`. Every part is a plain element of its slot's class, made once a
+ * theme (`useSlotClass`, #1780): a band mounting works no style out.
  */
 
 import { memo, useState, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
-import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { PlaceholderShape, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { timeInstant } from "../instant.js";
@@ -79,11 +79,12 @@ export function groupStrip(kind: GroupKindValue, derived: HeatCellsValue | undef
  */
 export function BandPlot({ styles, children }: { styles: Styles; children?: ReactNode }) {
     const scale = usePlanScale();
+    const slot = useSlotClass();
     return (
-        <Box css={styles.plot} role="gridcell" data-plan-band-plot>
+        <div className={slot(styles.plot)} role="gridcell" data-plan-band-plot>
             {children}
             {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
-        </Box>
+        </div>
     );
 }
 
@@ -93,14 +94,16 @@ export function BandPlot({ styles, children }: { styles: Styles; children?: Reac
  * among them and the records not counted — are its name, which the canvas's one tooltip says on a hover. The cells are
  * part of the band: a click on one toggles it, as on the rest of it. They are drawn on the columns given — those their
  * counts were read for — and drawn again only as the counts or those columns move: a zoom draws none of them again.
- * They are plain elements, whose looks the element round them gives them by their data attributes (`bandCounts`): a
- * screen of folded groups mounts a thousand of them, and none works a style out as it mounts (#1792).
+ * Each is a plain element of the heat cell's class, its number the heat value's, made once a theme (#1780): a screen of
+ * folded groups mounts a thousand of them, and none works a style out as it mounts (#1792).
  *
  * @param props.counts - The band's counts
  * @param props.scale - The columns they were read for
+ * @param props.styles - The Plan's slot styles
  */
-const BandCounts = memo(function BandCounts({ counts, scale }: { counts: PlanBandCounts; scale: PlanScale }) {
+const BandCounts = memo(function BandCounts({ counts, scale, styles }: { counts: PlanBandCounts; scale: PlanScale; styles: Styles }) {
     const words = usePlanWords();
+    const slot = useSlotClass();
     const notCounted = counts.uncounted.map((one) => words.m.bandNotCounted({ names: one.names, why: one.why, fields: one.fields }));
     return (
         <>
@@ -113,10 +116,10 @@ const BandCounts = memo(function BandCounts({ counts, scale }: { counts: PlanBan
                     shares: column.shares.map((share) => ({ names: share.names, count: words.number(share.count) })), hidden: counts.hidden,
                 });
                 return (
-                    <div key={column.at.getTime()} data-plan-bucket={box.index} data-plan-band-count={i} data-level={level}
+                    <div key={column.at.getTime()} className={slot(styles.heatCell)} data-plan-bucket={box.index} data-plan-band-count={i} data-level={level}
                         role="img" aria-label={[said, ...notCounted].join(". ")}
                         style={{ left: `calc(${box.x0 * 100}% + 1.5px)`, width: `calc(${(box.x1 - box.x0) * 100}% - 3px)` }}>
-                        <span data-level={level} data-plan-label="" aria-hidden="true">{words.number(column.total)}</span>
+                        <span className={slot(styles.heatLabel)} data-level={level} data-plan-label="" aria-hidden="true">{words.number(column.total)}</span>
                     </div>
                 );
             })}
@@ -161,6 +164,7 @@ export interface GroupRowProps {
 export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid, groupEnd }: GroupRowProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     // A declared meta line wins; otherwise the derived member count stands in — a short bar while it covers only the
     // windows that have landed, never a count the read has not finished (#1398, CL13).
     const meta = row.gutter.meta.type === "some"
@@ -188,9 +192,9 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
     }
 
     return (
-        <Box
+        <div
             ref={grid.ref}
-            css={styles.groupBand}
+            className={slot(styles.groupBand)}
             style={{ gridTemplateColumns: gridTemplate, height: `${height}px` }}
             role="row"
             aria-level={depth + 1}
@@ -208,19 +212,19 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
         >
             {/* The band's name is the rows' gutter grid, open or collapsed (#1749): its caret, its caption and meta in the
                 name's cell, its status and value in the value slot — where a row's stand at its level. */}
-            <Box css={styles.groupName} role="rowheader" style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
-                <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
+            <div className={slot(styles.groupName)} role="rowheader" style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
+                <span className={slot(styles.caret)} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
-                </Box>
-                <Box as="span" data-plan-gutter="title">
-                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{row.gutter.label}</Box>
-                    {meta !== undefined && <Box as="span" css={styles.groupMeta} data-plan-gutter="meta">{meta}</Box>}
-                </Box>
-                <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                </span>
+                <span data-plan-gutter="title">
+                    <span className={slot(styles.gutterLabel)} data-plan-gutter="label">{row.gutter.label}</span>
+                    {meta !== undefined && <span className={slot(styles.groupMeta)} data-plan-gutter="meta">{meta}</span>}
+                </span>
+                <span className={slot(styles.gutterSlot)} data-plan-gutter="slot">
                     <PlanStatusIcon tone={statusTone} styles={styles} />
-                    {value !== undefined && <Box as="span" css={styles.gutterValue} data-plan-gutter="value">{value}</Box>}
-                </Box>
-            </Box>
+                    {value !== undefined && <span className={slot(styles.gutterValue)} data-plan-gutter="value">{value}</span>}
+                </span>
+            </div>
             <BandPlot styles={styles}>
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
@@ -236,14 +240,13 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 {drawn !== undefined && (
                     <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={drawn.counts} styles={styles}>
                         <GridSeparators styles={styles} />
-                        {/* Hidden while they are another period's than the columns take: no hover and no reader hears them.
-                            Their looks are this element's, by their data attributes: one style a band (#1792). */}
-                        <Box css={styles.bandCounts} hidden={!fresh} data-plan-band-counts="">
-                            <BandCounts counts={drawn.counts} scale={drawn.scale} />
-                        </Box>
+                        {/* Hidden while they are another period's than the columns take: no hover and no reader hears them. */}
+                        <div hidden={!fresh} data-plan-band-counts="">
+                            <BandCounts counts={drawn.counts} scale={drawn.scale} styles={styles} />
+                        </div>
                     </PlanPartBoundary>
                 )}
             </BandPlot>
-        </Box>
+        </div>
     );
 }

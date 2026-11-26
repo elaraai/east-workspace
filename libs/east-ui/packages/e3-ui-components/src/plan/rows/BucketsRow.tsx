@@ -29,10 +29,15 @@
  * end to drag. An event kind's tile moves its event (#1196), and wears the
  * brand tint in a brand border while its drafts change it (`data-draft`). A
  * locked tile (#1541, U9) leads with a lock and takes no move.
+ *
+ * Every part is a plain element of its slot's class, made once a theme
+ * (`useSlotClass`, #1780): a tile mounting works no style out. Where its author
+ * stands a tile's parts across is the recipe's (`data-justify`); its author's
+ * colour is the tile's own style, over every look the recipe gives it.
  */
 
-import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Box, useChakraContext } from "@chakra-ui/react";
+import { Fragment, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faLock, faTriangleExclamation,
@@ -42,7 +47,7 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { resolveColor } from "@elaraai/east-ui-components/internal";
+import { resolveColor, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanGeometry, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
@@ -109,6 +114,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded,
     const system = useChakraContext();
     const scale = usePlanScale();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const ref = variant("event", { row: rowId, event: ev.key }) as PlanElementRefValue;
     // An event's tile selects its event (#1197); any other tile, its row.
     const select = usePlanElementSelect(rowKey, ev.key, ref);
@@ -141,7 +147,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded,
         ? ev.content.value.horizontal.value.type : undefined;
     const color = ev.color.type === "some" ? ev.color.value : undefined;
     return (
-        <Box css={styles.tile}
+        <div className={slot(styles.tile)}
             data-event={ev.key}
             data-plan-frac={bucket.x0.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the row's Tab
@@ -153,8 +159,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded,
             data-state={stateKey}
             data-done={done ? "" : undefined}
             data-progress={progress ? "" : undefined}
-            // Its slot of its cell: computed geometry, the one style it is given.
-            style={place}
+            // Its slot of its cell — computed geometry — and its author's colour, a theme token or raw CSS, which the
+            // system says (#817): its own, over its state's look and every other the recipe's layer gives it.
+            style={color !== undefined ? { ...place, background: resolveColor(system, color) } : place}
             // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
             {...statusAttributes(getSomeorUndefined(ev.status))}
             data-overlap={overlap ? "" : undefined}
@@ -170,9 +177,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded,
             // A tile fills its slot across (#1735); stretched down, its lane's room, 2px inside its rules — never in a
             // strip, where it is the `tile[data-ctx]` 7px mark (#591).
             data-stretch={vFill && ctx !== true ? "" : undefined}
-            justifyContent={justify}
-            // A theme token or raw CSS — the system says which (#817).
-            background={color !== undefined ? resolveColor(system, color) : undefined}
+            data-justify={justify}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
@@ -185,16 +190,16 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded,
             {/* Done, the check is its icon (#1735): a quarter with no room for its label keeps it. */}
             {done ? <FontAwesomeIcon icon={faCheck} data-plan-icon="" data-plan-done="" />
                 : icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} data-plan-icon="" />}
-            {label !== undefined ? <Box as="span" css={styles.tileLabel} data-plan-label="">{label}</Box>
+            {label !== undefined ? <span className={slot(styles.tileLabel)} data-plan-label="">{label}</span>
                 : done || icon !== undefined ? null
                 : stateKey === "prop" ? (
                     <>
                         <FontAwesomeIcon icon={faGripVertical} data-plan-icon="" />
-                        <Box as="span" css={styles.tileLabel} data-plan-label="">{words.m.planChip()}</Box>
+                        <span className={slot(styles.tileLabel)} data-plan-label="">{words.m.planChip()}</span>
                     </>
                 )
                 : <FontAwesomeIcon icon={faCheck} data-plan-icon="" />}
-        </Box>
+        </div>
     );
 }
 
@@ -204,6 +209,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     const geometry = usePlanGeometry();
+    const slot = useSlotClass();
     const lanes = kind.lanes;
     const laneCount = Math.max(1, lanes.length);
     // The plot as laid out, before the browser paints (#1735): every cell's edge on one of its whole pixels.
@@ -315,16 +321,16 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
             };
         });
         return (
-            <Box as="span" key={`c${cellKey}`} display="contents">
+            <Fragment key={`c${cellKey}`}>
                 <BucketCell styles={styles} rowKey={rowKey} cellKey={cellKey}
                     place={{ ...cellX(b), ...laneY(li ?? 0, li === undefined ? laneCount : span) }}
                     over={marker !== undefined ? marker.status.type : undefined}
                     tiles={tiles}
                     marker={marker !== undefined ? (
-                        <Box css={styles.markerIcon} data-status={marker.status.type}
+                        <div className={slot(styles.markerIcon)} data-status={marker.status.type}
                             data-marker={cellKey} role="img" aria-label={marker.message}>
                             <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
-                        </Box>
+                        </div>
                     ) : null}
                     // A context strip's tiles are marks with no text: they never fold. Any other cell's tiles stand
                     // in its slots, and fold where it has none for them — a lone tile too, where it has no room (#1276).
@@ -334,7 +340,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                     pitch={size === undefined ? undefined : dayRoom(b.x0, b.x1, size.width).width + 1}
                     frac={b.x0} bucket={scale.bucketText(b)} lane={caption} words={words}
                     onClick={() => dispatch({ t: "row.select", key: rowKey })} />
-            </Box>
+            </Fragment>
         );
     };
 
@@ -345,7 +351,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     // grid, so a cell mounts only where content or a marker is — a lane's
     // caption is its gutter line's (#1680's review), never a cell's.
     const cells: ReactNode[] = [
-        <Box key="measure" ref={measureRef} css={styles.cellsMeasure} data-plan-cells-measure="" aria-hidden="true" />,
+        <div key="measure" ref={measureRef} className={slot(styles.cellsMeasure)} data-plan-cells-measure="" aria-hidden="true" />,
     ];
     const mountBucket = (b: PlanBucket) => {
         const bi = b.index;

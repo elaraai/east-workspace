@@ -10,14 +10,18 @@
  * controller (#815), so none of those pass through here: a selection click
  * renders the two rows it moved, and the canvas not at all.
  *
+ * The bands drawn here, as every row's parts, are plain elements of their
+ * slots' classes, made once a theme (`useSlotClass`, #1780).
+ *
  * @packageDocumentation
  */
 
 import type { ComponentProps, ReactNode } from "react";
-import { Box, VisuallyHidden } from "@chakra-ui/react";
+import { visuallyHiddenStyle } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { PlanBodyRow } from "../rows/BodyRow.js";
 import { BandPlot } from "../rows/GroupRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
@@ -161,15 +165,16 @@ export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
     /** Go to the parent's row. */
     onGo: () => void;
 }) {
+    const slot = useSlotClass();
     return (
-        <Box css={styles.stickyParent} style={{ gridTemplateColumns: gridTemplate }}
+        <div className={slot(styles.stickyParent)} style={{ gridTemplateColumns: gridTemplate }}
             data-plan-sticky={parent.key} aria-hidden="true" onClick={onGo}>
             {/* A heading across the whole row (#1680's review): its path, then its name. */}
-            <Box css={styles.groupName} data-across="">
-                {path.map((a) => <Box as="span" key={a.key} css={styles.stickyPath}>{a.gutter.label}</Box>)}
-                <Box as="span">{parent.gutter.label}</Box>
-            </Box>
-        </Box>
+            <div className={slot(styles.groupName)} data-across="">
+                {path.map((a) => <span key={a.key} className={slot(styles.stickyPath)}>{a.gutter.label}</span>)}
+                <span>{parent.gutter.label}</span>
+            </div>
+        </div>
     );
 }
 
@@ -190,6 +195,7 @@ export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
     dispatch: (e: PlanEvent) => void;
 }) {
     const words = usePlanWords();
+    const slot = useSlotClass();
     const itemKey = focusBandKey(band.role);
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -198,7 +204,7 @@ export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
     // The focused row's band holds the one row: it counts nothing. A role with no rows says so.
     const counted = band.role !== "focused" && band.count > 0;
     return (
-        <Box ref={grid.ref} css={styles.groupBand} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }}
+        <div ref={grid.ref} className={slot(styles.groupBand)} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }}
             role="row" aria-level={1} aria-expanded={others ? band.open : undefined}
             tabIndex={grid.tabIndex} onFocus={grid.onFocus}
             data-plan-item={itemKey}
@@ -210,23 +216,23 @@ export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
             {/* Its heading lies across the row whether the band is open or not, its plot in the row's first line under
                 it, so the band, folded, is never marked so: its caret says it, as `aria-expanded` does. At the first
                 level, the recipe's own padding. */}
-            <Box css={styles.groupName} role="rowheader" data-across="">
-                <Box as="span" css={styles.caret} data-collapsed={others && !band.open ? "" : undefined}>
+            <div className={slot(styles.groupName)} role="rowheader" data-across="">
+                <span className={slot(styles.caret)} data-collapsed={others && !band.open ? "" : undefined}>
                     {others && <FontAwesomeIcon icon={faCaretDown} />}
-                </Box>
-                <Box as="span" data-plan-gutter="title">
-                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{caption}</Box>
+                </span>
+                <span data-plan-gutter="title">
+                    <span className={slot(styles.gutterLabel)} data-plan-gutter="label">{caption}</span>
                     {counted ? (
                         <>
-                            <Box as="span" css={styles.groupMeta} data-plan-gutter="meta" aria-hidden="true">{words.number(band.count)}</Box>
-                            <VisuallyHidden>{words.m.groupMeta({ n: band.count, count: words.number(band.count) })}</VisuallyHidden>
+                            <span className={slot(styles.groupMeta)} data-plan-gutter="meta" aria-hidden="true">{words.number(band.count)}</span>
+                            <span className={slot(visuallyHiddenStyle)}>{words.m.groupMeta({ n: band.count, count: words.number(band.count) })}</span>
                         </>
-                    ) : band.count === 0 && <Box as="span" css={styles.focusNone} data-plan-focusnone>{words.m.focusNone()}</Box>}
-                </Box>
-                <Box as="span" />
-            </Box>
+                    ) : band.count === 0 && <span className={slot(styles.focusNone)} data-plan-focusnone>{words.m.focusNone()}</span>}
+                </span>
+                <span />
+            </div>
             <BandPlot styles={styles} />
-        </Box>
+        </div>
     );
 }
 
@@ -242,11 +248,12 @@ export function PlanLaneBandRow({ band, h, styles, gridTemplate }: {
     styles: Styles;
     gridTemplate: string;
 }) {
+    const slot = useSlotClass();
     return (
-        <Box css={styles.laneBand} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }} aria-hidden="true"
+        <div className={slot(styles.laneBand)} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }} aria-hidden="true"
             data-plan-lanes={band.rule} data-plan-h={h}>
-            <Box data-plan-lane-gutter />
+            <div data-plan-lane-gutter />
             <BandPlot styles={styles} />
-        </Box>
+        </div>
     );
 }

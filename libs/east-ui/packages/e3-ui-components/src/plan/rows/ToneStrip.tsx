@@ -23,10 +23,15 @@
  * Luminance is colour alone, so every block also carries its value as
  * visually hidden text (#819).
  *
+ * Each block, and its hidden words, a plain element of its class — its slot's,
+ * and Chakra's own visually hidden text's — made once a theme (`useSlotClass`,
+ * #1780).
+ *
  * @packageDocumentation
  */
 
-import { Box, VisuallyHidden } from "@chakra-ui/react";
+import { visuallyHiddenStyle } from "@chakra-ui/react";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import { maxOf, minOf } from "../reductions.js";
@@ -77,6 +82,7 @@ export interface ToneStripProps {
 export function ToneStrip({ data, styles }: ToneStripProps) {
     const scale = usePlanScale();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const nums = data.filter((d) => d.value !== undefined).map((d) => d.value as number);
     const min = nums.length > 0 ? minOf(nums) : 0;
     const max = nums.length > 0 ? maxOf(nums) : 0;
@@ -94,17 +100,17 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                 // no-data — which is a different fact with its own hatch.
                 const depth = nodata || span <= 0 ? 0.5 : 0.18 + 0.82 * ((d.value as number) - min) / span;
                 return (
-                    <Box
+                    <div
                         key={i}
-                        css={styles.toneCell}
+                        className={slot(styles.toneCell)}
                         data-tone={d.tone}
                         data-nodata={nodata ? "" : undefined}
                         // The heat row's own steps (#949) — the recipe paints them.
                         data-level={d.tone === undefined && !nodata ? heatLevel(depth) : undefined}
                         style={{ left: `calc(${b.x0 * 100}% + 1px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 2px)` }}
                     >
-                        <VisuallyHidden>{cellName(scale, b, toneWords(d, words), words)}</VisuallyHidden>
-                    </Box>
+                        <span className={slot(visuallyHiddenStyle)}>{cellName(scale, b, toneWords(d, words), words)}</span>
+                    </div>
                 );
             })}
         </>

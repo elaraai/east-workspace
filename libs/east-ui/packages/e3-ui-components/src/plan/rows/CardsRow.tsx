@@ -15,16 +15,19 @@
  * itself or by an end — as a run bar does; an event kind's chip moves its
  * event (#1196), and wears the drafted look while its drafts change it. A
  * locked chip (#1541, U9) leads with a lock and takes no move.
+ *
+ * Every part is a plain element of its slot's class, made once a theme
+ * (`useSlotClass`, #1780): a chip mounting works no style out.
  */
 
 import { useMemo } from "react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
-import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
@@ -63,6 +66,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
 }) {
     const scale = usePlanScale();
     const words = usePlanWords();
+    const slot = useSlotClass();
     // A locked chip takes no move (#1541, U9).
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !chip.locked
         ? { rowKey, key: chip.key, label: chip.label, kind: "chip", span: { start: chip.from, end: chip.to }, items: move.items, resize: move.resize }
@@ -83,7 +87,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     const op = usePlanElementOp(chip.key);
     const optimised = drafted ? op : undefined;
     return (
-        <Box css={styles.cardChip}
+        <div className={slot(styles.cardChip)}
             data-ctx={ctx === true ? "" : undefined}
             data-chip={chip.key}
             // Its label hides sooner beside an icon (#1264).
@@ -115,22 +119,22 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             onClick={select.onClick}
         >
             {/* Its lock (#1541, U9), ahead of its icon and its label: whole, or not drawn. */}
-            {chip.locked && <Box as="span" css={styles.lock} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
+            {chip.locked && <span className={slot(styles.lock)} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></span>}
             {/* Its icon and its label, each drawn whole or not at all; a hidden or
                 ellipsized label is said by its hover (#1264). */}
             {icon !== undefined && (
-                <Box as="span" css={styles.cardChipIcon} data-plan-icon="">
+                <span className={slot(styles.cardChipIcon)} data-plan-icon="">
                     <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
-                </Box>
+                </span>
             )}
-            <Box as="span" css={styles.cardChipLabel} data-plan-label="">{chip.label}</Box>
+            <span className={slot(styles.cardChipLabel)} data-plan-label="">{chip.label}</span>
             {edges !== undefined && (
                 <>
-                    <Box css={styles.moveEdge} {...edges.start} />
-                    <Box css={styles.moveEdge} {...edges.end} />
+                    <div className={slot(styles.moveEdge)} {...edges.start} />
+                    <div className={slot(styles.moveEdge)} {...edges.end} />
                 </>
             )}
-        </Box>
+        </div>
     );
 }
 

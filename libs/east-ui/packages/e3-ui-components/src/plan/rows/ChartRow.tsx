@@ -60,13 +60,17 @@
  *
  * A chart is a shape, so to a reader it is an image named by its summary —
  * each data layer's min, max and last value, and its breaches (#819).
+ *
+ * Every part — the plot, its svgs, its labels, ticks, legend and readouts — is
+ * a plain element of its slot's class, made once a theme (`useSlotClass`,
+ * #1780): a chart row mounting works no style out.
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Box, chakra, Portal, useChakraContext, type SystemContext } from "@chakra-ui/react";
+import { Portal, useChakraContext, type SystemContext } from "@chakra-ui/react";
 import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
-import { curveFor, resolveColor } from "@elaraai/east-ui-components/internal";
+import { curveFor, resolveColor, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import { chartSummary } from "../a11y.js";
@@ -193,6 +197,7 @@ export interface ChartRowPlotProps {
 export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, railed }: ChartRowPlotProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const { scale, stacks, left: leftScale, right: rightScale } = useChartScales(kind, height);
     const ys = (side: ChartSide): ValueScale => (side === "right" ? rightScale : leftScale);
 
@@ -502,7 +507,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
     }
 
     return (
-        <Box ref={chartRef} position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
+        <div ref={chartRef} className={slot(styles.chartPlot)} role="img" aria-label={summary} data-plan-chart
             data-left-ticks={leftGlyphs > 0 ? "" : undefined}
             style={leftGlyphs > 0 ? ({ "--left-glyphs": leftGlyphs } as CSSProperties) : undefined}
             onClick={() => dispatch({ t: "row.select", key: rowKey })}
@@ -531,8 +536,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 const labelF = f0 < 0 && f1 > 0 ? 0 : f0;
                 const look = refLooks[li];
                 return (
-                    <Box key={`refband-${li}`}>
-                        <Box css={styles.chartRefBand}
+                    <div key={`refband-${li}`}>
+                        <div className={slot(styles.chartRefBand)}
                             style={{
                                 ...look?.style, left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`,
                                 ...(range.type === "some" ? { top: `${(top / height) * 100}%`, bottom: `${((height - bottom) / height) * 100}%` } : {}),
@@ -540,16 +545,16 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                             data-plan-mark="refband" data-ink={look?.ink}
                             data-plan-frac={f0.toFixed(4)} data-plan-frac-end={f1.toFixed(4)} />
                         {caption !== undefined && (
-                            <Box css={styles.refLabel} style={{ "--caption-at": `${labelF * 100}%`, top: `${top + 1}px` } as CSSProperties}
-                                data-plan-band-caption="">{caption}</Box>
+                            <div className={slot(styles.refLabel)} style={{ "--caption-at": `${labelF * 100}%`, top: `${top + 1}px` } as CSSProperties}
+                                data-plan-band-caption="">{caption}</div>
                         )}
-                    </Box>
+                    </div>
                 );
             })}
             {/* Every mark's colour, stroke and dash is the `chartMarks`
                 recipe's, selected by the mark's own attributes (#949) and
                 its layer's look (#1753). */}
-            <chakra.svg css={styles.chartMarks} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
+            <svg className={slot(styles.chartMarks)} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
                 <title>{summary}</title>
                 {/* A gridline a tick, under every mark — across the render bounds, so a pan reveals the rest — where the
                     row draws its grid (#1753). */}
@@ -562,11 +567,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                     <rect key={`breach-${i}`} x={r.x0 * VW} y={1} width={(r.x1 - r.x0) * VW} height={height - 2}
                         vectorEffect="non-scaling-stroke" rx={2} data-plan-mark="breach-rect" />
                 ))}
-            </chakra.svg>
+            </svg>
             {dotMarks.length > 0 && (
-                <chakra.svg css={styles.chartMarks} width="100%" height="100%" aria-hidden="true" data-plan-dots="">
+                <svg className={slot(styles.chartMarks)} width="100%" height="100%" aria-hidden="true" data-plan-dots="">
                     {dotMarks}
-                </chakra.svg>
+                </svg>
             )}
             {/* refLine / refDot mono labels (HTML, unstretched) — spark rows
                 are too shallow for them (the §1 mock shows bare ref rules);
@@ -574,16 +579,16 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
             {height >= CHART_TALL_PX && kind.layers.map((layer, li) => {
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 11));
-                    // In its line's colour, where it has one (#1753).
-                    return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px"
-                        style={{ ...refLooks[li]?.style, top: `${top}px` }} data-ink={refLooks[li]?.ink}>{layer.value.label.value}</Box>;
+                    // In its line's colour, where it has one (#1753); at the plot's right edge (`data-plan-line-caption`).
+                    return <div key={`reflabel-${li}`} className={slot(styles.refLabel)} data-plan-line-caption=""
+                        style={{ ...refLooks[li]?.style, top: `${top}px` }} data-ink={refLooks[li]?.ink}>{layer.value.label.value}</div>;
                 }
                 if (layer.type === "refDot" && layer.value.label.type === "some") {
                     const f = scale.fracOf(layer.value.t);
                     if (!(f > scale.renderMin && f < scale.renderMax)) return null;
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 6));
-                    return <Box key={`refdotlabel-${li}`} css={styles.refLabel}
-                        style={{ left: `calc(${f * 100}% + 5px)`, top: `${top}px` }}>{layer.value.label.value}</Box>;
+                    return <div key={`refdotlabel-${li}`} className={slot(styles.refLabel)}
+                        style={{ left: `calc(${f * 100}% + 5px)`, top: `${top}px` }}>{layer.value.label.value}</div>;
                 }
                 return null;
             })}
@@ -591,36 +596,36 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 own lines, as the left's numbers are: a shorter one reads its scale by its gridlines alone. Where the
                 Plan declares the rail, it reads them there instead (#1750). */}
             {!railed && height >= CHART_TALL_PX && ticks.map((t, i) => t.right === undefined ? null : (
-                <Box key={`rt-${i}`} css={styles.chartTickRight} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="">
+                <div key={`rt-${i}`} className={slot(styles.chartTickRight)} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="">
                     {t.right}
-                </Box>
+                </div>
             ))}
             {lines.length > 0 && (
-                <Box ref={readoutRef} css={styles.chartReadout} data-plan-readout>
+                <div ref={readoutRef} className={slot(styles.chartReadout)} data-plan-readout>
                     {lines.map((line, i) => (
-                        <Box key={i} as="span" css={styles.chartReadoutValue} data-kind={line.kind} data-plan-readout-value={i} />
+                        <span key={i} className={slot(styles.chartReadoutValue)} data-kind={line.kind} data-plan-readout-value={i} />
                     ))}
-                </Box>
+                </div>
             )}
             {lines.length > 0 && (
                 // The row under the pointer reads in full over the canvas, where no row's edge cuts it (#1753): the
                 // column's name, then a line a series — its stroke, its name, and what it reads. The plot's own name
                 // says its values to a reader (#819), so a reader skips it.
                 <Portal>
-                    <Box ref={tipRef} css={styles.chartTooltip} data-plan-tooltip={rowKey} aria-hidden="true">
-                        <Box as="span" css={styles.chartTooltipTitle} data-plan-tooltip-title="" />
+                    <div ref={tipRef} className={slot(styles.chartTooltip)} data-plan-tooltip={rowKey} aria-hidden="true">
+                        <span className={slot(styles.chartTooltipTitle)} data-plan-tooltip-title="" />
                         {lines.map((line, i) => (
                             <Fragment key={i}>
-                                <Box as="span" css={styles.chartLegendSwatch} data-kind={line.kind} data-plan-tooltip-swatch=""
+                                <span className={slot(styles.chartLegendSwatch)} data-kind={line.kind} data-plan-tooltip-swatch=""
                                     {...markLook(line.ink, undefined, system)} />
-                                <Box as="span" css={styles.chartLegendName} data-plan-tooltip-name="">{line.name}</Box>
-                                <Box as="span" css={styles.chartTooltipValue} data-plan-tooltip-value={i} />
+                                <span className={slot(styles.chartLegendName)} data-plan-tooltip-name="">{line.name}</span>
+                                <span className={slot(styles.chartTooltipValue)} data-plan-tooltip-value={i} />
                             </Fragment>
                         ))}
-                    </Box>
+                    </div>
                 </Portal>
             )}
-        </Box>
+        </div>
     );
 }
 
@@ -662,20 +667,21 @@ export function ChartGutterTicks({ kind, styles, height, banded, taken, controls
 }) {
     const ticks = useChartTicks(kind, height);
     const geometry = usePlanGeometry();
+    const slot = useSlotClass();
     const firstLine = geometry.row - geometry.rule;
     const labels = ticks.filter((t) => t.left !== undefined && !(taken && t.y - TICK_HALF < firstLine));
     if (height < CHART_TALL_PX || labels.length === 0) return null;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these.
     return (
-        <Box css={styles.gutterAxis} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
+        <div className={slot(styles.gutterAxis)} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
             {labels.map((t, i) => (
-                <Box key={i} css={styles.chartTickGutter} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tickpx={t.y}
+                <div key={i} className={slot(styles.chartTickGutter)} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tickpx={t.y}
                     data-under-controls={controls && t.y - TICK_HALF < firstLine ? "" : undefined}>
                     {t.left}
-                </Box>
+                </div>
             ))}
-        </Box>
+        </div>
     );
 }
 
@@ -704,17 +710,18 @@ export function ChartRailTicks({ kind, styles, height, banded }: {
     banded: boolean;
 }) {
     const ticks = useChartTicks(kind, height).filter((t) => t.right !== undefined);
+    const slot = useSlotClass();
     if (height < CHART_TALL_PX || ticks.length === 0) return null;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these.
     return (
-        <Box css={styles.railAxis} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
+        <div className={slot(styles.railAxis)} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
             {ticks.map((t, i) => (
-                <Box key={i} css={styles.chartTickRail} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="" data-plan-rail-tick="">
+                <div key={i} className={slot(styles.chartTickRail)} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="" data-plan-rail-tick="">
                     {t.right}
-                </Box>
+                </div>
             ))}
-        </Box>
+        </div>
     );
 }
 
@@ -748,24 +755,25 @@ export function ChartGutterLegend({ legend, shown, more, styles, top, leaf }: {
 }) {
     const words = usePlanWords();
     const system = useChakraContext();
+    const slot = useSlotClass();
     return (
-        <Box css={styles.chartLegend} style={{ top: `${top}px` }} data-leaf={leaf ? "" : undefined}
+        <div className={slot(styles.chartLegend)} style={{ top: `${top}px` }} data-leaf={leaf ? "" : undefined}
             data-plan-legend="" aria-hidden="true">
             {legend.entries.slice(0, shown).map((entry) => (
-                <Box key={entry.name} css={styles.chartLegendItem} data-plan-legend-item="">
-                    <Box as="span" css={styles.chartLegendSwatch} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
-                    <Box as="span" css={styles.chartLegendName}>{words.m.chartSeries({ name: entry.name, unit: entry.unit })}</Box>
-                    {legend.bothAxes && <Box as="span" css={styles.chartLegendAxis}>{words.m.chartAxisSide({ side: entry.side })}</Box>}
-                </Box>
+                <div key={entry.name} className={slot(styles.chartLegendItem)} data-plan-legend-item="">
+                    <span className={slot(styles.chartLegendSwatch)} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
+                    <span className={slot(styles.chartLegendName)}>{words.m.chartSeries({ name: entry.name, unit: entry.unit })}</span>
+                    {legend.bothAxes && <span className={slot(styles.chartLegendAxis)}>{words.m.chartAxisSide({ side: entry.side })}</span>}
+                </div>
             ))}
             {more > 0 && (
-                <Box css={styles.chartLegendItem} data-plan-legend-item="" data-plan-legend-more="">
-                    <Box as="span" css={styles.chartLegendName}>
+                <div className={slot(styles.chartLegendItem)} data-plan-legend-item="" data-plan-legend-more="">
+                    <span className={slot(styles.chartLegendName)}>
                         {words.m.chartLegendMore({ n: more, count: words.number(more), every: shown === 0 })}
-                    </Box>
-                </Box>
+                    </span>
+                </div>
             )}
-        </Box>
+        </div>
     );
 }
 
@@ -779,15 +787,16 @@ export function ChartGutterLegend({ legend, shown, more, styles, top, leaf }: {
  */
 export function ChartCardLegend({ legend, styles }: { legend: ChartLegend; styles: Styles }) {
     const system = useChakraContext();
+    const slot = useSlotClass();
     return (
-        <Box css={styles.chartLegendCard} data-plan-legend="" aria-hidden="true">
+        <div className={slot(styles.chartLegendCard)} data-plan-legend="" aria-hidden="true">
             {legend.entries.map((entry) => (
-                <Box key={entry.name} css={styles.chartLegendItem} data-plan-legend-item="">
-                    <Box as="span" css={styles.chartLegendSwatch} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
-                    <Box as="span" css={styles.chartLegendName}>{entry.name}</Box>
-                </Box>
+                <div key={entry.name} className={slot(styles.chartLegendItem)} data-plan-legend-item="">
+                    <span className={slot(styles.chartLegendSwatch)} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
+                    <span className={slot(styles.chartLegendName)}>{entry.name}</span>
+                </div>
             ))}
-        </Box>
+        </div>
     );
 }
 
@@ -803,17 +812,18 @@ export function ChartCardLegend({ legend, styles }: { legend: ChartLegend; style
  */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const ticks = useChartTicks(kind, height).filter((t) => t.left !== undefined);
+    const slot = useSlotClass();
     if (height < CHART_TALL_PX || ticks.length === 0) return null;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these.
     return (
-        <Box css={styles.plotTicks} aria-hidden="true">
+        <div className={slot(styles.plotTicks)} aria-hidden="true">
             {ticks.map((t, i) => (
-                <Box key={i} css={styles.chartTickLeft} style={{ top: `${Math.max(TICK_HALF, Math.min(height - TICK_HALF, t.y))}px` }}
+                <div key={i} className={slot(styles.chartTickLeft)} style={{ top: `${Math.max(TICK_HALF, Math.min(height - TICK_HALF, t.y))}px` }}
                     data-plan-tickpx={t.y}>
                     {t.left}
-                </Box>
+                </div>
             ))}
-        </Box>
+        </div>
     );
 }

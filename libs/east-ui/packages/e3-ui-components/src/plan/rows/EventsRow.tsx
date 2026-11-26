@@ -26,16 +26,19 @@
  * kind's mark moves its event (#1196), and wears the brand tint's ring while
  * its drafts change it. A locked mark (#1541, U9) takes no move, and draws a
  * lock beside its glyph, where its label starts: the label then starts after it.
+ *
+ * Every part is a plain element of its slot's class, made once a theme
+ * (`useSlotClass`, #1780): a mark mounting works no style out.
  */
 
 import { useMemo } from "react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
-import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
@@ -79,6 +82,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
 }) {
     const scale = usePlanScale();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const ctxAttr = ctx === true ? "" : undefined;
     const frac = x.toFixed(4);
     const label = mark.label.type === "some" ? mark.label.value : undefined;
@@ -110,8 +114,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         "data-mark": mark.key, "data-plan-frac": frac, style: { left: `${x * 100}%` }, tabIndex: -1, onClick: select.onClick,
         // Its status (#1541): its glyph in its tone, and the open dot a tentative one draws as.
         ...statusAttributes(getSomeorUndefined(mark.status)),
-        // A mark that moves takes the recipe's grab cursor.
-        cursor: handle !== undefined ? undefined : "pointer",
+        // A mark that moves takes the recipe's grab cursor, by its handle's `data-draggable`; any other, its hand.
         ...handle,
         "data-dragging": carried ? "" : undefined,
         "data-locked": mark.locked ? "" : undefined,
@@ -134,22 +137,23 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     // and the host's icon returns on expand.
     if (icon !== undefined && ctx !== true) {
         return (
-            <Box css={styles.markIcon} data-kind={mark.kind.type} {...common}>
+            <div className={slot(styles.markIcon)} data-kind={mark.kind.type} {...common}>
                 <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
-            </Box>
+            </div>
         );
     }
     if (mark.kind.type === "decision") {
-        return <Box css={styles.diamond} data-ctx={ctxAttr} data-applied={mark.kind.value.applied ? "" : undefined} {...common} />;
+        return <div className={slot(styles.diamond)} data-ctx={ctxAttr} data-applied={mark.kind.value.applied ? "" : undefined} {...common} />;
     }
-    if (mark.kind.type === "exception") return <Box css={styles.exceptionTri} data-ctx={ctxAttr} {...common} />;
-    return <Box css={styles.milestoneDot} data-ctx={ctxAttr} {...common} />;
+    if (mark.kind.type === "exception") return <div className={slot(styles.exceptionTri)} data-ctx={ctxAttr} {...common} />;
+    return <div className={slot(styles.milestoneDot)} data-ctx={ctxAttr} {...common} />;
 }
 
 /** The event-row plot content — kind-glyph marks + labels. */
 export function EventsRow({ rowKey, rowId, kind, styles, ctx, move }: EventsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
+    const slot = useSlotClass();
     // Render-bounds cull (#619): overscan marks sit clipped at rest and slide in on a brush pan.
     const placed = kind.marks.flatMap((mark) => {
         const x = scale.fracOf(mark.at);
@@ -168,20 +172,21 @@ export function EventsRow({ rowKey, rowId, kind, styles, ctx, move }: EventsRowP
                 const until = next !== undefined && next < 1 ? next : 1;
                 const room = label !== undefined && x >= 0 && x < 1 ? `calc(${(until - x) * 100}% - ${start + (until < 1 ? MARK_LABEL_AT : 0)}px)` : undefined;
                 return (
-                    <Box as="span" key={mark.key} display="contents">
+                    // The mark, its lock and its label, as one: the group draws no box of its own.
+                    <span key={mark.key} className={slot(styles.markGroup)}>
                         <MarkGlyph mark={mark} x={x} rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
                         {/* Its lock (#1541, U9), where its label would start. */}
                         {mark.locked && (
-                            <Box css={styles.markLock} data-ctx={ctxAttr} data-plan-lock="" aria-hidden="true"
-                                style={{ left: `calc(${x * 100}% + ${MARK_LABEL_AT}px)` }}><FontAwesomeIcon icon={faLock} /></Box>
+                            <div className={slot(styles.markLock)} data-ctx={ctxAttr} data-plan-lock="" aria-hidden="true"
+                                style={{ left: `calc(${x * 100}% + ${MARK_LABEL_AT}px)` }}><FontAwesomeIcon icon={faLock} /></div>
                         )}
                         {room !== undefined && (
-                            <Box css={styles.markLabel} data-ctx={ctxAttr} data-mark={mark.key} aria-hidden="true"
+                            <div className={slot(styles.markLabel)} data-ctx={ctxAttr} data-mark={mark.key} aria-hidden="true"
                                 style={{ left: `calc(${x * 100}% + ${start}px)`, width: room }}>
-                                <Box as="span" css={styles.markLabelText}>{label}</Box>
-                            </Box>
+                                <span className={slot(styles.markLabelText)}>{label}</span>
+                            </div>
                         )}
-                    </Box>
+                    </span>
                 );
             })}
         </>

@@ -30,7 +30,8 @@
  * folded tile, `data-tile-more` on the chip, `data-tile-more-count` on its
  * count, and `data-no-room` on a chip a cell with no room for a tile draws
  * across itself, or on the tiles' box whose lone tile draws as a mark across
- * the cell. Its styles are the Plan recipe's.
+ * the cell. Its styles are the Plan recipe's, each part a plain element of its
+ * slot's class, made once a theme (`useSlotClass`, #1780).
  *
  * @packageDocumentation
  */
@@ -39,8 +40,8 @@ import {
     useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
-import { FrameMenuLayer } from "@elaraai/east-ui-components/internal";
+import { Menu as ChakraMenu } from "@chakra-ui/react";
+import { FrameMenuLayer, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanGeometry } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
 import { PLAN_CELL_INSET } from "../geometry.js";
@@ -122,6 +123,7 @@ function slotPlace(k: number, slot: number, px: { readonly left: number; readonl
 export function BucketCell(props: BucketCellProps) {
     const { styles, rowKey, cellKey, place, over, tiles, marker, folds, pitch, frac, bucket, lane, words, onClick } = props;
     const geometry = usePlanGeometry();
+    const slot = useSlotClass();
     const boxRef = useRef<HTMLDivElement | null>(null);
     const chipRef = useRef<HTMLButtonElement | null>(null);
 
@@ -192,18 +194,18 @@ export function BucketCell(props: BucketCellProps) {
     const stop = useCallback((e: MouseEvent) => e.stopPropagation(), []);
 
     return (
-        <Box css={styles.cell}
+        <div className={slot(styles.cell)}
             data-plan-cell={cellKey}
             data-over={over}
             style={place}
             onClick={onClick}
         >
-            <Box ref={boxRef} css={styles.cellTiles} data-plan-cell-tiles="" data-no-room={mark ? "" : undefined}>
+            <div ref={boxRef} className={slot(styles.cellTiles)} data-plan-cell-tiles="" data-no-room={mark ? "" : undefined}>
                 {tiles.map((tile, i) => (mark && i === 0 ? tile.draw(false, undefined) : tile.draw(!shown.has(i), shown.get(i))))}
                 {more !== undefined && (
                     <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={(detail) => pick(detail.value)}>
                         <ChakraMenu.Trigger asChild>
-                            <chakra.button ref={chipRef} type="button" css={styles.tileMore} data-tile-more=""
+                            <button ref={chipRef} type="button" className={slot(styles.tileMore)} data-tile-more=""
                                 data-no-room={noRoom ? "" : undefined}
                                 style={more.place}
                                 // In the row's walk where the tiles it folds would be (#819).
@@ -211,15 +213,15 @@ export function BucketCell(props: BucketCellProps) {
                                 aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane, every: folded.length === tiles.length })}
                                 onClick={stop}>
                                 <span data-tile-more-count=""><span data-plan-label="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span></span>
-                            </chakra.button>
+                            </button>
                         </ChakraMenu.Trigger>
                         <FrameMenuLayer label={bucket} data-tile-more-menu="">
                             {folded.map((tile) => <ChakraMenu.Item key={tile.key} value={tile.key}>{tile.name}</ChakraMenu.Item>)}
                         </FrameMenuLayer>
                     </ChakraMenu.Root>
                 )}
-            </Box>
+            </div>
             {marker}
-        </Box>
+        </div>
     );
 }

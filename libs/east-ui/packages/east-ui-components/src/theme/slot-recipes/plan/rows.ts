@@ -26,7 +26,7 @@ import { wholeOrNone } from "./whole-or-none.js";
 /** The slots this part styles. */
 export const rowsSlots = [
     "row", "gutterCell", "plot", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
-    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterAxis", "railCell", "railAxis",
+    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatches", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterAxis", "railCell", "railAxis",
     "gutterHandle", "caret",
     "statusIcon", "statusDot", "rowControls", "rowControl", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
@@ -155,6 +155,8 @@ export const rowsBase = {
     row: {
         display: "grid",
         position: "relative",
+        // A click on a row selects it, or — a strip — returns from the focus.
+        cursor: "pointer",
         // Inside the row's height — its plot cell is the row less this (#818).
         borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
@@ -432,6 +434,12 @@ export const rowsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
+    },
+    // A row's swatches, under its lines: each its colour and its words, in a line.
+    gutterSwatches: {
+        display: "flex",
+        gap: "7px",
+        marginTop: "1px",
     },
     gutterSwatch: {
         display: "inline-flex",

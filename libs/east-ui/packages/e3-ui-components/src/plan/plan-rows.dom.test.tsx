@@ -11,12 +11,13 @@
  * cells carry `data-nodata` / `data-warn` / `data-level`, bucket tiles wear
  * the same truth table with lanes / markers, table numerals their tones +
  * derived subtotals + row emphasis, cards chips the lifecycle looks, and
- * event rows their kind glyphs.
+ * event rows their kind glyphs. A row's parts draw by their slots' classes,
+ * made once for the Plan (#1780).
  *
  * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
@@ -751,5 +752,74 @@ describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", ()
         ], { axis: weekAxis }));
         expect(texts(container.querySelector(rowSel("fmt")), "[data-cell] > span")).toEqual(["42%"]);
         expect(texts(container.querySelector(rowSel("bare")), "[data-cell] > span")).toEqual([""]);
+    });
+});
+
+describe("a row's parts draw by their slots' classes, made once for the Plan (#1780)", () => {
+    test("the rows a group opens bring their bars, tiles, marks, chips and cells, and no part of them works its styles out: a slot's class is made once, the first time a row draws it", () => {
+        const weeks = Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(2026, 5, 29 + 7 * i)));
+        const confirmed = variant("confirmed", null);
+        const members = Array.from({ length: 8 }, (_, i) => planRow(`m${i}`, spanKind([
+            run(`a${i}`, weeks[0]!, weeks[2]!, variant("actual", null), { quantity: 10 + i, unit: "k sheets" }),
+            run(`b${i}`, weeks[3]!, weeks[5]!, confirmed, { quantity: 20 + i, unit: "k sheets" }),
+            run(`c${i}`, weeks[6]!, weeks[9]!, variant("proposed", variant("recommended", null))),
+        ]), { parent: "hall1", gutter: gutter(`M${i}`, { value: String(i), meta: "sheets" }) }));
+        const kinds = [
+            planRow("tiles", variant("buckets", {
+                lanes: [], markers: [],
+                events: weeks.map((at, i) => bucketEvent(`e${i}`, at, confirmed, { label: `T${i}` })),
+            }), { parent: "hall1" }),
+            planRow("load", variant("heat", {
+                cells: heatArm(weeks.map((at, i) => ({ at: t(at), value: some(8 * i), label: some(String(8 * i)) })), 0, 100),
+                aggregate: none, scale: none,
+            }), { parent: "hall1" }),
+            // Each mark in its week's middle, inside the window.
+            planRow("mile", variant("events", {
+                marks: weeks.map((_, i) => ({
+                    key: `k${i}`, at: t(new Date(Date.UTC(2026, 5, 32 + 7 * i))),
+                    kind: [variant("milestone", null), variant("decision", { applied: false }), variant("exception", null)][i % 3],
+                    status: none, icon: none, label: some(`K${i}`),
+                })),
+            }), { parent: "hall1" }),
+            planRow("dlv", tableKindOf(weeks.map((at) => tableCell(at, 10))), { parent: "hall1" }),
+            planRow("ops", variant("cards", {
+                chips: [0, 4, 8].map((w) => ({
+                    key: `c${w}`, from: t(weeks[w]!), to: t(weeks[w + 2]!), label: `CREW ${w}`, state: confirmed, status: none, icon: none,
+                })),
+            }), { parent: "hall1" }),
+        ];
+        const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
+        const { container } = renderPlan(planRoot([planRow("hall1", band, { collapsed: true }), ...members, ...kinds]), "plan-1780-classes");
+        expect(container.querySelector("[data-run]")).toBeNull();
+        // The parts a row draws, by their slots: the shell every row has, a span's bars, a bucket's cell and its tiles, a
+        // heat cell, an event's marks, a chip and a table's numerals.
+        const names = [
+            "row", "gutterCell", "plot", "gridSep", "gutterName", "gutterNameCell", "gutterLabel", "gutterSlot", "gutterValue", "gutterMeta",
+            "bar", "barLabel", "barQty", "cell", "cellTiles", "tile", "tileLabel", "heatCell", "heatLabel",
+            "markGroup", "milestoneDot", "diamond", "exceptionTri", "markLabel", "markLabelText",
+            "cardChip", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart",
+        ];
+        const slots = system.sva(structuredClone(system.getSlotRecipe("plan")))({}) as Record<string, unknown>;
+        expect(names.filter((name) => slots[name] === undefined)).toEqual([]);
+        const slotOf = new Map(names.map((name) => [JSON.stringify(slots[name]), name]));
+        // What Chakra's styled element asks of the system at every element it draws: its styles worked out, keyed by the
+        // whole style object printed.
+        const css = vi.spyOn(system, "css");
+        try {
+            fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
+            expect(container.querySelectorAll("[data-run]")).toHaveLength(24);
+            expect(["[data-event]", "[data-mark]", "[data-chip]", `${rowSel("load")} [data-cell]`, `${rowSel("dlv")} [data-cell]`]
+                .map((sel) => container.querySelectorAll(sel).length > 0)).toEqual([true, true, true, true, true]);
+            const asked = new Map<string, number>();
+            for (const styles of css.mock.calls) {
+                for (const name of styles.map((style) => slotOf.get(JSON.stringify(style))).filter((name): name is string => name !== undefined)) {
+                    asked.set(name, (asked.get(name) ?? 0) + 1);
+                }
+            }
+            // Made once, the first time a row draws it; never again a part.
+            expect([...asked].filter(([, times]) => times > 1).map(([name]) => name)).toEqual([]);
+        } finally {
+            css.mockRestore();
+        }
     });
 });

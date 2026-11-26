@@ -37,12 +37,15 @@
  * drawing its children's subtotals takes none, and a bucket folding several
  * values says, as its tooltip, the resolution they are at and the Plan's zoom
  * showing them apart, where it has one.
+ *
+ * Every part of a cell is a plain element of its slot's class, made once a
+ * theme (`useSlotClass`, #1780): a cell mounting works no style out.
  */
 
 import { useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { FloatType, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Box, Popover, Portal } from "@chakra-ui/react";
-import { frameBounds } from "@elaraai/east-ui-components/internal";
+import { Popover, Portal } from "@chakra-ui/react";
+import { frameBounds, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import type { TickFormatOpt } from "@elaraai/east-ui-components";
@@ -148,6 +151,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const { onElementClick } = usePlanResolvers();
     // Typing (#1436, #1438): never inside a context strip, and only while the canvas takes it.
     const edit = usePlanEdit();
@@ -306,7 +310,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     })();
     return (
         <>
-            <Box ref={measureRef} css={styles.tableCellMeasure} data-plan-measure="" aria-hidden="true" />
+            <div ref={measureRef} className={slot(styles.tableCellMeasure)} data-plan-measure="" aria-hidden="true" />
             {[...buckets.entries()].map(([bi, parts]) => {
                 const b = bucketByIndex.get(bi)!;
                 // The positions taking a number here, at the finest zoom: one value of their own in the bucket, or none.
@@ -338,7 +342,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                     ? printed.find((p) => p.held) : undefined;
                 const conflict = holdsConflict(b);
                 return (
-                    <Box key={bi} css={styles.tableCellText}
+                    <div key={bi} className={slot(styles.tableCellText)}
                         data-conflict={conflict ? "" : undefined}
                         ref={(el: HTMLElement | null) => { if (el !== null) cellEls.current.set(cell, el); else cellEls.current.delete(cell); }}
                         data-plan-bucket={bi}
@@ -388,17 +392,17 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             sight, and said by the cell's hover (#1269); never some of them. A cell holding a value its
                             column cannot draw draws a dot in their place, its numerals kept, hidden, for the hover
                             to say (#1438). */}
-                        <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
+                        <span className={slot(styles.tableCellGroup)} data-table-parts="" data-plan-label="">
                             {printed.map(({ text, tone, strong, si }, i) => (
-                                <Box key={i} as="span" css={styles.tableCellPart} data-part={si}
+                                <span key={i} className={slot(styles.tableCellPart)} data-part={si}
                                     data-tone={tone} data-strong={strong ? "" : undefined}>
                                     {text}
-                                </Box>
+                                </span>
                             ))}
-                        </Box>
-                        {dot !== undefined && <Box as="span" css={styles.tableCellDot} data-plan-cell-dot=""
+                        </span>
+                        {dot !== undefined && <span className={slot(styles.tableCellDot)} data-plan-cell-dot=""
                             data-tone={dot.tone} data-strong={dot.strong ? "" : undefined} />}
-                    </Box>
+                    </div>
                 );
             })}
             {input}

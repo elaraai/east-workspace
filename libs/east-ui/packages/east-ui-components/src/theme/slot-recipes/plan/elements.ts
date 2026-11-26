@@ -29,10 +29,10 @@ import { GUTTER_SLOT_W, PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartPlot", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
     "chartTickGutter", "chartTickRail", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
     "chartReadout", "chartReadoutValue", "chartTooltip", "chartTooltipTitle", "chartTooltipValue",
-    "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
+    "markGroup", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
 
@@ -52,6 +52,9 @@ export const planLabelAfterLock = {
 
 /** An element that moves (#825) is picked up where it sits. */
 const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
+
+/** A mark is a click target — it selects its event or its row — under the pointer's hand; one that moves, the grab ({@link grab}). */
+const clickable = { cursor: "pointer" } satisfies SystemStyleObject;
 
 /** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
  * the label: removing only the label promotes a clipped quantity into its line. */
@@ -295,6 +298,7 @@ export const elementsBase = {
         top: "50%",
         borderRadius: "1px",
         background: "bg.surface",
+        ...clickable,
         // Its edge and an applied one's fill are one colour: the brand, or its status's tone (#1541).
         "--diamond-edge": "{colors.brand.solid}",
         boxShadow: `${DIAMOND_EDGE}, 0 0 0 2px {colors.bg.surface}`,
@@ -325,6 +329,12 @@ export const elementsBase = {
         "&:is([data-conflict], [data-bounds])": { boxShadow: `${DIAMOND_EDGE}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
+    // A chart row's plot: the plot cell whole, which its marks, its bands, its
+    // labels and its readout stand in.
+    chartPlot: {
+        position: "absolute",
+        inset: 0,
+    },
     // A chart row's marks (#949): the svg fills the plot, and every mark's
     // fill, stroke and dash is this slot's, selected by the mark's own
     // attributes — a breach in warn, a forecast in a lighter mix of its own
@@ -530,6 +540,8 @@ export const elementsBase = {
             left: "var(--caption-at)",
             "[data-plan-cardbody] [data-left-ticks] &": { left: `max(var(--caption-at), calc(var(--left-glyphs) * 1ch + 2 * ${TICK_INSET}))` },
         },
+        // A reference line's caption stands at the plot's right edge, at the caption's own weight.
+        "&:where([data-plan-line-caption])": { right: "4px" },
     },
     // The crosshair readout (#743) of every chart row but the one under the
     // pointer, whose readout is the full one (`chartTooltip`, #1753): each
@@ -593,6 +605,12 @@ export const elementsBase = {
     // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
     // Each glyph's size is the canvas's (`--plan-mark-…`), so a link meets a
     // mark at the glyph's edges (#1258).
+    //
+    // A mark, its lock and its label, held as one: the group draws no box of
+    // its own, so each stands in the plot as it would alone.
+    markGroup: {
+        display: "contents",
+    },
     milestoneDot: {
         position: "absolute",
         width: "var(--plan-mark-dot-w)",
@@ -602,6 +620,7 @@ export const elementsBase = {
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
+        ...clickable,
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
@@ -645,6 +664,7 @@ export const elementsBase = {
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
+        ...clickable,
         // ── R3, the border-triangle case — a CSS triangle has no width or
         // height to shrink, so the borders that ARE its size are halved.
         "&[data-ctx]": {
@@ -678,6 +698,7 @@ export const elementsBase = {
         justifyContent: "center",
         color: "{colors.brand.solid}",
         zIndex: 3,
+        ...clickable,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
         // Its status (#1541, U8): the icon in the tone's colour, in its kind's place; a tentative one in the tone's
         // ring, round its box — a solid glyph has no open form — which a drafted halo, an overlap's ring and a

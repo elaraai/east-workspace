@@ -14,7 +14,7 @@
  * silent drop, and never a second row answering to one id.
  */
 
-import { Box } from "@chakra-ui/react";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import type { PlanRowDiagnostic } from "../model.js";
 import { usePlanWords, type PlanWords } from "../words.js";
 
@@ -49,12 +49,14 @@ export interface RowDiagnosticProps {
  */
 export function RowDiagnostic({ diagnostic, styles, ctx }: RowDiagnosticProps) {
     const words = usePlanWords();
+    // A plain element of its slot's class, made once a theme (#1780), as every part of a row is.
+    const slot = useSlotClass();
     return (
-        <Box css={styles.rowDiagnostic}
+        <div className={slot(styles.rowDiagnostic)}
             // The axis kind the row's instants ride, or `duplicate`.
             data-plan-diagnostic={diagnostic.kind === "axis" ? diagnostic.found : "duplicate"}
             data-ctx={ctx === true ? "" : undefined}>
             {diagnosticText(diagnostic, words)}
-        </Box>
+        </div>
     );
 }

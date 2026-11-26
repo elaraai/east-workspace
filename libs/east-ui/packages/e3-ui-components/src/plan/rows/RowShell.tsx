@@ -21,7 +21,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { variant } from "@elaraai/east";
-import { Box, useChakraContext } from "@chakra-ui/react";
+import { useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import {
@@ -36,7 +36,7 @@ import { usePlanEdit, type PlanProposal } from "../edit/store.js";
 import { holdsKey, movedCandidate } from "../edit/use-carry.js";
 import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
-import { LoadingRowBar, resolveColor } from "@elaraai/east-ui-components/internal";
+import { LoadingRowBar, resolveColor, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -86,12 +86,14 @@ const NO_LANES: readonly { readonly key: string }[] = [];
  * same room — over a buckets row's lane rules, drawn first so they lie under
  * the day rules. A 100-row × 500-bucket canvas is 100 SVGs, never 50,000
  * lines. Laid out before the browser paints; where nothing lays it out
- * (jsdom), it draws no line.
+ * (jsdom), it draws no line. A plain element of its slot's class, made once
+ * a theme (#1780).
  *
  * @param props.lanes - A buckets row's lanes, whose rules it draws under the day rules; none for any other row
  */
 export function GridSeparators({ styles, lanes = 0 }: { styles: Styles; lanes?: number }) {
     const scale = usePlanScale();
+    const slot = useSlotClass();
     const ref = useRef<HTMLDivElement | null>(null);
     const drawn = scale.buckets.length > 1 || lanes > 1;
     const size = useLaidOutSize(ref, drawn);
@@ -104,14 +106,14 @@ export function GridSeparators({ styles, lanes = 0 }: { styles: Styles; lanes?: 
         [lanes, width, height]);
     if (!drawn) return null;
     return (
-        <Box ref={ref} css={styles.gridSep} data-plan-axisline data-plan-gridsep>
+        <div ref={ref} className={slot(styles.gridSep)} data-plan-axisline data-plan-gridsep>
             {width !== undefined && height !== undefined && (
                 <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
                     {laneLines !== "" && <path d={laneLines} data-plan-lane-rules="" />}
                     {days !== "" && <path d={days} data-plan-day-rules="" />}
                 </svg>
             )}
-        </Box>
+        </div>
     );
 }
 
@@ -241,6 +243,9 @@ export function RowShell({
     const system = useChakraContext();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
+    // Every part of the row is a plain element of its slot's class, made once a theme (#1780): a row mounting works
+    // no style out.
+    const slot = useSlotClass();
     const gutter = row.gutter;
     // One flag, spread onto every slot that has a collapsed state. The slots
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
@@ -631,11 +636,11 @@ export function RowShell({
     // place whether the row has the other or not.
     const control = (kind: "links" | "expand"): ReactNode => {
         const c = controls?.find((one) => one.kind === kind);
-        if (c === undefined) return <Box as="span" />;
+        if (c === undefined) return <span />;
         return (
-            <Box
-                as="button"
-                css={styles.rowControl}
+            <button
+                type="button"
+                className={slot(styles.rowControl)}
                 tabIndex={-1}
                 data-plan-control={c.kind}
                 data-active={c.active ? "" : undefined}
@@ -644,35 +649,35 @@ export function RowShell({
                 onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
             >
                 <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
-            </Box>
+            </button>
         );
     };
     // The value slot's two parts. The status is its tone's icon, which its name says (#819); the value is always
     // there, whole or not drawn. A strip drops its value and shrinks its status, but for a pinned row a links focus
     // does not gather (`keep`).
     const statusCell = <PlanStatusIcon tone={statusTone} styles={styles} ctx={ctxAttr} keep={keepAttr} />;
-    const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-keep={keepAttr} data-plan-gutter="value">{value}</Box>;
+    const valueCell = <span className={slot(styles.gutterValue)} data-ctx={ctxAttr} data-keep={keepAttr} data-plan-gutter="value">{value}</span>;
     // Row controls (R1/R2), over the value slot of a row that has one — on its hover, focus and selection, and while
     // one of them is pressed: the focal row of an open focus (`data-focal`). Each is named by the canvas's tooltip
     // (`root/overlays.tsx`); a control click never selects or toggles the row. Out of the tab order: the row's Tab walk
     // reaches them (#819).
     const controlsCell = controls === undefined || controls.length === 0 ? null : (
-        <Box as="span" css={styles.rowControls} data-ctx={ctxAttr} data-plan-controls data-focal={controls.some((c) => c.active) ? "" : undefined}>
+        <span className={slot(styles.rowControls)} data-ctx={ctxAttr} data-plan-controls data-focal={controls.some((c) => c.active) ? "" : undefined}>
             {control("links")}{control("expand")}
-        </Box>
+        </span>
     );
     // A leaf folds nothing: no caret's cell, and its lines say so, for the grid without one.
     const leafAttr = caret === undefined ? "" : undefined;
     const caretCell = caret === undefined ? null : (
-        <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
+        <span className={slot(styles.caret)} data-collapsed={caret.collapsed ? "" : undefined}>
             <FontAwesomeIcon icon={faCaretDown} />
-        </Box>
+        </span>
     );
     const nameCell = (
-        <Box as="span" css={styles.gutterNameCell} data-plan-gutter="title">
-            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
-            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
-        </Box>
+        <span className={slot(styles.gutterNameCell)} data-plan-gutter="title">
+            <span className={slot(styles.gutterLabel)} data-plan-gutter="label">{gutter.label}</span>
+            {meta !== undefined && <span className={slot(styles.gutterMeta)} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</span>}
+        </span>
     );
     // A laned row (#1680's review): a gutter line per lane, the lane's height, its caption in the value slot — the
     // name's on the first, the sub on the second — in place of a caption in every cell.
@@ -685,9 +690,9 @@ export function RowShell({
         ? evenRoom(height - 1) : undefined;
 
     return (
-        <Box
+        <div
             ref={grid.ref}
-            css={styles.row}
+            className={slot(styles.row)}
             style={{ gridTemplateColumns: gridTemplate, height: `${height}px` }}
             role="row"
             aria-level={depth + 1}
@@ -716,10 +721,9 @@ export function RowShell({
             onClick={() => dispatch(ctx === true
                 ? { t: "focus.clear" }
                 : { t: "row.select", key: row.key })}
-            cursor="pointer"
         >
-            <Box
-                css={styles.gutterCell}
+            <div
+                className={slot(styles.gutterCell)}
                 role="rowheader"
                 data-expanded={expandedAttr}
                 // From the row's top (#1750): its name where a one-line row's stands, and with a sub line, both where a
@@ -734,58 +738,59 @@ export function RowShell({
                     // A lane's line, laid over the cell where its cells sit: the name's line first, with the row's
                     // status and its controls, the sub on the second, and each lane's caption in its value slot — the
                     // first's, where it has none, the row's value.
-                    <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
+                    <div key={i} className={slot(styles.gutterLane)} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
                         data-plan-even-room={rooms?.[i] === undefined ? undefined : evenRoom(rooms[i].room)}
                         style={{ left: `${12 + depth * INDENT_PX}px`, top: `${rooms?.[i]?.top ?? 0}px`, height: `${rooms?.[i]?.room ?? 0}px` }}>
-                        {i === 0 ? caretCell : caret !== undefined && <Box as="span" />}
+                        {i === 0 ? caretCell : caret !== undefined && <span />}
                         {i === 0 ? nameCell : (
-                            <Box as="span" css={styles.gutterNameCell}>
-                                {i === 1 && sub !== undefined && <Box as="span" css={styles.gutterMeta} data-plan-gutter="sub">{sub}</Box>}
-                            </Box>
+                            <span className={slot(styles.gutterNameCell)}>
+                                {i === 1 && sub !== undefined && <span className={slot(styles.gutterMeta)} data-plan-gutter="sub">{sub}</span>}
+                            </span>
                         )}
-                        <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                        <span className={slot(styles.gutterSlot)} data-plan-gutter="slot">
                             {i === 0 && statusCell}
                             {i === 0 && lane.caption === undefined ? valueCell
-                                : <Box as="span" css={styles.gutterLaneCaption} data-plan-lane={i}>{lane.caption}</Box>}
+                                : <span className={slot(styles.gutterLaneCaption)} data-plan-lane={i}>{lane.caption}</span>}
                             {i === 0 && controlsCell}
-                        </Box>
-                    </Box>
+                        </span>
+                    </div>
                 )) : (
                     <>
-                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name"
+                        <div className={slot(styles.gutterName)} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name"
                             data-plan-even-room={nameRoom}>
                             {caretCell}
                             {nameCell}
-                            <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                            <span className={slot(styles.gutterSlot)} data-plan-gutter="slot">
                                 {statusCell}
                                 {valueCell}
                                 {controlsCell}
-                            </Box>
-                        </Box>
-                        {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</Box>}
+                            </span>
+                        </div>
+                        {sub !== undefined && <div className={slot(styles.gutterSub)} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</div>}
                     </>
                 )}
                 {swatches.length > 0 && (
-                    <Box display="flex" gap="7px" marginTop="1px">
+                    <div className={slot(styles.gutterSwatches)}>
                         {swatches.map((s, i) => (
-                            <Box key={i} as="span" css={styles.gutterSwatch} data-ctx={ctxAttr}>
-                                <Box as="i" background={resolveColor(system, s.color)} />
+                            <span key={i} className={slot(styles.gutterSwatch)} data-ctx={ctxAttr}>
+                                {/* Its colour is the author's, a binding of the row's data. */}
+                                <i style={{ background: resolveColor(system, s.color) }} />
                                 {s.label}
-                            </Box>
+                            </span>
                         ))}
-                    </Box>
+                    </div>
                 )}
                 {/* R2 — the space the grown gutter opens up is the author's
                     (`expandGutter`), below the row's own identity lines. */}
                 {expandGutter !== undefined && (
-                    <Box css={styles.expandGutterBody} data-plan-expandgutter>{expandGutter}</Box>
+                    <div className={slot(styles.expandGutterBody)} data-plan-expandgutter>{expandGutter}</div>
                 )}
                 {gutterLegend}
                 {gutterAxis}
-            </Box>
-            <Box
+            </div>
+            <div
                 ref={plotRef}
-                css={styles.plot}
+                className={slot(styles.plot)}
                 role="gridcell"
                 // What a pressed element measures its grab against (#825).
                 data-plan-plot
@@ -827,33 +832,33 @@ export function RowShell({
                         lanes={row.kind.type === "buckets" && ctx !== true && !expanded ? row.kind.value.lanes.length : 0} />
                 )}
                 {drop !== undefined && (
-                    <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview>
+                    <div ref={previewRef} className={slot(styles.dropPreview)} data-plan-drop-preview>
                         {/* A moved element's span, where the band draws it (#825). */}
-                        <Box as="span" ref={previewTextRef} css={styles.dropPreviewText} data-plan-drop-preview-text />
-                    </Box>
+                        <span ref={previewTextRef} className={slot(styles.dropPreviewText)} data-plan-drop-preview-text />
+                    </div>
                 )}
                 {/* Expanded: the row's own marks hold a band at the top (they
                     position against it, so a 20px bar in a 200px row does not
                     drift to the middle), and the render takes the rest. */}
                 {expanded ? (
                     <>
-                        <Box css={styles.expandRowBand} style={{ height: `${band}px` }}>{children}</Box>
-                        <Box css={styles.expandRenderBody} data-plan-expandrender
+                        <div className={slot(styles.expandRowBand)} style={{ height: `${band}px` }}>{children}</div>
+                        <div className={slot(styles.expandRenderBody)} data-plan-expandrender
                             style={{ top: `${band + 2}px` }}>
                             {expandBody}
-                        </Box>
+                        </div>
                     </>
                 ) : children}
                 {/* The shared hairline — positioned by the body's ONE
                     `--plan-cursor-x` variable and shown only under
                     `[data-plan-cursor]` (#609): a pointermove writes a style,
                     renders nothing. Strips carry no hairline. */}
-                {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
+                {ctx !== true && <div className={slot(styles.cursorLine)} data-plan-cursorline />}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline data-plan-now />}
-            </Box>
+            </div>
             {/* The right axis's rail (#1750): its numbers, beside the plot they scale. The plot's own name says its
                 values to a reader (#819), so a reader skips the cell. */}
-            {railAxis !== undefined && <Box css={styles.railCell} data-plan-rail="" aria-hidden="true">{railAxis}</Box>}
-        </Box>
+            {railAxis !== undefined && <div className={slot(styles.railCell)} data-plan-rail="" aria-hidden="true">{railAxis}</div>}
+        </div>
     );
 }

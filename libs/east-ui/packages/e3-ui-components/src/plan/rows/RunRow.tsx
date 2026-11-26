@@ -31,8 +31,8 @@
  */
 
 import { useMemo } from "react";
-import { Box, type SystemStyleObject } from "@chakra-ui/react";
-import { UnloadedRun, loadingLineText, type RunCell, type RunFailure } from "@elaraai/east-ui-components/internal";
+import type { SystemStyleObject } from "@chakra-ui/react";
+import { UnloadedRun, loadingLineText, useSlotClass, type RunCell, type RunFailure } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { bandElements, type PlanBand, type PlanWindowFailure } from "../use-plan-paging.js";
 import { usePlanWords } from "../words.js";
@@ -73,6 +73,8 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
     const { m } = words;
     const scale = usePlanScale();
     const geometry = usePlanGeometry();
+    // The run's own box a plain element of its slot's class, made once a theme (#1780), as a row's is.
+    const slotClass = useSlotClass();
     const itemKey = band !== undefined ? bodyItemKey({ kind: "band", band }) : bodyItemKey({ kind: "failed", failure: failure! });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -101,9 +103,9 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the range is its two formatted ends
     }), [w, m, noun, range.from, range.to, onRetry]);
     return (
-        <Box
+        <div
             ref={grid.ref}
-            css={styles.runBand}
+            className={slotClass(styles.runBand)}
             role="row"
             aria-level={1}
             tabIndex={grid.tabIndex}
@@ -118,6 +120,6 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
             aria-busy={band?.loading !== undefined ? "true" : undefined}
         >
             <UnloadedRun height={px} pitch={pitch} columns={gridTemplate} cells={cells} first={from} rowCss={slot(styles, "runRow")} failed={failed} cell={RUN_CELL} />
-        </Box>
+        </div>
     );
 }
