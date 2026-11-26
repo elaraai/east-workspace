@@ -47,6 +47,15 @@
  * height-map idiom (CodeMirror, CSS `contain-intrinsic-size`) and it is what
  * makes it safe to evict aggressively.
  *
+ * # Pixels are read only through a rate that was measured or declared
+ *
+ * Until a window lands, an undeclared rate is a row's height, which says
+ * nothing of what an element draws: a group that nests its rows draws a hundred
+ * times it. A pixel offset read through it names an element far past the one it
+ * stands over, and a pixel reach counted in it spans many times the windows it
+ * means. So a caller asks first ({@link isRated}), and lets the view stand
+ * where it stood until a window has landed.
+ *
  * Pure arithmetic: no React, no East, no fetching.
  *
  * @packageDocumentation
@@ -244,6 +253,18 @@ export function reseed(ledger: WindowLedger, restPx: number): WindowLedger {
 /** Whether window `w` has ever been measured. */
 export function isObserved(ledger: WindowLedger, w: number): boolean {
     return ledger.measured.has(w);
+}
+
+/**
+ * Whether the slot rate is one to read pixels by: the collection's declared
+ * pitch, or what a window that landed drew. Before either it is only where the
+ * rate starts — a row's height — whatever an element of the source draws.
+ *
+ * @param ledger - The ledger
+ * @returns Whether a pixel offset names an element through it, and a pixel reach a count of its windows
+ */
+export function isRated(ledger: WindowLedger): boolean {
+    return ledger.declared || ledger.seed !== undefined;
 }
 
 /** The document height. */

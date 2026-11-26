@@ -71,6 +71,16 @@
  * FROM the ledger): the window under the scrollbar thumb resolves through
  * {@link elementAtOffset}, and a far drag rebases instead of walking.
  *
+ * The pixels are read only once the block's ledger has a rate to read them by
+ * — a window of it has landed (`elementInBand`). Before one has, the band is
+ * sized at a row's height an entry, and the middle of a view that has not
+ * scrolled, read through it, is an entry well down the source: where an entry
+ * is a group nesting its rows, windows past the view, every one of them read as
+ * the page opens. So an open reads its first window and what is read ahead of
+ * it, the view standing at the entry its block already stands at; the first
+ * landing gives the rate, and the reports are read from then. A view's place
+ * over rows not read is kept by its entry on the same terms (`unreadPlace`).
+ *
  * # Demand follows intent
  *
  * Nothing is fetched or evicted while the view flies past: the frame reports
@@ -180,7 +190,7 @@
 import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementAtOffset, elementsIn, reseed,
+    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementAtOffset, elementsIn, isRated, reseed,
     type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, isEmpty, residentWindows, unpinAll,
     snapshotOf, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
@@ -463,7 +473,8 @@ export interface PagingDriver {
     /**
      * Where a view whose top is `px` into a band of rows not read rests (#1398): one of a block's bands, or a failed
      * window's, as drawn — by the elements it stands for, never the run the driver has moved on to since. `undefined`
-     * for a block the driver does not page, or before its ledger knows a window.
+     * for a block the driver does not page, or before its ledger knows a window — or has a rate to read pixels by, a
+     * window of the block landed: a band sized before then says nothing of which entry a place in it is.
      */
     unreadPlace(band: Pick<PlanBand, "block" | "from" | "to">, px: number): PlanUnreadPlace | undefined;
     /** Which block and window a row was last seen in, resident or evicted —
@@ -1045,7 +1056,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
      * its pixels map to through the ledger the band was sized from
      * (`elementInBand`, #612) — whatever the resident rows in between rendered
      * at, a far drag rebases; without pixels, the element just outside the run
-     * on that side. A fixed block's row names no window: its demand stays.
+     * on that side. A band report that names no element — its pixels left
+     * unread before a window of the block has landed — leaves the view standing
+     * where it stood in the block. A fixed block's row names no window: its
+     * demand stays.
      * Where the report says how tall the view's rows are, the block's demand
      * reaches half that each way (#1710): the view's center stands half a view
      * from either end of it, and a block beside the center's, from its edge
@@ -1069,8 +1083,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             lane = lanes.get(at.block);
             if (lane === undefined) return undefined;
             const element = at.kind === "window" ? at.w * windowEntries : elementInBand(lane.ledger, lane.run, at.at, at.px, windowEntries);
-            lane.viewportAt = element;
-            lane.viewportWindow = Math.floor(element / windowEntries);
+            if (element !== undefined) {
+                lane.viewportAt = element;
+                lane.viewportWindow = Math.floor(element / windowEntries);
+            }
             block = at.block;
         }
         if (viewPx !== undefined) lane.reachPx = viewPx / 2;
@@ -1510,7 +1526,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         },
         unreadPlace(band, px) {
             const ledger = lanes.get(band.block)?.ledger;
-            if (ledger === undefined || ledger.windows === 0) return undefined;
+            if (ledger === undefined || ledger.windows === 0 || !isRated(ledger)) return undefined;
             // A band's top is where its first element's window starts — the head band's the rows' own top, the tail's
             // where the run it was drawn beside ends, a failed window's its slot (`bandsAround`, `failedSpan`) — and the
             // element `px` below it one of its own, however far a failed band's floored height reaches past its slot.

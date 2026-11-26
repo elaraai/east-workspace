@@ -53,7 +53,7 @@ export {
 export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
-    createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
+    createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, isRated, observeWindow, offsetOfElement,
     offsetOfWindow, reseed, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
 } from "./collections/window-ledger.js";
 export {

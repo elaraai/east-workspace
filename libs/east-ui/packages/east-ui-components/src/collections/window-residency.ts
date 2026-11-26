@@ -48,7 +48,7 @@
  * @packageDocumentation
  */
 
-import { elementsIn, rowsIn, slotHeight, type WindowLedger } from "./window-ledger.js";
+import { elementsIn, isRated, rowsIn, slotHeight, type WindowLedger } from "./window-ledger.js";
 
 /** The resident interval. `hi < lo` means nothing is resident. */
 export interface Residency {
@@ -89,8 +89,10 @@ export interface ResidencyOptions {
      * folded to their bands (#1777) — is all demanded. A window counts what
      * it draws; one that draws nothing counts the ledger's estimate of it, so
      * windows that draw nothing never carry the demand to the source's end.
-     * Left out, or `0` (the shipped policy), the demand is `behind` and
-     * `ahead` windows alone.
+     * A ledger with no rate yet — no window landed, no pitch declared
+     * (`isRated`) — has no estimate to count by: its demand is `behind` and
+     * `ahead` windows alone until one lands. Left out, or `0` (the shipped
+     * policy), the demand is `behind` and `ahead` windows alone.
      */
     reachPx?: number;
     /** A demand this far outside the run REBASES instead of walking to it —
@@ -133,7 +135,10 @@ export function travelOf(from: number, to: number, last: Travel): Travel {
  * The window range the viewport wants resident, clamped to the source: `ahead`
  * windows the way it travels and `behind` the other (CL6) — and, given a
  * policy's `reachPx`, as many more each way as reach that many pixels from the
- * viewport's window, each window's height the ledger's (#1710).
+ * viewport's window, each window's height the ledger's (#1710) — once the
+ * ledger has a rate to count them by: before a window has landed its estimate
+ * of one is a row's height an element, and a reach counted in it would ask for
+ * many times the windows a screen holds.
  *
  * @param ledger - The window ledger (for the window count, and each window's height)
  * @param viewportWindow - The window the viewport is looking at
@@ -152,7 +157,7 @@ export function demandRange(
     let from = Math.max(0, at - (travel === 1 ? opts.behind : opts.ahead));
     let to = Math.min(last, at + (travel === 1 ? opts.ahead : opts.behind));
     const reach = opts.reachPx ?? 0;
-    if (reach > 0 && ledger.windows > 0 && ledger.slotPx > 0) {
+    if (reach > 0 && ledger.windows > 0 && ledger.slotPx > 0 && isRated(ledger)) {
         // A window counts what it draws — measured, else the ledger's estimate. One that draws nothing counts the
         // estimate, so windows that draw nothing never carry the reach on to the source's end. Never the estimate over
         // what a window draws (#1777): the slot rate is a window's height at rest, and groups folded to their bands

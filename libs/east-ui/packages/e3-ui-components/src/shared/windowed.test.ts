@@ -69,11 +69,36 @@ describe("the bands either side, and what a band report names (#876, #612)", () 
 
     test("a band report's pixels name the element under the view, from the band's own top; without them, the element just outside the run", () => {
         const run = { from: 3, to: 5 };
+        // A window of the run has landed, ten rows of 32 px: the rate the bands are read by.
+        const rated = observeWindow(ledger(), 4, { px: PAGE * 32, rows: PAGE });
         // Halfway down window 1, and halfway down window 8 (the tail starts at window 6).
-        expect(elementInBand(ledger(), run, "head", 15 * 32, PAGE)).toBe(15);
-        expect(elementInBand(ledger(), run, "tail", 25 * 32, PAGE)).toBe(85);
-        expect(elementInBand(ledger(), run, "head", undefined, PAGE)).toBe(29);
-        expect(elementInBand(ledger(), run, "tail", undefined, PAGE)).toBe(60);
+        expect(elementInBand(rated, run, "head", 15 * 32, PAGE)).toBe(15);
+        expect(elementInBand(rated, run, "tail", 25 * 32, PAGE)).toBe(85);
+        expect(elementInBand(rated, run, "head", undefined, PAGE)).toBe(29);
+        expect(elementInBand(rated, run, "tail", undefined, PAGE)).toBe(60);
+        // A declared pitch is a rate from the start, beside a run of nothing too.
+        expect(elementInBand(createLedger(100, PAGE, 32), { from: 0, to: -1 }, "tail", 15 * 32, PAGE)).toBe(15);
+    });
+
+    test("before a window has landed a band's pixels are left unread: the report names its side of the run alone, and beside a run of nothing, nothing (#1794)", () => {
+        // A hundred groups, each drawing a view's worth of rows, sized at a row each until one lands: the middle of a
+        // view that has not scrolled, read through that, is the group a dozen down — a window past the ones it shows.
+        const open = { from: 0, to: -1 };
+        expect(elementInBand(ledger(), open, "tail", 394, PAGE)).toBeUndefined();
+        expect(elementInBand(ledger(), open, "head", 394, PAGE)).toBeUndefined();
+        // Nothing in yet at a residency further down: the run of nothing stands wherever the demand does, and names no side.
+        expect(elementInBand(ledger(), { from: 4, to: 3 }, "tail", 394, PAGE)).toBeUndefined();
+        // Every window of the run failed, so none measured: the report still names the side it is on, as one without
+        // pixels does — the view walks on past the failures, a window a report.
+        const failed = { from: 0, to: 2 };
+        expect(elementInBand(ledger(), failed, "tail", 394, PAGE)).toBe(30);
+        expect(elementInBand(ledger(), { from: 3, to: 5 }, "head", 394, PAGE)).toBe(29);
+        // A report without pixels reads none: as it was, beside a run of nothing too.
+        expect(elementInBand(ledger(), open, "tail", undefined, PAGE)).toBe(0);
+        expect(elementInBand(ledger(), open, "head", undefined, PAGE)).toBe(0);
+        // The first window lands, ten groups of a hundred rows: the same place is the first group's.
+        const landed = observeWindow(ledger(), 0, { px: PAGE * 101 * 32, rows: PAGE * 101 });
+        expect(elementInBand(landed, { from: 1, to: 0 }, "head", 394, PAGE)).toBe(0);
     });
 });
 

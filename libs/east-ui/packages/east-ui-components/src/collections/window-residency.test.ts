@@ -245,6 +245,25 @@ describe("residency — demand reaches a screen of pixels, where a policy gives 
         expect([r.lo, r.hi]).toEqual([11, 29]);
     });
 
+    test("a ledger with no rate reaches by windows alone: its estimate of a window is a row's height an element, whatever one draws (#1794)", () => {
+        // Forty groups of a hundred rows, two a window, none landed: a window is sized at two rows, where it draws two hundred.
+        const fresh = createLedger(40, 2);
+        const view: ResidencyOptions = { ...DEFAULT_RESIDENCY, reachPx: 394 };
+        // Half a view each way, counted in that estimate, is seven windows each way. None is asked for it.
+        expect(demandRange(fresh, 0, view)).toEqual({ from: 0, to: 2 });
+        expect(demandRange(fresh, 10, view, -1)).toEqual({ from: 8, to: 11 });
+        const r = settle(fresh, 0, view);
+        expect([r.lo, r.hi]).toEqual([0, 2]);
+        // A window lands, two rows tall: the rate is measured, and the reach counts the windows not read by it.
+        const rowEachEntry = observeWindow(fresh, 0, { px: 64, rows: 2 });
+        expect(demandRange(rowEachEntry, 10, view, -1)).toEqual({ from: 3, to: 17 });
+        // A window as tall as its groups: the read-ahead's windows are past the reach already.
+        const groups = observeWindow(fresh, 0, { px: 2 * 101 * 32, rows: 202 });
+        expect(demandRange(groups, 10, view, -1)).toEqual({ from: 8, to: 11 });
+        // A declared pitch counts from the start.
+        expect(demandRange(createLedger(40, 2, 32), 10, view, -1)).toEqual({ from: 3, to: 17 });
+    });
+
     test("settled, the run holds every window the reach demands, and eviction keeps them", () => {
         const l = rowEach(40);
         const r = settle(l, 7, reach);

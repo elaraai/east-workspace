@@ -15,7 +15,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    createLedger, observeWindow, isObserved, slotHeight, elementsIn,
+    createLedger, observeWindow, isObserved, isRated, slotHeight, elementsIn,
     documentHeight, offsetOfWindow, windowAtOffset, elementAtOffset, offsetOfElement, rowsIn, reseed,
 } from "./window-ledger.js";
 
@@ -141,6 +141,32 @@ describe("window ledger — a declared pitch (#1398, CL1)", () => {
         const l = createLedger(4_000_000, PAGE, 36);
         expect(l.slotPx * l.total).toBeLessThanOrEqual(8e6);
         expect(l.slotPx).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe("window ledger — a rate to read pixels by (#1794)", () => {
+    test("none before a window lands: the starting rate is a row's height, whatever an element draws; a landing gives one", () => {
+        // Forty groups of a hundred rows, two a window: none landed, each sized at one row.
+        const fresh = createLedger(40, 2);
+        expect(isRated(fresh)).toBe(false);
+        // Read through that, the middle of a view that has not scrolled is the thirteenth group, six windows down.
+        expect([elementAtOffset(fresh, 394), windowAtOffset(fresh, 394)]).toEqual([12, 6]);
+        // The first window lands, two groups and their rows: the rate is what they drew, and the same place is the first group's.
+        const landed = observeWindow(fresh, 0, { px: 2 * 101 * 32, rows: 202 });
+        expect(isRated(landed)).toBe(true);
+        expect([elementAtOffset(landed, 394), windowAtOffset(landed, 394)]).toEqual([0, 0]);
+        // Whichever window lands first gives it, and it holds through a rate seeded again.
+        const later = observeWindow(fresh, 7, { px: 2 * 101 * 32, rows: 202, restPx: 2 * 101 * 32 });
+        expect([isRated(later), isRated(reseed(later, 52))]).toEqual([true, true]);
+    });
+
+    test("a declared pitch is one from the start; a ledger built again for a new count has none until a window lands again", () => {
+        expect(isRated(createLedger(16_667, PAGE, 36))).toBe(true);
+        expect(isRated(createLedger(0, PAGE))).toBe(false);
+        const landed = observeWindow(createLedger(2_000, PAGE), 0, { px: 4_000, rows: 200 });
+        expect(isRated(landed)).toBe(true);
+        // The source's count moved: its geometry starts again, and with it what its pixels can be read by.
+        expect(isRated(createLedger(2_400, PAGE))).toBe(false);
     });
 });
 
