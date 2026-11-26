@@ -93,12 +93,13 @@ export function BandPlot({ styles, children }: { styles: Styles; children?: Reac
  * among them and the records not counted — are its name, which the canvas's one tooltip says on a hover. The cells are
  * part of the band: a click on one toggles it, as on the rest of it. They are drawn on the columns given — those their
  * counts were read for — and drawn again only as the counts or those columns move: a zoom draws none of them again.
+ * They are plain elements, whose looks the element round them gives them by their data attributes (`bandCounts`): a
+ * screen of folded groups mounts a thousand of them, and none works a style out as it mounts (#1792).
  *
  * @param props.counts - The band's counts
  * @param props.scale - The columns they were read for
- * @param props.styles - The Plan's slot styles
  */
-const BandCounts = memo(function BandCounts({ counts, scale, styles }: { counts: PlanBandCounts; scale: PlanScale; styles: Styles }) {
+const BandCounts = memo(function BandCounts({ counts, scale }: { counts: PlanBandCounts; scale: PlanScale }) {
     const words = usePlanWords();
     const notCounted = counts.uncounted.map((one) => words.m.bandNotCounted({ names: one.names, why: one.why, fields: one.fields }));
     return (
@@ -112,11 +113,11 @@ const BandCounts = memo(function BandCounts({ counts, scale, styles }: { counts:
                     shares: column.shares.map((share) => ({ names: share.names, count: words.number(share.count) })), hidden: counts.hidden,
                 });
                 return (
-                    <Box key={column.at.getTime()} css={styles.heatCell} data-plan-bucket={box.index} data-plan-band-count={i} data-level={level}
+                    <div key={column.at.getTime()} data-plan-bucket={box.index} data-plan-band-count={i} data-level={level}
                         role="img" aria-label={[said, ...notCounted].join(". ")}
                         style={{ left: `calc(${box.x0 * 100}% + 1.5px)`, width: `calc(${(box.x1 - box.x0) * 100}% - 3px)` }}>
-                        <Box as="span" css={styles.heatLabel} data-level={level} data-plan-label="" aria-hidden="true">{words.number(column.total)}</Box>
-                    </Box>
+                        <span data-level={level} data-plan-label="" aria-hidden="true">{words.number(column.total)}</span>
+                    </div>
                 );
             })}
         </>
@@ -235,10 +236,11 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 {drawn !== undefined && (
                     <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={drawn.counts} styles={styles}>
                         <GridSeparators styles={styles} />
-                        {/* Hidden while they are another period's than the columns take: no hover and no reader hears them. */}
-                        <div hidden={!fresh} data-plan-band-counts="">
-                            <BandCounts counts={drawn.counts} scale={drawn.scale} styles={styles} />
-                        </div>
+                        {/* Hidden while they are another period's than the columns take: no hover and no reader hears them.
+                            Their looks are this element's, by their data attributes: one style a band (#1792). */}
+                        <Box css={styles.bandCounts} hidden={!fresh} data-plan-band-counts="">
+                            <BandCounts counts={drawn.counts} scale={drawn.scale} />
+                        </Box>
                     </PlanPartBoundary>
                 )}
             </BandPlot>
