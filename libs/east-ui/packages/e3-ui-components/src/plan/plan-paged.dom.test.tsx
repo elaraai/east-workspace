@@ -578,8 +578,9 @@ describe("Plan paged source (P-c)", () => {
         // two windows, 400 elements — must describe itself as 1,012px. The
         // old measure (every row at full height, pinned included) would have
         // said 2,356. (Fifteen rows put the jsdom viewport's center inside
-        // window 0, so the demand rests on its ring and windows 3–4 stay a
-        // band — #812.)
+        // window 0, so the demand rests on its ring — windows 1–2, a row each
+        // — and on window 3, which those two rows leave in view: a window
+        // counts what it draws (#1777). Windows 4–5 stay a band — #812.)
         const w0 = [
             planRow("g1", plainGroup(), { collapsed: true }),
             ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
@@ -593,7 +594,7 @@ describe("Plan paged source (P-c)", () => {
                 if (offset === 400n) return some([planRow("w2", spanKind([]))]);
                 return some([]);
             },
-            total: () => some(1_000n),                    // 5 windows; [0..2] land
+            total: () => some(1_200n),                    // 6 windows; [0..3] land
             id: "dom-test-rest-height",
             seek: none,
             revision: () => none,
@@ -605,7 +606,7 @@ describe("Plan paged source (P-c)", () => {
         await waitFor(() => {
             const band = container.querySelector('[data-plan-window-band="tail"]');
             expect(band).not.toBeNull();
-            expect(band!.getAttribute("data-plan-px")).toBe("1012");
+            expect([band!.getAttribute("data-plan-elements"), band!.getAttribute("data-plan-px")]).toEqual(["400", "1012"]);
         });
         // The window renders the way it was measured: collapsed, pin in header.
         expect(container.querySelector(rowSel("m0"))).toBeNull();
