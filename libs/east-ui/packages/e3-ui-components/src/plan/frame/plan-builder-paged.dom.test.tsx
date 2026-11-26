@@ -829,8 +829,10 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await settle();
         expect(bar(c, "W-0001", "P-1001")).toBeNull();
         expect(named(bar(c, "W-0001", "P-1002"))).toMatch(/^Brochure run, Oct 5, 2026, 06:00 – Oct 5, 2026, 14:00/);
-        // A resize: the museum guide (W-0003) a day longer.
+        // A resize: the museum guide (W-0003) a day longer, by its end — drawn while the bar is in hand (#1780): the
+        // pointer comes over the bar first, as it does reaching for the end.
         y = layOutPlots(c, ["P-1001", "P-1002", "P-1003", "P-1004"]);
+        fireEvent.pointerEnter(bar(c, "W-0003", "P-1002")!);
         const end = bar(c, "W-0003", "P-1002")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
         await dragTo(end, { x: xAt(1, 12), y: y("P-1002") }, { x: xAt(2, 12), y: y("P-1002") });
         await settle();

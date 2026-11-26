@@ -196,6 +196,8 @@ test.describe("the print works' drag and drop, saved on e3-web (#1200, PB56)", (
         await settled(page);
         // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a week on.
         const handbook = entry.locator(`${PRESS_A1} [data-run]`, { hasText: "Course handbook" });
+        // Its ends are drawn while it is in hand (#1780): the pointer comes over it first, as it does reaching for its end.
+        await handbook.hover();
         const end = await centre(handbook.locator("[data-plan-edge='end']"));
         const week = (await boxOf(plot)).width / (PRINT_WORKS_DAYS / 7);
         await page.mouse.move(end.x, end.y);

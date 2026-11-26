@@ -12,7 +12,8 @@
  * Each chip is a button named by its label, span and state (#819).
  *
  * On a row whose series declares a move's fields (#825) a chip moves — by
- * itself or by an end — as a run bar does; an event kind's chip moves its
+ * itself or by an end, its ends drawn while it is in hand (#1780) — as a run
+ * bar does; an event kind's chip moves its
  * event (#1196), and wears the drafted look while its drafts change it. A
  * locked chip (#1541, U9) leads with a lock and takes no move.
  *
@@ -38,7 +39,7 @@ import { chipName } from "../a11y.js";
 import { statusAttributes } from "../../shared/status.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
-import { usePlanMovable } from "../edit/movable.js";
+import { PlanMoveEdges, usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import { PLAN_CELL_INSET } from "../geometry.js";
 
@@ -71,11 +72,14 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !chip.locked
         ? { rowKey, key: chip.key, label: chip.label, kind: "chip", span: { start: chip.from, end: chip.to }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, chip]);
-    const { handle, edges, carried } = usePlanMovable(movable);
     const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
     const ref = variant("chip", { row: rowId, chip: chip.key }) as PlanElementRefValue;
     // An event's chip selects its event (#1197); any other chip, its row.
     const select = usePlanElementSelect(rowKey, chip.key, ref);
+    // Its end handles while it is in hand — selected, a touch screen's way to them, among the rest.
+    const { handle, ends, carried } = usePlanMovable(movable, select.selected);
+    // Their class, made as the chip is drawn: never as a hover first draws them (#1594).
+    const edgeClass = slot(styles.moveEdge);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(chip.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
@@ -128,12 +132,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
                 </span>
             )}
             <span className={slot(styles.cardChipLabel)} data-plan-label="">{chip.label}</span>
-            {edges !== undefined && (
-                <>
-                    <div className={slot(styles.moveEdge)} {...edges.start} />
-                    <div className={slot(styles.moveEdge)} {...edges.end} />
-                </>
-            )}
+            {ends !== undefined && <PlanMoveEdges ends={ends} className={edgeClass} />}
         </div>
     );
 }

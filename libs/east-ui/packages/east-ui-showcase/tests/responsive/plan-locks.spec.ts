@@ -14,7 +14,8 @@
  *   label, where the bar has room for one, starts after the lock and clear of
  *   it. A job that is not locked draws no lock.
  * - A locked bar is not picked up: it wears no grab cursor and has no end
- *   handles, where a job beside it has both; dragged a column on — a week, the
+ *   handles, even with the pointer over it, where a job beside it draws both
+ *   there (#1780); dragged a column on — a week, the
  *   period the works' four weeks draw at this width (#1740) — it stays where
  *   it is, and nothing is drafted.
  * - Each other way an event draws wears the lock too (`planLocks`): a chip's,
@@ -238,6 +239,13 @@ test.describe("A locked event on the Plan, and a card that makes one (#1541)", (
             }
         }
         expect(bad).toEqual([]);
+        // A bar's ends are drawn while it is in hand (#1780): with the pointer over it, the job under way draws none, and
+        // the course handbook beside it, not locked, both.
+        for (const [title, ends] of [["Event posters", 0], ["Course handbook", 2]] as const) {
+            const bar = printWorksBars(entry, "a1", title);
+            await bar.hover();
+            await expect(bar.locator("[data-plan-edge]"), `${title}'s end handles, the pointer over it`).toHaveCount(ends);
+        }
     });
 
     test("planPrintWorks: a locked job dragged a week on stays where it is, and nothing is drafted; the job beside it moves @desktop", async ({ page }) => {

@@ -99,8 +99,10 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
                 await expect(pane).toHaveAttribute("data-collapsed", "");
                 await settled(page);
             }
-            // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a week on.
+            // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a week on — drawn while the bar
+            // is in hand (#1780), so the pointer comes over it first, as it does reaching for the end.
             const handbook = entry.locator(`${A1} [data-run]`, { hasText: "Course handbook" });
+            await handbook.hover();
             const end = await centre(handbook.locator("[data-plan-edge='end']"));
             const week = (await boxOf(plot)).width / (DAYS / 7);
             await page.mouse.move(end.x, end.y);

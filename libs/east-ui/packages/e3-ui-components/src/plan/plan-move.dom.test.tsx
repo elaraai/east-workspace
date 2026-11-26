@@ -9,14 +9,15 @@
  * by whole weeks from where it was grabbed (Shift: by days), an end handle
  * resizes it, it reaches rows of its own item type and no other, `canDrop`
  * refuses it before anything is drafted, and Undo, Redo, Discard and Save
- * treat it as any other draft.
+ * treat it as any other draft. An element's ends are drawn while it is in hand
+ * (#1780).
  *
  * Pointer geometry is laid out in jsdom (`layOutPlots`): every row's plot
  * spans twelve weeks, 100px each.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { act, cleanup, fireEvent } from "@testing-library/react";
 import { equalFor, some, variant } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
@@ -60,6 +61,11 @@ const holdsJob = (canvas: MoveCanvas, press: string, id: string, job: JobValue, 
 };
 /** An element's left edge, as a window fraction. */
 const fracOf = (el: HTMLElement | null) => el?.getAttribute("data-plan-frac");
+/** An element's end handle, drawn while it is in hand (#1780): the pointer comes over the element first, as it does reaching for the end. */
+const endOf = (el: HTMLElement, which: "start" | "end"): HTMLElement => {
+    fireEvent.pointerEnter(el);
+    return el.querySelector<HTMLElement>(`[data-plan-edge="${which}"]`)!;
+};
 
 describe("the pointer moves a run, a chip and a tile (#825)", () => {
     test("a run dragged along its row moves by whole weeks from the one it was grabbed in — drawn at once, one gesture, saved as a batch", async () => {
@@ -106,11 +112,11 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         const canvas = await mountMoves();
         const c = canvas.container;
         const y = layOutPlots(c);
-        const end = elementOf(c, "jobs", "m1", "j1")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
+        const end = endOf(elementOf(c, "jobs", "m1", "j1")!, "end");
         await dragTo(end, { x: xAt(29, 6.5), y: y("jobs", "m1") }, { x: xAt(31, 2), y: y("jobs", "m1") });
         expect(gestures(canvas)).toEqual([["resize", "Resize J1"]]);
         // The start dragged far past the end stops a week short of it.
-        const start = elementOf(c, "jobs", "m1", "j1")!.querySelector<HTMLElement>('[data-plan-edge="start"]')!;
+        const start = endOf(elementOf(c, "jobs", "m1", "j1")!, "start");
         await dragTo(start, { x: xAt(28, 0.2), y: y("jobs", "m1") }, { x: xAt(36), y: y("jobs", "m1") });
         await history(canvas, "Save");
         expect(holdsJob(canvas, "m1", "j1", { label: "J1", start: W(31), end: W(32) })).toBe(true);
@@ -140,10 +146,11 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         const y = layOutPlots(c);
         // S1 spans W27–W29: a week on, then its end a week further.
         await dragTo(elementOf(c, "shifts", "m1", "s1")!, { x: xAt(27), y: y("shifts", "m1") }, { x: xAt(28), y: y("shifts", "m1") });
-        const end = elementOf(c, "shifts", "m1", "s1")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
+        const end = endOf(elementOf(c, "shifts", "m1", "s1")!, "end");
         await dragTo(end, { x: xAt(29, 6.5), y: y("shifts", "m1") }, { x: xAt(30, 6.5), y: y("shifts", "m1") });
-        // T1 at W29: two weeks on. A tile has no ends to drag.
+        // T1 at W29: two weeks on. A tile has no ends to drag, in hand or not.
         const tile = elementOf(c, "slots", "m1", "t1")!;
+        fireEvent.pointerEnter(tile);
         expect(tile.querySelector("[data-plan-edge]")).toBeNull();
         await dragTo(tile, { x: xAt(29), y: y("slots", "m1") }, { x: xAt(31), y: y("slots", "m1") });
         expect(gestures(canvas)).toEqual([["move", "Move S1"], ["resize", "Resize S1"], ["move", "Move T1"]]);
@@ -151,6 +158,36 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         const m1 = canvas.stored().get("m1")!;
         expect([m1.shifts.get("s1")!.from, m1.shifts.get("s1")!.to]).toEqual([W(28), W(31)]);
         expect(m1.slots.get("t1")!.at).toEqual(W(31));
+    });
+});
+
+describe("an element's ends are drawn while it is in hand (#1780)", () => {
+    test("no bar or chip draws its ends at rest; the pointer over one or the focus on it draws them, and an end held down keeps them while the pointer goes, until the press ends", async () => {
+        const canvas = await mountMoves();
+        const c = canvas.container;
+        layOutPlots(c);
+        const ends = (el: HTMLElement) => [...el.querySelectorAll("[data-plan-edge]")].map((edge) => edge.getAttribute("data-plan-edge"));
+        const bar = () => elementOf(c, "jobs", "m1", "j1")!;
+        const chip = () => elementOf(c, "shifts", "m1", "s1")!;
+        expect(c.querySelectorAll("[data-plan-edge]")).toHaveLength(0);
+        // The pointer over a bar draws its two ends, and no other element's; gone, it takes them away.
+        fireEvent.pointerEnter(bar());
+        expect([ends(bar()), ends(chip())]).toEqual([["start", "end"], []]);
+        fireEvent.pointerLeave(bar());
+        expect(ends(bar())).toEqual([]);
+        // The focus on a chip draws its two, until it goes.
+        act(() => chip().focus());
+        expect(ends(chip())).toEqual(["start", "end"]);
+        act(() => chip().blur());
+        expect(ends(chip())).toEqual([]);
+        // An end pressed keeps them while the pointer leaves the bar, until the press ends — and a press that never
+        // moved resizes nothing.
+        fireEvent.pointerDown(endOf(bar(), "end"), { button: 0, isPrimary: true, pointerId: 1 });
+        fireEvent.pointerLeave(bar());
+        expect(ends(bar())).toEqual(["start", "end"]);
+        fireEvent.pointerUp(document, { button: 0, isPrimary: true, pointerId: 1 });
+        expect(ends(bar())).toEqual([]);
+        expect(canvas.patches).toEqual([]);
     });
 });
 
@@ -163,6 +200,8 @@ describe("an item its map locks (#1541, U9)", () => {
         const y = layOutPlots(c);
         for (const [series, key] of [["jobs", "j1"], ["shifts", "s1"], ["slots", "t1"]] as const) {
             const el = elementOf(c, series, "m1", key)!;
+            // No ends, even with the pointer over it.
+            fireEvent.pointerEnter(el);
             expect([key, el.hasAttribute("data-locked"), el.querySelector("[data-plan-lock]") !== null, el.hasAttribute("data-draggable"), el.querySelector("[data-plan-edge]")])
                 .toEqual([key, true, true, false, null]);
             expect(el.getAttribute("aria-label")).toMatch(/, locked$/);
@@ -287,7 +326,7 @@ describe("a move is a draft of the session (#825)", () => {
         const y = layOutPlots(c);
         const moveAndResize = async () => {
             await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(29), y: y("jobs", "m1") });
-            const end = elementOf(c, "jobs", "m1", "j1")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
+            const end = endOf(elementOf(c, "jobs", "m1", "j1")!, "end");
             await dragTo(end, { x: xAt(30, 6.5), y: y("jobs", "m1") }, { x: xAt(32, 6.5), y: y("jobs", "m1") });
         };
         await moveAndResize();

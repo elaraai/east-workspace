@@ -16,10 +16,18 @@
  * from the layer, since its moves need keys the layer's arrows cannot carry —
  * an end moved with Shift or Alt, a row found by its item type.
  *
+ * An element's two end handles are drawn only while it is in hand (#1780): the
+ * pointer over it, the keyboard's focus on it, selected — a touch screen's way
+ * to it — or one of its ends held down until the press ends, wherever the
+ * pointer has gone. Every element a screen draws took them at rest, each a
+ * drag handle of its own on the layer, which every drag starting or ending
+ * drew again: they were most of what a change of period made. Their grips are
+ * unseen until the pointer is over the element, so it draws as it did.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { MoveGhost, useMoveGhostClasses } from "../../shared/schedule/move-ghost.js";
 import { useDragEventChip, useDragEventEdge, type CellCoord, type DragHandle } from "@elaraai/east-ui-components";
 import { slotOfInstant } from "../../shared/time/slot.js";
@@ -31,28 +39,38 @@ import { usePlanEdit, type PlanEditContextValue, type PlanMovable, type PlanMove
 export interface PlanElementHandle {
     ref: (el: HTMLElement | null) => void;
     onPointerDown: (e: ReactPointerEvent) => void;
+    /** An element whose ends move: the pointer coming over it and going, and the focus, take it in hand and let it go. */
+    onPointerEnter?: () => void;
+    onPointerLeave?: () => void;
+    onFocus?: () => void;
+    onBlur?: () => void;
     "data-draggable": "";
     "aria-describedby": string;
 }
 
-/** What an end handle spreads. */
-export interface PlanEdgeHandle {
-    ref: (el: HTMLElement | null) => void;
-    onPointerDown: (e: ReactPointerEvent) => void;
-    "data-plan-edge": "start" | "end";
+/** What an element's end handles are made from, while it is in hand: {@link PlanMoveEdges} draws them. */
+export interface PlanMoveEnds {
+    /** The drag grammar's `from`: the element's row, the bucket its start is in, and its key. */
+    from: Required<CellCoord>;
+    /** What follows the pointer. */
+    ghost: ReactNode;
+    /** The element's name, for the announcements. */
+    label: string | undefined;
+    /** Record an end's press — what the drag moves and where it was grabbed — and hold the element in hand until the press ends. */
+    press: (e: ReactPointerEvent, which: "start" | "end") => void;
 }
 
 /** What {@link usePlanMovable} gives an element. */
 export interface PlanMovableProps {
     /** Spread onto the element — `undefined` when it does not move. */
     handle: PlanElementHandle | undefined;
-    /** Its end handles, when it has two ends — spread each onto its handle. */
-    edges: { start: PlanEdgeHandle; end: PlanEdgeHandle } | undefined;
+    /** Its end handles' makings, when it has two ends and is in hand (see the module docs) — drawn by {@link PlanMoveEdges}. */
+    ends: PlanMoveEnds | undefined;
     /** Whether the keyboard carries it now. */
     carried: boolean;
 }
 
-const NOTHING: PlanMovableProps = { handle: undefined, edges: undefined, carried: false };
+const NOTHING: PlanMovableProps = { handle: undefined, ends: undefined, carried: false };
 const noSubscribe = () => () => undefined;
 
 /**
@@ -86,14 +104,19 @@ function PlanMoveGhost({ edit, movable }: { edit: PlanEditContextValue; movable:
 }
 
 /**
- * An element's moves — its drag handle, its end handles and whether the
- * keyboard carries it (see the module docs).
+ * An element's moves — its drag handle, its end handles while it is in hand,
+ * and whether the keyboard carries it (see the module docs).
  *
  * @param movable - The element, or `undefined` when its row takes no move
+ * @param selected - Whether the element is selected: in hand, as the pointer over it is
  * @returns What it spreads
  */
-export function usePlanMovable(movable: PlanMovable | undefined): PlanMovableProps {
+export function usePlanMovable(movable: PlanMovable | undefined, selected = false): PlanMovableProps {
     const edit = usePlanEdit();
+    // In hand (see the module docs): the pointer over it, the focus on it, an end of it held down.
+    const [over, setOver] = useState(false);
+    const [focused, setFocused] = useState(false);
+    const [held, setHeld] = useState(false);
     // Its ghost's classes, made as the element is drawn, ahead of the drag that first draws one (#1594).
     useMoveGhostClasses(edit?.styles);
     const surface = edit?.surface;
@@ -113,8 +136,8 @@ export function usePlanMovable(movable: PlanMovable | undefined): PlanMovablePro
     const label = movable?.label;
     const moveHandle = useDragEventChip(on ? from : null, ghost, false, label);
     const edgeFrom = on && movable.resize ? from : null;
-    const startHandle = useDragEventEdge(edgeFrom, "start", ghost, false, label);
-    const endHandle = useDragEventEdge(edgeFrom, "end", ghost, false, label);
+    // Only an element whose ends move follows the pointer and the focus: one that only moves draws nothing more for them.
+    const ends = edgeFrom !== null;
 
     /** Record the press — what the drag moves and where it was grabbed. */
     const arm = useCallback((e: ReactPointerEvent, mode: PlanMoveMode) => {
@@ -137,32 +160,74 @@ export function usePlanMovable(movable: PlanMovable | undefined): PlanMovablePro
                 arm(e, "move");
                 moveHandle.onPointerDown?.(e);
             },
+            ...(ends ? {
+                onPointerEnter: () => setOver(true),
+                onPointerLeave: () => setOver(false),
+                onFocus: () => setFocused(true),
+                onBlur: () => setFocused(false),
+            } : {}),
             "data-draggable": "",
             "aria-describedby": edit.helpId,
         };
-    }, [edit, movable, moveHandle, arm]);
+    }, [edit, movable, moveHandle, arm, ends]);
 
-    const edgeOf = useCallback((h: DragHandle | undefined, which: "start" | "end"): PlanEdgeHandle | undefined => (h === undefined
-        ? undefined
-        : {
-            ref: h.ref,
-            onPointerDown: (e) => {
-                arm(e, which);
-                h.onPointerDown?.(e);
-                // The element's own press is a move: an end's press is not.
-                e.stopPropagation();
-            },
-            "data-plan-edge": which,
-        }), [arm]);
-    const edges = useMemo(() => {
-        const start = edgeOf(startHandle, "start");
-        const end = edgeOf(endHandle, "end");
-        return start !== undefined && end !== undefined ? { start, end } : undefined;
-    }, [edgeOf, startHandle, endHandle]);
+    /** An end's press: recorded, and the element held in hand until the press ends, wherever the pointer goes meanwhile. */
+    const press = useCallback((e: ReactPointerEvent, which: "start" | "end") => {
+        arm(e, which);
+        const doc = (e.currentTarget as HTMLElement).ownerDocument;
+        const letGo = () => {
+            setHeld(false);
+            doc.removeEventListener("pointerup", letGo, true);
+            doc.removeEventListener("pointercancel", letGo, true);
+        };
+        doc.addEventListener("pointerup", letGo, true);
+        doc.addEventListener("pointercancel", letGo, true);
+        setHeld(true);
+    }, [arm]);
+    const inHand = over || focused || held || selected;
+    const moveEnds = useMemo<PlanMoveEnds | undefined>(
+        () => (inHand && edgeFrom !== null ? { from: edgeFrom, ghost, label, press } : undefined),
+        [inHand, edgeFrom, ghost, label, press]);
 
     const carried = useSyncExternalStore(
         edit !== null ? edit.store.subscribe : noSubscribe,
         () => (edit !== null && movable !== undefined ? edit.store.carries(movable.rowKey, movable.key) : false));
     if (!on) return carried ? { ...NOTHING, carried } : NOTHING;
-    return { handle, edges, carried };
+    return { handle, ends: moveEnds, carried };
+}
+
+/** One end handle: its drag handle on the layer, and its press — an end's, never the element's move. */
+function PlanMoveEdge({ handle, which, ends, className }: {
+    handle: DragHandle | undefined; which: "start" | "end"; ends: PlanMoveEnds; className: string;
+}) {
+    if (handle === undefined) return null;
+    return (
+        <div className={className} ref={handle.ref} data-plan-edge={which}
+            onPointerDown={(e) => {
+                ends.press(e, which);
+                handle.onPointerDown?.(e);
+                // The element's own press is a move: an end's press is not.
+                e.stopPropagation();
+            }} />
+    );
+}
+
+/**
+ * An element's two end handles (#825), drawn while it is in hand (#1780, see the module docs): the element's first and
+ * last few pixels, where a press drags that end.
+ *
+ * @param props.ends - Their makings, from {@link usePlanMovable}
+ * @param props.className - Their class — made by the element as it is drawn, never as a hover first draws them: a rule
+ *   added while the pointer is over the page lays the page out again (#1594)
+ * @returns The two handles
+ */
+export function PlanMoveEdges({ ends, className }: { ends: PlanMoveEnds; className: string }) {
+    const start = useDragEventEdge(ends.from, "start", ends.ghost, false, ends.label);
+    const end = useDragEventEdge(ends.from, "end", ends.ghost, false, ends.label);
+    return (
+        <>
+            <PlanMoveEdge handle={start} which="start" ends={ends} className={className} />
+            <PlanMoveEdge handle={end} which="end" ends={ends} className={className} />
+        </>
+    );
 }

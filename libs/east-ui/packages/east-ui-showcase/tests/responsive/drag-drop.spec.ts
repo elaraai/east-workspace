@@ -348,7 +348,9 @@ test.describe("Plan moves (#825)", () => {
         await expect(run).toHaveAttribute("aria-label", /Jul 20, 2026 – Aug 10, 2026/);
         const footer = entry.locator("[data-builder-frame] > [data-frame-slot='footer']");
         await expect(footer).toContainText("LAST GESTURE · move · Move RUN · J-4642");
-        // Its end, carried a week on.
+        // Its end, carried a week on: drawn while the run is in hand (#1780), so the pointer comes over it first, as it
+        // does reaching for the end.
+        await run.hover();
         const end = await centre(run.locator("[data-plan-edge='end']"));
         await page.mouse.move(end.x, end.y);
         await page.mouse.down();

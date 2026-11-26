@@ -24,6 +24,8 @@
  *    builder's entries.
  *  - `refused-a`, `refused-b` — a row a gesture was refused on
  *    (`refused-mark.ts`): one flash, under two names.
+ *  - `edge-grip-in`        — a resize edge's grip, drawn as the pointer comes
+ *    over its element (`time/resize.ts`): in from none.
  *
  * @packageDocumentation
  */
@@ -47,6 +49,11 @@ export const keyframes = defineKeyframes({
     // A refused row's flash, under two names: a row refused again takes the other, so its flash starts over.
     "refused-a": REFUSED,
     "refused-b": REFUSED,
+    // A resize edge's grip drawn as the pointer comes over its element (`time/resize.ts`): from none to the look its
+    // rule gives it, which no last step names.
+    "edge-grip-in": {
+        "0%": { opacity: 0 },
+    },
     // A banner's entrance (the design system's Banner: in over --dur-base, --ease-out): it fades in where it stands.
     "banner-in": {
         "0%":   { opacity: 0 },

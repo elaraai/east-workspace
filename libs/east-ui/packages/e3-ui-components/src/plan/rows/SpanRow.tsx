@@ -20,7 +20,8 @@
  * by its label.
  *
  * On a row whose series declares a move's fields (#825) a bar moves: the
- * pointer drags it, or one of its two end handles, and Space picks it up for
+ * pointer drags it, or one of its two end handles — drawn while it is in hand,
+ * the pointer over it, focused or selected (#1780) — and Space picks it up for
  * the keyboard (`edit/`). An event kind's bar moves and resizes its event
  * (#1196), and wears the brand tint in a brand border while its drafts change
  * it (`data-draft`). A locked bar (#1541, U9) leads with a lock and takes no
@@ -42,7 +43,7 @@ import { decisionName, runName } from "../a11y.js";
 import { statusAttributes } from "../../shared/status.js";
 import { quantityText } from "../quantity.js";
 import { usePlanWords } from "../words.js";
-import { usePlanMovable } from "../edit/movable.js";
+import { PlanMoveEdges, usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
@@ -98,15 +99,18 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !run.locked
         ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, run]);
-    const { handle, edges, carried } = usePlanMovable(movable);
+    const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
+    // An event's bar selects its event (#1197); any other bar, its row.
+    const select = usePlanElementSelect(rowKey, run.key, ref);
+    // Its end handles while it is in hand — selected, a touch screen's way to them, among the rest.
+    const { handle, ends, carried } = usePlanMovable(movable, select.selected);
+    // Their class, made as the bar is drawn: never as a hover first draws them (#1594).
+    const edgeClass = slot(styles.moveEdge);
     const stateKey = runStateKey(run.state);
     // ONE quantity (#824): its caption is its text, else its value
     // through its format, then its unit.
     const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
     const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
-    const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
-    // An event's bar selects its event (#1197); any other bar, its row.
-    const select = usePlanElementSelect(rowKey, run.key, ref);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(run.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
@@ -157,12 +161,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             {moved !== undefined && moved > 0 && (
                 <span className={slot(styles.barQty)}>{words.m.moved({ n: moved, count: words.number(moved) })}</span>
             )}
-            {edges !== undefined && (
-                <>
-                    <div className={slot(styles.moveEdge)} {...edges.start} />
-                    <div className={slot(styles.moveEdge)} {...edges.end} />
-                </>
-            )}
+            {ends !== undefined && <PlanMoveEdges ends={ends} className={edgeClass} />}
         </div>
     );
 }
