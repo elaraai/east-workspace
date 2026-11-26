@@ -268,6 +268,31 @@ test.describe("Query builder (#940)", () => {
         });
     });
 
+    test("a tag typed and not Entered, then Save pressed once: nothing under the press moves while it is held, and the query is saved with the tag (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=input]");
+        await box.click();
+        await box.pressSequentially("monthly");
+        await settled(page);
+        const save = dialog.getByRole("button", { name: "Save", exact: true });
+        const at = (await save.boundingBox())!;
+        const tall = (await dialog.boundingBox())!.height;
+        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+        await page.mouse.down();
+        await settled(page);
+        // Held: the field as it was, the tag still typed — so the popover keeps its height, and the Save its place.
+        expect([await box.inputValue(), (await dialog.boundingBox())!.height]).toEqual(["monthly", tall]);
+        await page.mouse.up();
+        await expect(dialog).toHaveCount(0);
+        // Saved at the first press, with the tag: opened again, the popover holds it among the query's own.
+        await builder.locator("[data-query-save-open]").click();
+        await expect.poll(() => page.getByRole("dialog").locator("[data-query-tags] [data-scope=tags-input][data-part=item-text]").allTextContents())
+            .toEqual(["monthly", "sales", "weekly"]);
+    });
+
     test("the history item's Save: every state the steps pass through, from its click until the record reads back, is the drafts it saves — never the query as it was before them", async ({ page }) => {
         const builder = await openBuilder(page);
         const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")).join(" · "));

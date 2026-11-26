@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback, useState, useId, useContext, useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type KeyboardEvent } from "react";
-import { Box, chakra, TagsInput as ChakraTagsInput, useRecipe, type TagsInputRootProps, type UseTagsInputReturn } from "@chakra-ui/react";
+import { Box, chakra, TagsInput as ChakraTagsInput, useRecipe, useTagsInput, type TagsInputRootProps, type UseTagsInputProps, type UseTagsInputReturn } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, some, none, type ValueTypeOf } from "@elaraai/east";
@@ -16,10 +16,20 @@ import { useValueSync } from "../../hooks/useValueSync";
 import { FramePhoneLayer } from "../../layout/builder-frame/frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { rankByTyped } from "../../collections/typed-rank.js";
+import { usePressRelease } from "../../pointer/press-wait.js";
 
 // Pre-define equality function at module level
 const tagsInputEqual = equivalentFor(TagsInput.Types.Root);
 const tagsInputDataEqual = equalFor(TagsInput.Types.Root);
+
+/** What Zag tells of an interaction outside the tags input's box: a press, or a move of the focus. */
+type OutsideEvent = Parameters<NonNullable<UseTagsInputProps["onInteractOutside"]>>[0];
+
+/** Zag's name for a press outside the box; its other, a move of the focus, is the box's own blur's to hear. */
+const PRESS_OUTSIDE = "pointerdown.outside";
+
+/** A tags input's own element: its tags, its box, and its suggestions. */
+const TAGS_ROOT = "[data-scope=tags-input][data-part=root]";
 
 /** East TagsInput value type */
 export type TagsInputValue = ValueTypeOf<typeof TagsInput.Types.Root>;
@@ -113,12 +123,20 @@ const TagsSuggestions = memo(function TagsSuggestions({ suggestions, held, typed
  * - **Esc puts it back**: the box is emptied, so what a person abandoned is no
  *   tag as they leave. A key that ends an input method's composition is the
  *   composition's.
- * - **As the keyboard leaves the tags input** it is a tag (`blurBehavior:
- *   add`) or is cleared (`clear`), as a press outside it makes it. The tags
- *   input hears a press anywhere, but a move of the focus only on a device
- *   that takes no touch, so on a touchscreen laptop or a tablet with a keyboard
- *   Tab left the text in the box, unsaid. The keyboard moving to one of its own
- *   tags' × has not left it.
+ * - **As the tags input is left** — the keyboard moving out of it, a press
+ *   outside it, whether or not the press takes the focus (Safari's buttons take
+ *   none) — it is a tag (`blurBehavior: add`) or is cleared (`clear`). This
+ *   renderer does it, never Zag's tags input, whose lands as the press begins:
+ *   there it moved what was pressed — a Save under the field, pushed down by
+ *   the field's new line of tags — out from under the pointer before the press
+ *   could click it (east-workspace#1779). It lands as the press lets go, ahead
+ *   of the click the release makes (`usePressRelease`), which then lands on
+ *   what was pressed and hears the tag; at once where the keyboard leaves. The
+ *   tags input hears every move of the focus out of its box, on any device:
+ *   Zag's own tracking hears none on one that takes touch too, where Tab would
+ *   have left the text in the box, unsaid. The keyboard moving to one of its
+ *   own tags' ×, or a press on one of its own tags or suggestions, has not left
+ *   it.
  */
 export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: EastChakraTagsInputProps) {
     const [props, setProps] = useState(toChakraTagsInput(value));
@@ -169,67 +187,95 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     const chipped = hasSuggestions && phone && props.readOnly !== true && props.disabled !== true;
     // The box's name where it draws no label of its own: its field's.
     const naming = useFieldNaming();
-    // Esc puts back what is typed in the box.
-    const onBoxKey = useCallback((api: UseTagsInputReturn, event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.key !== "Escape" || composingKey(event)) return;
-        api.clearInputValue();
-    }, []);
-    // The keyboard leaves the tags input: what is typed is a tag, or is cleared, as its blur behaviour says.
-    const { blurBehavior, allowOverflow } = props;
-    const onBoxBlur = useCallback((api: UseTagsInputReturn, event: FocusEvent<HTMLInputElement>) => {
-        const next = event.relatedTarget;
-        const root = event.currentTarget.closest("[data-scope=tags-input][data-part=root]");
-        if (!(next instanceof Node) || root === null || root.contains(next)) return;
+
+    // The tags input as Zag drives it, but for what is typed as it is left, which is this renderer's (below): Zag's
+    // would land as the press that leaves it begins. Its recipe's props are its root's.
+    const { blurBehavior, allowOverflow, size, variant, colorPalette, ...machine } = props;
+    const boxRef = useRef<HTMLInputElement | null>(null);
+    const latest = useRef<UseTagsInputReturn | null>(null);
+    // The tags input left: what is typed is a tag, or is cleared, as its blur behaviour says.
+    const leave = useCallback(() => {
+        const tags = latest.current;
+        const box = boxRef.current;
+        if (tags === null || box === null) return;
         if (blurBehavior === "clear") {
-            api.clearInputValue();
+            tags.clearInputValue();
             return;
         }
-        const typed = event.currentTarget.value.trim();
-        if (blurBehavior !== "add" || typed === "" || (api.atMax && allowOverflow !== true)) return;
-        api.addValue(typed);
-        api.clearInputValue();
+        const typed = box.value.trim();
+        if (blurBehavior !== "add" || typed === "" || (tags.atMax && allowOverflow !== true)) return;
+        tags.addValue(typed);
+        tags.clearInputValue();
     }, [blurBehavior, allowOverflow]);
+    // ...as the press that left it lets go, ahead of the click its release makes — at once where none did, as the
+    // keyboard's Tab leaves — once for each leaving: a press that takes the focus is heard twice, as it lands and as the
+    // focus moves.
+    const atRelease = usePressRelease();
+    const leaving = useRef(false);
+    const left = useCallback(() => {
+        if (blurBehavior === undefined || leaving.current) return;
+        leaving.current = true;
+        atRelease(() => {
+            leaving.current = false;
+            leave();
+        });
+    }, [blurBehavior, atRelease, leave]);
+    // A press outside it, whether or not the press takes the focus; one on its own tags or suggestions is no leaving.
+    const onInteractOutside = useCallback((event: OutsideEvent) => {
+        if (event.type !== PRESS_OUTSIDE) return;
+        const pressed = event.detail.originalEvent.target;
+        const root = boxRef.current?.closest(TAGS_ROOT) ?? null;
+        if (root !== null && pressed instanceof Node && root.contains(pressed)) return;
+        left();
+    }, [left]);
+    // The keyboard leaving it — never for one of its own tags' ×.
+    const onBoxBlur = useCallback((event: FocusEvent<HTMLInputElement>) => {
+        const next = event.relatedTarget;
+        const root = event.currentTarget.closest(TAGS_ROOT);
+        if (!(next instanceof Node) || root === null || root.contains(next)) return;
+        left();
+    }, [left]);
+    // Esc puts back what is typed in the box.
+    const onBoxKey = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key !== "Escape" || composingKey(event)) return;
+        latest.current?.clearInputValue();
+    }, []);
+
+    const tags = useTagsInput({
+        ...machine,
+        allowOverflow,
+        onValueChange: handleValueChange,
+        onInputValueChange: handleInputValueChange,
+        onHighlightChange: handleHighlightChange,
+        onInteractOutside,
+    });
+    useLayoutEffect(() => { latest.current = tags; });
 
     return (
-        <ChakraTagsInput.Root
-            {...props}
-            onValueChange={handleValueChange}
-            onInputValueChange={handleInputValueChange}
-            onHighlightChange={handleHighlightChange}
-        >
+        <ChakraTagsInput.RootProvider value={tags} size={size} variant={variant} colorPalette={colorPalette}>
             {label && <ChakraTagsInput.Label>{label}</ChakraTagsInput.Label>}
             <ChakraTagsInput.Control>
-                <ChakraTagsInput.Context>
-                    {(api) => (
-                        <>
-                            {api.value.map((tag, index) => (
-                                <ChakraTagsInput.Item key={index} index={index} value={tag}>
-                                    <ChakraTagsInput.ItemPreview>
-                                        <ChakraTagsInput.ItemText>{tag}</ChakraTagsInput.ItemText>
-                                        <ChakraTagsInput.ItemDeleteTrigger><FontAwesomeIcon icon={faXmark} /></ChakraTagsInput.ItemDeleteTrigger>
-                                    </ChakraTagsInput.ItemPreview>
-                                </ChakraTagsInput.Item>
-                            ))}
-                            <ChakraTagsInput.Input placeholder={placeholder} list={listed ? listId : undefined} style={typedStyle} {...(label === undefined ? naming : {})}
-                                onKeyDown={(event) => onBoxKey(api, event)} onBlur={(event) => onBoxBlur(api, event)} />
-                        </>
-                    )}
-                </ChakraTagsInput.Context>
+                {tags.value.map((tag, index) => (
+                    <ChakraTagsInput.Item key={index} index={index} value={tag}>
+                        <ChakraTagsInput.ItemPreview>
+                            <ChakraTagsInput.ItemText>{tag}</ChakraTagsInput.ItemText>
+                            <ChakraTagsInput.ItemDeleteTrigger><FontAwesomeIcon icon={faXmark} /></ChakraTagsInput.ItemDeleteTrigger>
+                        </ChakraTagsInput.ItemPreview>
+                    </ChakraTagsInput.Item>
+                ))}
+                <ChakraTagsInput.Input ref={boxRef} placeholder={placeholder} list={listed ? listId : undefined} style={typedStyle} {...(label === undefined ? naming : {})}
+                    onKeyDown={onBoxKey} onBlur={onBoxBlur} />
             </ChakraTagsInput.Control>
             {listed && (
                 <datalist id={listId}>
                     {suggestions.map(s => <option key={s} value={s} />)}
                 </datalist>
             )}
-            {chipped && (
-                <ChakraTagsInput.Context>
-                    {(api) => (api.atMax ? null : (
-                        <TagsSuggestions suggestions={suggestions} held={api.value} typed={api.inputValue}
-                            onTake={(s) => { api.addValue(s); api.clearInputValue(); }} />
-                    ))}
-                </ChakraTagsInput.Context>
+            {chipped && !tags.atMax && (
+                <TagsSuggestions suggestions={suggestions} held={tags.value} typed={tags.inputValue}
+                    onTake={(s) => { tags.addValue(s); tags.clearInputValue(); }} />
             )}
             <ChakraTagsInput.HiddenInput />
-        </ChakraTagsInput.Root>
+        </ChakraTagsInput.RootProvider>
     );
 }, (prev, next) => tagsInputEqual(prev.value, next.value));

@@ -17,10 +17,14 @@
  * input that carries the tags — and outside one it carries neither.
  *
  * What is typed in its box and not Entered (#1758): Esc puts it back, so the
- * box is empty and leaving it adds nothing; and as the keyboard leaves the tags
- * input it is a tag (`blurBehavior: add`) or is cleared (`clear`) — on a device
- * that takes touch too, where the tags input's own tracking hears no focus
- * move. The keyboard moving to one of its own tags' × leaves it as typed.
+ * box is empty and leaving it adds nothing; and as the tags input is left it is
+ * a tag (`blurBehavior: add`) or is cleared (`clear`) — as the keyboard leaves
+ * it, on a device that takes touch too, where the tags input's own tracking
+ * hears no focus move, and as a press outside it lets go: never as that press
+ * begins, so what it pressed stays where it was pressed, and ahead of the click
+ * its release makes, which hears the tag (east-workspace#1779). The keyboard
+ * moving to one of its own tags' ×, or a press on one of its own suggestions,
+ * leaves it as typed.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -31,6 +35,7 @@ import { defaultValue, some, none, variant } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { FramePhoneLayer } from "../../layout/builder-frame/frame-layer.js";
+import { releasePress } from "../../testing/pointer.js";
 import { EastChakraTagsInput, type TagsInputValue } from "./index.js";
 
 afterEach(cleanup);
@@ -159,14 +164,14 @@ describe("what is typed in a TagsInput's box and not Entered (#1758)", () => {
         });
     }
 
-    /** A tags input that holds `held`, with what its host is told and a button after it. */
-    function mount(blurBehavior: "add" | "clear", held: string[] = []) {
+    /** A tags input that holds `held`, with what its host is told and a button after it, which `onAfter` hears clicked. */
+    function mount(blurBehavior: "add" | "clear", held: string[] = [], onAfter?: () => void) {
         const told: string[][] = [];
         const value = {
             ...tagsValue(undefined, held), blurBehavior: some(variant(blurBehavior, null)),
             onChange: some((tags: string[]) => { told.push([...tags]); return null; }),
         } as TagsInputValue;
-        const { container } = render(<ChakraProvider value={system}><EastChakraTagsInput value={value} /><button type="button">after</button></ChakraProvider>);
+        const { container } = render(<ChakraProvider value={system}><EastChakraTagsInput value={value} /><button type="button" onClick={onAfter}>after</button></ChakraProvider>);
         return { container, told, after: () => screen.getByRole("button", { name: "after" }) };
     }
 
@@ -241,6 +246,37 @@ describe("what is typed in a TagsInput's box and not Entered (#1758)", () => {
             await settle();
             expect([told, shown(container), box(container).value]).toEqual([[], [], ""]);
         });
+    });
+
+    test("a press outside leaves what is typed as it is while it is held, so nothing it pressed moves; as it lets go, what is typed is a tag, told ahead of the click its release makes (east-workspace#1779)", async () => {
+        const atClick: string[][][] = [];
+        const { container, told, after } = mount("add", ["sales"], () => { atClick.push(told.map((tags) => [...tags])); });
+        const user = userEvent.setup();
+        await user.click(box(container));
+        await user.type(box(container), "weekly");
+        // Held down on the button after the field, which takes the keyboard from the box: the field as it was.
+        await user.pointer({ keys: "[MouseLeft>]", target: after() });
+        await settle();
+        expect([document.activeElement === after(), told, shown(container), box(container).value]).toEqual([true, [], ["sales"], "weekly"]);
+        // Let go as a browser lets it go: the click hears what the release did (`releasePress`).
+        await releasePress(after());
+        await settle();
+        expect([atClick, told, shown(container), box(container).value]).toEqual([[[["sales", "weekly"]]], [["sales", "weekly"]], ["sales", "weekly"], ""]);
+    });
+
+    test("a press on one of its own suggestions is no leaving: the suggestion is the tag, and what was typed to find it is not (east-workspace#1779)", async () => {
+        const told: string[][] = [];
+        const value = {
+            ...tagsValue(REGISTER, ["Forklift"]), blurBehavior: some(variant("add", null)),
+            onChange: some((tags: string[]) => { told.push([...tags]); return null; }),
+        } as TagsInputValue;
+        const { container } = phoneUi(value);
+        const user = userEvent.setup();
+        await user.click(box(container));
+        await user.keyboard("f");
+        await user.click(screen.getByRole("button", { name: "First aid" }));
+        await settle();
+        expect([told, shown(container), box(container).value]).toEqual([[["Forklift", "First aid"]], ["Forklift", "First aid"], ""]);
     });
 
     test("the keyboard moving to one of its own tags' × leaves what is typed in the box: it has not left the tags input", async () => {

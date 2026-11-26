@@ -112,9 +112,10 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
     // follows the query's when that changes.
     const [draft, setDraft] = useState<option<string>>(description);
     // The tags as the field holds them: the query's each time the popover opens, and when the query's change. Save
-    // reads them as the field last told them (`latest`): a tag typed and left for Save is told as the press lands — as
-    // the keyboard leaves its box, or, where a press moves no focus (Safari's buttons), on the press's own click — and
-    // is saved whether or not the popover has drawn again by then.
+    // reads them as the field last told them (`latest`): a tag typed and left for Save is told as the press on Save
+    // lets go, ahead of its click — the field as it was while the press is held, so the Save stays under it
+    // (east-workspace#1779) — or as the keyboard leaves its box, and is saved whether or not the popover has drawn again
+    // by then.
     const [tagged, setTagged] = useState<Tags>(tags);
     const latest = useRef<Tags>(tags);
     const hold = useCallback((next: Tags) => {

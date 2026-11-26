@@ -15,7 +15,9 @@
  * in the description — hands the host the name, the description, `none`
  * untouched or cleared and the text once edited, and the tags (#1758): the
  * open query's as it opens, the saved queries' suggested, a tag added by ⏎ in
- * their field, which saves nothing, and removed by its ×. It closes once the
+ * their field, which saves nothing, and removed by its ×; one typed and not
+ * Entered is saved by a single press on Save, the field as it was while the
+ * press is held, so nothing moves under it (east-workspace#1779). It closes once the
  * host has saved, and shows what refused the save otherwise. While the save runs Save is loading
  * and both buttons are disabled; Esc cancels, and each opening starts over.
  * Hung from the ⋯ chip Save… folds into (#1229), it opens from the chip's
@@ -29,6 +31,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { SortedSet, StringType, compareFor, none, some, type option } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
+import { releasePress } from "@elaraai/east-ui-components/testing";
 import { QuerySavePopover, type QuerySavePopoverProps } from "./save-popover.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -301,17 +304,18 @@ describe("the query's save popover (#936)", () => {
         expect(saved(onSave)).toEqual([["Big orders", none, ["weekly"]]]);
     });
 
-    test("#1758: a tag typed and not Entered is a tag as the keyboard leaves its box — Save, pressed, keeps it", async () => {
+    test("#1758: a tag typed and not Entered is a tag as the keyboard leaves its box — Save, pressed once, keeps it, nothing moving under the press (east-workspace#1779)", async () => {
         const { popover, onSave } = await mount();
         const user = userEvent.setup();
         await user.click(tagsInput(popover));
         await user.type(tagsInput(popover), "monthly");
-        // A press as a person makes it: the button down, which takes the keyboard from the box, then up. A page's own
-        // events each run to their end before the next; one click dispatched whole from a test would not.
+        // A press as a person makes it: the button down, which takes the keyboard from the box — the field as it was,
+        // so nothing under the press moves — then up, as a browser lets it go: the tag made as it lets go, ahead of the
+        // click, which saves it. A page's own events each run to their end before the next (`releasePress`).
         await user.pointer({ keys: "[MouseLeft>]", target: saveButton(popover) });
         await settle();
-        expect([tagsShown(popover), tagsInput(popover).value]).toEqual([["monthly"], ""]);
-        await user.pointer({ keys: "[/MouseLeft]", target: saveButton(popover) });
+        expect([tagsShown(popover), tagsInput(popover).value]).toEqual([[], "monthly"]);
+        await releasePress(saveButton(popover));
         await closed();
         expect(saved(onSave)).toEqual([["Big orders", none, ["monthly"]]]);
     });
