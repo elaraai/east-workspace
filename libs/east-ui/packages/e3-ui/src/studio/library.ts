@@ -250,9 +250,9 @@ const KINDS: Readonly<Record<string, string>> = { rows: "page", templates: "temp
  * - **The toolbar**, one row: Pages · Templates, where `slice` has a
  *   `templates` source; the rail — the fields the shown view's source lists,
  *   its search, its presets and `N of M pages` — then New page, which follows
- *   the rail: with one project chosen it reads "New page in Ops console" and
- *   starts there; otherwise its popover asks for the project, offering
- *   `project`.
+ *   the rail shown: with one project chosen it reads "New page in Ops console"
+ *   and starts there; otherwise its popover asks for the project, offering a
+ *   template's own where it starts from one, else `project`.
  * - **The cards**, a grid as many across as fit: a page, or a template, a
  *   card, read a window at a time in the order e3 returns them — a wireframe
  *   of its layout; its title; what it places, "KPI rail ×2 · Revenue trend";
@@ -265,12 +265,17 @@ const KINDS: Readonly<Record<string, string>> = { rows: "page", templates: "temp
  *   record's patch write: its layout a template's, or a blank grid. A name the
  *   project holds, a page's or a template's, is refused by the commit, in the
  *   popover. Once it commits, the host is told the new page.
+ * - **Each source** lists its kind of entry alone. One scoped by nothing is
+ *   refused here; one scoped to another kind, or to both — whose values only
+ *   the page that runs its scope holds — is refused where the library is
+ *   drawn, in its place, saying the scope to give it (east-workspace#1779).
  *
  * The open page is the host's, which gives it to the page library and to its
  * `<Studio.Builder>` as `page` and changes it in `onOpen`. The two are surfaces
  * of their own — a `ui()` each: the library pages the record, and a surface
- * that pages a record never loads it whole, which the builder does. The page
- * library draws no border around itself.
+ * that pages a record never loads it whole, which the builder does: on one
+ * `ui()` the builder has nothing to read, and says so (#1779). The page library
+ * draws no border around itself.
  *
  * @param options - The bound record, the slice, the listed components, the project, the open page, who to tell and the library's name ({@link StudioLibraryOptions})
  * @returns An East expression of type `UIComponentType`

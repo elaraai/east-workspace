@@ -11,8 +11,10 @@
  * - **The toolbar**, the frame's one row: Pages · Templates, where its slice
  *   has a `templates` source; the rail's fields of the view it shows, their
  *   search, the presets and the count; then New page, which follows the rail
- *   (L12): with one project chosen it reads "New page in Ops console" and
- *   starts there; otherwise its popover asks for the project.
+ *   shown (L12): with one project chosen it reads "New page in Ops console" and
+ *   starts there; otherwise its popover asks for the project — a template's
+ *   own, where it starts from one. The pages' project is no choice of the
+ *   templates' rail.
  * - **The cards**, main: the pages — or the templates — the rail narrows to,
  *   in the order e3 pages them, as the shared paged gallery: as many across as
  *   fit, a window read and a screenful mounted at a time. A card is the
@@ -29,6 +31,11 @@
  *   patch write, the page the template's layout or a blank grid. A name the
  *   project holds — a page's or a template's — is refused by the commit, in the
  *   popover. Once it commits, the host is told the new page (L10).
+ * - **Its sources' scope**: each view's source lists its kind of entry alone.
+ *   One scoped by nothing is refused where the page is built; one scoped to
+ *   another kind, or to both — which only the page that runs its scope tells —
+ *   is refused here, in the library's place, saying the scope to give it
+ *   (east-workspace#1779).
  *
  * It reads the record a window at a time, through the slice, and never whole:
  * a card is a row of a page e3 read, and a new page is a patch built from what
@@ -48,14 +55,14 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Box } from "@chakra-ui/react";
 import { faFileLines, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import {
-    StringType, StructType, defaultValue, equalFor, equivalentFor, isValueOf, none, printFor, some,
+    StringType, StructType, defaultValue, equalFor, equivalentFor, isValueOf, none, printFor, some, variant,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
 import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { StudioCellType, StudioEntryType, StudioKeyType, StudioLibraryComponent, StudioLibraryPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    BuilderFrame, FieldForm, SnapGridTiles, getSomeorUndefined, implementUIComponent, useFormatters, usePersistedState,
+    BannerView, BuilderFrame, FieldForm, SnapGridTiles, getSomeorUndefined, implementUIComponent, useFormatters, usePersistedState,
     type Formatters, type LibraryItemValue, type SnapGridLayoutCell, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { keptRead, useSlotStyles, type PagedLibraryGallery } from "@elaraai/east-ui-components/internal";
@@ -65,7 +72,7 @@ import { tellHost } from "../shared/open.js";
 import { entryRow } from "../shared/records/entry-row.js";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { LibraryNewButton, SliceGallery, libraryCard, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
+import { LibraryNewButton, SliceGallery, libraryCard, libraryGallery, scopedToOne, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
 import { TagsFormType, TagsType, type Tags } from "../shared/tags-form.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
@@ -108,6 +115,13 @@ const printKey = printFor(StudioKeyType);
 
 /** Each view's source in the slice. */
 const SOURCE: Readonly<Record<View, string>> = { pages: "rows", templates: "templates" };
+/** The views, in the order Pages · Templates lists them. */
+const VIEWS: readonly View[] = ["pages", "templates"];
+/** What an entry is: what each view's source is scoped by. */
+const KindType = StudioEntryType.fields.kind;
+const KIND_FIELD = "kind";
+/** The kind of entry each view's source lists alone. */
+const KIND: Readonly<Record<View, ValueTypeOf<typeof KindType>>> = { pages: variant("page", null), templates: variant("template", null) };
 /** The pages' field New page follows (L12): the one project the rail has chosen. */
 const PROJECT_FIELD = "project";
 
@@ -303,6 +317,12 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const components = useEquivalent(value.components, componentsEquivalent);
     const chrome = useEquivalent(value.slice, sliceEquivalent);
     const parts = useMemo(() => ({ pages: sourcePart(chrome, SOURCE.pages), templates: sourcePart(chrome, SOURCE.templates) }), [chrome]);
+    // A view whose source is scoped to another kind of entry, or to both: the scope's values are the page's, which may be
+    // an expression's, so the build refuses only one scoped by nothing (east-workspace#1779).
+    const misscoped = useMemo(() => VIEWS.find((v) => {
+        const part = parts[v];
+        return part !== undefined && !scopedToOne(part.config.scope, KIND_FIELD, KindType, KIND[v]);
+    }), [parts]);
 
     // The view shown: the pages, or — where the slice has them — the templates; the viewer's, kept.
     const { state: kept, setState: setKept } = usePersistedState<{ view: View }>(`${storageKey}.${libraryKey}.view`, { view: "pages" }, readView);
@@ -315,7 +335,9 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const hidden = useMemo(() => chrome.slice.parts.filter((part) => part.source !== SOURCE[view])
         .flatMap((part) => part.slice.config.fields.map((field) => `${part.source}.${field.fieldId}`)), [chrome, view]);
     const rail = useLibraryRail(chrome, nouns, hidden);
-    const fixed = useRailValue(parts.pages, PROJECT_FIELD);
+    // New page follows the rail shown (L12): over the templates, their own project's choice — which their rail rarely
+    // offers — and never the pages', a chip the view hides (east-workspace#1779).
+    const fixed = useRailValue(shown, PROJECT_FIELD);
 
     // New page: open from a blank grid by its button, or from a template by its card. Made, it is one commit, and the host
     // is told of it (L10).
@@ -363,6 +385,10 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
         ];
     }, [parts.templates, view, pickView, rail, fixed, starting, value.project, onCreate, m]);
 
+    if (misscoped !== undefined) {
+        const templates = misscoped === "templates";
+        return <BannerView status="error" title={m.sourceKind({ templates })} description={m.sourceKindHint({ templates })} />;
+    }
     return (
         <BuilderFrame storageKey={`${storageKey}.${libraryKey}.frame`} label={m.pageLibrary()} toolbar={toolbar}>
             {shown !== undefined && (

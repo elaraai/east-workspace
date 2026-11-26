@@ -20,6 +20,8 @@
  * - **The toolbar**: the rail over the slice ({@link useLibraryRail}), and New,
  *   the brand's solid button ({@link LibraryNewButton}), which follows the one
  *   value the rail has chosen of a field ({@link useRailValue}, L11, L12).
+ * - **A source's scope**: whether its page is scoped to one value of a field
+ *   alone ({@link scopedToOne}) — what the page library's views each are.
  *
  * @packageDocumentation
  */
@@ -28,7 +30,7 @@ import { forwardRef, useCallback, useMemo, type ComponentPropsWithoutRef } from 
 import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
-import { StringType, none, parseFor, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import { RecordSliceWhereType, recordSliceChosen, type RecordSliceBindType, type RecordSliceEntry, type RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type ToolbarItem } from "@elaraai/east-ui-components";
 import {
@@ -225,6 +227,25 @@ export function useRailValue(part: Part | undefined, field: string): string | un
     }, [part, field]);
     const { result } = useTrackedEvaluation(read);
     return result.ok ? result.value : undefined;
+}
+
+/**
+ * Whether a source's page is scoped to one value of a field alone (#1621, east-workspace#1779): its scope lists that
+ * value and no other, its one literal read back at the field's type — what the page library's pages and templates are
+ * each scoped to, by what an entry is. A scope may be an East expression, so only the page that runs it holds its
+ * values: the source's config, as its part carries it.
+ *
+ * @param scope - The source's scope, as its part's config holds it
+ * @param field - The field
+ * @param type - The field's type
+ * @param value - The one value
+ * @returns Whether the scope lists exactly that value of the field
+ */
+export function scopedToOne<T extends EastType>(scope: Part["config"]["scope"], field: string, type: T, value: ValueTypeOf<T>): boolean {
+    const choice = scope.get(field);
+    if (choice === undefined || choice.type !== "values" || choice.value.length !== 1) return false;
+    const read = parseFor(type)(choice.value[0]!);
+    return read.success && equalFor(type)(read.value, value);
 }
 
 /** Props of {@link LibraryNewButton}: its words and form, and what a menu or a popover hands its trigger. */

@@ -155,7 +155,8 @@ const SLICE_CALL = "slice={{ slice: Slice.bindRecords(key, { rows: { source: Dat
  * The open query is the host's, which gives it to the query library and to its
  * `<Query.Builder>` as `query` and changes it in `onOpen`. The two are surfaces
  * of their own — a `ui()` each: the library pages the saved queries, and a
- * surface that pages a record never loads it whole, which the builder does.
+ * surface that pages a record never loads it whole, which the builder does: on
+ * one `ui()` the builder has nothing to read, and says so (#1779).
  * The query library reads no dataset, writes nothing, and draws no border
  * around itself. Its data sources are the surface's bindings: bind a large one
  * with `Data.bindPaged`, which is declared and never loaded whole.

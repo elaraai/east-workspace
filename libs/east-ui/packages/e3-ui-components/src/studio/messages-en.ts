@@ -321,6 +321,10 @@ export const studioMessages: StudioMessages = {
     noTemplatesHint: () => "Save a page as a template in the builder.",
     noneMatch: ({ templates }) => `No ${templates ? "templates" : "pages"} match the filters`,
     noneMatchHint: ({ templates }) => `Change or clear the filters to see more ${templates ? "templates" : "pages"}.`,
+    sourceKind: ({ templates }) => (templates ? "The Templates view's source isn't scoped to the templates" : "The Pages view's source isn't scoped to the pages"),
+    sourceKindHint: ({ templates }) => (templates
+        ? "Scope the slice's templates source to them, with scope: { kind: [\"template\"] }."
+        : "Scope the slice's rows source to them, with scope: { kind: [\"page\"] }."),
     newPageIn: ({ project }) => `New page in ${project}`,
     newPage: () => "New page",
     pages: () => "Pages",

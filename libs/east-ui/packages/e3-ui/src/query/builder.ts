@@ -198,7 +198,10 @@ export interface QueryBuilderOptions {
  * source. Its host says which query it shows and is told when its own tabs
  * ask for another, so a `<Query.Library>` opens a query in it through the
  * host: the library's `onOpen` and the builder's `query` are the host's to
- * join — across its pages, since the library is a surface of its own.
+ * join across its pages. The library is a surface of its own: it pages the
+ * saved queries, and a surface that pages a record never loads it whole,
+ * which the builder reads — so on one `ui()` with the library the builder has
+ * nothing to read, and says so in its place, naming the record (#1779).
  *
  * @param options - The bound record, the data sources, the query it shows, who to tell and the builder's name ({@link QueryBuilderOptions})
  * @returns An East expression of type `UIComponentType`

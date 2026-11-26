@@ -7,19 +7,20 @@
  * What every library of cards over its slice shares (#1761, #1762): its
  * gallery's one size and its one fact, the tags; the mark of the row its host
  * says is open; and New, the brand's solid button — its words, or its plus
- * alone, named by them, and a caret where it opens a menu. The gallery over a
- * slice's source, its rail and the rail's one chosen value are measured by the
- * query library's and the page library's own tests, which mount them on e3.
+ * alone, named by them, and a caret where it opens a menu; and whether a
+ * source is scoped to one value of a field alone. The gallery over a slice's
+ * source, its rail and the rail's one chosen value are measured by the query
+ * library's and the page library's own tests, which mount them on e3.
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { none, some, variant } from "@elaraai/east";
+import { NullType, VariantType, none, printFor, some, variant } from "@elaraai/east";
 import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { system, type LibraryItemValue } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { LibraryNewButton, libraryCard, libraryCardMarks, libraryGallery, rowsOnce } from "./slice-gallery.js";
+import { LibraryNewButton, libraryCard, libraryCardMarks, libraryGallery, rowsOnce, scopedToOne } from "./slice-gallery.js";
 
 afterEach(() => { cleanup(); });
 
@@ -65,6 +66,19 @@ describe("a library of cards (#1761, #1762)", () => {
         });
         const glyph: LibraryItemValue["trailing"] = some({ icon: "triangle-exclamation", label: "Its data sources aren't bound here", tone: some(variant("warning", null)) });
         expect(libraryCard({ ...face, trailing: glyph, open: false }).trailing).toBe(glyph);
+    });
+
+    test("a source scoped to one value of a field alone (east-workspace#1779): its scope's one literal, read back at the field's type, is the value; another value, both, none, or another field's scope is not", () => {
+        const Kind = VariantType({ page: NullType, template: NullType });
+        const literal = printFor(Kind);
+        const page = variant("page", null);
+        const template = variant("template", null);
+        const scope = (field: string, ...values: string[]): Parameters<typeof scopedToOne>[0] => new Map([[field, variant("values", values)]]);
+        expect(scopedToOne(scope("kind", literal(page)), "kind", Kind, page)).toBe(true);
+        expect(scopedToOne(scope("kind", literal(template)), "kind", Kind, page)).toBe(false);
+        expect(scopedToOne(scope("kind", literal(page), literal(template)), "kind", Kind, page)).toBe(false);
+        expect(scopedToOne(new Map(), "kind", Kind, page)).toBe(false);
+        expect(scopedToOne(scope("project", literal(page)), "kind", Kind, page)).toBe(false);
     });
 
     test("New: its plus and its words, the brand's solid button; folded, the plus alone, named by its words; a caret where it opens a menu; it takes what its host hands it", () => {

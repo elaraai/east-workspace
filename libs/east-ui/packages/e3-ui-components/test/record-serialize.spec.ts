@@ -137,6 +137,16 @@ test("#106 — draft.<name> round-trips and is made on the DECODER's runtime, wh
     assert.deepEqual(mutateCalls, []);
 });
 
+test("east-workspace#1779 — a read of a record with no state loaded here names the record, and why: it holds none yet, or the surface pages it and never loads it whole", () => {
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const decoded = decodeBeast2For(HandleType, { platform: newRuntime().buildPrimitives() })(bytes) as unknown as { read: () => bigint };
+    assert.throws(() => decoded.read(), {
+        message: "Record.bind: the `counter` record is not loaded on this surface: it holds no state yet, or the surface pages it through " +
+            "Data.bindPaged, as <Query.Library> and <Studio.Library> do, and never loads it whole. What reads a record whole, as " +
+            "<Query.Builder> and <Studio.Builder> do, needs a ui() of its own",
+    });
+});
+
 test("#106 — nested mutate.* lifecycle survives decode (idle on a fresh runtime)", () => {
     const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
     const runtimeDec = newRuntime({ seed: 0n });

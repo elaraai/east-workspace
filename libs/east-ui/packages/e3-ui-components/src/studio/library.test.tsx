@@ -18,9 +18,11 @@
  *   host its page and does nothing else; the page the host says is open is
  *   marked.
  * - **A new page** (L10, L12): from New page or a template's card, a name, the
- *   project where the rail has chosen none, and tags; one commit, the page the
- *   template's layout or a blank grid; then the host is told. A name the
- *   project holds is refused by the commit, in the popover, as a name taken.
+ *   project where the rail shown has chosen none, and tags; one commit, the
+ *   page the template's layout or a blank grid; then the host is told. A name
+ *   the project holds is refused by the commit, in the popover, as a name taken.
+ * - **A source scoped to another kind of entry** is refused in the library's
+ *   place, saying the scope to give it (east-workspace#1779).
  * - **What it reads**: the record a window at a time through its indexes —
  *   never whole — and again as it moves; with no row, and with a narrowing
  *   that leaves none, it says so. A press works out no card again
@@ -141,17 +143,27 @@ const INDEXES = ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", 
 /** The rail's key: the mounted library's, and the one a test narrows through. */
 const RAIL = "library-test.rail";
 
-/** The rail: the pages and — unless asked otherwise — the templates, each scoped to its kind of entry. */
-function rail(templates = true) {
+/** What an entry is. */
+type EntryKind = "page" | "template";
+/** What each source is scoped to, by what an entry is. */
+interface Kinds {
+    readonly rows: readonly EntryKind[];
+    readonly templates: readonly EntryKind[];
+}
+/** The pages, and the templates: each source scoped to its kind of entry. */
+const KINDS: Kinds = { rows: ["page"], templates: ["template"] };
+
+/** The rail: the pages and — unless asked otherwise — the templates, each scoped to its kind of entry, unless asked otherwise. */
+function rail(templates = true, kinds: Kinds = KINDS) {
     const rows = {
-        source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: ["page" as const] }, search: ["title" as const, "project" as const, "tags" as const],
+        source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: [...kinds.rows] }, search: ["title" as const, "project" as const, "tags" as const],
         fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } },
     };
     return templates
         ? Slice.bindRecords(RAIL, {
             rows,
             templates: {
-                source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Templates", scope: { kind: ["template" as const] }, search: ["title" as const],
+                source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Templates", scope: { kind: [...kinds.templates] }, search: ["title" as const],
                 fields: { title: { label: "Name" } },
             },
         })
@@ -173,11 +185,12 @@ function pagesRail(): ValueTypeOf<RecordSliceBindType> {
 /** Where the surface holds the page open in its builder. */
 const OPEN = "library-test.open";
 
-/** How the library is mounted: given no open page, or no `templates` source, or a name. */
+/** How the library is mounted: given no open page, or no `templates` source, or a name, or sources scoped otherwise. */
 interface MountOptions {
     readonly marked?: boolean;
     readonly templates?: boolean;
     readonly id?: string;
+    readonly kinds?: Kinds;
 }
 
 /**
@@ -192,7 +205,7 @@ function surface(options: MountOptions = {}) {
         fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const listed = $.let(components);
             const record = $.let(Record.bind(ex.studioPages, ["patch"]));
-            const slice = $.let(rail(options.templates !== false));
+            const slice = $.let(rail(options.templates !== false, options.kinds));
             const open = $.let(State.bind([StudioKeyType], OPEN, { project: "ops", page: "a-detail" }));
             const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
             const page = $.let(open.read());
@@ -429,6 +442,38 @@ describe("<Studio.Library> — a new page (#1762 L10, L12)", () => {
         await closed();
         expect((await readRecord()).get({ project: "retail", page: "Shop floor" })?.kind.type).toBe("page");
         expect(hostPage()).toEqual({ project: "retail", page: "Shop floor" });
+    });
+
+    test("L12, east-workspace#1779: over the templates New page follows the rail shown, never the pages' — the pages narrowed to one project, it names none, and from a template's card asks for the project, offering the template's own", async () => {
+        const { container } = await mount();
+        await act(async () => { pagesRail().choose("project", [printText("retail")]); });
+        await vi.waitFor(() => expect(titles(container)).toEqual(["Home"]));
+        await showTemplates(container);
+        const toolbar = within(slot(container, "toolbar"));
+        expect(toolbar.queryByRole("button", { name: "New page in retail" })).toBeNull();
+        expect(toolbar.getByRole("button", { name: "New page" })).toBeTruthy();
+        await press(cardOf(container, "Summary"));
+        expect(projectBox()!.value).toBe("ops");
+        await create("Board");
+        await closed();
+        expect((await readRecord()).get({ project: "ops", page: "Board" })?.kind.type).toBe("page");
+        expect(hostPage()).toEqual({ project: "ops", page: "Board" });
+    });
+});
+
+describe("<Studio.Library> — a source scoped to another kind of entry (east-workspace#1779)", () => {
+    test("a Templates view whose source lists the pages is refused in the library's place: no frame and no card, and the scope to give it", async () => {
+        const { container } = await h.mount(surface({ kinds: { rows: ["page"], templates: ["page"] } }), { storageKey: "studio-library" });
+        await vi.waitFor(() => expect(container.textContent).toContain("The Templates view's source isn't scoped to the templates"));
+        expect(container.textContent).toContain("Scope the slice's templates source to them, with scope: { kind: [\"template\"] }.");
+        expect([container.querySelector("[data-builder-frame]"), cards(container)]).toEqual([null, []]);
+    });
+
+    test("a Pages view whose source lists both kinds is refused the same way, naming its own scope", async () => {
+        const { container } = await h.mount(surface({ kinds: { rows: ["page", "template"], templates: ["template"] } }), { storageKey: "studio-library" });
+        await vi.waitFor(() => expect(container.textContent).toContain("The Pages view's source isn't scoped to the pages"));
+        expect(container.textContent).toContain("Scope the slice's rows source to them, with scope: { kind: [\"page\"] }.");
+        expect([container.querySelector("[data-builder-frame]"), cards(container)]).toEqual([null, []]);
     });
 });
 

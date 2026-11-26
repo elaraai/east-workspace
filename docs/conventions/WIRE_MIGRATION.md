@@ -1826,9 +1826,13 @@ Each wire changed under this rule, with the kind it is.
   over records carries one, its `rows` source paging the saved queries through
   the record's indexes. The library reads them a window at a time and never the
   record whole, so its surface's manifest lists the record among what it pages,
-  not among the records it binds. A UI value encoded under either payload type
-  does not decode under the other: packages are re-exported, and the dataflow
-  computes each UI task's output again under the new type. A UI task's output
+  not among the records it binds. A surface that held the library and its
+  `<Query.Builder>` together becomes two, a `ui()` each: the builder reads the
+  record whole, which a surface that pages it never loads, so on one `ui()` the
+  builder has nothing to read, and says so, naming the record (#1779). A UI
+  value encoded under either payload type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output
   is not stored state, and the saved queries record keeps its type, so no
   repository upgrade step ships with it.
 - **e3-ui's page library pages the pages record through a Slice, and writes it
@@ -1840,7 +1844,10 @@ Each wire changed under this rule, with the kind it is.
   `templates` source, where it has one, the templates, each scoped by what an
   entry is — and `id`, last, the library's name. The library reads the record
   a window at a time and never whole, so its surface's manifest lists the
-  record among what it pages, beside the records it binds to write. A UI value
+  record among what it pages, beside the records it binds to write. A surface
+  that held the library and its `<Studio.Builder>` together becomes two, a
+  `ui()` each, for the same reason: on one, the builder has nothing to read,
+  and says so (#1779). A UI value
   encoded under either payload type does not decode under the other: packages
   are re-exported, and the dataflow computes each UI task's output again under
   the new type. A UI task's output is not stored state, and the pages record

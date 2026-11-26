@@ -539,6 +539,10 @@ export interface StudioMessages {
     noneMatch: (p: { templates: boolean }) => string;
     /** Under it. */
     noneMatchHint: (p: { templates: boolean }) => string;
+    /** A view whose source the slice scopes to another kind of entry, or to more than its own — said in the page library's place (east-workspace#1779). */
+    sourceKind: (p: { templates: boolean }) => string;
+    /** Under it: the scope to give the source. */
+    sourceKindHint: (p: { templates: boolean }) => string;
     /** New page, while the rail has chosen one project — `New page in Ops console`. */
     newPageIn: (p: { project: string }) => string;
     /** New page, folded, and its popover's head. */
