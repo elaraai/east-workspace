@@ -387,10 +387,12 @@ export const planSeriesJobs = e3.record("plan_series_jobs", DictType(StringType,
         // A week's jobs together under their hall and line, in their presses' order (#1710): a block of a line's presses
         // in view is one range a tile, from its first press through its last, whatever the presses' histories.
         plan_series_jobs_by_line_week: index.flatSeries({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
-        plan_series_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
-        plan_series_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
-        plan_series_jobs_by_press_quarter: index.summary({ key: "press", from: "start", to: "end", tile: "quarter" }),
-        plan_series_jobs_by_press_year: index.summary({ key: "press", from: "start", to: "end", tile: "year" }),
+        // How busy each press's task is — the row beneath the press a job lands on — led by the task: zoomed out, each task
+        // row counts its own jobs. A summary by the press alone counts every task beneath it alike, and shades none of them.
+        plan_series_jobs_by_task_day: index.summary({ on: ["task"], key: "press", from: "start", to: "end", tile: "day" }),
+        plan_series_jobs_by_task_month: index.summary({ on: ["task"], key: "press", from: "start", to: "end", tile: "month" }),
+        plan_series_jobs_by_task_quarter: index.summary({ on: ["task"], key: "press", from: "start", to: "end", tile: "quarter" }),
+        plan_series_jobs_by_task_year: index.summary({ on: ["task"], key: "press", from: "start", to: "end", tile: "year" }),
         plan_series_jobs_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
         plan_series_jobs_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
         plan_series_jobs_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
@@ -436,7 +438,9 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
  * under, so a block of rows is one range a tile; a drop under other rows
  * writes them. Zoomed out past what it draws, a kind shades each row from the
  * summary whose tile fits the zoom: a day's, a month's, a quarter's or a
- * year's. The library's Series tab switches each series and each kind on and
+ * year's — the print jobs' task rows each from a summary led by the task and
+ * keyed by the press (`index.summary({ on: ["task"], key: "press", … })`), each
+ * its own jobs counted. The library's Series tab switches each series and each kind on and
  * off; one event is read by its key through its record's own entries, and
  * Save commits through each record's patch door. The horizon's bars are each
  * kind's totals a month, a quarter or a year (#1732): summaries with no key,
@@ -449,10 +453,11 @@ export const planSeriesAll = example({
         "tiles", "marks", "instant", "at", "groups", "halls", "lines", "presses", "tasks", "folders", "bays", "guillotines", "grouped rows",
         "paging", "entries", "Slice", "Slice.bindRecords", "rows source", "Data.bindPaged", "paged", "index.flatSeries", "series index", "order",
         "time order", "order: 'time'", "on", "leading fields", "key order", "index.interval", "index.summary", "summary tiles",
-        "level of detail", "zoom", "cell", "range a tile", "large record", "scale", "sparse", "three years", "shading", "Plan.library.series",
+        "level of detail", "zoom", "cell", "range a tile", "large record", "scale", "sparse", "three years", "shading", "child rows counted",
+        "summary led by the child's field", "Plan.library.series",
         "Series tab", "Record.bind", "entries", "Save", "horizon", "totals", "summary with no key", "#1710", "#1732",
     ],
-    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.flatSeries({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
+    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.flatSeries({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's; the jobs' task rows each count their own from summaries led by the task and keyed by the press (index.summary({ on: [\"task\"], key: \"press\", … })) — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const inspections = $.let(Record.bind(planSeriesInspections));
@@ -501,8 +506,8 @@ export const planSeriesAll = example({
                 },
                 job: {
                     source: Data.bindPaged(planSeriesJobs, {
-                        indexes: ["plan_series_jobs_by_time", "plan_series_jobs_by_line_week", "plan_series_jobs_by_press_day",
-                            "plan_series_jobs_by_press_month", "plan_series_jobs_by_press_quarter", "plan_series_jobs_by_press_year"],
+                        indexes: ["plan_series_jobs_by_time", "plan_series_jobs_by_line_week", "plan_series_jobs_by_task_day",
+                            "plan_series_jobs_by_task_month", "plan_series_jobs_by_task_quarter", "plan_series_jobs_by_task_year"],
                         totals: ["plan_series_jobs_month_totals", "plan_series_jobs_quarter_totals", "plan_series_jobs_year_totals"],
                     }),
                     label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start",

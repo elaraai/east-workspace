@@ -119,6 +119,21 @@
  * given no cells, it draws nothing, and a host leaves it out of every figure
  * of its own — the kinds past the cap name none.
  *
+ * # Rows beneath a resource
+ *
+ * A kind whose events land a step beneath its resources ({@link ScheduleCellKind.child},
+ * a Plan kind's `child`, #1541) reads its events by its resources, and its
+ * shading counts each row beneath one on its own: through a summary led by
+ * the child's field and keyed by the resource (`index.summary({ on: [<child
+ * field>], key: <resource field>, … })`), a search a row — its key chosen of
+ * that field, under its resource's key — filed under the child's slot by the
+ * row's own key. A summary of the resources alone counts every row beneath a
+ * resource alike, so it shades none of them: with no summary led by the
+ * child's field, the kind is read as one with no summary is — within the cap
+ * its events draw on their rows, and past it those rows are hatched and the
+ * kind gives the notice, which says its counts are kept by its resources
+ * alone where its source keeps theirs ({@link ScheduleCellNotice.keptBy}).
+ *
  * # The narrowing, the drafts and the link ends
  *
  * A series index led by the narrowed fields serves the narrowing exactly; the
@@ -380,6 +395,27 @@ export interface ScheduleCellKind {
      * it. A kind with a source reads its source's.
      */
     readonly revision?: (() => option<string>) | undefined;
+    /**
+     * Where its events land a step beneath its resources — a Plan kind's `child` (#1541, U1) — each row there counted on
+     * its own past the cap, or zoomed out (see the module docs, "Rows beneath a resource"): those rows' slot; the field
+     * of its record holding a row's own key, which a summary counting them is led by; the key a row's shading is filed
+     * under, from the resource's key and the row's own, its host's (`rowKey`); and the `.east` text the field holds for a
+     * row's key (`literal`), `undefined` for one it cannot hold. `undefined` for a kind landing on its resources' own rows.
+     */
+    readonly child?: {
+        readonly slot: string;
+        readonly field: string;
+        readonly rowKey: (resource: string, child: string) => string;
+        readonly literal: (child: string) => string | undefined;
+    } | undefined;
+}
+
+/** A row a step beneath a resource that a kind's `child` lands on (#1541, U1): its slot, and its own key's text. */
+export interface ScheduleCellChild {
+    /** Its slot: the series its rows are of. */
+    readonly slot: string;
+    /** Its own key's text: the last step of its path. */
+    readonly key: string;
 }
 
 /** A resource kind read whole, as the reader hatches and shades its rows: its slot, and its resources' keys' texts in order. */
@@ -388,6 +424,8 @@ export interface ScheduleCellResources {
     readonly key: string;
     /** Its resources' keys' texts, in order. */
     readonly keys: readonly string[];
+    /** The rows beneath each resource a kind's `child` lands on (#1541, U1), by the resource's key's text; left out for none. */
+    readonly children?: ReadonlyMap<string, readonly ScheduleCellChild[]> | undefined;
 }
 
 /** One resource a paged window draws: the slot its row lands on, and its key's text. */
@@ -402,6 +440,8 @@ export interface ScheduleCellKey {
      * for a resource under no row.
      */
     readonly under?: readonly string[] | undefined;
+    /** The rows beneath it a kind's `child` lands on that the window draws (#1541, U1), in their order; left out for none. */
+    readonly children?: readonly ScheduleCellChild[] | undefined;
 }
 
 /**
@@ -593,6 +633,12 @@ export interface ScheduleCellNotice {
     readonly events: number | undefined;
     /** The resolution its smallest summary shades at; `undefined` when it has none. */
     readonly resolution: RecordTile | undefined;
+    /**
+     * For a kind whose events land a step beneath its resources (#1541, U1), whose source keeps summaries of those
+     * resources and none led by its child's field: the slots of its resources and of the rows beneath them — its counts
+     * kept by its resources alone, which shade none of the rows beneath them. Left out otherwise.
+     */
+    readonly keptBy?: { readonly resources: string; readonly rows: string } | undefined;
 }
 
 /** The rows a kind's cells hold, by the event's key's text: each its row as the page unpacked it, its bytes made when asked for (#1771). */
@@ -802,6 +848,8 @@ export interface ScheduleCellBlock {
      * such a block is read while what is read stays within it ({@link scheduleCellsWithinCap}); left out for one in view.
      */
     readonly margin?: boolean | undefined;
+    /** The rows beneath each of its resources a kind's `child` lands on (#1541, U1), by the resource's key's text; left out for none. */
+    readonly children?: ReadonlyMap<string, readonly ScheduleCellChild[]> | undefined;
 }
 
 /**
@@ -910,13 +958,14 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
             // Only the margin wants it (#1768): none of its resources is in view.
             const margin = seen.get(w)?.has(j) !== true;
             // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
-            // window draws them.
-            const runs: { slot: string; under: readonly string[]; keys: string[] }[] = [];
+            // window draws them — each with the rows beneath it a kind's `child` lands on (#1541, U1).
+            const runs: { slot: string; under: readonly string[]; keys: string[]; children: Map<string, readonly ScheduleCellChild[]> }[] = [];
             for (const k of keys.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
                 const under = k.under ?? NO_UNDER;
-                const run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
-                if (run === undefined) runs.push({ slot: k.slot, under, keys: [k.key] });
+                let run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
+                if (run === undefined) runs.push(run = { slot: k.slot, under, keys: [k.key], children: new Map() });
                 else run.keys.push(k.key);
+                if (k.children !== undefined) run.children.set(k.key, [...(run.children.get(k.key) ?? []), ...k.children]);
             }
             // A slot's first block of a place is named by the place; each further one, under another row, by which it is.
             const placed = new Map<string, number>();
@@ -925,7 +974,7 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
                 placed.set(run.slot, n + 1);
                 blocks.push({
                     slot: run.slot, id: n === 0 ? `${w}.${j}` : `${w}.${j}.${n}`, keys: run.keys, ...(run.under.length > 0 && { under: run.under }),
-                    ...(margin && { margin: true }),
+                    ...(margin && { margin: true }), ...(run.children.size > 0 && { children: run.children }),
                 });
             }
         }
@@ -1690,9 +1739,16 @@ class CellsReader {
                     out.push(...blocks.filter((block) => stringEqual(block.slot, slot)));
                     continue;
                 }
-                const keys = resources.find((r) => stringEqual(r.key, slot))?.keys ?? [];
+                const whole = resources.find((r) => stringEqual(r.key, slot));
+                const keys = whole?.keys ?? [];
                 for (let at = 0; at < keys.length; at += SCHEDULE_CELL_BLOCK) {
-                    out.push({ slot, id: String(at / SCHEDULE_CELL_BLOCK), keys: keys.slice(at, at + SCHEDULE_CELL_BLOCK) });
+                    const mine = keys.slice(at, at + SCHEDULE_CELL_BLOCK);
+                    // The rows beneath its resources a kind's `child` lands on (#1541, U1).
+                    const children = new Map(mine.flatMap((key) => {
+                        const beneath = whole?.children?.get(key);
+                        return beneath === undefined ? [] : [[key, beneath] as const];
+                    }));
+                    out.push({ slot, id: String(at / SCHEDULE_CELL_BLOCK), keys: mine, ...(children.size > 0 && { children }) });
                 }
             }
             return out;
@@ -2044,13 +2100,20 @@ class CellsReader {
     ): KindRead | typeof READING {
         const part = kind.part;
         const indexes = part?.config.indexes ?? [];
+        const child = kind.child;
         // Whether its shading or its hatch draws over the paged kind's rows: then those rows draw what they hold.
         const paged = windowed;
         if (part !== undefined) {
             for (const tile of dividingTiles(resolution)) {
-                const summary = tileIndexFor(indexes, where, "summary", (t) => t === tile);
+                // A kind landing a step beneath its resources shades those rows from a summary led by its child's field,
+                // each row its own counts (#1541, U1): never from its resources', which drew every row beneath one alike.
+                const summary = child === undefined
+                    ? tileIndexFor(indexes, where, "summary", (t) => t === tile)
+                    : childSummaryFor(indexes, where, child.field, tile);
                 if (summary === undefined || residualOf(summary, where).length > 0) continue;
-                const shaded = this.summaryCells(kind, part, where, summary, blocks, range, totals);
+                const shaded = child === undefined
+                    ? this.summaryCells(kind, part, where, summary, blocks, range, totals)
+                    : this.childCells(kind, child, part, where, summary, blocks, range, totals);
                 if (shaded !== undefined) return shaded === READING ? READING : { mode: "shade", notice: undefined, paged };
             }
         }
@@ -2062,17 +2125,28 @@ class CellsReader {
             if (within.value) return kind.stored === undefined ? { mode: "window" } : this.windowKind(kind, range);
             events = this.eventsOf(kind, range);
         }
-        // The notice: the rows hatched, and the resolution the smallest summary shades at.
+        // The notice: the rows hatched — beneath a resource, each row there (#1541, U1) — and the resolution the smallest
+        // summary shades at.
         for (const block of blocks) {
-            const series = kind.shadeKey(block.slot);
+            const series = kind.shadeKey(child === undefined ? block.slot : child.slot);
             let held = totals.get(series);
             if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
-            for (const key of block.keys) held.byKey.set(key, "hatch");
+            for (const key of block.keys) {
+                if (child === undefined) { held.byKey.set(key, "hatch"); continue; }
+                for (const row of block.children?.get(key) ?? []) if (stringEqual(row.slot, child.slot)) held.byKey.set(child.rowKey(key, row.key), "hatch");
+            }
         }
-        // A resource's summary shades; the record's totals (#1732) are a horizon's, and shade nothing.
-        const tiles = indexes.flatMap((index) => (index.summary.type === "some" && index.summary.value.type === "keyed" ? [index.summary.value.value.tile.type] : []));
+        // A resource's summary shades — beneath one, a summary led by the child's field; the record's totals (#1732) are a
+        // horizon's, and shade nothing.
+        const keyed = indexes.filter((index) => index.summary.type === "some" && index.summary.value.type === "keyed");
+        const shading = child === undefined ? keyed : keyed.filter((index) => index.fields.some((field) => stringEqual(field, child.field)));
+        const tiles = shading.flatMap((index) => (index.summary.type === "some" && index.summary.value.type === "keyed" ? [index.summary.value.value.tile.type] : []));
         const smallest = (["day", "week", "month", "quarter", "year"] as const).find((t) => tiles.includes(t));
-        return { mode: "shade", notice: { kind: kind.key, name: kind.name, events, resolution: smallest }, paged };
+        // Beneath its resources, summaries of them alone: its counts are kept by its resources, which the notice says.
+        const resources = kind.takes[0];
+        const keptBy = child !== undefined && shading.length === 0 && keyed.length > 0 && resources !== undefined
+            ? { resources, rows: child.slot } : undefined;
+        return { mode: "shade", notice: { kind: kind.key, name: kind.name, events, resolution: smallest, ...(keptBy !== undefined && { keptBy }) }, paged };
     }
 
     /**
@@ -2137,6 +2211,108 @@ class CellsReader {
         });
         return true;
     }
+
+    /**
+     * A summary led by a kind's child's field over the rows beneath some
+     * blocks' resources (#1541, U1), folded into each row's totals by tile —
+     * filed under the child's slot by the row's own key: a search a row, under
+     * its key chosen of the field and its resource's key. A row its narrowing
+     * leaves out, or whose key or resource the fields cannot hold, shades at
+     * nothing. `undefined` when they take more than one batch of searches.
+     */
+    private childCells(
+        kind: ScheduleCellKind, child: NonNullable<ScheduleCellKind["child"]>, part: ScheduleCellPart, where: Where, summary: Index,
+        blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date }, totals: Totals,
+    ): true | typeof READING | undefined {
+        const tiling = tilingOf(summary)!;
+        // Its tiles over the range, one range a row (#1433): what a row's totals are split by tile from.
+        const run = summaryRun(tiling.tile.type, range.from, range.to);
+        const series = kind.shadeKey(child.slot);
+        let held = totals.get(series);
+        if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
+        // What the narrowing chooses of the child's field: a row it leaves out holds none of the events it counts.
+        const chosen = where.get(child.field);
+        const cells: { cell: RecordSliceCell; rows: string[] }[] = [];
+        const nothing: string[] = [];
+        let searches = 0;
+        for (const block of blocks) {
+            const queries: RecordSliceCell["queries"][number][] = [];
+            // The row each search counts for, search by search.
+            const rows: string[] = [];
+            for (const key of block.keys) {
+                const resource = this.literal(kind, block.slot, key);
+                for (const beneath of block.children?.get(key) ?? []) {
+                    if (!stringEqual(beneath.slot, child.slot)) continue;
+                    const row = child.rowKey(key, beneath.key);
+                    const literal = child.literal(beneath.key);
+                    if (resource === undefined || literal === undefined || (chosen?.type === "values" && !chosen.value.some((value) => stringEqual(value, literal)))) {
+                        nothing.push(row);
+                        continue;
+                    }
+                    // A narrowing is a Dict of its fields' choices: in its fields' order, as one decoded is.
+                    const its = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([...where], compareString);
+                    its.set(child.field, variant("values", [literal]));
+                    for (const query of summaryCellQueries(summary, its, run, [resource]).queries) {
+                        queries.push(query);
+                        rows.push(row);
+                    }
+                }
+            }
+            if (queries.length === 0) continue;
+            cells.push({ cell: { id: `${child.slot}:${block.id}`, queries }, rows });
+            searches += queries.length;
+        }
+        if (searches > MAX_RECORD_SLICE_BATCH) return undefined;
+        for (const row of nothing) if (!held.byKey.has(row)) held.byKey.set(row, new Map());
+        if (cells.length === 0) return true;
+        const runs = recordSliceCellRuns(part, summary.name, cells.map((c) => c.cell));
+        if (runs.type !== "some") return READING;
+        const read = this.kept.entries(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
+        if (read.type !== "some") return READING;
+        cells.forEach(({ cell, rows }, n) => {
+            const found = runs.value.get(cell.id) as RecordSliceCellRuns;
+            const entries = read.value[n]!;
+            // The entries of each search in order, those of an empty one none.
+            let at = 0;
+            found.ranges.forEach((range, q) => {
+                const count = Number(range.count);
+                const row = rows[q]!;
+                let byTile = held.byKey.get(row);
+                if (byTile === undefined || byTile === "hatch") { byTile = new Map(); held.byKey.set(row, byTile); }
+                for (const entry of entries.slice(at, at + count)) {
+                    if (entry.value?.type !== "some") continue;
+                    const t = entry.value.value as { count: bigint; ms: bigint };
+                    // The tile its total is of, as the summary keys it.
+                    const tile = tileOf(entry);
+                    const was = byTile.get(tile);
+                    byTile.set(tile, { count: (was?.count ?? 0) + Number(t.count), ms: (was?.ms ?? 0) + Number(t.ms) });
+                }
+                at += count;
+            });
+        });
+        return true;
+    }
+}
+
+/**
+ * The summary that counts the rows beneath a resource a kind's `child` lands
+ * on, at a tile (#1541, U1): of its summaries by key at the tile led by the
+ * child's field, those whose leading fields the narrowing — a key of the
+ * child's chosen of that field, as each search chooses one — chooses exactly,
+ * the one led by the most; of two led by as many, the one listed first.
+ *
+ * @param indexes - The kind's source's indexes
+ * @param where - Its narrowing
+ * @param field - The child's field
+ * @param tile - The tile wanted
+ * @returns The index; `undefined` for none, or where the narrowing chooses the field otherwise than by its values
+ */
+function childSummaryFor(indexes: readonly Index[], where: Where, field: string, tile: RecordTile): Index | undefined {
+    const chosen = where.get(field);
+    if (chosen !== undefined && chosen.type !== "values") return undefined;
+    const probe = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([...where], compareString);
+    probe.set(field, variant("values", [""]));
+    return tileIndexFor(indexes.filter((index) => index.fields.some((one) => stringEqual(one, field))), probe, "summary", (t) => t === tile);
 }
 
 /**
@@ -2273,7 +2449,9 @@ function sameRead(a: Read, b: Read): boolean {
         && sameKeys(a.covered, b.covered) && (a.covered === undefined || sameRange(a.range, b.range))
         && a.notices.length === b.notices.length && a.notices.every((n, i) => {
             const m = b.notices[i]!;
-            return stringEqual(n.kind, m.kind) && n.events === m.events && n.resolution === m.resolution;
+            return stringEqual(n.kind, m.kind) && n.events === m.events && n.resolution === m.resolution
+                && (n.keptBy === undefined ? m.keptBy === undefined
+                    : m.keptBy !== undefined && stringEqual(n.keptBy.resources, m.keptBy.resources) && stringEqual(n.keptBy.rows, m.keptBy.rows));
         });
 }
 

@@ -186,18 +186,27 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
         expect(pathOf("measure")).toEqual(["H-1", "P-11"]);
     });
 
-    test("a resource's own row and the rows beneath it name it once, in the order the rows draw them", () => {
+    /** The rows beneath a resource a kind's `child` lands on, each by its series and its own key. */
+    const beneath = (...keys: string[]) => keys.map((key) => ({ slot: "kinds", key }));
+
+    test("a resource's own row and the rows beneath it name it once, in the order the rows draw them — with those rows, each counted on its own", () => {
         expect(landingKeysOf(block(
             entry("folder", "F1"),
             entry("press", "P03"), entry("temperature", "P03"), entry("kinds", "P03", ".blanket_wash"), entry("kinds", "P03", ".ink_fill"),
             entry("press", "P04"), entry("kinds", "P04", ".blanket_wash"),
-        ), landings)).toEqual([{ slot: "press", key: "P03" }, { slot: "press", key: "P04" }]);
+            entry("press", "P05"),
+        ), landings)).toEqual([
+            { slot: "press", key: "P03", children: beneath(".blanket_wash", ".ink_fill") },
+            { slot: "press", key: "P04", children: beneath(".blanket_wash") },
+            // A press with no row beneath it lists none.
+            { slot: "press", key: "P05" },
+        ]);
     });
 
     test("a page that draws no row of a resource's own names it by the rows beneath it", () => {
         expect(landingKeysOf(block(
             entry("temperature", "P03"), entry("kinds", "P03", ".blanket_wash"), entry("kinds", "P03", ".ink_fill"), entry("kinds", "P03", ".plate_check"),
-        ), landings)).toEqual([{ slot: "press", key: "P03" }]);
+        ), landings)).toEqual([{ slot: "press", key: "P03", children: beneath(".blanket_wash", ".ink_fill", ".plate_check") }]);
     });
 
     test("a resource beneath a group names the rows it stands under, outermost first; one under no row names none (#1710)", () => {
@@ -212,8 +221,8 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
             entry("press", "S-1", "H-3", "P10"),
             entry("press", "P11"),
         ), landings)).toEqual([
-            { slot: "press", key: "P03", under: ["H-1"] }, { slot: "press", key: "P04", under: ["H-1"] },
-            { slot: "press", key: "P03", under: ["H-2"] }, { slot: "press", key: "P09", under: ["H-2"] },
+            { slot: "press", key: "P03", under: ["H-1"], children: beneath(".ink_fill") }, { slot: "press", key: "P04", under: ["H-1"] },
+            { slot: "press", key: "P03", under: ["H-2"] }, { slot: "press", key: "P09", under: ["H-2"], children: beneath(".ink_fill") },
             { slot: "press", key: "P10", under: ["S-1", "H-3"] },
             { slot: "press", key: "P11" },
         ]);

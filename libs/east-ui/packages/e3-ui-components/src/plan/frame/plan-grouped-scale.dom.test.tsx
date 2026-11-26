@@ -33,6 +33,11 @@
  *   Unassigned row (#1541), so it reads none of them: no search asks for them,
  *   through either index, and the index in time order is the only series index
  *   its page lists (#1710).
+ * - Zoomed out past the jobs' series tile (#1541, U1), each task beneath a
+ *   press counts its own jobs, from a summary led by the task. With none, a
+ *   task row draws its own jobs while the range holds few, and past the cap is
+ *   hatched, the banner saying the counts are kept for presses only: never its
+ *   press's count.
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
@@ -54,9 +59,11 @@ import e3 from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { SCHEDULE_CELL_BLOCK, setScheduleCellsFiledProbe } from "../../shared/schedule/cells.js";
+import { parseEventRef } from "../../shared/schedule/event-ref.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
+import { rowIdOfKey } from "../model.js";
 import { emulateWindowScroll, scrollStopped } from "../window-scroll.test-utils.js";
-import { act, planHarness, settle } from "./harness.test-utils.js";
+import { act, planHarness, settle, slot, zoomTo } from "./harness.test-utils.js";
 
 // ── Sizes ────────────────────────────────────────────────────────────────────
 
@@ -146,6 +153,22 @@ function jobs(): ValueTypeOf<typeof Jobs> {
     return out as ValueTypeOf<typeof Jobs>;
 }
 
+/** The jobs, by key: what a job a mark draws is found by — its press and its task. */
+const JOB_ROWS = jobs();
+
+/**
+ * 10,001 jobs more, all on the first press's third task, a few hundred a day over the window: past the cap with the
+ * jobs before them (#1541, U1).
+ */
+function busyJobs(): ValueTypeOf<typeof Jobs> {
+    const out = new Map(jobs());
+    for (let i = 0; i < 10_001; i++) {
+        const at = new Date(FIRST.getTime() + (i % 14) * DAY + 10 * 3_600_000);
+        out.set(`X${pad(i, 5)}`, { hall: hallKey(0), press: some(pressCodes[0]![0]!), start: at, end: at, task: taskKey(2), title: `Proof ${i}` });
+    }
+    return out as ValueTypeOf<typeof Jobs>;
+}
+
 export const scaleHalls = e3.record("scale_halls", Halls, {
     initial: halls(),
     indexes: (index) => ({
@@ -169,6 +192,8 @@ export const scaleJobs = e3.record("scale_jobs", Jobs, {
         // The same jobs a week at a time under their hall, in their presses' order (#1710).
         scale_jobs_by_hall_week: index.flatSeries({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         scale_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
+        // The jobs counted by a press's task, the row beneath the press a job lands on (#1541, U1): led by the task.
+        scale_jobs_by_task_day: index.summary({ on: ["task"], key: "press", from: "start", to: "end", tile: "day" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -298,6 +323,87 @@ const inTime = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     });
 }))) };
 
+/**
+ * The page a hall a window, its zoom reaching a month (#1541, U1): zoomed out past the jobs' series index's week, each
+ * row beneath a press shades from the summary its source lists led by the job's task — its own jobs counted.
+ */
+const byTask = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.let(Record.bind(scaleJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(scaleJobs));
+    const slice = $.let(Slice.bindRecords("plan.grouped.scale.byTask", {
+        rows: {
+            source: NESTED
+                ? Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name", "scale_halls_in_time"] })
+                : Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name"] }),
+            fields: { name: { label: "Hall" } },
+        },
+        job: {
+            source: Data.bindPaged(scaleJobs, { indexes: ["scale_jobs_by_time", "scale_jobs_by_press_week", "scale_jobs_by_press_day", "scale_jobs_by_task_day"] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", resolutions: ["day", "week", "month"] }),
+        slice: { slice },
+        paging: { entries: 1 },
+        series: [Plan.series.group(Hall, {
+            key: "halls", title: "Halls", label: (hall, key) => hall.name.match({ some: (_$2, name) => name, none: () => key }),
+            children: Plan.children("presses", [Plan.series.kinds(Press, "what", {
+                press: {
+                    title: "Presses", icon: "print", label: (_press, code) => code,
+                    children: Plan.children("tasks", [Plan.series.resources(Task, { key: "tasks", title: "Tasks", label: (_task, key) => key })]),
+                },
+            })]),
+        })],
+        events: {
+            job: Schedule.events(record, {
+                name: "Job", icon: "list-check", draw: "marks", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "press" }, child: { field: "task", of: "tasks" },
+                overlaps: "allow", locked: () => true, entries,
+            }),
+        },
+    });
+}))) };
+
+/** The same page, its source listing the presses' summary alone: no summary counts a task's jobs (#1541, U1). */
+const byPress = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.let(Record.bind(scaleJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(scaleJobs));
+    const slice = $.let(Slice.bindRecords("plan.grouped.scale.byPress", {
+        rows: {
+            source: NESTED
+                ? Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name", "scale_halls_in_time"] })
+                : Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name"] }),
+            fields: { name: { label: "Hall" } },
+        },
+        job: {
+            source: Data.bindPaged(scaleJobs, { indexes: ["scale_jobs_by_time", "scale_jobs_by_press_week", "scale_jobs_by_press_day"] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", resolutions: ["day", "week", "month"] }),
+        slice: { slice },
+        paging: { entries: 1 },
+        series: [Plan.series.group(Hall, {
+            key: "halls", title: "Halls", label: (hall, key) => hall.name.match({ some: (_$2, name) => name, none: () => key }),
+            children: Plan.children("presses", [Plan.series.kinds(Press, "what", {
+                press: {
+                    title: "Presses", icon: "print", label: (_press, code) => code,
+                    children: Plan.children("tasks", [Plan.series.resources(Task, { key: "tasks", title: "Tasks", label: (_task, key) => key })]),
+                },
+            })]),
+        })],
+        events: {
+            job: Schedule.events(record, {
+                name: "Job", icon: "list-check", draw: "marks", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "press" }, child: { field: "task", of: "tasks" },
+                overlaps: "allow", locked: () => true, entries,
+            }),
+        },
+    });
+}))) };
+
 // ── What the Plan asked ──────────────────────────────────────────────────────
 
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
@@ -307,12 +413,15 @@ const SERIES = "scale_jobs_by_press_week";
 /** The jobs' series index in time order, led by the hall (#1710). */
 const IN_TIME = "scale_jobs_by_hall_week";
 const SUMMARY = "scale_jobs_by_press_day";
+/** The jobs' summary led by the task, a press's row beneath it (#1541, U1). */
+const TASK_SUMMARY = "scale_jobs_by_task_day";
 /** The levels the series index files a job at, from its week tile: week, month, quarter and year. */
 const LEVELS = 4;
 
 const printText = printFor(StringType);
 const printPress = printFor(OptionType(StringType));
 const textEqual = equalFor(StringType);
+const pressEqual = equalFor(OptionType(StringType));
 /** A press as the jobs' indexes file a job on it: the `.east` text of the job's press. */
 const pressLiteral = (code: string) => printPress(some(code));
 
@@ -338,6 +447,36 @@ const hallWindows = (from: number): number[] => [...new Set(hallPages(from).map(
 /** The rows mounted now, in document order: those in view and the overscan beside them. */
 const mounted = (container: HTMLElement): string[] =>
     [...container.querySelectorAll<HTMLElement>("[data-plan-row]")].map((row) => row.getAttribute("data-plan-row") ?? "");
+
+/**
+ * Each task row drawn now, by its task (#1541, U1): how many count cells it draws, their counts added up — a hatched
+ * cell's none — whether every cell is the no-data hatch, and how many jobs it draws a mark of — a mark and its label
+ * name the same job — and of them how many are another press's or another task's.
+ */
+const taskRows = (container: HTMLElement): { task: string; cells: number; counted: number; hatched: boolean; marks: number; foreign: number }[] =>
+    [...container.querySelectorAll<HTMLElement>("[data-plan-row]")].flatMap((row) => {
+        const id = rowIdOfKey(row.getAttribute("data-plan-row") ?? "");
+        if (id === undefined || id.type !== "entry" || !textEqual(id.value.series, "tasks")) return [];
+        // A task's row is at its hall's, its press's and its own key.
+        const press = id.value.path[1] ?? "";
+        const task = id.value.path[2] ?? "";
+        const cells = [...row.querySelectorAll<HTMLElement>("[data-plan-bucket]")];
+        const labels = [...row.querySelectorAll<HTMLElement>("[data-plan-heat-label]")].map((label) => (label.textContent ?? "").trim());
+        const marks = [...new Set([...row.querySelectorAll<HTMLElement>("[data-mark]")].map((mark) => mark.getAttribute("data-mark") ?? ""))]
+            .map((key) => parseEventRef(key));
+        const foreign = marks.filter((ref) => {
+            const job = ref.success ? JOB_ROWS.get(ref.value.key) : undefined;
+            return job === undefined || !textEqual(job.task, task) || !pressEqual(job.press, some(press));
+        }).length;
+        return [{
+            task,
+            cells: cells.length,
+            counted: labels.reduce((sum, label) => sum + (/^\d+$/.test(label) ? Number(label) : textEqual(label, "–") ? 0 : Number.NaN), 0),
+            hatched: cells.length > 0 && cells.every((cell) => cell.hasAttribute("data-nodata")),
+            marks: marks.length,
+            foreign,
+        }];
+    });
 
 /** Processor seconds this process has used: what a step costs, whatever else the machine is doing. */
 const cpu = () => { const used = process.cpuUsage(); return (used.user + used.system) / 1e6; };
@@ -559,6 +698,65 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             report("down the page, in time order", from, cpu0, container);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
             expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Nothing failed to read on the way.
+            const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
+            expect(failed).toEqual([]);
+        } finally {
+            errors.mockRestore();
+            restore();
+        }
+    }, 1_800_000);
+
+    test("zoomed out past the jobs' series tile, each task beneath a press counts its own jobs from the summary led by the task; with none, it draws its own jobs, and past the cap is hatched, the banner saying the counts are kept for presses only — never its press's count (#1541, U1)", async () => {
+        const restore = emulateWindowScroll();
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            // A press's j-th job is on its task j % TASKS: how many of its jobs each task holds — its press holds JOBS.
+            const own = (task: string) => Array.from({ length: JOBS }, (_x, j) => taskKey(j % TASKS)).filter((one) => textEqual(one, task)).length;
+            /** A page mounted, its tasks' rows drawn, then zoomed to a month as a planner zooms. */
+            const atMonth = async (example: typeof byTask, storageKey: string) => {
+                const mounted = await h.mount(example, { storageKey });
+                await waitFor(() => expect(taskRows(mounted.container).length).toBeGreaterThan(0), { timeout: 600_000 });
+                await zoomTo(mounted.container, "month");
+                return mounted;
+            };
+
+            // Its source listing a summary led by the task beside the presses': each task row counts its own jobs.
+            let from = h.requests().length;
+            const counted = await atMonth(byTask, "plan-by-task");
+            await waitFor(() => expect(taskRows(counted.container).some((row) => row.cells > 0)).toBe(true), { timeout: 600_000 });
+            await settle();
+            report("a month, counted by task", from, cpu(), counted.container);
+            const rows = taskRows(counted.container);
+            expect(rows.length).toBeGreaterThan(0);
+            for (const row of rows) expect([row.task, row.counted, row.hatched, row.marks]).toEqual([row.task, own(row.task), false, 0]);
+            expect(rows.some((row) => row.counted === 0)).toBe(true);
+            // Read through the summary led by the task, a search a task; the presses' summary counts no task's jobs.
+            expect(findsOf(TASK_SUMMARY, from).length).toBeGreaterThan(0);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+            counted.unmount();
+
+            // Its source listing the presses' summary alone, the range holding few jobs: each task row draws its own.
+            from = h.requests().length;
+            const drawn = await atMonth(byPress, "plan-by-press");
+            await waitFor(() => expect(taskRows(drawn.container).some((row) => row.marks > 0)).toBe(true), { timeout: 600_000 });
+            await settle();
+            for (const row of taskRows(drawn.container)) expect([row.task, row.cells, row.marks, row.foreign]).toEqual([row.task, 0, own(row.task), 0]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+            drawn.unmount();
+
+            // Past the cap: every task row hatched, none given its press's count, and the banner says why.
+            await h.patch(scaleJobs, busyJobs());
+            from = h.requests().length;
+            const hatched = await atMonth(byPress, "plan-by-press-past-the-cap");
+            await waitFor(() => expect(taskRows(hatched.container).some((row) => row.hatched)).toBe(true), { timeout: 600_000 });
+            await settle();
+            const bare = taskRows(hatched.container);
+            for (const row of bare) expect([row.task, row.hatched, row.counted, row.marks]).toEqual([row.task, true, 0, 0]);
+            const banner = slot(hatched.container, "banners")?.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]');
+            expect(banner?.textContent).toContain("Counts are kept for presses only, not for tasks: zoom in to see their events.");
             expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Nothing failed to read on the way.

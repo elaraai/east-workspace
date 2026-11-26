@@ -490,15 +490,19 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
     }
     // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
     // hatched, and this — how many there are, or that they are not counted where its count is no number of them (a day
-    // index's), and the resolution its summary shades at.
+    // index's), and the resolution its summary shades at; or, for a kind landing beneath its resources whose counts are
+    // kept by those resources alone (#1541, U1), that the rows beneath them have none of their own.
     for (const notice of chrome?.cells?.notices ?? []) {
         const kind = notice.name.toLocaleLowerCase(words.locale);
+        const kept = notice.keptBy;
+        const named = (slot: string) => (landings.find((one) => stringEqual(one.key, slot))?.name ?? slot).toLocaleLowerCase(words.locale);
         bannerNodes.push(
             <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
                 <BannerView status="info"
                     title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
                         : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
-                    description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
+                    description={kept !== undefined ? m.countsKeptBy({ resources: named(kept.resources), rows: named(kept.rows) })
+                        : m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
             </Box>,
         );
     }

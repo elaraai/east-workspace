@@ -219,6 +219,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
      *  see where they fall`; `undefined`, it has none. */
     tooManyEventsHint: (p: { resolution: string | undefined }) => string;
+    /** The line under it for a kind whose events land a step beneath its resources, its counts kept by those resources
+     *  alone (#1541, U1), so the rows beneath them are hatched — `Counts are kept for presses only, not for tasks: zoom in
+     *  to see their events.`; `resources` and `rows` the two series' names as running text writes them. */
+    countsKeptBy: (p: { resources: string; rows: string }) => string;
     /** The notice's title over the rows' own collections (#1739): more of their items in view than are drawn, and no totals
      *  to shade them at this resolution — `12,480 items in view`. The line under it is {@link PlanMessages.tooManyEventsHint}'s. */
     tooManyItems: (p: { n: number; count: string }) => string;
@@ -729,6 +733,7 @@ export const planMessages: PlanMessages = {
     tooManyEventsHint: ({ resolution }) => (resolution === undefined
         ? "Too many to draw at this resolution: narrow the filters, or zoom in."
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+    countsKeptBy: ({ resources, rows }) => `Counts are kept for ${resources} only, not for ${rows}: zoom in to see their events.`,
     tooManyItems: ({ n, count }) => `${count} ${plural(n, "item", "items")} in view`,
     tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
     tooManyLinksHint: () => "Too many to draw: none of them is shown.",

@@ -90,10 +90,12 @@ export type PlanEventReadsType = typeof PlanEventReadsType;
 /**
  * The resources' shading (#1039): by the key of the rows it stands in for — a
  * landing series' key and a way of drawing, `<series>.<draw>` — then by the
- * resource key's text, its buckets. Each of those rows draws heat over them in
- * place of its events: a booked-vs-free bar a bucket for bars and chips, how
- * many for tiles and marks, the counts of one key on one scale; a row with a
- * bucket of no value draws the no-data hatch.
+ * key a row of it files its events under, its buckets: the resource key's
+ * text, or for a row a step beneath a resource the pair ({@link childRowKey}),
+ * each row its own counts. Each of those rows draws heat over them in place of
+ * its events: a booked-vs-free bar a bucket for bars and chips, how many for
+ * tiles and marks, the counts of one key on one scale; a row with a bucket of
+ * no value draws the no-data hatch.
  */
 export const PlanEventShadingType = DictType(StringType, DictType(StringType, ArrayType(PlanEventShadeType)));
 
@@ -648,13 +650,13 @@ export function createEventSeam(
                                     p.draws.forEach((d, i) => {
                                         const series = `${p.key}.${d.draw}`;
                                         const list = $5.let(byDraw.get(d.draw, () => East.value(new Map(), ByDraw.value)).get(key, () => noEvents));
-                                        // The shading's heat in place of its events, where it names the row (#1039). It is filed by
-                                        // resource, its kinds' indexes reading none by the rows beneath one: a row a step beneath a
-                                        // resource's draws its resource's.
-                                        const shaded = `${p.under ?? p.key}.${d.draw}`;
-                                        const kind = $5.let(shading.tryGet(shaded).match({
+                                        // The shading's heat in place of its events, where it names the row (#1039): filed as its
+                                        // events are, under the row's own series by the row's own key — a row a step beneath a
+                                        // resource's by the pair, its counts its own, or the hatch where its kinds' source keeps
+                                        // none of them: never its resource's, which drew every row beneath it alike.
+                                        const kind = $5.let(shading.tryGet(series).match({
                                             none: (_$6) => drawnKind(d.draw, list, row, elements, d.always),
-                                            some: (_$6, byKey) => shade(byKey.get(resourceKey, () => noShades), tops.get(shaded), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
+                                            some: (_$6, byKey) => shade(byKey.get(key, () => noShades), tops.get(series), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
                                         }));
                                         if (i === 0) {
                                             $5(rows.pushLast(remake(row, kind)));
