@@ -849,11 +849,11 @@ export function RowShell({
                         </div>
                     </>
                 ) : children}
-                {/* The shared hairline — positioned by the body's ONE
-                    `--plan-cursor-x` variable and shown only under
-                    `[data-plan-cursor]` (#609): a pointermove writes a style,
-                    renders nothing. Strips carry no hairline. */}
-                {ctx !== true && <div className={slot(styles.cursorLine)} data-plan-cursorline />}
+                {/* The shared hairline — handed to the cursor, which writes
+                    it its place, and shown only under `[data-plan-cursor]`
+                    (#609): a pointermove writes a style, renders nothing.
+                    Strips carry no hairline. */}
+                {ctx !== true && <div ref={cursor.line} className={slot(styles.cursorLine)} data-plan-cursorline />}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline data-plan-now />}
             </div>
             {/* The right axis's rail (#1750): its numbers, beside the plot they scale. The plot's own name says its

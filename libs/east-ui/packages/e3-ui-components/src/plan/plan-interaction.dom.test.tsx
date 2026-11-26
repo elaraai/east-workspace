@@ -149,6 +149,9 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
     const stubRect = (el: HTMLElement) => Object.defineProperty(el, "getBoundingClientRect", {
         value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
     });
+    /** Where each mounted row's hairline stands, as a percentage of its plot, in the rows' order; `NaN` for one written no place. */
+    const places = (container: HTMLElement): number[] =>
+        [...container.querySelectorAll<HTMLElement>("[data-plan-cursorline]")].map((line) => Math.round(parseFloat(line.style.left) * 1e9) / 1e9);
 
     test("the hairline + ruler chip track the pointer through DIRECT DOM writes, across rows", () => {
         const { container } = renderPlan(planRoot([
@@ -158,7 +161,7 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         ]), "plan-609-cursor");
         const body = container.querySelector("[data-plan-body]") as HTMLElement;
         // One hairline element per data row, hidden until a plot is hovered —
-        // all of them position from the body's ONE `--plan-cursor-x` variable.
+        // each written its place by the cursor.
         expect(container.querySelectorAll("[data-plan-cursorline]")).toHaveLength(3);
         expect(body.hasAttribute("data-plan-cursor")).toBe(false);
 
@@ -166,22 +169,84 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         stubRect(plot);
         fireEvent.pointerMove(plot, { clientX: 500 });
         expect(body.hasAttribute("data-plan-cursor")).toBe(true);
-        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.5");
+        expect(places(container)).toEqual([50, 50, 50]);
         // The ruler chip names the hovered bucket: frac 0.5 of W27..W39 ⇒ W33.
         const chip = container.querySelector("[data-plan-cursorchip]") as HTMLElement;
         expect(chip.textContent).toBe("W33");
         expect(chip.style.display).not.toBe("none");
 
-        // Crossing to ANOTHER row keeps tracking — same variable, same chip.
+        // Crossing to ANOTHER row keeps tracking — every row's line, same chip.
         const plot2 = container.querySelector(rowSel("m3"))!.children[1] as HTMLElement;
         stubRect(plot2);
         fireEvent.pointerMove(plot2, { clientX: 250 });
-        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.25");
+        expect(places(container)).toEqual([25, 25, 25]);
         expect(chip.textContent).toBe("W30");
 
         fireEvent.pointerLeave(plot2);
         expect(body.hasAttribute("data-plan-cursor")).toBe(false);
         expect(chip.style.display).toBe("none");
+    });
+
+    test("a move writes the hairlines and the chip, and nothing on the body: its attribute once, no variable (#1796)", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([])),
+            planRow("m2", spanKind([])),
+        ]), "plan-1796-body");
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        const styled = body.getAttribute("style");
+        // Every change to the body itself, as a move after the first must make none: a change to an inherited
+        // variable there, or to an attribute its rows' styles hang on, has the browser style the canvas again.
+        const seen: MutationRecord[] = [];
+        const observer = new MutationObserver((records) => { seen.push(...records); });
+        observer.observe(body, { attributes: true });
+        const plot = container.querySelector(rowSel("m1"))!.children[1] as HTMLElement;
+        stubRect(plot);
+        for (let x = 100; x <= 900; x += 100) fireEvent.pointerMove(plot, { clientX: x });
+        seen.push(...observer.takeRecords());
+        observer.disconnect();
+        expect(seen.map((r) => r.attributeName)).toEqual(["data-plan-cursor"]);
+        expect(body.getAttribute("style")).toBe(styled);
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("");
+        expect(places(container)).toEqual([90, 90]);
+    });
+
+    test("a row mounting under a resting pointer takes the place the cursor holds, and one unmounted is written no more (#1796)", () => {
+        const hall: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
+        const { container } = renderPlan(planRoot([
+            planRow("m0", spanKind([])),
+            planRow("hall", hall, { collapsed: true }),
+            planRow("m1", spanKind([]), { parent: "hall" }),
+            planRow("m2", spanKind([]), { parent: "hall" }),
+        ]), "plan-1796-mounting");
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        const fold = () => fireEvent.click(container.querySelector(rowSel("hall", "data-plan-group"))!);
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        const plot = container.querySelector(rowSel("m0"))!.children[1] as HTMLElement;
+        stubRect(plot);
+        fireEvent.pointerMove(plot, { clientX: 250 });
+        expect(places(container)).toEqual([25]);
+
+        // The hall opens under the resting pointer: its rows' lines stand where the first row's does.
+        fold();
+        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
+        expect(places(container)).toEqual([25, 25, 25]);
+        fireEvent.pointerMove(plot, { clientX: 750 });
+        expect(places(container)).toEqual([75, 75, 75]);
+
+        // Folded again, its rows' lines are gone, and the next move writes the one left.
+        const gone = [...container.querySelectorAll<HTMLElement>("[data-plan-cursorline]")].slice(1);
+        fold();
+        fireEvent.pointerMove(plot, { clientX: 500 });
+        expect(places(container)).toEqual([50]);
+        expect(gone.map((line) => parseFloat(line.style.left))).toEqual([75, 75]);
+
+        // Off the plot, then a hall opened: its rows' lines are written no place until the pointer is back.
+        fireEvent.pointerLeave(plot);
+        expect(body.hasAttribute("data-plan-cursor")).toBe(false);
+        fold();
+        expect(places(container)).toEqual([50, NaN, NaN]);
+        fireEvent.pointerMove(plot, { clientX: 100 });
+        expect(places(container)).toEqual([10, 10, 10]);
     });
 
     test("a pointermove COMMITS NOTHING — profiler-verified O(0) renders per event", () => {
@@ -204,8 +269,8 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         for (let x = 100; x <= 900; x += 100) fireEvent.pointerMove(plot, { clientX: x });
         expect(commits.length).toBe(before);
         // ... and the chrome still tracked: the writes happened, renders did not.
-        const body = container.querySelector("[data-plan-body]") as HTMLElement;
-        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.9");
+        expect(places(container).every((at) => Math.abs(at - 90) < 1e-9)).toBe(true);
+        expect(places(container)).toHaveLength(30);
     });
 });
 
