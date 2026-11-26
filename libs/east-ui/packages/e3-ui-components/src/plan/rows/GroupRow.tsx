@@ -10,11 +10,22 @@
  * strip (delegating the cell painting to {@link HeatCells}); expanded (or
  * summary-less) the plot stays a plain band.
  *
+ * A band with no `summary` of its own, over rows read a page at a time,
+ * counts the events landing beneath it instead (#1716, `root/band-counts.ts`),
+ * open or collapsed: a cell a column with events, its number on the heat
+ * ramp against the largest of its level's bands, inside the band's own
+ * height, so nothing moves as the counts land. Its words — the column, each
+ * record's share, what is not counted — are its hover's and a reader's. It
+ * draws only the counts read at the period its columns take: after a zoom it
+ * keeps the cells it drew, hidden and as they were, until the new period's
+ * land and replace them — so a zoom neither lays them out again on the new
+ * columns nor takes them off the band.
+ *
  * A treegrid row (#819) at its level, expanded or not, its name the
  * `rowheader`.
  */
 
-import type { ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
@@ -23,7 +34,10 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
-import { HeatCells } from "./HeatRow.js";
+import { timeInstant } from "../instant.js";
+import type { PlanScale } from "../scale.js";
+import { usePlanBandCounts, type PlanBandCounts } from "../root/band-counts.js";
+import { HeatCells, heatLevel } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
@@ -72,6 +86,42 @@ export function BandPlot({ styles, children }: { styles: Styles; children?: Reac
         </Box>
     );
 }
+
+/**
+ * A band's counts of the events beneath it (#1716): a cell a column with events, its number on the heat ramp against
+ * the largest of its level's bands. Each cell's words — the column, its events, each record's share, the hidden kinds
+ * among them and the records not counted — are its name, which the canvas's one tooltip says on a hover. The cells are
+ * part of the band: a click on one toggles it, as on the rest of it. They are drawn on the columns given — those their
+ * counts were read for — and drawn again only as the counts or those columns move: a zoom draws none of them again.
+ *
+ * @param props.counts - The band's counts
+ * @param props.scale - The columns they were read for
+ * @param props.styles - The Plan's slot styles
+ */
+const BandCounts = memo(function BandCounts({ counts, scale, styles }: { counts: PlanBandCounts; scale: PlanScale; styles: Styles }) {
+    const words = usePlanWords();
+    const notCounted = counts.uncounted.map((one) => words.m.bandNotCounted({ names: one.names, why: one.why, fields: one.fields }));
+    return (
+        <>
+            {counts.columns.map((column, i) => {
+                const box = scale.renderBucketOf(timeInstant(column.at));
+                if (box === undefined) return null;
+                const level = heatLevel(counts.top > 0 ? column.total / counts.top : 0);
+                const said = words.m.bandCount({
+                    bucket: scale.bucketText(box), n: column.total, count: words.number(column.total),
+                    shares: column.shares.map((share) => ({ names: share.names, count: words.number(share.count) })), hidden: counts.hidden,
+                });
+                return (
+                    <Box key={column.at.getTime()} css={styles.heatCell} data-plan-bucket={box.index} data-plan-band-count={i} data-level={level}
+                        role="img" aria-label={[said, ...notCounted].join(". ")}
+                        style={{ left: `calc(${box.x0 * 100}% + 1.5px)`, width: `calc(${(box.x1 - box.x0) * 100}% - 3px)` }}>
+                        <Box as="span" css={styles.heatLabel} data-level={level} data-plan-label="" aria-hidden="true">{words.number(column.total)}</Box>
+                    </Box>
+                );
+            })}
+        </>
+    );
+});
 
 export interface GroupRowProps {
     row: PlanRowValue;
@@ -122,6 +172,19 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     const summary = collapsed && diagnostic === undefined ? groupStrip(kind, strip) : undefined;
+    // The events beneath it, counted where it declares no summary of its own (#1716), open or collapsed — those read at the
+    // period its columns take. Counts of another period, a zoom's until the new period's land, are not drawn: the band
+    // keeps the cells it drew, hidden, on the columns they were drawn on, so the zoom neither lays them out again on the
+    // new columns nor takes them off, and the new period's replace them as they land.
+    const counts = usePlanBandCounts(row.key);
+    const scale = usePlanScale();
+    const counting = kind.summary.type === "none" && diagnostic === undefined && counts !== undefined && counts.columns.length > 0 ? counts : undefined;
+    const fresh = counting !== undefined && counting.period === scale.resolution;
+    const [drawn, setDrawn] = useState<{ readonly counts: PlanBandCounts; readonly scale: PlanScale } | undefined>(undefined);
+    // What it draws follows the counts read for its columns, and goes with them; another period's leave it standing.
+    if (counting === undefined ? drawn !== undefined : fresh && (drawn === undefined || drawn.counts !== counting || drawn.scale !== scale)) {
+        setDrawn(counting === undefined ? undefined : { counts: counting, scale });
+    }
 
     return (
         <Box
@@ -167,6 +230,15 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                             than selecting a group key nothing displays (#615). */}
                         <HeatCells rowKey={row.key} cells={summary} styles={styles}
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
+                    </PlanPartBoundary>
+                )}
+                {drawn !== undefined && (
+                    <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={drawn.counts} styles={styles}>
+                        <GridSeparators styles={styles} />
+                        {/* Hidden while they are another period's than the columns take: no hover and no reader hears them. */}
+                        <div hidden={!fresh} data-plan-band-counts="">
+                            <BandCounts counts={drawn.counts} scale={drawn.scale} styles={styles} />
+                        </div>
                     </PlanPartBoundary>
                 )}
             </BandPlot>

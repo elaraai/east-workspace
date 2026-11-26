@@ -44,7 +44,7 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, OptionType, SetType,
     StringType, StructType, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
@@ -157,6 +157,11 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
  * @property under - The landing series its rows stand beneath, a step down from each of its rows (#1541, U1), for a series
  *   a kind's `child` lands on: what names its resource — the step of its row's path before the last. `none` for every
  *   other series, a resources series in its own right however deep it is nested
+ * @property within - The keys of the series it is nested in, outermost first (#1716): a group's own row, or a section's
+ *   header, whose series is among them counts the events of the kinds landing on it
+ * @property depth - How many steps its rows' paths hold (#1716): one at the top, and one more beneath each series that
+ *   nests its own beneath each of its rows — a kinds block and a section add none. What tells a group's row which of the
+ *   fields a kind's series index is led by names it: the steps before a resource's own are those fields, outermost first
  */
 export const PlanLandingType = StructType({
     key: StringType,
@@ -166,6 +171,8 @@ export const PlanLandingType = StructType({
     series: ArrayType(StringType),
     top: BooleanType,
     under: OptionType(StringType),
+    within: ArrayType(StringType),
+    depth: IntegerType,
 });
 
 /** Type representing {@link PlanLandingType}. */
@@ -756,5 +763,7 @@ export function landingsOnWire(
         series: [...landing.series],
         top: landing.top,
         under: ((under) => (under === undefined ? none : some(under)))(steps.get(landing.key)),
+        within: [...landing.within],
+        depth: BigInt(landing.depth),
     })), ArrayType(PlanLandingType));
 }

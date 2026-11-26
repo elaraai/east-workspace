@@ -280,7 +280,10 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  * its `totals` (#1732) — are read by a horizon over the source's range, under
  * its narrowing: they count the events from the range's field, and are led
  * only by fields a read of the source chooses exactly, the rail's or the
- * scope's, every one of the scope's among them.
+ * scope's, every one of the scope's among them — or those a series index in
+ * time order the binding lists is led by, which a builder fills from the rows
+ * its events stand under: a Plan's group's own row counts the events beneath
+ * it through totals led by them (#1716).
  *
  * An entries index (`index.entries`, #1522) offers its Dict field: the rail
  * lists the Dict's keys as the field's values, from its hints, each counted by
@@ -542,6 +545,9 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     // The record's totals the binding lists (#1732): what a horizon reads over the source's range, under its narrowing. Each
     // counts the events from the range's field, and is led only by fields a read of the source chooses exactly — the rail's,
     // or the scope's, every one of the scope's among them: totals that leave a choice of the narrowing hold rows it does not.
+    // A series index in time order's leading fields are chosen so too (#1716): a builder fills them from the rows a block of
+    // events stands under — a Plan's groups — and a group's own row reads the totals led by them, though no rail or scope does.
+    const standing = new Set(indexes.flatMap(index => (index.series.type === "some" && index.series.value.order.type === "time" ? index.fields : [])));
     for (const index of indexes) {
         const totals = totalsOf(index);
         if (totals === undefined) continue;
@@ -555,10 +561,11 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
                 `shows: declare them from it, index.totals({ ${index.fields.length > 0 ? `on: [${index.fields.map(f => JSON.stringify(f)).join(", ")}], ` : ""}` +
                 `from: "${range}", to: "${totals.to}", tile: "${tile}" })`);
         }
-        const unchosen = index.fields.find(field => !scope.has(field) && !offered.includes(field));
+        const unchosen = index.fields.find(field => !scope.has(field) && !offered.includes(field) && !standing.has(field));
         if (unchosen !== undefined) {
-            throw new Error(`${named} is led by '${unchosen}', which no read of the source chooses — the rail offers no control of it, and the scope ` +
-                "holds none: lead them by fields the rail offers or the scope holds, or by none");
+            throw new Error(`${named} is led by '${unchosen}', which no read of the source chooses — the rail offers no control of it, the scope ` +
+                "holds none, and no series index in time order the source lists is led by it: lead them by fields the rail offers, the scope " +
+                "holds or such an index is led by, or by none");
         }
         const unled = scoped.filter(field => !index.fields.includes(field));
         if (unled.length > 0) {

@@ -156,6 +156,7 @@ import {
     PlanEventsReader, createEventPlacings, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
+import { PlanBandCountsContext, PlanBandCountsReader, createBandCountsStore, createBandSpanStore, type PlanBandInView } from "./root/band-counts.js";
 import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
@@ -590,6 +591,10 @@ export function usePlanCanvas({
     // when they move.
     // The paged rows in view, as the body reports them at rest (#1039): what the reader of the kinds' cells reads.
     const [cellSpans] = useState(createCellSpanStore);
+    // The group rows in view, as the body reports them at rest beside them (#1716): what the reader of their counts of the
+    // events beneath them reads — and the store each of those rows reads its own counts from.
+    const [bandSpans] = useState(createBandSpanStore);
+    const [bandCounts] = useState(createBandCountsStore);
     // Each read of the events that lands, with what it was read over (#1771): what the frame's footer counts the window's
     // events from — handed over by the reader, which the canvas renders nothing for.
     const [placings] = useState(createEventPlacings);
@@ -1302,6 +1307,7 @@ export function usePlanCanvas({
         if (isScrolling) return;
         const inView: { key: string; path: readonly string[] }[] = [];
         const rows: PlanRowValue[] = [];
+        const bands: PlanBandInView[] = [];
         let notRead = false;
         let run = false;
         for (let i = shown?.startIndex ?? 0; shown !== undefined && i <= shown.endIndex; i++) {
@@ -1314,8 +1320,14 @@ export function usePlanCanvas({
             else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
             // A run whose windows are on their way: the view waits for them.
             if (item?.kind === "band" && item.band.loading !== undefined) run = true;
+            // A group's own row, or a section's header, declaring no summary of its own counts the events beneath it (#1716).
+            const row = item?.kind === "row" ? item.row.row : undefined;
+            if (row !== undefined && row.kind.type === "group" && row.kind.value.summary.type === "none") {
+                bands.push({ key: row.key, series: row.id.value.series, path: row.id.value.path });
+            }
         }
         cellSpans.set(shownCellSpan(inView, notRead, cellSpans.get(), pagingOrigin, pagingNarrowing));
+        bandSpans.set(bands);
         // And the rows whose nested series the reader reads around them (#1438): a view showing none stays as it was.
         if (rows.length > 0) nestedViews.set({ first: rows[0]!.key, last: rows[rows.length - 1]!.key });
         // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed. A
@@ -1325,7 +1337,7 @@ export function usePlanCanvas({
         awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
         // What the view shows takes a focus a landing owes it.
         takeOwed.current(shown === undefined ? [] : body.items.slice(shown.startIndex, shown.endIndex + 1));
-    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, nestedViews, unread, awaitInView, landings]);
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, bandSpans, nestedViews, unread, awaitInView, landings]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -2143,6 +2155,17 @@ export function usePlanCanvas({
                 links={linked.data.links} spans={cellSpans} editing={eventEditing} placings={placings} onLead={setLead} />
         )
         : null;
+    // The group rows' counts of the events beneath them (#1716): over rows read a page at a time, read by a component of
+    // their own as the scroll rests — nothing the rows draw waits on it, and it asks nothing while the windows the view
+    // waits for, the events' cells or the events of the period the columns have just taken are on their way, nor until
+    // the frame's loading line has cleared — which hands each row its own. Events whose read failed are on their way no
+    // longer: the footer says so, with Retry.
+    const lineWaits = transport?.loading !== undefined && transport.loading.kind !== "failed";
+    const bandsReader = events?.paged === true
+        ? <PlanBandCountsReader kinds={kinds} landings={landings} parts={eventParts} scale={scale} range={eventRange}
+            hidden={hidden ?? NONE_HIDDEN} bands={bandSpans} counts={bandCounts}
+            waiting={waits || cellsReading || (lead.error === undefined && lead.period !== scale?.resolution)} loading={lineWaits} />
+        : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is
     // narrow, the rows its cards draw, which follow none of the desktop's folds, all of them in view.
     const nestedSeam = data.nested.type === "some" ? data.nested.value : undefined;
@@ -2173,7 +2196,9 @@ export function usePlanCanvas({
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
             <FieldAskProvider value={fieldAsks}>
+            <PlanBandCountsContext.Provider value={bandCounts}>
                 {children}
+            </PlanBandCountsContext.Provider>
             </FieldAskProvider>
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
@@ -2191,6 +2216,7 @@ export function usePlanCanvas({
         return (
             <>
                 {eventsReader}
+                {bandsReader}
                 {nestedReader}
                 {boundsReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}

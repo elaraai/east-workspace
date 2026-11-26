@@ -7,7 +7,8 @@
  * What a Plan's horizon bars hold, worked out from the events themselves
  * (#1732): each event's span — from rows timed by Option<DateTime> fields, by
  * DateTime fields, or an instant — and each period's count of the events that
- * touch it, the oracle a test holds the strip's bars to.
+ * touch it, the oracle a test holds the strip's bars to, and a group's own
+ * row's counts (#1716).
  *
  * @packageDocumentation
  */
@@ -112,4 +113,26 @@ export function touched(events: readonly Span[], window: Span, unit: HorizonPeri
         at = next;
     }
     return expected;
+}
+
+/**
+ * Each period's count of the events that touch it, as {@link touched} counts them, by the period's start: from the
+ * period holding the first event's start to the one holding the last's — the oracle a group's own row's counts are
+ * held to, a column at a time (#1716). A period none touches is left out, as the row draws no cell for it.
+ *
+ * @param events - The events beneath the row
+ * @param unit - The columns' period
+ * @returns Each touched period's count, by its start in ms, in order
+ */
+export function periodCounts(events: readonly Span[], unit: HorizonPeriod): Map<number, number> {
+    const counts = new Map<number, number>();
+    if (events.length === 0) return counts;
+    const first = events.reduce((least, [start]) => Math.min(least, start), Infinity);
+    const last = events.reduce((most, [start]) => Math.max(most, start), -Infinity);
+    for (let at = periodStart(unit, first); at <= last; at = periodNext(unit, at)) {
+        const next = periodNext(unit, at);
+        const n = events.filter(([start, end]) => (start >= at && start < next) || (start < at && end > at)).length;
+        if (n > 0) counts.set(at, n);
+    }
+    return counts;
 }

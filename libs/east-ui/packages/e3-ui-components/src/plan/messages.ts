@@ -403,6 +403,20 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  the one parent whose members span windows, #822) it is a short bar,
      *  never a count (#1398, CL13). */
     groupMeta: (p: { n: number; count: string }) => string;
+    /**
+     * What a group's row says of a column it counts the events beneath it in (#1716), on its hover and to a reader —
+     * `Oct 2026: 24 events — Print job 13, Paper delivery 5, Folding run 4, Trim 2`: `bucket` the column in words,
+     * `count` its events, each record's share where it counts more than one, by its kinds' names (`shares`, their counts
+     * formatted), and the kinds the viewer hides that it counts (`hidden`).
+     */
+    bandCount: (p: { bucket: string; n: number; count: string; shares: readonly { readonly names: string; readonly count: string }[]; hidden: readonly string[] }) => string;
+    /**
+     * What a group's row says of a record beneath it that it does not count (#1716), after a column's count — `Inspection
+     * not counted: no totals kept by hall`: `names` its kinds' names; `why` its source lists no totals led by the `fields`
+     * that name the row's group (`totals`), none at a period dividing the columns (`zoom`), or the filters choose what
+     * they cannot answer (`filters`).
+     */
+    bandNotCounted: (p: { names: string; why: "totals" | "zoom" | "filters"; fields: readonly string[] }) => string;
     // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
     // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
@@ -841,6 +855,13 @@ export const planMessages: PlanMessages = {
     expandControl: () => "Expand row",
 
     groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
+    bandCount: ({ bucket, n, count, shares, hidden }) => {
+        const by = shares.length > 1 ? ` — ${shares.map((share) => `${share.names} ${share.count}`).join(", ")}` : "";
+        const also = hidden.length > 0 ? `, hidden ${joined(hidden.map(lowerWord), "and")} among them` : "";
+        return `${bucket}: ${count} ${plural(n, "event", "events")}${by}${also}`;
+    },
+    bandNotCounted: ({ names, why, fields }) => `${names} not counted: ${why === "totals" ? `no totals kept by ${joined(fields, "and")}`
+        : why === "zoom" ? "no totals at this zoom" : "the filters choose what its totals can't answer"}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>

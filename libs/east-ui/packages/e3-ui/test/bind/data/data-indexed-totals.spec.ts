@@ -10,7 +10,9 @@
  * record's totals, searched by e3's own key, with no maintenance of its own:
  * a horizon counts what is saved. The rail over them reads each as the
  * summary's `totals` and offers none of their fields. What each refuses, in
- * its words.
+ * its words — and what it takes beside the rail's and the scope's fields: totals
+ * led by the fields a series index in time order is led by, which a builder
+ * fills from its rows (#1716).
  */
 
 import { describe, test } from "node:test";
@@ -33,6 +35,10 @@ const jobs = e3.record("data_totals_jobs", DictType(StringType, Job), {
         jobs_by_hall_time: index.interval({ on: ["hall"], from: "start", to: "end" }),
         jobs_by_hall: index.on(["hall"]),
         jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+        // The jobs a week under their hall, in time order — whose leading field a builder fills from its rows — and under
+        // their title, in their keys' order, whose a builder never fills.
+        jobs_by_hall_series: index.flatSeries({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        jobs_by_title_series: index.flatSeries({ on: ["title"], key: "press", from: "start", to: "end", tile: "week" }),
         // The record's totals a month and a quarter, the hall's a month, and some that do not fit a horizon over the start.
         jobs_month: index.totals({ from: "start", to: "end", tile: "month" }),
         jobs_quarter: index.totals({ from: "start", to: "end", tile: "quarter" }),
@@ -126,7 +132,8 @@ describe("Data.bindPaged's totals", () => {
         });
         assert.throws(() => Data.bindPaged(jobs, { indexes: ["jobs_by_time"], totals: ["jobs_week" as never] }), {
             message: "Data.bindPaged: record 'data_totals_jobs' declares no index 'jobs_week' — it declares 'jobs_by_time', 'jobs_by_hall_time', 'jobs_by_hall', " +
-                "'jobs_by_press_month', 'jobs_month', 'jobs_quarter', 'jobs_by_hall_month', 'jobs_month_too', 'jobs_ending_month', 'jobs_by_title_month'",
+                "'jobs_by_press_month', 'jobs_by_hall_series', 'jobs_by_title_series', 'jobs_month', 'jobs_quarter', 'jobs_by_hall_month', 'jobs_month_too', " +
+                "'jobs_ending_month', 'jobs_by_title_month'",
         });
     });
 
@@ -142,7 +149,8 @@ describe("Data.bindPaged's totals", () => {
         });
         assert.throws(() => configOf(listing(["jobs_by_title_month"]), { range: "start" }), {
             message: "Slice.bindRecord: 'jobs_by_title_month', the record's totals a month, is led by 'title', which no read of the source chooses — the rail " +
-                "offers no control of it, and the scope holds none: lead them by fields the rail offers or the scope holds, or by none",
+                "offers no control of it, the scope holds none, and no series index in time order the source lists is led by it: lead them by fields the " +
+                "rail offers, the scope holds or such an index is led by, or by none",
         });
         assert.throws(() => configOf(listing(["jobs_month"]), { range: "start", scope: { hall: ["H-1"] } }), {
             message: "Slice.bindRecord: 'jobs_month', the record's totals a month, is not led by the scope's 'hall', which every read of the source holds — " +
@@ -150,5 +158,20 @@ describe("Data.bindPaged's totals", () => {
         });
         const scoped = configOf(listing(["jobs_by_hall_month"]), { range: "start", scope: { hall: ["H-1"] } });
         assert.ok(scoped.indexes.some((index) => index.name === "jobs_by_hall_month"), "led by the scope's fields: read under it");
+    });
+
+    test("takes totals led by the fields a series index in time order it lists is led by, which a builder fills from its rows (#1716)", () => {
+        // The rail offers the dates alone; the jobs are read a week at a time under their hall, which a Plan fills from its groups.
+        const grouped = configOf(Data.bindPaged(jobs, { indexes: ["jobs_by_time", "jobs_by_hall_series"], totals: ["jobs_month", "jobs_by_hall_month"] }),
+            { range: "start", fields: { start: {} } });
+        assert.ok(grouped.indexes.some((index) => index.name === "jobs_by_hall_month"), "led by the series index's field: a group's row reads them");
+        assert.deepEqual(grouped.fields.map((field) => field.fieldId), ["start"], "and the rail offers no control of it");
+        // A series index in its keys' order is read a key at a time, its leading fields never filled from the rows.
+        assert.throws(() => configOf(Data.bindPaged(jobs, { indexes: ["jobs_by_time", "jobs_by_title_series"], totals: ["jobs_by_title_month"] }),
+            { range: "start", fields: { start: {} } }), {
+            message: "Slice.bindRecord: 'jobs_by_title_month', the record's totals a month, is led by 'title', which no read of the source chooses — the rail " +
+                "offers no control of it, the scope holds none, and no series index in time order the source lists is led by it: lead them by fields the " +
+                "rail offers, the scope holds or such an index is led by, or by none",
+        });
     });
 });

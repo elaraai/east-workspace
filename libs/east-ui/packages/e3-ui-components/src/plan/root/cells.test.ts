@@ -134,8 +134,12 @@ describe("where the canvas reports its rows in view (#1039)", () => {
 
 describe("the resources a window's rows are read by (#1541, U1)", () => {
     /** The presses, and the kinds of task beneath each: a kind's `child` lands on the kinds' rows. */
-    const presses: PlanLandingValue = { key: "press", name: "Presses", draws: [variant("buckets", null)], kinds: [], series: ["temperature"], top: true, under: none };
-    const kinds: PlanLandingValue = { key: "kinds", name: "Tasks", draws: [variant("buckets", null)], kinds: ["task"], series: [], top: false, under: some("press") };
+    const presses: PlanLandingValue = {
+        key: "press", name: "Presses", draws: [variant("buckets", null)], kinds: [], series: ["temperature"], top: true, under: none, within: [], depth: 1n,
+    };
+    const kinds: PlanLandingValue = {
+        key: "kinds", name: "Tasks", draws: [variant("buckets", null)], kinds: ["task"], series: [], top: false, under: some("press"), within: ["press"], depth: 2n,
+    };
     const landings = [presses, kinds];
     /** A window's rows, each by its id alone: what the reader reads of them. */
     const block = (...ids: ReturnType<typeof entry>[]): PlanWireBlock[] => [{ rows: ids.map((id) => ({ id })) } as never];
@@ -167,8 +171,10 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
 
     test("a row with no landing row at or above it stands for no resource, and a row of another series beneath a resource's row is read by the resource (#1711)", () => {
         // Halls, each its presses, each press its tasks: every kind lands on a task, a step beneath its press.
-        const press: PlanLandingValue = { key: "press", name: "Presses", draws: [], kinds: [], series: [], top: false, under: none };
-        const tasks: PlanLandingValue = { key: "tasks", name: "Tasks", draws: [variant("marks", null)], kinds: ["job"], series: [], top: false, under: some("press") };
+        const press: PlanLandingValue = { key: "press", name: "Presses", draws: [], kinds: [], series: [], top: false, under: none, within: ["halls"], depth: 2n };
+        const tasks: PlanLandingValue = {
+            key: "tasks", name: "Tasks", draws: [variant("marks", null)], kinds: ["job"], series: [], top: false, under: some("press"), within: ["halls", "press"], depth: 3n,
+        };
         const rows = new Map([
             ["hall", { id: entry("halls", "H-1"), parent: none }],
             ["note", { id: entry("notes", "H-1", "n-1"), parent: some("hall") }],

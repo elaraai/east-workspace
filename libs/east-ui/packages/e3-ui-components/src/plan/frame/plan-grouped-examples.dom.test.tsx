@@ -15,16 +15,27 @@
  * search under one line of one hall. Its Plan built with no refusal, and every
  * way an event kind draws drawn: chips, bars, tiles and marks. Its horizon's
  * bars are the kinds' totals a period, which their bindings list (#1732).
+ *
+ * And each hall's own row, each line's, and a section's header inside a hall
+ * (`planSeriesSections`) count the events beneath them a column at a time,
+ * open or folded (#1716): each column's number the events touching it, from
+ * each record's totals led by the hall, or by the hall and the line — one
+ * search a row a record, none sent twice, no event read — and drawn while
+ * the rows are, never holding them back. After a zoom a row keeps the cells
+ * it drew, hidden and as they were, until the new period's land.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { StringType, printFor } from "@elaraai/east";
+import { StringType, equalFor, printFor, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-grouped";
 import type { TreePath } from "@elaraai/e3-types";
+import type { E3Request } from "../../e3-web.test-utils.js";
+import { periodText } from "../../shared/time/scale.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { el, entry, horizonLaidOut, planHarness, rowAt, settle, slot, zoomTo } from "./harness.test-utils.js";
-import { instants, spans, touched, type Span } from "./horizon.test-utils.js";
+import { rowKeyOf, type PlanRowId } from "../model.js";
+import { act, el, entry, horizonLaidOut, planHarness, rowAt, settle, slot, toggleSeries, zoomTo } from "./harness.test-utils.js";
+import { instants, periodCounts, spans, touched, type Span } from "./horizon.test-utils.js";
 
 const h = planHarness({ "plan/plan-grouped": ex });
 
@@ -62,6 +73,56 @@ const WINDOW: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 10, 2)];
 const printText = printFor(StringType);
 /** Each line's key, as an index's second leading field holds it, by its hall's key as the first holds it: `.east` literals of a String. */
 const LINES = new Map([...ex.planSeriesHalls.default!].map(([hall, of]) => [printText(hall), new Set([...of.lines.keys()].map((line) => printText(line)))] as const));
+
+/** Whether a request reads the totals a horizon's bars count: a kind's record's, under no field, a month, a quarter or a year. */
+const horizonTotals = (request: E3Request, totals: string) =>
+    ["month", "quarter", "year"].some((tile) => request.query.get("index") === `${totals}_${tile}_totals`);
+
+/** Whether a request reads totals a group's own row counts from (#1716): a record's, led by the hall, or by the hall and the line. */
+const bandTotals = (request: E3Request) => /_by_(hall|line)_(day|week|month)_totals$/.test(request.query.get("index") ?? "");
+
+/** Each search some requests sent, under its index: none a group's row reads is sent twice at one zoom. */
+const searchesOf = (requests: readonly E3Request[]) =>
+    requests.flatMap((request) => request.searches.map((search) => `${request.query.get("index") ?? ""}\u0000${JSON.stringify(search)}`));
+
+const sameText = equalFor(StringType);
+/** The runs of a hall's folders, each `[start, end)` in ms. */
+const runsIn = (hall: string) => spans([...ex.planSeriesFolding.default!.values()].filter((run) => sameText(run.hall, hall)), (run) => [run.start, run.end]);
+/** The paper delivered to a hall's bays, each at its instant. */
+const deliveriesIn = (hall: string) => instants([...ex.planSeriesDeliveries.default!.values()].filter((paper) => sameText(paper.hall, hall)), (paper) => paper.at);
+/** The print jobs of a hall's presses, or of one line's. */
+const jobsIn = (hall: string, line?: string) => spans([...ex.planSeriesJobs.default!.values()]
+    .filter((job) => sameText(job.hall, hall) && (line === undefined || sameText(job.line, line))), (job) => [job.start, job.end]);
+/** The trims of a hall's guillotines, or of one line's. */
+const trimsIn = (hall: string, line?: string) => instants([...ex.planSeriesTrims.default!.values()]
+    .filter((trim) => sameText(trim.hall, hall) && (line === undefined || sameText(trim.line, line))), (trim) => trim.at);
+/** Everything beneath a hall's own row: its folders' runs, its bays' paper, and its lines' jobs and trims. */
+const beneathHall = (hall: string) => [...runsIn(hall), ...deliveriesIn(hall), ...jobsIn(hall), ...trimsIn(hall)];
+
+/** A group's own row's count cells (#1716), in order: each its column in words, the number it shows, and all it says. */
+function countsOf(main: HTMLElement, id: PlanRowId) {
+    return [...main.querySelectorAll<HTMLElement>(`[data-plan-group=${JSON.stringify(rowKeyOf(id))}] [data-plan-band-count]`)].map((cell) => {
+        const label = cell.getAttribute("aria-label") ?? "";
+        return { bucket: label.slice(0, label.indexOf(": ")), shown: cell.textContent ?? "", label };
+    });
+}
+
+/**
+ * Holds a group's own row's count cells to the events beneath it (#1716): each cell's number the events that touch its
+ * column, and every column with events between the first the row counts and the last.
+ */
+function expectCounts(cells: ReturnType<typeof countsOf>, events: readonly Span[], unit: "day" | "week"): void {
+    const counts = periodCounts(events, unit);
+    const byText = new Map([...counts].map(([at, n]) => [periodText(new Date(at), unit), { at, n }] as const));
+    expect(cells.length, "the row counts some columns").toBeGreaterThan(0);
+    const columns = cells.map((cell) => {
+        const held = byText.get(cell.bucket);
+        expect(held, cell.label).toBeDefined();
+        expect(Number(cell.shown), cell.label).toBe(held!.n);
+        return held!.at;
+    });
+    expect(columns).toEqual([...counts.keys()].filter((at) => at >= columns[0]! && at <= columns[columns.length - 1]!));
+}
 
 describe("the grouped example on e3 (#1710)", () => {
     test("planSeriesAll: its halls a hall at a time, rows beside groups, each kind's events through its series index under the rows its resources stand under, every way a kind draws drawn", async () => {
@@ -153,8 +214,8 @@ describe("the grouped example on e3 (#1710)", () => {
         expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW));
         // Each kind's month totals in one request, one range over the whole years — never its interval index counted month
         // by month, nor an event read.
-        const totalsRead = () => KINDS.map(({ record }) =>
-            h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true));
+        const totalsRead = () => KINDS.map(({ record, totals }) =>
+            h.requests("find", pathText(record.path as TreePath)).filter((request) => horizonTotals(request, totals)));
         totalsRead().forEach((read, i) => {
             const { record, totals } = KINDS[i]!;
             const dataset = pathText(record.path as TreePath);
@@ -182,7 +243,7 @@ describe("the grouped example on e3 (#1710)", () => {
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
         expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW, "quarter"));
         for (const { record, totals } of KINDS) {
-            const read = h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
+            const read = h.requests("find", pathText(record.path as TreePath)).filter((request) => horizonTotals(request, totals));
             expect(read.map((request) => request.query.get("index"))).toEqual([`${totals}_quarter_totals`]);
         }
     });
@@ -205,5 +266,121 @@ describe("the grouped example on e3 (#1710)", () => {
         await waitFor(() => expect(main.querySelector(`${rowAt(entry("halls", "H-101"))} ${el("data-chip", "inspection", "H-101-I1")}`)).not.toBeNull(),
             { timeout: 10_000 });
         expect(footer()).not.toContain("Couldn't read");
+    });
+});
+
+describe("a group's own row counts the events beneath it, on e3 (#1716)", () => {
+    test("planSeriesAll: each hall's own row, and each line's, counts the events beneath it a column at a time — open, folded and after Collapse all — from each record's totals a day, led by the hall or by the hall and the line: one search a row a record, none sent twice, and no event read", async () => {
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const hall = entry("floors", "H-101");
+        const line = entry("lines", "H-101", "L-101-1");
+        await waitFor(() => expect(countsOf(main, line).length).toBeGreaterThan(0), { timeout: 10_000 });
+        // The hall's row: its folders' runs, its bays' paper, and its line's jobs and trims; the line's, its jobs and trims.
+        expectCounts(countsOf(main, hall), beneathHall("H-101"), "day");
+        expectCounts(countsOf(main, line), [...jobsIn("H-101", "L-101-1"), ...trimsIn("H-101", "L-101-1")], "day");
+        // Its hover names each record's share by its kinds, where a column counts more than one.
+        const open = countsOf(main, hall);
+        expect(open.some((cell) => /events — .*Print job \d+/.test(cell.label)), "a column's shares").toBe(true);
+        // Each from its record's totals a day, led by the hall, or by the hall and the line; the inspections — on the halls' own
+        // rows, beside the groups — by none.
+        expect(new Set(h.requests("find").filter(bandTotals).map((request) => request.query.get("index")))).toEqual(new Set([
+            "plan_series_folding_by_hall_day_totals", "plan_series_deliveries_by_hall_day_totals", "plan_series_jobs_by_hall_day_totals",
+            "plan_series_trims_by_hall_day_totals", "plan_series_jobs_by_line_day_totals", "plan_series_trims_by_line_day_totals",
+        ]));
+        // Folded, the hall's row counts the same.
+        const band = () => main.querySelector<HTMLElement>(`[data-plan-group=${JSON.stringify(rowKeyOf(hall))}]`)!;
+        fireEvent.click(band());
+        await settle();
+        expect(band().getAttribute("aria-expanded")).toBe("false");
+        expect(countsOf(main, hall)).toEqual(open);
+        // A group folded makes the toolbar's first action Expand all; then Collapse all, and each hall's row the view now
+        // shows counts the events beneath it.
+        const fold = () => slot(c, "toolbar")!.querySelector<HTMLElement>("[data-plan-fold-all]")!;
+        expect(fold().getAttribute("aria-label")).toBe("Expand all");
+        fireEvent.click(fold());
+        await settle();
+        expect(fold().getAttribute("aria-label")).toBe("Collapse all");
+        fireEvent.click(fold());
+        await settle();
+        const halls = ["H-101", "H-102", "H-103", "H-104"];
+        await waitFor(() => { for (const key of halls) expect(countsOf(main, entry("floors", key)).length, key).toBeGreaterThan(0); }, { timeout: 10_000 });
+        for (const key of halls) expectCounts(countsOf(main, entry("floors", key)), beneathHall(key), "day");
+        // One search a row a record, none sent twice; and no event read whole, nor by its key.
+        const sent = searchesOf(h.requests("find").filter(bandTotals));
+        expect(new Set(sent).size).toBe(sent.length);
+        for (const { record } of KINDS) {
+            expect(h.requests("read", pathText(record.path as TreePath))).toEqual([]);
+            expect(h.requests("rows", pathText(record.path as TreePath))).toEqual([]);
+        }
+    });
+
+    test("planSeriesAll zoomed to the week counts each hall's events from its totals a week: each event once, a run of a day and a half once in its week", async () => {
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        await zoomTo(c, "week");
+        await waitFor(() => expectCounts(countsOf(main, entry("floors", "H-101")), beneathHall("H-101"), "week"), { timeout: 10_000 });
+        const indexes = new Set(h.requests("find").filter(bandTotals).map((request) => request.query.get("index") ?? ""));
+        expect([...indexes].filter((index) => index.endsWith("_week_totals")).sort()).toEqual([
+            "plan_series_deliveries_by_hall_week_totals", "plan_series_folding_by_hall_week_totals", "plan_series_jobs_by_hall_week_totals",
+            "plan_series_jobs_by_line_week_totals", "plan_series_trims_by_hall_week_totals", "plan_series_trims_by_line_week_totals",
+        ]);
+    });
+
+    test("planSeriesAll zoomed to the week while the week's totals are on their way: each hall's row keeps the day's cells it drew, hidden and as they were — none laid out again on the week's columns — and the week's replace them as they land", async () => {
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const hall = entry("floors", "H-101");
+        const cells = () => main.querySelector<HTMLElement>(`[data-plan-group=${JSON.stringify(rowKeyOf(hall))}] [data-plan-band-counts]`);
+        await waitFor(() => expect(countsOf(main, hall).length).toBeGreaterThan(0), { timeout: 10_000 });
+        const day = countsOf(main, hall);
+        const weekly = h.e3.hold((request) => bandTotals(request) && (request.query.get("index") ?? "").endsWith("_week_totals"));
+        await zoomTo(c, "week");
+        await weekly.holding;
+        // The day's cells as they were drawn, hidden: no hover, no reader hears them.
+        expect(countsOf(main, hall)).toEqual(day);
+        expect(cells()?.hasAttribute("hidden")).toBe(true);
+        await act(async () => { weekly.release(); });
+        await settle();
+        await waitFor(() => expectCounts(countsOf(main, hall), beneathHall("H-101"), "week"), { timeout: 10_000 });
+        expect(cells()?.hasAttribute("hidden")).toBe(false);
+    });
+
+    test("planSeriesAll draws its rows and their events while the group rows' counts are on their way, and counts once they land", async () => {
+        const counting = h.e3.hold(bandTotals);
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        await counting.holding;
+        await waitFor(() => expect(main.querySelectorAll("[data-plan-row] [data-run]").length).toBeGreaterThan(0));
+        expect(main.querySelectorAll("[data-plan-band-count]").length).toBe(0);
+        await act(async () => { counting.release(); });
+        await settle();
+        await waitFor(() => expectCounts(countsOf(main, entry("floors", "H-101")), beneathHall("H-101"), "day"), { timeout: 10_000 });
+    });
+
+    test("planSeriesAll with the folding runs switched off in the Series tab: each hall's row counts what the canvas shows beneath it, the runs left out", async () => {
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const hall = entry("floors", "H-101");
+        await waitFor(() => expect(countsOf(main, hall).length).toBeGreaterThan(0), { timeout: 10_000 });
+        await toggleSeries(c, "Folding run");
+        await waitFor(() => expectCounts(countsOf(main, hall), [...deliveriesIn("H-101"), ...jobsIn("H-101"), ...trimsIn("H-101")], "day"), { timeout: 10_000 });
+    });
+
+    test("planSeriesSections: a section's header inside a hall counts the deliveries landing within it, as the hall's own row counts its runs and its deliveries — the two rows' search of the deliveries one", async () => {
+        const { container: c } = await h.mount(ex.planSeriesSections);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const header = variant("section", { series: "loading", path: ["H-101"] }) as PlanRowId;
+        await waitFor(() => expect(countsOf(main, header).length).toBeGreaterThan(0), { timeout: 10_000 });
+        expectCounts(countsOf(main, header), deliveriesIn("H-101"), "day");
+        expectCounts(countsOf(main, entry("floors", "H-101")), [...runsIn("H-101"), ...deliveriesIn("H-101")], "day");
+        const sent = searchesOf(h.requests("find").filter(bandTotals));
+        expect(new Set(sent).size).toBe(sent.length);
     });
 });

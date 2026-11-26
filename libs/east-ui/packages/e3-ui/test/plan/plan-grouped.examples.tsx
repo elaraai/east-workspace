@@ -18,11 +18,17 @@
  * week's events together under their hall, or their hall and line, in their
  * rows' order, so a block of rows in view is one range a tile. Each shades
  * zoomed out from the summary whose tile fits the zoom — a day's, a month's, a
- * quarter's or a year's. And the Plan over them:
+ * quarter's or a year's. Each beneath a hall keeps its totals by hall, and
+ * those beneath a line by hall and line, a day, a week and a month at a time:
+ * what a hall's own row and a line's count of the events beneath them. And the
+ * Plans over them:
  *
  * - `planSeriesAll`, the halls read a hall at a time, rows beside groups at
  *   every level, and every way an event kind draws: chips, bars, tiles and
- *   marks.
+ *   marks;
+ * - `planSeriesSections`, each hall's bays under a section's header beside its
+ *   folders, the header counting the deliveries beneath it as the hall's row
+ *   counts everything beneath the hall.
  *
  * @packageDocumentation
  */
@@ -358,6 +364,12 @@ export const planSeriesFolding = e3.record("plan_series_folding", DictType(Strin
         plan_series_folding_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
         plan_series_folding_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
         plan_series_folding_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
+        // Each hall's runs a day, a week and a month (#1716): what a hall's own row counts, a column at a time — the totals
+        // led by the field its series index files them under first, which the Plan fills from the hall. A column of their
+        // own period counts each run once.
+        plan_series_folding_by_hall_day_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "day" }),
+        plan_series_folding_by_hall_week_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "week" }),
+        plan_series_folding_by_hall_month_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "month" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -375,6 +387,10 @@ export const planSeriesDeliveries = e3.record("plan_series_deliveries", DictType
         plan_series_deliveries_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
         plan_series_deliveries_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
         plan_series_deliveries_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
+        // Each hall's deliveries a day, a week and a month (#1716): what a hall's own row counts.
+        plan_series_deliveries_by_hall_day_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "day" }),
+        plan_series_deliveries_by_hall_week_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "week" }),
+        plan_series_deliveries_by_hall_month_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "month" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -396,6 +412,14 @@ export const planSeriesJobs = e3.record("plan_series_jobs", DictType(StringType,
         plan_series_jobs_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
         plan_series_jobs_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
         plan_series_jobs_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
+        // Each hall's jobs, and each line's, a day, a week and a month (#1716): what a hall's own row and a line's count. A
+        // run of a day and a half touches two or three days: a week's totals count it once in a week's column.
+        plan_series_jobs_by_hall_day_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "day" }),
+        plan_series_jobs_by_hall_week_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "week" }),
+        plan_series_jobs_by_hall_month_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "month" }),
+        plan_series_jobs_by_line_day_totals: index.totals({ on: ["hall", "line"], from: "start", to: "end", tile: "day" }),
+        plan_series_jobs_by_line_week_totals: index.totals({ on: ["hall", "line"], from: "start", to: "end", tile: "week" }),
+        plan_series_jobs_by_line_month_totals: index.totals({ on: ["hall", "line"], from: "start", to: "end", tile: "month" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -413,6 +437,13 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
         plan_series_trims_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
         plan_series_trims_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
         plan_series_trims_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
+        // Each hall's trims, and each line's, a day, a week and a month (#1716): what a hall's own row and a line's count.
+        plan_series_trims_by_hall_day_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "day" }),
+        plan_series_trims_by_hall_week_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "week" }),
+        plan_series_trims_by_hall_month_totals: index.totals({ on: ["hall"], from: "at", to: "at", tile: "month" }),
+        plan_series_trims_by_line_day_totals: index.totals({ on: ["hall", "line"], from: "at", to: "at", tile: "day" }),
+        plan_series_trims_by_line_week_totals: index.totals({ on: ["hall", "line"], from: "at", to: "at", tile: "week" }),
+        plan_series_trims_by_line_month_totals: index.totals({ on: ["hall", "line"], from: "at", to: "at", tile: "month" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -444,7 +475,12 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
  * off; one event is read by its key through its record's own entries, and
  * Save commits through each record's patch door. The horizon's bars are each
  * kind's totals a month, a quarter or a year (#1732): summaries with no key,
- * which each binding lists apart from its indexes, in `totals`.
+ * which each binding lists apart from its indexes, in `totals`. And each
+ * hall's own row, and each line's, counts the events beneath it a column at a
+ * time, open or folded (#1716): from the totals of each record beneath it led
+ * by the hall, or by the hall and the line — the fields its series index files
+ * its events under first, which the Plan fills from the group — listed in
+ * `totals` beside the horizon's. Nothing on the kinds or the series names them.
  */
 export const planSeriesAll = example({
     keywords: [
@@ -456,8 +492,9 @@ export const planSeriesAll = example({
         "level of detail", "zoom", "cell", "range a tile", "large record", "scale", "sparse", "three years", "shading", "child rows counted",
         "summary led by the child's field", "Plan.library.series",
         "Series tab", "Record.bind", "entries", "Save", "horizon", "totals", "summary with no key", "#1710", "#1732",
+        "group row counts", "a group's own row", "counts beneath a group", "index.totals on", "totals led by a field", "#1716",
     ],
-    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.flatSeries({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's; the jobs' task rows each count their own from summaries led by the task and keyed by the press (index.summary({ on: [\"task\"], key: \"press\", … })) — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
+    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.flatSeries({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's; the jobs' task rows each count their own from summaries led by the task and keyed by the press (index.summary({ on: [\"task\"], key: \"press\", … })) — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted; and each hall's own row and each line's count the events beneath them a column at a time, open or folded, from each record's totals led by the hall, or the hall and the line, a day, a week and a month at a time (index.totals({ on: [\"hall\"], … }), listed in totals) — nothing on the kinds or the series names them",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const inspections = $.let(Record.bind(planSeriesInspections));
@@ -492,7 +529,8 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesFolding, {
                         indexes: ["plan_series_folding_by_time", "plan_series_folding_by_hall_week", "plan_series_folding_by_folder_day",
                             "plan_series_folding_by_folder_month", "plan_series_folding_by_folder_quarter", "plan_series_folding_by_folder_year"],
-                        totals: ["plan_series_folding_month_totals", "plan_series_folding_quarter_totals", "plan_series_folding_year_totals"],
+                        totals: ["plan_series_folding_month_totals", "plan_series_folding_quarter_totals", "plan_series_folding_year_totals",
+                            "plan_series_folding_by_hall_day_totals", "plan_series_folding_by_hall_week_totals", "plan_series_folding_by_hall_month_totals"],
                     }),
                     label: "Folding runs", icon: { prefix: "fas", name: "book-open" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -500,7 +538,8 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesDeliveries, {
                         indexes: ["plan_series_deliveries_by_time", "plan_series_deliveries_by_hall_week", "plan_series_deliveries_by_bay_day",
                             "plan_series_deliveries_by_bay_month", "plan_series_deliveries_by_bay_quarter", "plan_series_deliveries_by_bay_year"],
-                        totals: ["plan_series_deliveries_month_totals", "plan_series_deliveries_quarter_totals", "plan_series_deliveries_year_totals"],
+                        totals: ["plan_series_deliveries_month_totals", "plan_series_deliveries_quarter_totals", "plan_series_deliveries_year_totals",
+                            "plan_series_deliveries_by_hall_day_totals", "plan_series_deliveries_by_hall_week_totals", "plan_series_deliveries_by_hall_month_totals"],
                     }),
                     label: "Paper deliveries", icon: { prefix: "fas", name: "truck" }, fields: { at: { label: "Dates" } }, range: "at",
                 },
@@ -508,7 +547,9 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesJobs, {
                         indexes: ["plan_series_jobs_by_time", "plan_series_jobs_by_line_week", "plan_series_jobs_by_task_day",
                             "plan_series_jobs_by_task_month", "plan_series_jobs_by_task_quarter", "plan_series_jobs_by_task_year"],
-                        totals: ["plan_series_jobs_month_totals", "plan_series_jobs_quarter_totals", "plan_series_jobs_year_totals"],
+                        totals: ["plan_series_jobs_month_totals", "plan_series_jobs_quarter_totals", "plan_series_jobs_year_totals",
+                            "plan_series_jobs_by_hall_day_totals", "plan_series_jobs_by_hall_week_totals", "plan_series_jobs_by_hall_month_totals",
+                            "plan_series_jobs_by_line_day_totals", "plan_series_jobs_by_line_week_totals", "plan_series_jobs_by_line_month_totals"],
                     }),
                     label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -516,7 +557,9 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesTrims, {
                         indexes: ["plan_series_trims_by_time", "plan_series_trims_by_line_week", "plan_series_trims_by_guillotine_day",
                             "plan_series_trims_by_guillotine_month", "plan_series_trims_by_guillotine_quarter", "plan_series_trims_by_guillotine_year"],
-                        totals: ["plan_series_trims_month_totals", "plan_series_trims_quarter_totals", "plan_series_trims_year_totals"],
+                        totals: ["plan_series_trims_month_totals", "plan_series_trims_quarter_totals", "plan_series_trims_year_totals",
+                            "plan_series_trims_by_hall_day_totals", "plan_series_trims_by_hall_week_totals", "plan_series_trims_by_hall_month_totals",
+                            "plan_series_trims_by_line_day_totals", "plan_series_trims_by_line_week_totals", "plan_series_trims_by_line_month_totals"],
                     }),
                     label: "Trims", icon: { prefix: "fas", name: "scissors" }, fields: { at: { label: "Dates" } }, range: "at",
                 },
@@ -584,6 +627,97 @@ export const planSeriesAll = example({
                 }}
                 library={[Plan.library.series()]}
                 inspector
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planSeriesSections — a section's header inside a group counts the events beneath it
+// ============================================================================
+
+/**
+ * A section's header inside a group counting the events beneath it (#1716):
+ * the halls as groups, read a hall at a time, each hall's folders as rows of
+ * its own beside its bays under a Loading bays header (`Plan.series.section`
+ * in the hall's `children`). A hall's own row counts its folding runs and its
+ * paper deliveries, a column at a time, open or folded; the header counts the
+ * deliveries alone, the records landing within it — each from the record's
+ * totals led by the hall (`index.totals({ on: ["hall"], … })`), as the
+ * group's row reads them. A section adds no step to a row's path: inside a
+ * hall its header stands where the hall's row does, and is named by the same
+ * field.
+ */
+export const planSeriesSections = example({
+    keywords: [
+        "Plan", "Plan.series.section", "section", "section header", "Plan.series.group", "Plan.children", "group row counts",
+        "a group's own row", "counts beneath a group", "index.totals on", "totals led by a field", "totals", "paging", "entries",
+        "Slice.bindRecords", "Data.bindPaged", "index.flatSeries", "time order", "halls", "folders", "bays", "#1716",
+    ],
+    description: "A section's header inside a group counting the events beneath it: the halls as groups (Plan.series.group) read a hall at a time (paging={{ entries: 1 }}), each hall's folders beside its bays under a Loading bays header (Plan.series.section in the hall's children); a hall's own row counts its folding runs and paper deliveries a column at a time, open or folded, and the header the deliveries alone — each from the record's totals led by the hall (index.totals({ on: [\"hall\"], … }), listed in totals), as the group's row reads them; nothing on the kinds or the series names them",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const folding = $.let(Record.bind(planSeriesFolding));
+            const deliveries = $.let(Record.bind(planSeriesDeliveries));
+            const foldingEntries = $.let(Data.bindPaged(planSeriesFolding));
+            const deliveryEntries = $.let(Data.bindPaged(planSeriesDeliveries));
+            // One rail: its `rows` source pages the halls by name; each kind's source lists its series index, its summaries,
+            // and its totals by hall — what the hall's row and the header count from.
+            const slice = $.let(Slice.bindRecords("ex.planSeriesSections", {
+                rows: {
+                    source: Data.bindPaged(planSeriesHalls, { indexes: ["plan_series_halls_by_name"] }),
+                    label: "Halls", icon: { prefix: "fas", name: "warehouse" },
+                },
+                folding: {
+                    source: Data.bindPaged(planSeriesFolding, {
+                        indexes: ["plan_series_folding_by_time", "plan_series_folding_by_hall_week", "plan_series_folding_by_folder_day",
+                            "plan_series_folding_by_folder_month", "plan_series_folding_by_folder_quarter", "plan_series_folding_by_folder_year"],
+                        totals: ["plan_series_folding_month_totals", "plan_series_folding_quarter_totals", "plan_series_folding_year_totals",
+                            "plan_series_folding_by_hall_day_totals", "plan_series_folding_by_hall_week_totals", "plan_series_folding_by_hall_month_totals"],
+                    }),
+                    label: "Folding runs", icon: { prefix: "fas", name: "book-open" }, fields: { start: { label: "Dates" } }, range: "start",
+                },
+                delivery: {
+                    source: Data.bindPaged(planSeriesDeliveries, {
+                        indexes: ["plan_series_deliveries_by_time", "plan_series_deliveries_by_hall_week", "plan_series_deliveries_by_bay_day",
+                            "plan_series_deliveries_by_bay_month", "plan_series_deliveries_by_bay_quarter", "plan_series_deliveries_by_bay_year"],
+                        totals: ["plan_series_deliveries_month_totals", "plan_series_deliveries_quarter_totals", "plan_series_deliveries_year_totals",
+                            "plan_series_deliveries_by_hall_day_totals", "plan_series_deliveries_by_hall_week_totals", "plan_series_deliveries_by_hall_month_totals"],
+                    }),
+                    label: "Paper deliveries", icon: { prefix: "fas", name: "truck" }, fields: { at: { label: "Dates" } }, range: "at",
+                },
+            }));
+            return <Box width="100%" height="560px"><Plan id="planSeriesSections" slice={{ slice }}
+                paging={{ entries: 1 }}
+                axis={Plan.axis({
+                    window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                    resolution: "day", resolutions: ["day", "week", "month", "quarter", "year"], now: new Date("2026-10-19T09:00:00Z"),
+                })}
+                // Each hall its folders, then its bays under a header of their own: a section in the hall's children.
+                series={[
+                    Plan.series.group(SeriesHall, {
+                        key: "floors", title: "Hall floors", label: (hall) => hall.name,
+                        children: [
+                            Plan.children("folders", [Plan.series.resources(SeriesFolder, { key: "folders", title: "Folders", icon: "book-open", label: (folder) => folder.name })]),
+                            Plan.children("bays", [Plan.series.section(SeriesBay, { key: "loading", title: "Loading bays" }, [
+                                Plan.series.resources(SeriesBay, { key: "bays", title: "Bays", icon: "truck-ramp-box", label: (bay) => bay.name }),
+                            ])]),
+                        ],
+                    }),
+                ]}
+                events={{
+                    folding: Schedule.events(folding, {
+                        name: "Folding run", icon: "book-open", title: "title", start: "start", end: "end", state: "state",
+                        resource: { field: "folder", of: "folders" }, entries: foldingEntries,
+                    }),
+                    delivery: Schedule.events(deliveries, {
+                        name: "Paper delivery", icon: "truck", draw: "buckets", title: "title", at: "at",
+                        resource: { field: "bay", of: "bays" }, entries: deliveryEntries,
+                    }),
+                }}
+                library={[Plan.library.series()]}
                 style={{ height: "fill" }} />
             </Box>;
         }}</Reactive>

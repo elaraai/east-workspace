@@ -14,14 +14,22 @@
  * spread to their end. And the Plan over them: it builds, reads its rows a
  * page at a time and its events a cell at a time — never whole — and writes
  * through each record's patch door. What it draws and reads, on e3, is
- * e3-ui-components' (`plan/frame/plan-grouped-examples`).
+ * e3-ui-components' (`plan/frame/plan-grouped-examples`). And the series each
+ * kind lands on, as the payload carries them (#1716): the series each is nested
+ * in and how deep its rows stand, which a group's own row counts the kinds
+ * beneath it by.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DateTimeType, DictType, East, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DateTimeType, DictType, East, IntegerType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    type EastIR, type ValueTypeOf,
+} from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { deriveManifest } from "@elaraai/e3-ui/internal";
+import { Schedule } from "@elaraai/e3-ui";
+import { Plan, PlanPayloadType, deriveManifest } from "@elaraai/e3-ui/internal";
+import { recordHandle } from "../record-handles.js";
 import * as ex from "./plan-grouped.examples.js";
 
 type Halls = ValueTypeOf<typeof ex.SeriesHalls>;
@@ -108,5 +116,80 @@ describe("the Plan over them (#1710)", () => {
         assert.deepEqual(manifest.records, kinds.map((kind) => kind.name));
         const component = (ex.planSeriesAll.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+    });
+
+    test(ex.planSeriesSections.description, () => {
+        const manifest = deriveManifest(ex.planSeriesSections.fn);
+        const kinds = [ex.planSeriesFolding, ex.planSeriesDeliveries];
+        assert.deepEqual(manifest.pages, [...kinds.map((kind) => kind.path), ex.planSeriesHalls.path]);
+        assert.equal(manifest.paths.length, 0, "the Plan never reads the halls or any events whole");
+        assert.deepEqual(manifest.records, kinds.map((kind) => kind.name));
+        const component = (ex.planSeriesSections.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+        assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+    });
+});
+
+describe("the series each event kind lands on, on the wire (#1716)", () => {
+    const textsEqual = equalFor(ArrayType(StringType));
+    const integerEqual = equalFor(IntegerType);
+
+    test("each says the series it is nested in, outermost first, and how many steps its rows' paths hold: a group one more, a section none", () => {
+        const runs = recordHandle(DictType(StringType, ex.SeriesFolding), new Map(), "runs");
+        const loads = recordHandle(DictType(StringType, ex.SeriesDelivery), new Map(), "loads");
+        const jobs = recordHandle(DictType(StringType, ex.SeriesJob), new Map(), "jobs");
+        const built = East.compile(East.function([], PlanPayloadType, ($) => {
+            const halls = $.const(new Map(), ex.SeriesHalls);
+            const runsBound = $.let(runs());
+            const loadsBound = $.let(loads());
+            const jobsBound = $.let(jobs());
+            return Plan.Payload({
+                axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day" }),
+                data: halls,
+                series: [Plan.series.group(ex.SeriesHall, {
+                    key: "floors", title: "Hall floors", label: (hall) => hall.name,
+                    children: [
+                        Plan.children("folders", [Plan.series.resources(ex.SeriesFolder, { key: "folders", title: "Folders", label: (folder) => folder.name })]),
+                        Plan.children("bays", [Plan.series.section(ex.SeriesBay, { key: "loading", title: "Loading bays" }, [
+                            Plan.series.resources(ex.SeriesBay, { key: "bays", title: "Bays", label: (bay) => bay.name }),
+                        ])]),
+                        Plan.children("lines", [Plan.series.group(ex.SeriesLine, {
+                            key: "lines", title: "Lines", label: (line) => line.name,
+                            children: [Plan.children("presses", [Plan.series.resources(ex.SeriesPress, {
+                                key: "presses", title: "Presses", label: (press) => press.name,
+                                children: Plan.children("tasks", [Plan.series.resources(ex.SeriesTask, { key: "tasks", title: "Tasks", label: (task) => task.name })]),
+                            })])],
+                        })]),
+                    ],
+                })],
+                events: {
+                    folding: Schedule.events(runsBound as never, {
+                        name: "Folding run", icon: "book-open", title: "title", start: "start", end: "end", resource: { field: "folder", of: "folders" },
+                    } as never),
+                    delivery: Schedule.events(loadsBound as never, {
+                        name: "Paper delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" },
+                    } as never),
+                    job: Schedule.events(jobsBound as never, {
+                        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                        resource: { field: "press", of: "presses" }, child: { field: "task", of: "tasks" },
+                    } as never),
+                },
+            } as never);
+        }), [])();
+        const landing = (key: string) => {
+            const found = built.landings.find((one) => equalFor(StringType)(one.key, key));
+            if (found === undefined) assert.fail(`no landing ${key}`);
+            return found;
+        };
+        // A hall's folders, a step beneath the hall's own row.
+        assert.ok(textsEqual(landing("folders").within, ["floors"]));
+        assert.ok(integerEqual(landing("folders").depth, 2n));
+        // Its bays, under the Loading bays header: a section adds no step.
+        assert.ok(textsEqual(landing("bays").within, ["floors", "loading"]));
+        assert.ok(integerEqual(landing("bays").depth, 2n));
+        // A line's presses, and their tasks a step beneath them, where the jobs' `child` lands.
+        assert.ok(textsEqual(landing("presses").within, ["floors", "lines"]));
+        assert.ok(integerEqual(landing("presses").depth, 3n));
+        assert.ok(textsEqual(landing("tasks").within, ["floors", "lines", "presses"]));
+        assert.ok(integerEqual(landing("tasks").depth, 4n));
     });
 });
