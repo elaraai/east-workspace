@@ -45,14 +45,18 @@
  * the canvas's editing redraws it (#1599) — and names a new revision when the
  * events move, so the driver reads its windows again and keeps the rows it
  * has standing in until they land (#821). A window read again over new events
- * alone — the same blocks from the source under the wrapper, which the kept
- * layer gives while they hold (`kept.ts`) — is joined again only in the rows
- * whose events moved (#1712): a landing row's rows depend on the row, the list
- * filed under its key, the shading and what the viewer hides, so the rows filed
- * under a key whose list moved are joined in one `place`, each written over its
- * place, and every other row is the object it was. New blocks, new shading or
- * another set hidden join the window whole. Until the first read answers the
- * rows draw with no events. The wrapper names the snapshot of the source's own
+ * or a new shading alone — the same blocks from the source under the wrapper,
+ * which the kept layer gives while they hold (`kept.ts`) — is joined again only
+ * in the rows they moved (#1712, #1791): a landing row's rows depend on the
+ * row, the list of events filed under its key, its own shading and the scale
+ * it shades on, and what the viewer hides, so the rows filed under a key whose
+ * events or shading moved — and, where a way of drawing's largest value moved,
+ * the rows that shade on it — are joined in one `place`, each written over its
+ * place, and every other row is the object it was. A move of the shading as the
+ * view scrolls is a few rows' own: joined whole, every window held was made
+ * again, folded or out of view. New blocks, another set hidden or another
+ * period join the window whole. Until the first read answers the rows draw
+ * with no events. The wrapper names the snapshot of the source's own
  * data apart from that revision (`snapshot`, #1199): new events over the same
  * data read the windows again and are no new snapshot of it, so a key search
  * standing stays where it is. Over rows read a page at a time no Unassigned row
@@ -90,7 +94,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
-    DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
+    DateTimeType, FloatType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
@@ -213,6 +217,10 @@ const placedEqual = equalFor(PlanEventPlacedType);
 const shadingEqual = equalFor(PlanEventShadingType);
 /** Whether two lists of the events filed for a row, one way of drawing, are one: what a landing row's join reads. */
 const listEqual = equalFor(PlanEventPlacedType.fields.on.value.value.value);
+/** Whether two lists of a row's shading, one way of drawing, are one: what a shaded landing row's join reads (#1791). */
+const shadesEqual = equalFor(PlanEventShadingType.value.value);
+const compareFloat = compareFor(FloatType);
+const floatEqual = equalFor(FloatType);
 const rowIdEqual = equalFor(Plan.Types.RowId);
 const compareDateTime = compareFor(DateTimeType);
 /** The events filed for a row, one way of drawing — or a kind's on no row — each with its times and its kind's icon. */
@@ -578,13 +586,14 @@ export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, w
     return null;
 }
 
-/** What a window is joined with: the events placed, which a join again follows row by row, and what else moving joins it whole. */
+/** What a window is joined with: the events placed and the shading, which a join again follows row by row, and what else moving joins it whole. */
 interface PlacedWith {
     /** The seam that joined it. */
     readonly seam: PlanEventSeamValue;
     /** The events placed. */
     readonly placed: PlanEventPlacedValue;
-    /** The resources' shading: its scale is every row's, so it moving joins the window whole. */
+    /** The resources' shading: a row joined again where its own moves, and the rows that shade on a way of drawing's
+     *  largest value where it moves (#1791). */
     readonly shading: PlanEventShadingValue;
     /** The ids the viewer hides: how many rows each landing row makes. */
     readonly hidden: readonly string[];
@@ -594,7 +603,8 @@ interface PlacedWith {
 
 /**
  * A window as the wrapper last joined it (#1712), kept by the blocks the source under the wrapper gave: where each of
- * its rows went, and what it was joined with, so that new events alone join again only the rows whose events moved.
+ * its rows went, and what it was joined with, so that new events or a new shading alone join again only the rows they
+ * moved (#1791).
  */
 interface PlacedWindow {
     /** Each landing row's place among the window's blocks, by its landing series' key, then the key its events are filed under. */
@@ -683,36 +693,121 @@ function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<st
     return moved;
 }
 
+/** One way of drawing's shading: each row's buckets, by the key its events are filed under. */
+type ShadingOfWay = ValueTypeOf<typeof PlanEventShadingType.value>;
+
+/** The largest value a way of drawing's shading holds, as the seam works it out — nought where none is more: the scale its rows shade their counts on. */
+function shadingTop(byKey: ShadingOfWay): number {
+    let top = 0;
+    for (const shades of byKey.values()) {
+        for (const shade of shades) if (shade.value.type === "some" && compareFloat(shade.value.value, top) > 0) top = shade.value.value;
+    }
+    return top;
+}
+
+/** The rows a move of the shading moved, by landing series: the keys of some, and the landings every row of which moved. */
+interface ShadingMoved {
+    /** The keys of the rows moved, by their landing series. */
+    readonly keys: ReadonlyMap<string, ReadonlySet<string>>;
+    /** The landing series every row of which moved. */
+    readonly every: ReadonlySet<string>;
+}
+
 /**
- * A window joined again over new events alone (#1712): the rows filed under a key whose events moved joined in one
- * `place`, each written over its place, every other row the object it was. Each row makes as many rows as it did: that
- * is a matter of what the viewer hides, which has not moved.
+ * The rows whose shading moved between two placings (#1791), as `place` shades them: a row of a way of drawing the
+ * shading names draws its own buckets, and — of tiles or marks, or of bars or chips with a bucket of no value — their
+ * counts on the way of drawing's largest value; a row of bars or chips whose every bucket holds a value draws the share
+ * of each booked, on no scale. So the rows moved are those whose own buckets moved, arrived or left; where a way of
+ * drawing's largest value moved, those that shade on it; and where the shading begins or stops naming a way of drawing,
+ * every row of its landing, which draws its events there in place of its shading, or the other way round.
+ *
+ * @param was - The shading a window was joined with
+ * @param now - The shading it is joined with now
+ * @param landings - The series the event kinds land on
+ * @returns The rows moved; `undefined` where the shading names a way of drawing no landing draws, which only a join of
+ *   the whole window places
+ */
+function movedShading(was: PlanEventShadingValue, now: PlanEventShadingValue, landings: readonly PlanLandingValue[]): ShadingMoved | undefined {
+    // Each way of drawing the shading may name — `<landing>.<draw>`, as the seam names it — its landing, and whether its
+    // rows draw bars or chips.
+    const ways = new Map<string, { readonly landing: string; readonly booked: boolean }>();
+    for (const landing of landings) {
+        for (const draw of landing.draws) {
+            ways.set(`${landing.key}.${draw.type}`, { landing: landing.key, booked: draw.type === "span" || draw.type === "cards" });
+        }
+    }
+    const keys = new Map<string, Set<string>>();
+    const every = new Set<string>();
+    const mark = (landing: string, key: string): void => {
+        const held = keys.get(landing);
+        if (held === undefined) keys.set(landing, new Set([key]));
+        else held.add(key);
+    };
+    for (const series of new Set([...was.keys(), ...now.keys()])) {
+        const before = was.get(series);
+        const after = now.get(series);
+        if (Object.is(before, after)) continue;
+        const way = ways.get(series);
+        if (way === undefined) return undefined;
+        if (before === undefined || after === undefined) {
+            every.add(way.landing);
+            continue;
+        }
+        for (const [key, shades] of after) {
+            const then = before.get(key);
+            if (then === undefined || !shadesEqual(then, shades)) mark(way.landing, key);
+        }
+        for (const key of before.keys()) if (!after.has(key)) mark(way.landing, key);
+        if (floatEqual(shadingTop(before), shadingTop(after))) continue;
+        if (!way.booked) {
+            // Every row of tiles or marks shades on it — one with no buckets of its own too.
+            every.add(way.landing);
+            continue;
+        }
+        for (const [key, shades] of after) if (shades.some((shade) => shade.value.type === "none")) mark(way.landing, key);
+    }
+    return { keys, every };
+}
+
+/**
+ * A window joined again over new events or a new shading alone (#1712, #1791): the rows they moved — filed under a key
+ * whose events or shading moved, or shading on a way of drawing's largest value that moved ({@link movedShading}) —
+ * joined in one `place`, each written over its place, every other row the object it was. Each row makes as many rows
+ * as it did: that is a matter of what the viewer hides, which has not moved.
  *
  * @param blocks - The window's blocks, as the source under the wrapper gave them
  * @param was - The window as last joined: kept as joined now
- * @param now - What it is joined with now, which differs from what it was joined with only in the events placed
+ * @param now - What it is joined with now, which differs from what it was joined with only in the events placed and
+ *   the shading
+ * @param landings - The series the event kinds land on: the ways of drawing the shading names are theirs
  * @returns The window's blocks joined, in new arrays; `undefined` where the join gives some row other rows than its
- *   places hold, which only a join of the whole window places
+ *   places hold, or the shading names a way of drawing no landing draws, which only a join of the whole window places
  */
-function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: PlacedWith): PlanWireBlock[] | undefined {
-    // The rows whose events moved, by their block, as each block's index holds them.
-    const moving = new Map<number, number[]>();
-    if (!Object.is(was.with.placed, now.placed)) {
-        for (const [series, keys] of movedKeys(was.with.placed, now.placed)) {
-            const filed = was.rowsOf.get(series);
-            for (const key of keys) {
-                for (const [b, r] of filed?.get(key) ?? []) {
-                    const rows = moving.get(b);
-                    if (rows === undefined) moving.set(b, [r]);
-                    else rows.push(r);
-                }
-            }
+function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: PlacedWith, landings: readonly PlanLandingValue[]): PlanWireBlock[] | undefined {
+    // The rows the events or the shading moved, by their block, as each block's index holds them — each once.
+    const moving = new Map<number, Set<number>>();
+    const take = (series: string, key: string): void => {
+        for (const [b, r] of was.rowsOf.get(series)?.get(key) ?? []) {
+            const rows = moving.get(b);
+            if (rows === undefined) moving.set(b, new Set([r]));
+            else rows.add(r);
         }
+    };
+    if (!Object.is(was.with.placed, now.placed)) {
+        for (const [series, keys] of movedKeys(was.with.placed, now.placed)) for (const key of keys) take(series, key);
+    }
+    if (!Object.is(was.with.shading, now.shading)) {
+        const moved = movedShading(was.with.shading, now.shading, landings);
+        if (moved === undefined) return undefined;
+        for (const series of moved.every) for (const key of was.rowsOf.get(series)?.keys() ?? []) take(series, key);
+        for (const [series, keys] of moved.keys) for (const key of keys) take(series, key);
     }
     const joined = [...was.joined];
     if (moving.size > 0) {
         const at = [...moving.keys()];
-        const made = now.seam.place(at.map((b) => ({ ...blocks[b]!, rows: moving.get(b)!.map((r) => blocks[b]!.rows[r]!) })),
+        // The rows each block gives the join, in the order its rows come back in.
+        const given = at.map((b) => [...moving.get(b)!]);
+        const made = now.seam.place(at.map((b, i) => ({ ...blocks[b]!, rows: given[i]!.map((r) => blocks[b]!.rows[r]!) })),
             now.placed, now.shading, [...now.hidden], false);
         if (made.length !== at.length) return undefined;
         for (let i = 0; i < at.length; i++) {
@@ -721,7 +816,7 @@ function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: Plac
             const into = [...joined[b]!.rows];
             const out = made[i]!.rows;
             let k = 0;
-            for (const r of moving.get(b)!) {
+            for (const r of given[i]!) {
                 const end = r + 1 < places.length ? places[r + 1]! : into.length;
                 for (let j = places[r]!; j < end; j++) into[j] = out[k++]!;
             }
@@ -775,15 +870,16 @@ export function usePlanEventRoot(
             return joined;
         };
         // Each window as last joined, by the blocks the source under this one gave: the same while they hold, which the
-        // kept layer gives (`kept.ts`), so new events alone join again only the rows whose events moved (#1712).
+        // kept layer gives (`kept.ts`), so new events or a new shading alone join again only the rows they moved (#1712,
+        // #1791).
         const windows = new WeakMap<readonly PlanWireBlock[], PlacedWindow>();
         const joinedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
             const l = latest();
             if (l.seam === undefined) return [...blocks];
             const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden, period: l.period };
             const was = windows.get(blocks);
-            const again = was !== undefined && Object.is(was.with.seam, now.seam) && shadingEqual(was.with.shading, now.shading)
-                && sameTexts(was.with.hidden, now.hidden) && was.with.period === now.period ? rejoined(blocks, was, now) : undefined;
+            const again = was !== undefined && Object.is(was.with.seam, now.seam) && sameTexts(was.with.hidden, now.hidden)
+                && was.with.period === now.period ? rejoined(blocks, was, now, l.landings ?? NO_LANDINGS) : undefined;
             if (again !== undefined) {
                 placedUnder(again, l.landings, l.period);
                 return again;

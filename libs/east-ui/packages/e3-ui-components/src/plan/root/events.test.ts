@@ -17,7 +17,7 @@
  * was read over, a window's events those of it that meet the window by the
  * views' rule (#1771); the root's rows are joined with them — inline once, a
  * page at a time each window its source serves, and a window read again over
- * new events alone only in the rows whose events moved (#1712) — and the windows name the
+ * new events or a new shading alone only in the rows they moved (#1712, #1791) — and the windows name the
  * snapshot of their data apart from the revision new events move (#1199), a
  * live source its narrowing with it (#1344). The events say the columns' period
  * they were placed for, and so does each landing row joined (#1740).
@@ -25,8 +25,8 @@
 
 import { describe, test, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Plan, ScheduleEventRefType, planChildRowKey, planHideId, type PlanEventDraftsType } from "@elaraai/e3-ui/internal";
+import { FloatType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Plan, PlanEventShadingType, ScheduleEventRefType, planChildRowKey, planHideId, type PlanEventDraftsType } from "@elaraai/e3-ui/internal";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { toCanvasRows, type PlanLinkValue, type PlanRootValue, type PlanRowId, type PlanWireBlock, type PlanWireRow } from "../model.js";
 import { NO_EDITS, rowId, timeAt, utcAt } from "../plan.test-utils.js";
@@ -469,13 +469,35 @@ describe("the root's rows, the events joined in (#1541)", () => {
         const stringEqual = equalFor(StringType);
         const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
         const NO_SHADING_HERE = new SortedMap([], compareString) as PlanEventLead["shading"];
+        const printShade = printFor(PlanEventShadingType.value.value.value);
+        const printFloat = printFor(FloatType);
+        const compareFloat = compareFor(FloatType);
+
+        /** A way of drawing's largest value, as the seam works it out: nought where none is more. */
+        const topOf = (byKey: ValueTypeOf<typeof PlanEventShadingType.value>): number => {
+            let top = 0;
+            for (const shades of byKey.values()) for (const shade of shades) if (shade.value.type === "some" && compareFloat(shade.value.value, top) > 0) top = shade.value.value;
+            return top;
+        };
+
+        /**
+         * A shading (#1039): by way of drawing, `<landing>.<draw>`, each row's buckets by its key — a day each from
+         * Monday 5 October, its value or none.
+         */
+        const shadingOf = (ways: Readonly<Record<string, Readonly<Record<string, readonly (number | undefined)[]>>>>): PlanEventLead["shading"] =>
+            new SortedMap(Object.entries(ways).map(([way, rows]) => [way, new SortedMap(Object.entries(rows).map(([key, values]) =>
+                [key, values.map((value, i) => ({ at: new Date(Date.UTC(2026, 9, 5 + i)), value: value === undefined ? none : some(value) }))]), compareString)]),
+            compareString) as unknown as PlanEventLead["shading"];
 
         /**
          * A `place` that joins a window row by row as the seam's does (`whole` false): each landing row's events — filed
          * under its resource's key, a row a step beneath a resource's under the pair — as its marks, and a row beneath it
-         * for each further way its kinds draw; every other row as it is. It keeps the ids of the rows each call is given.
+         * for each further way its kinds draw; every other row as it is. A way of drawing the shading names draws its
+         * buckets in place of its events, as `shadedKind` does: and, of tiles or marks, or of bars or chips with a bucket
+         * of no value, the way of drawing's largest value, which their counts are scaled on. It keeps the ids of the rows
+         * each call is given.
          */
-        const rowByRow = (landings: readonly PlanLandingValue[], given: string[][]): PlanEventSeamValue["place"] => (blocks, placed) => {
+        const rowByRow = (landings: readonly PlanLandingValue[], given: string[][]): PlanEventSeamValue["place"] => (blocks, placed, shading) => {
             given.push(blocks.flatMap((block) => block.rows.map((one) => printRowId(one.id))));
             return blocks.map((block) => ({
                 ...block,
@@ -486,7 +508,13 @@ describe("the root's rows, the events joined in (#1541)", () => {
                     if (at === undefined) return [one];
                     const key = at.under.type === "some" ? planChildRowKey(path[path.length - 2]!, path[path.length - 1]!) : path[path.length - 1]!;
                     return at.draws.map((draw, i) => {
-                        const marks = (placed.on.get(series)?.get(draw.type)?.get(key) ?? []).map((p) => ({ key: elementKey(p.item.kind, p.item.key) }));
+                        const way = shading.get(`${series}.${draw.type}`);
+                        const shades = way?.get(key) ?? [];
+                        const booked = draw.type === "span" || draw.type === "cards";
+                        const scaled = way !== undefined && (!booked || shades.some((shade) => shade.value.type === "none"));
+                        const marks = way === undefined
+                            ? (placed.on.get(series)?.get(draw.type)?.get(key) ?? []).map((p) => ({ key: elementKey(p.item.kind, p.item.key) }))
+                            : [...shades.map((shade) => ({ key: printShade(shade) })), ...(scaled ? [{ key: `largest ${printFloat(topOf(way))}` }] : [])];
                         const kind = variant("events", { marks });
                         return i === 0 ? ({ ...one, kind } as unknown as PlanWireRow) : row(entry(`${series}.${draw.type}`, ...path), kind);
                     });
@@ -557,22 +585,75 @@ describe("the root's rows, the events joined in (#1541)", () => {
             expect([marksOn(after, entry("presses", "P-03")), marksOn(after, entry("presses", "P-05"))]).toEqual([[], [elementKey("job", "J-1")]]);
         });
 
-        test("the shading moving, or what the viewer hides, joins the window whole; new events after it, their rows alone", () => {
+        test("what the viewer hides joins the window whole, and new events after it their rows alone; the shading beginning to name a way of drawing, every row of its landing (#1791)", () => {
             const { given, read, rerender } = joining(WINDOW, ON_PRESSES);
             const placed = placedOn([["presses", "marks", "P-03", "job", "J-1"]]);
             rerender({ lead: leadAt(2, placed), hidden: [] });
             read();
-            // A bucket of P-03's shaded past the cap: the shading's scale is every row's.
-            const shading = new SortedMap([["presses.marks", new SortedMap([["P-03", [{ at: utcAt("2026-10-05T00:00:00"), value: some(1) }]]], compareString)]], compareString) as unknown as PlanEventLead["shading"];
+            // The presses' marks shaded past the cap: every press's row draws its shading there in place of its events — P-03
+            // a bucket of it, and each the largest value its counts are scaled on — and no note's row moves.
+            const shading = shadingOf({ "presses.marks": { "P-03": [1] } });
             rerender({ lead: leadAt(3, placed, shading), hidden: [] });
-            read();
+            expect(read()).toEqual(rowByRow(ON_PRESSES, [])(WINDOW, placed, shading, [], false));
             // The jobs hidden in the Series tab: how many rows each landing row makes.
             const hidden = [planHideId.events("job")];
             rerender({ lead: leadAt(4, placed, shading), hidden });
             read();
             rerender({ lead: leadAt(5, placedOn([["presses", "marks", "P-04", "job", "J-1"]]), shading), hidden });
             read();
-            expect(given.map((ids) => ids.length)).toEqual([80, 80, 80, 2]);
+            expect(given.map((ids) => ids.length)).toEqual([80, 40, 80, 2]);
+        });
+
+        /** Presses whose landing row draws bars, beside a row of marks. */
+        const BARS = [landing("presses", ["span", "marks"])];
+
+        test("a move of the shading joins again only the rows whose own buckets moved, arrived or left — every other row the object it was — and gives what a join of the whole window gives (#1791)", () => {
+            const { given, read, rerender } = joining(WINDOW, BARS);
+            rerender({ lead: leadAt(2, NOTHING_PLACED, shadingOf({ "presses.span": { "P-03": [1, 0.5] } })), hidden: [] });
+            const before = read();
+            // The view scrolls on: P-03's buckets move and P-04's arrive, the largest value as it was.
+            const now = shadingOf({ "presses.span": { "P-03": [1, 0.25], "P-04": [0.5, 0.75] } });
+            rerender({ lead: leadAt(3, NOTHING_PLACED, now), hidden: [] });
+            const after = read();
+            expect(new Set(given[1])).toEqual(new Set([entry("presses", "P-03"), entry("presses", "P-04")].map((id) => printRowId(id))));
+            const remade = after.flatMap((b, i) => b.rows.filter((one, j) => !Object.is(one, before[i]!.rows[j])).map((one) => printRowId(one.id)));
+            expect(new Set(remade)).toEqual(new Set(
+                [entry("presses", "P-03"), entry("presses.marks", "P-03"), entry("presses", "P-04"), entry("presses.marks", "P-04")].map((id) => printRowId(id))));
+            expect(after).toEqual(rowByRow(BARS, [])(WINDOW, NOTHING_PLACED, now, [], false));
+            // P-04's leave: its row alone.
+            const left = shadingOf({ "presses.span": { "P-03": [1, 0.25] } });
+            rerender({ lead: leadAt(4, NOTHING_PLACED, left), hidden: [] });
+            expect(read()).toEqual(rowByRow(BARS, [])(WINDOW, NOTHING_PLACED, left, [], false));
+            expect(given.slice(2)).toEqual([[printRowId(entry("presses", "P-04"))]]);
+        });
+
+        test("a way of drawing's largest value moving joins again the rows that shade on it: every row of tiles or marks, and a row of bars or chips with a bucket of no value — never one whose every bucket holds one, which draws its share booked (#1791)", () => {
+            const { given, read, rerender } = joining(WINDOW, BARS);
+            const first = shadingOf({ "presses.span": { "P-03": [0.5], "P-04": [undefined] }, "presses.marks": { "P-03": [2] } });
+            rerender({ lead: leadAt(2, NOTHING_PLACED, first), hidden: [] });
+            read();
+            // A bar fuller than any: its own row, and P-04's with a bucket of no value; P-03's, every bucket valued, stands.
+            const fuller = shadingOf({ "presses.span": { "P-03": [0.5], "P-04": [undefined], "P-05": [0.9] }, "presses.marks": { "P-03": [2] } });
+            rerender({ lead: leadAt(3, NOTHING_PLACED, fuller), hidden: [] });
+            expect(read()).toEqual(rowByRow(BARS, [])(WINDOW, NOTHING_PLACED, fuller, [], false));
+            expect(new Set(given[1])).toEqual(new Set([entry("presses", "P-04"), entry("presses", "P-05")].map((id) => printRowId(id))));
+            // More marks on a press than on any: every press's row, its marks counted against the new largest — no note's.
+            const more = shadingOf({ "presses.span": { "P-03": [0.5], "P-04": [undefined], "P-05": [0.9] }, "presses.marks": { "P-03": [2], "P-06": [5] } });
+            rerender({ lead: leadAt(4, NOTHING_PLACED, more), hidden: [] });
+            expect(read()).toEqual(rowByRow(BARS, [])(WINDOW, NOTHING_PLACED, more, [], false));
+            expect(given[2]).toHaveLength(40);
+        });
+
+        test("the shading ceasing to name a way of drawing joins again every row of its landing, and one naming a way of drawing no landing draws joins the window whole (#1791)", () => {
+            const { given, read, rerender } = joining(WINDOW, BARS);
+            const shaded = shadingOf({ "presses.span": { "P-03": [1] } });
+            rerender({ lead: leadAt(2, NOTHING_PLACED, shaded), hidden: [] });
+            read();
+            rerender({ lead: leadAt(3), hidden: [] });
+            expect(read()).toEqual(rowByRow(BARS, [])(WINDOW, NOTHING_PLACED, NO_SHADING_HERE, [], false));
+            rerender({ lead: leadAt(4, NOTHING_PLACED, shadingOf({ "crews.cards": { "C-1": [1] } })), hidden: [] });
+            read();
+            expect(given.map((ids) => ids.length)).toEqual([80, 40, 80]);
         });
 
         test("each landing row joined says the columns' period its events were placed for, a row no kind lands on none; another period joins the window whole, and the rows of the last still say theirs (#1740)", () => {
