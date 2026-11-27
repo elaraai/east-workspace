@@ -14,7 +14,9 @@
  *   their runs, the rows read from the index alone — no page of the record's
  *   rows and no read of it whole. A zoom that keeps the view inside the
  *   window's margin reads nothing; a pan past it searches only the cells it
- *   adds.
+ *   adds. A window whose runs are rows a window read before it holds — a
+ *   zoom into the corner of the one read at Fit — searches its cells and
+ *   takes their runs from that one: e3 is asked for none of them (#1797).
  * - **Its details** (SC21) are one read of the loads by the runs of the cells
  *   it read, no key sent.
  * - **A narrowing its area index doesn't lead** (SC18) is one `within` of the
@@ -37,6 +39,7 @@ import { Data, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
+import { setPagedRuntimeProbe } from "../platform/paged-runtime.js";
 import { card, cameraOf, layOutCanvas, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -106,6 +109,9 @@ const throughArea = (kind: E3Request["kind"]) => h.requests(kind, RACKS).filter(
 /** The racks' canvas. */
 const canvasOf = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
 
+/** Whether the frame's main says a read is in flight (`BuilderFrame.busy`): a window not yet landed. */
+const busy = (container: HTMLElement) => container.querySelector("[data-frame-slot='main']")?.getAttribute("aria-busy") === "true";
+
 /** A pan of the canvas by a drag on its empty floor, in px, as a viewer drags it. */
 async function pan(canvas: HTMLElement, dx: number, dy: number) {
     const at = { clientX: 540, clientY: 270 };
@@ -132,7 +138,7 @@ async function narrow(where: Where) {
     await settle();
 }
 
-test("a window is one search of its cells and one read of their runs, from the index alone; a zoom inside its margin reads nothing, and a pan into new cells searches only those (SC20)", async () => {
+test("a window is one search of its cells and one read of their runs, from the index alone; a zoom inside its margin reads nothing, a zoom into cells whose runs it holds takes them from it, and a pan into new cells searches only those (SC20, #1797)", async () => {
     const { container } = await open();
     // The window at Fit: its cells' runs read once, through the area index; no page of the record's rows, no read of it whole.
     expect(throughArea("runs")).toHaveLength(1);
@@ -144,10 +150,20 @@ test("a window is one search of its cells and one read of their runs, from the i
     await settle();
     expect(throughArea("find")).toHaveLength(fitted);
     expect(throughArea("runs")).toHaveLength(1);
-    // A zoom into the cage's corner: a window at a finer level, its cells searched in one request and their runs read in one.
-    await zoomInto(canvasOf(container), cameraOf(container), { minX: 1, minY: 2, maxX: 5, maxY: 4 });
-    await waitFor(() => expect(throughArea("runs")).toHaveLength(2), { timeout: 5_000 });
-    expect(throughArea("find")).toHaveLength(fitted + 1);
+    // A zoom into the cage's corner: a window at a finer level, its cells searched in one request. Their runs are rows the
+    // window read at Fit holds, so they are cut from it, and e3 is asked for none of them (#1797): the window lands — its
+    // search answered, and main busy no longer — with no read of runs asked.
+    let taken = 0;
+    setPagedRuntimeProbe({ took: (runs) => { taken += runs; } });
+    try {
+        await zoomInto(canvasOf(container), cameraOf(container), { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+        await waitFor(() => expect([throughArea("find").length, busy(container)]).toEqual([fitted + 1, false]), { timeout: 5_000 });
+        await settle();
+    } finally {
+        setPagedRuntimeProbe(undefined);
+    }
+    expect(throughArea("runs")).toHaveLength(1);
+    expect(taken).toBeGreaterThan(0);
     // A pan at that zoom, past the window's margin: only the cells it adds are searched — none the zoomed window found.
     const found = new Set(throughArea("find")[fitted]!.searches.map((search) => JSON.stringify(search)));
     await pan(canvasOf(container), -400, 0);
