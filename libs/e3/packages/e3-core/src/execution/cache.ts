@@ -159,6 +159,10 @@ export interface ExecutionResult {
    *  ran it before it was asked for (`TaskResult.durationMs`). Runtime-only,
    *  never recorded; absent from an execution that ran here. */
   durationMs?: number;
+  /** Set when the work could not be run where it was sent, for a reason that
+   *  is not the work's own (`TaskResult.handedBack`): the reason. Runtime-only,
+   *  never recorded. */
+  handedBack?: string;
 }
 
 /** The identity of one execution attempt: the execution-cache key it is

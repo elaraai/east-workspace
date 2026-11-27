@@ -260,6 +260,9 @@ interface TaskOutcome {
   peakBytes?: number;
   /** Where its time went, as the host that ran it says it (`TaskResult.timing`) */
   timing?: string;
+  /** Why its runner could not run it where it runs (`TaskResult.handedBack`):
+   *  no failure of the task's */
+  handedBack?: string;
 }
 
 /** A split task's execution, as the loop completes it. */
@@ -275,6 +278,7 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
     duration: Date.now() - startTime,
     ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
     ...(result.timing !== undefined && { timing: result.timing }),
+    ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
   };
 }
 
@@ -302,6 +306,9 @@ interface SplitRun {
   results: (ExecutionResult | undefined)[];
   /** The units whose runner threw. */
   thrown: ThrownUnit[];
+  /** Why a unit's runner could not run it where it runs, the first such
+   *  unit's (`TaskResult.handedBack`): the task is left waiting, not failed */
+  handedBack?: string;
 }
 
 /**
@@ -1548,6 +1555,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           state: 'cancelled',
           duration: result.duration,
         });
+      } else if (result.handedBack !== undefined) {
+        // Its runner could not run it where it runs, for a reason that is not
+        // the task's: no failure. It waits, and its dependents with it, and
+        // the run goes on without them, as it does for a task waiting on an
+        // unassigned input.
+        const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+        if (ts) ts.plan = none;
+        const { waiting } = stepTasksWaiting(state, taskName, []);
+        for (const each of waiting) options.onTaskWaiting?.(each.task, each.inputs);
       } else {
         execution.hasFailure = true;
 
@@ -1749,6 +1765,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place, scope);
         run.results[index] = result;
         run.split.unitSettled(index, result);
+        if (result.handedBack !== undefined) run.handedBack ??= result.handedBack;
         // A unit e3 stopped because the run was aborted is not a failure.
         if ((result.state !== 'success' || result.outputHash === null) && !result.cancelled) run.stopped = true;
       } catch (error) {
@@ -1810,7 +1827,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
       });
     }
-    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(result, run.startTime));
+    const outcome = outcomeOf(result, run.startTime);
+    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV,
+      run.handedBack === undefined ? outcome : { ...outcome, handedBack: run.handedBack });
     execution.splits.delete(taskName);
   }
 
@@ -1921,6 +1940,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       cancelled: result.cancelled ?? false,
       ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
       ...(result.timing !== undefined && { timing: result.timing }),
+      ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
     };
   }
 
@@ -1973,6 +1993,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         duration: result.durationMs ?? Date.now() - startTime,
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
+        ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
       };
     } else {
       const result = await this.hostRunner().execute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
@@ -1987,6 +2008,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         duration: Date.now() - startTime,
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
+        ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
       };
     }
   }

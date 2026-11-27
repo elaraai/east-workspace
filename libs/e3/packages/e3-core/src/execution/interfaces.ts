@@ -159,6 +159,11 @@ export interface TaskResult {
    *  its answer. Absent, the caller's own clock around the call stands.
    *  Runtime-only. */
   durationMs?: number;
+  /** Set when the runner could not run the work where it runs, for a reason
+   *  that is not the work's own: the reason, for a log and a caller. `state`
+   *  is `'error'`. It is no failure of the task's: the dataflow's loop leaves
+   *  the task waiting, and its dependents with it. Runtime-only. */
+  handedBack?: string;
 }
 
 /** An execution's record while it runs: the `running` case of its status. */

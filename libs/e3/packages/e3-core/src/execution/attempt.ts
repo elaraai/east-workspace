@@ -430,6 +430,9 @@ export function toTaskResult(result: ExecutionResult): TaskResult {
   if (result.durationMs !== undefined) {
     taskResult.durationMs = result.durationMs;
   }
+  if (result.handedBack !== undefined) {
+    taskResult.handedBack = result.handedBack;
+  }
   if (result.state === 'success' && result.outputHash) {
     taskResult.outputHash = result.outputHash;
   } else if (result.state === 'failed') {
