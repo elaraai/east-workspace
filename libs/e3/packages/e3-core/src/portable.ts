@@ -633,6 +633,8 @@ export {
   dataflowCheckCache,
   dataflowGetDependentsToSkip,
   dataflowResolveInputHashes,
+  dataflowPredict,
+  type DataflowPrediction,
   findAffectedTasks,
   parsePathString,
   type DataflowGraph,
