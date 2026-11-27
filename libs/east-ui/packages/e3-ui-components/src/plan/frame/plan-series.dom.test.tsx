@@ -453,10 +453,12 @@ describe("the jobs read a cell at a time (#1039)", () => {
         // A day on: Sunday 4 to Thursday 22 October moves no level's run.
         await pan(container, "]");
         expect(askedOf(SERIES, opened)).toEqual([]);
-        // Six days more: the range runs into the week of 26 October, so the week after it is wanted — a range a press over
-        // that week alone, which holds no job: counted, and nothing read of it. No other level's run moves.
+        // Six days more: the range runs into the week of 26 October, which no run holds — a run ends at the tile holding
+        // the range's last instant (#1797) — so that week alone is read, a range a press: counted, then its one job on
+        // these presses, the wall calendars on Press 1002. No other level's run grows.
         await pan(container, "]", 6);
-        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK}`]);
+        await waitFor(() => expect(named(bar(container, "W-0015", "P-1002"))).toMatch(/^Wall calendars, Oct 26, 2026/));
+        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK}`, "runs"]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => pan(c, "]", 7)));
     });
 
@@ -467,9 +469,11 @@ describe("the jobs read a cell at a time (#1039)", () => {
         // The week pressed is its preset from the fortnight's start (#1740), on into the next year, and the canvas lays out
         // two weeks either side of it, from 21 September: the week's run grows a week back and on to the range's end, the
         // month's a month back and on, the quarter's a quarter back and on, and the year's a year on — seven parts not
-        // held, a range a press over each, counted, and holding no job (#1433).
+        // held, a range a press over each, counted (#1433). One holds a job on these presses, the week's on from 26
+        // October, which no run held before (#1797): the wall calendars on Press 1002, read in one request more.
         await zoomTo(container, "week");
-        expect(askedOf(SERIES, opened)).toEqual([`find ${7 * BLOCK}`]);
+        await waitFor(() => expect(bar(container, "W-0015", "P-1002")).not.toBeNull());
+        expect(askedOf(SERIES, opened)).toEqual([`find ${7 * BLOCK}`, "runs"]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 
@@ -750,11 +754,13 @@ describe("the cells on their way (#1398, CL2)", () => {
         await settle();
         expect(plot("P-1001")!.querySelector("[data-loading-bar]")).not.toBeNull();
         expect(plot("P-1001")!.getAttribute("aria-busy")).toBe("true");
-        // Counted, the week holds no job: nothing more is read, and no row holds its skeleton bar.
+        // Counted, and the week's one job on these presses read — the wall calendars, on Press 1002: it draws, and no row
+        // holds its skeleton bar.
         await act(async () => { counts.release(); });
         await settle();
         await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull());
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
+        await waitFor(() => expect(bar(c, "W-0015", "P-1002")).not.toBeNull());
     });
 
     test("a press selected before its first cells land shows its figures as placeholders in the inspector, never 0; landed, its figures", async () => {
