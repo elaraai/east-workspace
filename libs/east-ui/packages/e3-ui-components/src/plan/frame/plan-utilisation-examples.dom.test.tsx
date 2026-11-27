@@ -4,16 +4,22 @@
  *
  * @vitest-environment jsdom
  *
- * The utilisation example, on e3 itself: `planGroupUtilisation` mounts as a
+ * The utilisation examples, on e3 itself: `planGroupUtilisation` mounts as a
  * surface mounts it, its paper stores read whole. Folded, each store's own row
  * prints how full its bays are together each week — the pallets in them over
  * the pallets they hold, its days' mean — which is not the mean of its bays'
  * fills: a big bay weighs more than a small one. Open, the store's row prints
  * nothing of its own, and each bay prints its own fill.
+ *
+ * `planPagedUtilisation` reads its stores a page at a time, never whole: each
+ * store's row prints the same figures from the totals the store keeps beside
+ * its bays, and each bay its own, all read a cell at a time through the rows'
+ * nested series index.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
+import type { TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-utilisation";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -87,5 +93,37 @@ describe("a store's own row is its bays' total fill, on e3", () => {
         const r1 = baysOf("S-1")[0]!;
         printed(bay()).slice(0, WEEKS).forEach((text, week) =>
             expect(shows(text, weekOf(week, (day) => r1.stock[day]! / r1.capacity)), `R1, week ${week}: ${text}`).toBe(true));
+    });
+
+    test("planPagedUtilisation: its stores read a page at a time, never whole — folded, each store prints each week its own pallets over the pallets it holds, what the stores read whole print; open, each bay prints its own, every figure read a cell at a time", async () => {
+        const { container: c } = await h.mount(ex.planPagedUtilisation);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        expect([...c.querySelectorAll("[data-plan-diagnostic],[data-plan-error],[role='alert']")].map((el) => el.textContent ?? "")).toEqual([]);
+        // Folded to start: each store's row a cell a week of the window, from the totals it keeps — the figures of its bays
+        // read whole, and not the mean of their fills.
+        await waitFor(() => {
+            for (const [, name] of STORES) expect(printed(bandOf(main, name)).length, name).toBeGreaterThanOrEqual(WEEKS);
+        }, { timeout: 10_000 });
+        for (const [key, name] of STORES) {
+            printed(bandOf(main, name)).slice(0, WEEKS).forEach((text, week) => expect(shows(text, fillIn(key, week)), `${name}, week ${week}: ${text}`).toBe(true));
+        }
+        expect(printed(bandOf(main, "Reel store"))[0]).toBe("53%");
+        expect(printed(bandOf(main, "Board store"))[0]).toBe("71%");
+        // Never read whole: a page of the stores, and every figure a cell at a time through their nested series index.
+        const stores = (ex.planPaperStoresWithTotals.path as TreePath).map((step) => step.value).join(".");
+        const inTime = ex.planPaperStoresWithTotals.indexes.plan_paper_stores_with_totals_in_time.name;
+        expect(h.readKinds(stores)).not.toContain("read");
+        expect(h.readKinds(stores, inTime)).toEqual(expect.arrayContaining(["find", "runs"]));
+        // Open, the reel store's row prints nothing of its own, and each bay its own fill, read the same way.
+        fireEvent.click(bandOf(main, "Reel store")!);
+        await settle();
+        const bay = () => main.querySelector(rowAt(entry("bays", "S-1", "R1")));
+        await waitFor(() => expect(printed(bay()).length).toBeGreaterThanOrEqual(WEEKS), { timeout: 10_000 });
+        expect(printed(bandOf(main, "Reel store"))).toEqual([]);
+        const r1 = baysOf("S-1")[0]!;
+        printed(bay()).slice(0, WEEKS).forEach((text, week) =>
+            expect(shows(text, weekOf(week, (day) => r1.stock[day]! / r1.capacity)), `R1, week ${week}: ${text}`).toBe(true));
+        expect(h.readKinds(stores)).not.toContain("read");
     });
 });

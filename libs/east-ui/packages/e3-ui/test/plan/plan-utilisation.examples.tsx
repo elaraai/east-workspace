@@ -15,7 +15,10 @@
  *
  * The stores are read whole: a function of a row may map its collections —
  * a store's bays — only over rows read whole, since a page of rows carries
- * each without them.
+ * each without them. Over stores read a page at a time, each store keeps its
+ * own totals beside its bays — the pallets they hold together, and the pallets
+ * in them together each day — and its row reads them a cell at a time, as its
+ * bays read theirs (`planPagedUtilisation`).
  *
  * @packageDocumentation
  */
@@ -168,6 +171,130 @@ export const planGroupUtilisation = example({
                                 bay.stock.toArray((_$2, pallets, at) => East.value({
                                     at: Plan.at.time(at), value: some(pallets.toFloat().divide(bay.capacity.toFloat())), label: none,
                                 }, Plan.Types.HeatCell)),
+                                { min: 0, max: 1, warnAt: 0.85, format: Format.Percent({ maximumFractionDigits: 0n }) },
+                            ),
+                        })]),
+                    }),
+                ]}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// The paper stores read a page at a time — each store keeping its own totals beside its bays
+// ============================================================================
+
+/**
+ * A paper store that keeps its own totals beside its bays: its name, the
+ * pallets its bays hold together, the pallets in them together at the start
+ * of each day, and its bays by key.
+ */
+export const PaperStoreWithTotals = StructType({
+    name: StringType, capacity: IntegerType, stock: DictType(DateTimeType, IntegerType), bays: DictType(StringType, StoreBay),
+});
+/** The paper stores keeping their own totals, by key. */
+export const PaperStoresWithTotals = DictType(StringType, PaperStoreWithTotals);
+
+/**
+ * The paper stores over a number of days, as {@link generatePaperStores}
+ * makes them, each keeping its own totals beside its bays: the pallets they
+ * hold together, and the pallets in them together each day.
+ */
+export const generatePaperStoresWithTotals = East.function([IntegerType], PaperStoresWithTotals, ($, days) => {
+    const stores = $.let(generatePaperStores(days));
+    return stores.map((_$2, store) => ({
+        name: store.name,
+        capacity: store.bays.reduce((_$3, held, bay) => held.add(bay.capacity), 0n),
+        stock: store.bays.flattenToDict((_$3, bay) => bay.stock, (_$3, held, more) => held.add(more)),
+        bays: store.bays,
+    }));
+});
+
+/**
+ * The stores, read a page at a time: each store's totals worked out from its
+ * bays as e3 seeds the record, and every store's pallets a day and each bay's
+ * read a day at a time through the rows' nested series index.
+ */
+export const planPaperStoresWithTotals = e3.record("plan_paper_stores_with_totals", PaperStoresWithTotals, {
+    initial: () => East.compile(generatePaperStoresWithTotals, [])(STOCK_DAYS),
+    indexes: (index) => ({
+        // The order a page of the stores is read in.
+        plan_paper_stores_with_totals_by_name: index.on(["name"]),
+        // A store's own pallets a day, and each of its bays', kept a day at a time, and a week and a month at a time
+        // for a row shading past what a view draws.
+        plan_paper_stores_with_totals_in_time: index.nestedSeries({
+            collections: {
+                stock: index.nestedSeries.values(),
+                bays: index.nestedSeries.rows({ stock: index.nestedSeries.values() }),
+            },
+            tile: "day",
+            summary: ["week", "month"],
+        }),
+    }),
+});
+
+// ============================================================================
+// planPagedUtilisation — each store's own row its bays' total fill, over stores read a page at a time
+// ============================================================================
+
+/**
+ * A group's own row showing its members' total utilisation over rows read a
+ * page at a time. A page carries each store without its collections, so no
+ * function of the store may map its bays' stock: each store keeps its own
+ * totals in the data instead, worked out from its bays as e3 seeds the record
+ * — the pallets they hold together, and the pallets in them together each day.
+ * A store's row, folded, is its own `summary` read a cell at a time through
+ * the rows' nested series index (`Plan.values`): each day its pallets over the
+ * pallets it holds, a big bay weighing more than a small one — the same
+ * figures as {@link planGroupUtilisation}, the reel store's first week 53%
+ * full. Open, each bay reads its own pallets a day the same way, over the
+ * pallets it holds. Every cell prints a percent through `Format.Percent`, a
+ * cell 85% full or more is ringed, and a week's column is its days' mean.
+ *
+ * A store's totals are the data's to keep: whatever writes a store's bays
+ * writes its totals with them.
+ */
+export const planPagedUtilisation = example({
+    keywords: [
+        "Plan", "Plan.series.group", "summary", "group summary", "a group's own row", "group total", "group totals", "utilisation",
+        "utilization", "total utilisation", "capacity", "fill", "how full", "occupancy", "weighted", "not the mean", "paged",
+        "a page at a time", "rows read a page at a time", "Data.bindPaged", "index.nestedSeries", "nested series index",
+        "index.nestedSeries.values", "index.nestedSeries.rows", "Plan.values", "a cell at a time", "totals kept in the data",
+        "folded", "collapsed", "Plan.series.heat", "Plan.heatCells", "Plan.children", "heat", "Format.Percent", "percent", "warnAt",
+        "paper stores", "stores", "bays", "pallets", "stock", "e3.record",
+    ],
+    description: "A group's own row showing its members' total utilisation over rows read a page at a time — a print works' paper stores, each keeping its own totals beside its bays (the pallets they hold together, and the pallets in them together each day, worked out from its bays as e3 seeds the record), since a page carries each store without its collections: folded, a store's row is its own pallets a day over the pallets it holds, read a cell at a time through the rows' nested series index (Plan.series.group's summary as Plan.heatCells(Plan.values(...))), so a big bay weighs more than a small one; open, each bay its own fill read the same way (Plan.series.heat), the pallets it holds on its gutter's second line; each a percent through Format.Percent, ringed at 85% full, a week's column its days' mean",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The stores a page at a time, by name, beside their nested series index: each read without its collections,
+            // a store's own pallets and its bays' a day at a time.
+            const stores = $.let(Data.bindPaged(planPaperStoresWithTotals, {
+                indexes: ["plan_paper_stores_with_totals_by_name", "plan_paper_stores_with_totals_in_time"],
+            }));
+            return <Box width="100%" height="440px"><Plan id="planPagedUtilisation" data={stores}
+                axis={Plan.axis({
+                    window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                    resolution: "week", now: new Date("2026-10-19T09:00:00Z"),
+                })}
+                series={[
+                    // Each store a group, folded to start: its own row is its bays' total fill, from the totals it keeps.
+                    Plan.series.group(PaperStoreWithTotals, {
+                        key: "stores", title: "Paper stores", label: (store) => store.name, collapsed: true,
+                        // Each day, the pallets in all its bays over the pallets they hold, from the store's own totals.
+                        summary: Plan.heatCells(
+                            Plan.values("stock", (pallets, _at, store) => ({ value: some(pallets.toFloat().divide(store.capacity.toFloat())) })),
+                            { min: 0, max: 1, warnAt: 0.85, format: Format.Percent({ maximumFractionDigits: 0n }) },
+                        ),
+                        children: Plan.children("bays", [Plan.series.heat(StoreBay, {
+                            key: "bays", title: "Bays", label: (bay) => bay.name, id: true,
+                            // The pallets it holds, on the gutter's second line.
+                            stacked: true, sub: (bay) => some(East.str`${bay.capacity} pallets`),
+                            // Each bay's own fill a day: the pallets in it over the pallets it holds.
+                            cells: Plan.heatCells(
+                                Plan.values("stock", (pallets, _at, bay) => ({ value: some(pallets.toFloat().divide(bay.capacity.toFloat())) })),
                                 { min: 0, max: 1, warnAt: 0.85, format: Format.Percent({ maximumFractionDigits: 0n }) },
                             ),
                         })]),
