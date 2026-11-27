@@ -20,7 +20,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ArrayType, DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, variant,
+  ArrayType, DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
@@ -388,5 +388,90 @@ describe('LocalOrchestrator', () => {
     } finally {
       await held.release();
     }
+  });
+});
+
+describe('a runner that takes a split task whole', () => {
+  /** `rows -> total`, a fold split over the rows a piece a segment, and
+   *  `report` over its output, beside a plain task `early`. */
+  async function deploySplit(t: TestContext): Promise<{ storage: InMemoryStorage; tasks: ReadonlyMap<string, string> }> {
+    readTestPieceBytesFrom(() => '64');
+    t.after(() => readTestPieceBytesFrom(() => undefined));
+    const Rows = DictType(IntegerType, IntegerType);
+    const rows = e3.input('rows', Rows, variant('value', new SortedMap(
+      Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+    const total = e3.streamTask('total', {
+      inputs: [e3.partition(rows)],
+      output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, rows, emit) => {
+      $.for(rows, ($, value) => {
+        $(emit(value));
+      });
+    });
+    const start = e3.input('start', IntegerType, variant('value', 1n));
+    return deploy(t, 'whole', e3.package('whole', '1.0.0', rows, total, e3.task('report', [total.output], add), start, e3.task('early', [start], add)));
+  }
+
+  /** A mock whose runner answers each task with its name's hash. */
+  function answering(tasks: ReadonlyMap<string, string>): MockTaskRunner {
+    const runner = new MockTaskRunner();
+    for (const [name, hash] of tasks) runner.setResult(hash, { state: 'success', cached: false, outputHash: outputOf(name) });
+    runner.setUnitResult(tasks.get('total')!, () => ({ state: 'success', cached: false, outputHash: outputOf('unit') }));
+    return runner;
+  }
+
+  it('is asked for it, runs it with one execute, and the loop plans nothing and records no plan', async (t) => {
+    const { storage, tasks } = await deploySplit(t);
+    const runner = answering(tasks);
+    runner.setTakesWhole(tasks.get('total')!);
+    const asked: string[] = [];
+    const takesWhole = runner.takesWhole.bind(runner);
+    runner.takesWhole = (hash: string) => { asked.push(hash); return takesWhole(hash); };
+    const store = new InMemoryStateStore();
+    const orchestrator = new LocalOrchestrator(store);
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner });
+    await orchestrator.wait(handle);
+
+    assert.equal((await orchestrator.getStatus(handle)).state, 'completed');
+    assert.deepEqual(asked, [tasks.get('total')], 'asked of the split task alone');
+    assert.equal(runner.getUnitCalls().length, 0, 'no unit was handed over');
+    const rowsRef = await storage.datasets.read('repo', 'ws', 'inputs/rows');
+    assert.ok(rowsRef?.type === 'value');
+    assert.deepEqual(runner.getCalls().filter((call) => call.taskHash === tasks.get('total')).map((call) => call.inputHashes), [[rowsRef.value.hash]]);
+    const output = await storage.datasets.read('repo', 'ws', 'tasks/total/output');
+    assert.ok(output?.type === 'value' && output.value.hash === outputOf('total'), 'its output is the runner\'s');
+    const events = await orchestrator.getEvents(handle, 0);
+    assert.deepEqual(events.filter((event) => event.type === 'task_split'), [], 'no split was recorded');
+    const final = await store.read('repo', 'ws', handle.id);
+    assert.deepEqual(final!.tasks.get('total')!.plan, none);
+    assert.equal(await storage.refs.executionPlanRead('repo', tasks.get('total')!, inputsHash([rowsRef.value.hash])), null, 'nor a plan pointer');
+  });
+
+  it('is planned by the loop as before when the runner does not take it, or says no', async (t) => {
+    const { storage, tasks } = await deploySplit(t);
+    for (const runner of [answering(tasks), Object.assign(answering(tasks), { takesWhole: () => false })]) {
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      const handle = await orchestrator.start(storage, 'repo', 'ws', { runner, force: true });
+      await orchestrator.wait(handle);
+      assert.equal((await orchestrator.getStatus(handle)).state, 'completed');
+      assert.ok(runner.getUnitCalls().length > 1, 'its units were handed over');
+      assert.equal(runner.getCalls().filter((call) => call.taskHash === tasks.get('total')).length, 0);
+    }
+  });
+
+  it('records the duration the runner measured, not the wait for its answer', async (t) => {
+    const { storage, tasks } = await deploySplit(t);
+    const runner = answering(tasks);
+    runner.setResult(tasks.get('early')!, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return { state: 'success', cached: false, outputHash: outputOf('early'), durationMs: 1234 };
+    });
+    const durations = new Map<string, number>();
+    const store = new InMemoryStateStore();
+    const orchestrator = new LocalOrchestrator(store);
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner, onTaskComplete: (done) => { durations.set(done.name, done.duration); } });
+    await orchestrator.wait(handle);
+    assert.equal(durations.get('early'), 1234);
+    assert.deepEqual((await store.read('repo', 'ws', handle.id))!.tasks.get('early')!.duration, some(1234n));
   });
 });

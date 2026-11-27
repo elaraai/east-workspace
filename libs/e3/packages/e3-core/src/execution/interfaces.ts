@@ -154,6 +154,11 @@ export interface TaskResult {
    *  (`ExecutionResult.timing`). Runtime-only; absent for work that ran
    *  here. */
   timing?: string;
+  /** How long the work took, in ms, as the host that ran it measured it: for
+   *  work run before it was asked for, its own run's length, not the wait for
+   *  its answer. Absent, the caller's own clock around the call stands.
+   *  Runtime-only. */
+  durationMs?: number;
 }
 
 /** An execution's record while it runs: the `running` case of its status. */
@@ -457,6 +462,20 @@ export interface TaskRunner {
    * `measure`.
    */
   readonly firstWave?: 'measure' | 'estimate';
+
+  /**
+   * Whether this runner runs a split task as one execution of its own,
+   * planned wherever it runs, in place of the dataflow's loop planning it and
+   * handing over its units: the loop then calls {@link execute} for it, plans
+   * nothing and records no plan. Asked of a split task only, after its cache
+   * probe missed, once for each launch. Absent, or `false`, the loop plans
+   * it.
+   *
+   * @param taskHash - Hash of the TaskObject
+   * @param options - The task's name in the dataflow graph
+   * @returns Whether the runner takes the task whole
+   */
+  takesWhole?(taskHash: string, options: { taskName?: string }): boolean | Promise<boolean>;
 
   /**
    * Take a delivered collection in, or a run of its segments, through an

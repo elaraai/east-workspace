@@ -154,6 +154,11 @@ export interface ExecutionResult {
    *  cached) 260 s · …`). Runtime-only, never recorded; absent from an
    *  execution that ran here, or was served from the cache. */
   timing?: string;
+  /** How long the work took, in ms, as the host that ran it measured it,
+   *  when that is not this call's own length: a result taken from a run that
+   *  ran it before it was asked for (`TaskResult.durationMs`). Runtime-only,
+   *  never recorded; absent from an execution that ran here. */
+  durationMs?: number;
 }
 
 /** The identity of one execution attempt: the execution-cache key it is

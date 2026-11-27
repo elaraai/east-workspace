@@ -1047,9 +1047,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           options.onTaskStart?.(taskName);
 
           // A task whose work is split over its inputs runs as the units of
-          // its stages, which join the loop's; any other task runs as one.
+          // its stages, which join the loop's, unless its runner takes it
+          // whole (`TaskRunner.takesWhole`); any other task runs as one.
           const task = await this.readSplitTask(storage, repo, prepared.taskHash);
-          if (task !== null) {
+          const whole = task !== null && options.runner?.takesWhole !== undefined
+            && await options.runner.takesWhole(prepared.taskHash, { taskName });
+          if (task !== null && !whole) {
             this.launchSplit(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, task);
           } else {
             this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV);
@@ -1967,7 +1970,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         exitCode: result.exitCode,
         error: result.error,
         cancelled: result.cancelled,
-        duration: Date.now() - startTime,
+        duration: result.durationMs ?? Date.now() - startTime,
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
       };

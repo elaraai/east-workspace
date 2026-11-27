@@ -427,6 +427,9 @@ export function toTaskResult(result: ExecutionResult): TaskResult {
   if (result.timing !== undefined) {
     taskResult.timing = result.timing;
   }
+  if (result.durationMs !== undefined) {
+    taskResult.durationMs = result.durationMs;
+  }
   if (result.state === 'success' && result.outputHash) {
     taskResult.outputHash = result.outputHash;
   } else if (result.state === 'failed') {

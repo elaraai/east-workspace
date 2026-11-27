@@ -12,7 +12,7 @@ import e3, { type TaskDef } from '@elaraai/e3';
 import { ExecutionAttempt } from './attempt.js';
 import { Budget } from './budget.js';
 import type { DetachedResult, DetachedSpec } from './interfaces.js';
-import { LocalTaskRunner, type DetachedCallRequest, type TaskBodyRequest } from './LocalTaskRunner.js';
+import { LocalTaskRunner, type DetachedCallRequest, type ExecutionIds, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from './LocalTaskRunner.js';
 import { scratchRoot } from './scratch.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
 import { readTestPieceBytesFrom } from './pieces.js';
@@ -253,5 +253,73 @@ describe('detached call executor', () => {
     assert.equal(result.kind, 'success', result.stderr);
     assert.equal(result.stdout, 'the runner\'s');
     assert.deepEqual(seen.map((request) => request.settings), [{ env }], 'the hook is told how the runner\'s processes run');
+  });
+});
+
+describe('a task body that takes a split task whole', () => {
+  let repo: string;
+  let storage: LocalStorage;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    storage = new LocalStorage();
+    readTestPieceBytesFrom(() => '64');
+  });
+  afterEach(() => {
+    readTestPieceBytesFrom(() => undefined);
+    removeTestRepo(repo);
+  });
+
+  /** A fold over 8,000 rows, a piece a segment, and its rows. */
+  async function deployTotal(): Promise<{ hash: string; inputs: string[]; expected: string }> {
+    const type = DictType(IntegerType, IntegerType);
+    const task = e3.streamTask('total', {
+      inputs: [e3.partition(e3.input('rows', type))],
+      output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, rows, emit) => { $.for(rows, ($, _value, _key) => { $(emit(1n)); }); });
+    const zip = join(repo, 'whole.zip');
+    await e3.export(e3.package('whole', '1.0.0', task), zip);
+    await packageImport(storage, repo, zip);
+    const hash = (await packageRead(storage, repo, 'whole', '1.0.0')).tasks.get('total')!;
+    const rows = new SortedMap(Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType));
+    return { hash, inputs: [await datasetWrite(storage, repo, rows, type)], expected: await datasetWrite(storage, repo, 8000n, IntegerType) };
+  }
+
+  it('is given the task once, as the task, and is never handed a unit', async () => {
+    const { hash, inputs, expected } = await deployTotal();
+    const calls: TaskBodyRequest[] = [];
+    const body: TaskBodyExecutor = Object.assign((request: TaskBodyRequest): Promise<ExecutionResult> => {
+      calls.push(request);
+      return Promise.resolve({ inputsHash: request.ids.inHash, executionId: request.ids.executionId, cached: false, state: 'success',
+        outputHash: expected, exitCode: 0, duration: 1, error: null, cancelled: false, durationMs: 4321 });
+    }, { takesWhole: (taskHash: string) => taskHash === hash });
+    const runner = new LocalTaskRunner(repo, undefined, { body });
+    assert.equal(runner.takesWhole(hash, { taskName: 'total' }), true);
+    const result = await runner.execute(storage, hash, inputs, { taskName: 'total' });
+    assert.equal(result.state, 'success', result.error);
+    assert.equal(result.outputHash, expected);
+    assert.equal(result.durationMs, 4321, 'the duration the body measured travels with its result');
+    assert.deepEqual(calls.map((call) => [call.role, call.unit, call.options.taskName]), [['task', undefined, 'total']]);
+  });
+
+  it('falls back by planning it here, each unit going through the body as usual', async () => {
+    const { hash, inputs, expected } = await deployTotal();
+    const calls: TaskBodyRequest[] = [];
+    const body: TaskBodyExecutor = Object.assign((request: TaskBodyRequest, local: (ids?: ExecutionIds) => Promise<ExecutionResult>) => {
+      calls.push(request);
+      return local();
+    }, { takesWhole: (taskHash: string) => taskHash === hash });
+    const runner = new LocalTaskRunner(repo, undefined, { body });
+    const result = await runner.execute(storage, hash, inputs, { taskName: 'total' });
+    assert.equal(result.state, 'success', result.error);
+    assert.equal(result.outputHash, expected);
+    assert.equal(calls[0]!.role, 'task');
+    assert.ok(calls.length > 2, `the units went through the body after it: ${calls.length} calls`);
+    assert.ok(calls.slice(1).every((call) => call.role === 'unit' && call.logicalTaskHash === hash));
+  });
+
+  it('is not asked of a runner with no body, which plans every split task', async () => {
+    const { hash } = await deployTotal();
+    assert.equal(new LocalTaskRunner(repo).takesWhole(hash, { taskName: 'total' }), false);
   });
 });
