@@ -305,6 +305,38 @@ export class WorkspaceBundleInvalidError extends E3Error {
   }
 }
 
+/**
+ * Thrown when a selection cannot be cut from a workspace's package: it is the
+ * whole workspace, which a workspace bundle carries; it names bindings, which
+ * are not supported yet; or it names a task the package does not have.
+ */
+export class SyncSelectionError extends E3Error {
+  constructor(public readonly reason: string) {
+    super(`Invalid sync selection: ${reason}`);
+  }
+}
+
+/**
+ * Thrown when a replica cannot be made or read from its origin: an object the
+ * origin answered is not the object asked for, or a root of the description is
+ * not held once the replica's structure has been fetched.
+ */
+export class SyncObjectError extends E3Error {
+  constructor(public readonly reason: string) {
+    super(`Sync object refused: ${reason}`);
+  }
+}
+
+/**
+ * Thrown when a description was written by a newer e3 release than this one,
+ * whose stored forms this release cannot read.
+ */
+export class SyncReleaseError extends E3Error {
+  constructor(public readonly release: string, public readonly supported: string) {
+    super(`A description written by e3 ${release} cannot be made a replica by e3 ${supported}: upgrade e3 here to ${release} or later`);
+  }
+}
+
 export class PackageExistsError extends E3Error {
   constructor(
     public readonly packageName: string,
