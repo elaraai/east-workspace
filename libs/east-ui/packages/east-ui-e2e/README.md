@@ -25,8 +25,9 @@ presses, the shifts as chips on the crews, the deliveries as tiles on the
 bays — every kind read a cell at a time through the rail's one source of the
 steps and its one series index, in time order under the hall. Nothing reads
 the steps whole: the window and its count are their interval index's, the
-shading zoomed out a machine's summary a month, and the horizon's bars the
-record's totals.
+shading zoomed out a machine's summary a month, the horizon's bars the
+record's totals, and each hall's own row the steps under it a column, from the
+record's totals by hall.
 
 ## Running it
 

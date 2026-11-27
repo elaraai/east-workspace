@@ -15,8 +15,8 @@
  * or a setup on a press, a crew's shift, a bay's delivery — each kind with its own details, and each drawn its own way
  * (`Schedule.events.kinds`). The Plan reads every kind a cell at a time through one source and its one series index
  * in time order, led by the hall, so a screen of a hall's machines is one range a tile; the window and its count are
- * the interval index's, the shading zoomed out a machine's summary, and the horizon's bars the record's totals.
- * Nothing reads them whole.
+ * the interval index's, the shading zoomed out a machine's summary, the horizon's bars the record's totals, and each
+ * hall's own row the steps under it a column, from its totals by hall. Nothing reads them whole.
  *
  * @packageDocumentation
  */
@@ -93,6 +93,13 @@ const steps = e3.record("lab_steps", LabSteps, {
         lab_steps_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
         lab_steps_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
         lab_steps_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
+        // What a hall's own row counts, at the period its columns take: how many steps under the hall touch each, led by
+        // the field its series index in time order is led by.
+        lab_steps_by_hall_day_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "day" }),
+        lab_steps_by_hall_week_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "week" }),
+        lab_steps_by_hall_month_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "month" }),
+        lab_steps_by_hall_quarter_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "quarter" }),
+        lab_steps_by_hall_year_totals: index.totals({ on: ["hall"], from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The steps' patch door: every Save commits through it.
@@ -118,7 +125,11 @@ const planLab = ui("plan_lab", [], East.function([], UIComponentType, (_$) => (
             step: {
                 source: Data.bindPaged(steps, {
                     indexes: ["lab_steps_by_time", "lab_steps_by_hall_week", "lab_steps_by_machine_month"],
-                    totals: ["lab_steps_day_totals", "lab_steps_week_totals", "lab_steps_month_totals", "lab_steps_quarter_totals", "lab_steps_year_totals"],
+                    totals: [
+                        "lab_steps_day_totals", "lab_steps_week_totals", "lab_steps_month_totals", "lab_steps_quarter_totals", "lab_steps_year_totals",
+                        "lab_steps_by_hall_day_totals", "lab_steps_by_hall_week_totals", "lab_steps_by_hall_month_totals",
+                        "lab_steps_by_hall_quarter_totals", "lab_steps_by_hall_year_totals",
+                    ],
                 }),
                 label: "Steps", fields: { start: { label: "Dates" } }, range: "start",
             },
