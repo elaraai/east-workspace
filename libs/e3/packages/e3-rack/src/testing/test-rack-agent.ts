@@ -10,9 +10,10 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { BooleanType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, SyncDescriptionType } from '@elaraai/e3-types';
 import { ENVIRONMENT_LAYER_ROOT, LocalStorage, LocalTaskRunner, composeEnvironmentOverTier, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment,
-  markReachable, readTierManifest, repoInit, taskExecute, taskExecuteUnit, tierManifestDigest, unpackEnvironmentLayer, type TierManifest } from '@elaraai/e3-core';
+  markReachable, readTierManifest, replicaRunOpen, repoInit, taskExecute, taskExecuteUnit, tierManifestDigest, unpackEnvironmentLayer,
+  type ReplicaRun, type ReplicaRunOrigin, type TaskRunner, type TierManifest } from '@elaraai/e3-core';
 import type { EnvLayerManifest } from '../server/env-publication.js';
 import { closureHashes } from '../lease/closure.js';
 import { decodeRunnerEvent, detachedSpecFromWire, splitUnitFromWire, type RunnerDetachedEvent } from '../runner-event.js';
@@ -25,8 +26,8 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
 import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_SCOPES_ENDED_HEADER,
   RACK_RUNS, RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
-import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
-  type RackTransferRetry } from '../protocol/task-envelope.js';
+import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, readRackRun, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
+  type RackRunEvent, type RackTransferRetry } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
 export interface TestRackAgentFaults {
@@ -150,6 +151,9 @@ export interface TestRackAgentOptions {
   splitScopes?: boolean;
   /** Says it hosts a whole rack run for a run lease ({@link RACK_RUNS}). */
   rackRuns?: boolean;
+  /** The runner a hosted rack run runs its bodies with, over the agent's
+   *  store: a local runner unless given */
+  runRunner?: (repo: string) => TaskRunner;
 }
 
 /**
@@ -482,10 +486,15 @@ export class TestRackAgent {
       for (const [i, { target }] of answered.targets.entries()) {
         if (target.type === 'held') { held++; continue; }
         const [hash, bytes] = batch[i]!;
-        const put = await this.transport(target.value.url, { method: 'PUT', headers: Object.fromEntries(target.value.headers), body: bytes });
-        if (!put.ok) throw new Error(`Rack object ${hash}: HTTP ${put.status}`);
-        const version = put.headers.get('x-amz-version-id');
-        await put.arrayBuffer();
+        // A PUT is sent whole each try, within the transfers its source
+        // allows at once, and waits while the source says it is busy
+        let version: string | null = null;
+        await this.transfer(() => this.tries(`Rack object ${hash}`, this.abort.signal, undefined, async (deadline) => {
+          const put = await this.transport(target.value.url, { method: 'PUT', headers: Object.fromEntries(target.value.headers), body: bytes, signal: deadline });
+          if (!put.ok) return put;
+          version = put.headers.get('x-amz-version-id');
+          await put.arrayBuffer();
+        }));
         if (version === null) throw new Error('Rack upload has no receipt');
         commits.push({ hash, size: BigInt(bytes.length), version });
       }
@@ -752,6 +761,9 @@ export class TestRackAgent {
         reason: infra ? { code: 'guest-crashed', detail: 'Injected infrastructure failure' } : { code: 'task-error' } };
       await this.complete(lease, result); return result;
     }
+    // A run lease's work is a whole rack run, which the agent hosts
+    const hosted = readRackRun(event);
+    if (hosted !== undefined) return this.hostRun(lease, event, hosted, stop, signal);
     const run = decodeRunnerEvent(event.runnerEvent);
     if (run.mode === 'intake') throw new Error('Test agent runs tasks, units and calls');
     const heartbeat = setInterval(() => {
@@ -847,6 +859,74 @@ export class TestRackAgent {
       if (!this.abort.signal.aborted) await this.complete(lease, output);
       return output;
     } finally { clearInterval(heartbeat); clearInterval(extend); }
+  }
+
+  /**
+   * Hosts a run lease's whole rack run: reads its description through the
+   * lease, makes a replica of it in the agent's store, runs it with e3-core's
+   * own loop, and answers the asks it polls, each task's log sent as the run
+   * writes it, until the lease ends. The replica reads its origin's objects
+   * through the lease, within its closure, and writes each output's through
+   * it, as a lease writes its output.
+   */
+  private async hostRun(lease: RackLeaseGrant, event: RackLeaseEvent, run: RackRunEvent, stop: AbortController, signal: AbortSignal): Promise<RackLeaseResult> {
+    const heartbeat = setInterval(() => { void this.heartbeat().catch(() => stop.abort()); }, this.options.timings?.heartbeatMs ?? 15000);
+    const extend = setInterval(() => { void this.post('lease/extend', RackExtendRequestType,
+      { repo: lease.repo, leaseId: lease.leaseId }, BooleanType).then((held) => { if (!held) stop.abort(); }).catch(() => stop.abort());
+    }, this.options.timings?.extendMs ?? 20000);
+    heartbeat.unref(); extend.unref();
+    const ref = { repo: lease.repo, leaseId: lease.leaseId };
+    const answering = new Set<Promise<void>>();
+    let replica: ReplicaRun | undefined;
+    try {
+      if ('object' in event.closure) await this.fetch(lease, [event.closure.object], signal);
+      await this.fetch(lease, [run.description], signal);
+      const description = decodeBeast2For(SyncDescriptionType)(await this.storage.objects.read(this.repo, run.description));
+      const origin: ReplicaRunOrigin = {
+        objects: {
+          read: async (hashes) => {
+            await this.fetch(lease, hashes, signal);
+            const read = new Map<string, Uint8Array>();
+            for (const hash of hashes) read.set(hash, await this.storage.objects.read(this.repo, hash));
+            return read;
+          },
+        },
+        // Its writes say what its source holds: each is declared, and only
+        // what the source lacks is sent
+        have: (hashes) => Promise.resolve(hashes.map(() => false)),
+        write: async (objects) => { await this.writeObjects(lease, objects); },
+      };
+      replica = replicaRunOpen({ storage: this.storage, repo: this.repo, origin, width: Math.max(1, this.capacity),
+        runner: this.options.runRunner?.(this.repo) ?? new LocalTaskRunner(this.repo) });
+      await replica.grant({ description, force: run.force });
+      let after = 0;
+      while (!signal.aborted) {
+        const polled = await this.runRequest('asks', { ...ref, after, waitMs: 500 }) as { asks: Array<{ seq: number; taskName: string; taskHash: string; inputsHash: string }>; cancelled: boolean };
+        if (polled.cancelled) break;
+        for (const ask of polled.asks) {
+          after = Math.max(after, ask.seq);
+          let logs: Promise<unknown> = Promise.resolve();
+          const answered = (async () => {
+            // An ask the run could not answer is answered as unknown, which
+            // its origin runs itself: never left unanswered
+            const answer = await replica!.ask({ taskName: ask.taskName, taskHash: ask.taskHash, inputsHash: ask.inputsHash, signal,
+              onLog: (stream, text) => { logs = logs.then(() => this.runRequest('logs', { ...ref, seq: ask.seq, chunks: [{ stream, text }] })).catch(() => undefined); } })
+              .catch(() => ({ kind: 'unknown' as const }));
+            await logs;
+            await this.runRequest('answers', { ...ref, answers: [{ seq: ask.seq, answer }] });
+          })().catch(() => undefined);
+          answering.add(answered);
+          void answered.finally(() => answering.delete(answered));
+        }
+      }
+    } finally {
+      await replica?.cancel().catch(() => undefined);
+      await Promise.allSettled([...answering]);
+      clearInterval(heartbeat); clearInterval(extend);
+    }
+    const ended: RackLeaseResult = { taskName: event.taskName, status: 'success', state: 'success' };
+    if (!this.abort.signal.aborted) await this.complete(lease, ended).catch(() => undefined);
+    return ended;
   }
 
   /**

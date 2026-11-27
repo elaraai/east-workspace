@@ -44,7 +44,7 @@ async function fixture() {
   return { home, repo, env, cli };
 }
 
-async function enrolled(as: Pick<TestRackAgentOptions, 'resources'> = {}) {
+async function enrolled(as: Pick<TestRackAgentOptions, 'resources' | 'rackRuns'> = {}) {
   const f = await fixture();
   ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0'));
   const status = ok(await f.cli('rack', 'status'));
@@ -259,6 +259,35 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false, merges=rack, keep=split$/m);
   ok(await f.cli('rack', 'stop'));
   assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
+});
+
+it('runs a chain with --rack on a rack that hosts runs, in one lease, its logs here, and a second run takes every task from the cache', async () => {
+  const f = await enrolled({ rackRuns: true });
+  const a = e3.input('a', IntegerType, variant('value', 1n));
+  const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+  const first = e3.task('step_a', [a], add);
+  const second = e3.task('step_b', [first.output], add);
+  const zip = join(f.home, 'chain.zip');
+  await e3.export(e3.package('cli_chain', '1.0.0', a, first, second, e3.task('step_c', [second.output], add)), zip);
+  const storage = new LocalStorage(); await packageImport(storage, f.repo, zip);
+  await workspaceCreate(storage, f.repo, 'chain');
+  await workspaceDeploy(storage, f.repo, 'chain', 'cli_chain', '1.0.0');
+  ok(await f.cli('rack', 'policy', '.', 'mode', 'auto'));
+  ok(await f.cli('rack', 'policy', '.', 'enable'));
+  const claims: string[] = [];
+  const claim = f.agent.claim.bind(f.agent);
+  f.agent.claim = async () => { const grant = await claim(); if (grant !== null) claims.push(grant.leaseId); return grant; };
+  f.agent.start();
+
+  const output = ok(await f.cli('dataflow', 'run', '.', 'chain', '--rack'));
+  assert.match(output, /3 tasks granted a rack's run/);
+  assert.equal(claims.length, 1, 'one lease for the run');
+  for (const name of ['step_a', 'step_b', 'step_c']) assert.match(ok(await f.cli('task', 'logs', '.', `chain.${name}`)), /e3: on its rack: ran \d+ ms/);
+  assert.equal(ok(await f.cli('dataset', 'get', '.', 'chain.step_c')).trim(), '4');
+
+  const again = ok(await f.cli('dataflow', 'run', '.', 'chain', '--rack'));
+  for (const name of ['step_a', 'step_b', 'step_c']) assert.match(again, new RegExp(`\\[CACHED\\] ${name}`));
+  assert.equal(claims.length, 1, 'and none for a run the cache answers');
 });
 
 it('shows concurrent sessions and shares their attempt while one CLI cancellation leaves the other running', async () => {
