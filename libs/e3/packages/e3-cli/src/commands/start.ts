@@ -191,7 +191,9 @@ async function executeLocal(
   // the runner, which holds the budget, decides which of them spawn.
   const rack = await rackEnabled(repoPath, options) ? await openRack({ repoPath, workspace: ws, storage,
     label: `e3 dataflow run ${ws} (pid ${process.pid})`, budget: options.budget, rackOnly: options.rackOnly, signal: options.signal,
-    onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log }) : undefined;
+    onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log,
+    // What a rack's run is granted is predicted as the run will run
+    ...(options.force !== undefined && { force: options.force }), ...(options.filter !== undefined && { filter: options.filter }) }) : undefined;
   if (rack !== undefined) console.log(`Rack: ${rack.describe(formatSize)}`);
   try {
     let handedBack = 0;

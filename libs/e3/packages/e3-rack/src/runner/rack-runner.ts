@@ -15,6 +15,9 @@ import { createRackCall } from './rack-call.js';
 import { RackLayerBuilds } from './rack-lease.js';
 import type { RackEnvironmentEvent } from './environment.js';
 import { RackTally, type RackRunSummary } from './summary.js';
+import { RACK_RUNS } from '../protocol/rack-json.js';
+import { openRackRun, type RackRunHandle } from '../run/rack-run.js';
+import { sessionReplicaRun } from '../run/session-run.js';
 
 /** Configures rack delegation for one run, one watch session, or one command's piece of work. */
 export interface OpenRackRunnerOptions {
@@ -62,6 +65,11 @@ export interface OpenRackRunnerOptions {
   signal?: AbortSignal;
   /** Receives hub startup messages. */
   log?: (line: string) => void;
+  /** What the run forces, as its start is given it: what a rack's run it is
+   *  granted predicts by */
+  force?: boolean | readonly string[];
+  /** The run's filter, as its start is given it */
+  filter?: string;
 }
 
 /** Owns the runner's session and reports capacity for the local orchestrator. */
@@ -168,9 +176,45 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     const delegation = { session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly, selected: options.selected,
       unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
       onPlacement: (event: RackPlacementEvent) => { tally.add(event); options.onPlacement?.(event); } };
-    const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
-      body: createRackBody(delegation), detached: createRackCall(delegation) });
-    return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
+    const body = createRackBody(delegation);
+    const detached = createRackCall(delegation);
+    const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings, body, detached });
+
+    // Where a compatible rack hosts whole runs, the tasks a rack's run can
+    // run whole are granted one before the run starts; everything else goes
+    // to a rack, or runs here, as it would with no grant. A watch's later
+    // runs are each granted afresh.
+    let run: RackRunHandle | undefined;
+    const openRun = async (): Promise<void> => {
+      await run?.close().catch(() => undefined);
+      run = undefined;
+      if (!compatibleRacks(attached.capacity()).some((rack) => rack.features.includes(RACK_RUNS))) return;
+      const opened = await openRackRun({
+        repoPath: options.repoPath, workspace: options.workspace, storage: options.storage, policy, inner: body, detached,
+        ...(options.budget !== undefined && { budget: options.budget }),
+        ...(options.settings !== undefined && { settings: options.settings }),
+        ...(options.force !== undefined && { force: options.force }),
+        ...(options.filter !== undefined && { filter: options.filter }),
+        open: (granted, verdicts) => Promise.resolve(sessionReplicaRun(attached, {
+          storage: options.storage, repo: options.repoPath, workspace: options.workspace, verdicts: verdicts,
+          claimTimeoutMs: Math.max(1, Number(policy.claimTimeoutSeconds)) * 1000,
+          timeoutMs: Math.max(1, Number(policy.defaultTimeoutMinutes)) * 60_000,
+        })),
+      });
+      if (opened.selected.length > 0) run = opened;
+      else if (opened.unattached !== undefined && !opened.unattached.startsWith('the rack policy selects no task')) options.log?.(`Rack run: ${opened.unattached}`);
+    };
+    await openRun();
+    const described = (formatBytes: (bytes: number) => string = gib): string => run === undefined ? describe(formatBytes)
+      : `${describe(formatBytes)}; ${run.selected.length} ${run.selected.length === 1 ? 'task' : 'tasks'} granted a rack's run`;
+    return {
+      get runner() { return run?.runner ?? runner; },
+      get rackSlots() { return slots + (run?.rackSlots ?? 0); },
+      describe: described,
+      refreshSlots: async () => { const refreshed = await refreshSlots(); await openRun(); return refreshed + (run?.rackSlots ?? 0); },
+      takeSummary,
+      close: async () => { await run?.close().catch(() => undefined); await attached.close(); },
+    };
   } catch (error) {
     await session?.close().catch(() => {});
     const message = error instanceof Error ? error.message : String(error);

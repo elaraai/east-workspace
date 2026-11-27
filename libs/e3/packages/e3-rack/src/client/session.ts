@@ -440,6 +440,17 @@ export class RackSession {
     return () => { if (this.answers.get(leaseId) === listener) this.answers.delete(leaseId); };
   }
 
+  /**
+   * Asks a run lease of the session's for a task's result (`RACK_RUNS`): its
+   * answer comes to the lease's listener ({@link onAnswer}).
+   * @param leaseId - The run lease
+   * @param ask - The task, its identity, and the id its log is teed under
+   * @returns The ask's number in the lease
+   */
+  askRun(leaseId: string, ask: { taskName: string; taskHash: string; inputsHash: string; executionId: string }): Promise<bigint> {
+    return this.client.askRun(this.sessionId, leaseId, ask);
+  }
+
   /** Registers a live log tee; persistence remains the data server's job. */
   onLog(executionId: string, sink: (stream: 'stdout' | 'stderr', data: string) => void): () => void {
     const sinks = this.tee.get(executionId) ?? new Set(); sinks.add(sink); this.tee.set(executionId, sinks);

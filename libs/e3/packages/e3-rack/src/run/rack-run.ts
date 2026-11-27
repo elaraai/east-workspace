@@ -12,12 +12,12 @@
 import { variant } from '@elaraai/east';
 import {
   LocalTaskRunner, syncDescribe,
-  type Budget, type LocalTaskRunnerOptions, type ReplicaRun, type StorageBackend, type TaskBodyExecutor, type TaskRunner,
+  type Budget, type DetachedCallExecutor, type LocalTaskRunnerOptions, type ReplicaRun, type StorageBackend, type TaskBodyExecutor, type TaskRunner,
 } from '@elaraai/e3-core';
 import type { SyncDescription } from '@elaraai/e3-types';
 import { EligibilityEvaluator } from '../routing/eligibility.js';
 import type { RackPolicy } from '../routing/policy.js';
-import { hostBound } from '../runner/rack-lease.js';
+import { hostBound, type RackVerdict } from '../runner/rack-lease.js';
 import { createRackRunBody } from './run-body.js';
 import { rackRunSelection } from './selection.js';
 
@@ -39,10 +39,13 @@ export interface OpenRackRunOptions {
   readonly force?: boolean | readonly string[];
   /** The run's filter, as its start is given it */
   readonly filter?: string;
-  /** Opens the rack's run once there is something to grant it */
-  readonly open: (description: SyncDescription) => Promise<ReplicaRun>;
+  /** Opens the rack's run once there is something to grant it: the
+   *  selection, described, and each of its tasks' verdicts */
+  readonly open: (description: SyncDescription, verdicts: ReadonlyMap<string, RackVerdict>) => Promise<ReplicaRun>;
   /** The body for everything the rack's run is not granted */
   readonly inner?: TaskBodyExecutor;
+  /** The executor of a detached call, which no rack's run is granted */
+  readonly detached?: DetachedCallExecutor;
 }
 
 /** A run's runner, and the rack's run its granted tasks come from. */
@@ -84,7 +87,8 @@ export interface RackRunHandle {
 export async function openRackRun(options: OpenRackRunOptions): Promise<RackRunHandle> {
   const { repoPath, workspace, storage, policy, budget, settings } = options;
   const here = (unattached: string): RackRunHandle => ({
-    runner: new LocalTaskRunner(repoPath, budget, { ...settings, ...(options.inner !== undefined && { body: options.inner }) }),
+    runner: new LocalTaskRunner(repoPath, budget, { ...settings, ...(options.inner !== undefined && { body: options.inner }),
+      ...(options.detached !== undefined && { detached: options.detached }) }),
     rackSlots: 0,
     selected: [],
     unattached,
@@ -102,7 +106,7 @@ export async function openRackRun(options: OpenRackRunOptions): Promise<RackRunH
     const description = await syncDescribe(storage, repoPath, workspace, variant('partial', {
       tasks: [...selection.tasks], binds: { paths: [], functions: [], records: [], pages: [] }, records: [],
     }), { values: selection.values });
-    run = await options.open(description);
+    run = await options.open(description, selection.verdicts);
     // The rack's run forces what the run forces of what it was granted
     const named = Array.isArray(options.force) ? options.force : null;
     const forced = selection.tasks.filter((name) => named !== null ? named.includes(name)
@@ -116,7 +120,7 @@ export async function openRackRun(options: OpenRackRunOptions): Promise<RackRunH
       ...(options.inner !== undefined && { inner: options.inner }),
     });
     return {
-      runner: new LocalTaskRunner(repoPath, budget, { ...settings, body }),
+      runner: new LocalTaskRunner(repoPath, budget, { ...settings, body, ...(options.detached !== undefined && { detached: options.detached }) }),
       rackSlots: selection.tasks.length,
       selected: selection.tasks,
       close: () => granted.cancel(),
