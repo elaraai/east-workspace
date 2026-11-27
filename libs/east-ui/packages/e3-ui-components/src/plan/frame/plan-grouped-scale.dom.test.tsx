@@ -35,8 +35,9 @@
  *   its page lists (#1710).
  * - With every hall folded the view shows no row a job lands on, so no press's
  *   jobs are read (#1795): folding them, a pan of the window under them, and a
- *   page opened with them so ask the jobs' index nothing. Unfolded, the jobs
- *   held draw at once, and the index is asked for what is not held alone.
+ *   page opened with them so ask the jobs' index nothing, and the reader makes
+ *   no kind's rows again meanwhile. Unfolded, the jobs held draw at once, and
+ *   the index is asked for what is not held alone.
  * - Zoomed out past the jobs' series tile (#1541, U1), each task beneath a
  *   press counts its own jobs, from a summary led by the task. With none, a
  *   task row draws its own jobs while the range holds few, and past the cap is
@@ -727,6 +728,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             const opened = searchesOf(from);
             expect(opened).toBeGreaterThan(0);
             const drawn = marksOf(container);
+            let filed = 0;
             const fold = (of: HTMLElement) => slot(of, "toolbar")!.querySelector<HTMLElement>("[data-plan-fold-all]")!;
             /** Every hall's own row drawn, folded, and no press's: the view shows no row a job lands on. */
             const folded = async (of: HTMLElement) => {
@@ -744,19 +746,28 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
                 }
             };
 
-            // A page at rest: folding every group asks for no job, and unfolding them draws the jobs it held, asking for none.
+            // What the reader makes of the jobs it holds, beside what it asks e3: each time it makes a kind's rows from
+            // other tiles than the last it files their jobs by their keys (east-workspace#1776). A view of no row is
+            // handed nothing made again: the read that stood, or none — never the kind's rows made over no press.
+            setScheduleCellsFiledProbe(() => { filed += 1; });
+
+            // A page at rest: folding every group asks for no job and makes no kind's rows again, and unfolding them
+            // draws the jobs it held, asking for none.
             from = h.requests().length;
             fireEvent.click(fold(container));
             await folded(container);
             expect(findsOf(SERIES, from)).toEqual([]);
+            expect(filed).toBe(0);
             fireEvent.click(fold(container));
             await waitFor(() => expect(marksOf(container)).toEqual(drawn), { timeout: 600_000 });
             await scrollStopped();
             await settle();
             expect(findsOf(SERIES, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            expect(filed).toBe(0);
 
-            // Folded, the window panned a week on: the jobs of the weeks it comes to are nobody's to see, and none is asked for.
+            // Folded, the window panned a week on: the jobs of the weeks it comes to are nobody's to see, and none is asked
+            // for — nor is any kind's rows made over the weeks it leaves.
             fireEvent.click(fold(container));
             await folded(container);
             from = h.requests().length;
@@ -765,6 +776,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             expect(findsOf(SERIES, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            expect(filed).toBe(0);
 
             // Unfolded there: the jobs of the presses in view are drawn, and the index is asked for the weeks not held alone —
             // fewer searches than the view's opening, which asked every level of each press.
@@ -787,6 +799,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             first.unmount();
             from = h.requests().length;
+            filed = 0;
             const again = await h.mount(byHall, { storageKey: "plan-folded" });
             await folded(again.container);
             expect(hallPages(from).length).toBeGreaterThan(0);
@@ -796,19 +809,23 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             expect(findsOf(SERIES, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            // No kind's rows made of a page that has shown no press yet.
+            expect(filed).toBe(0);
 
-            // Unfolded, the presses it shows are drawn, and their jobs asked for then.
+            // Unfolded, the presses it shows are drawn, and their jobs asked for then — and made into the kind's rows.
             fireEvent.click(fold(again.container));
             await waitFor(() => expect(searchesOf(from)).toBeGreaterThan(0), { timeout: 600_000 });
             await settle();
             expect(mounted(again.container).length).toBeGreaterThan(0);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            expect(filed).toBeGreaterThan(0);
             again.unmount();
 
             // Nothing failed to read on the way.
             const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
             expect(failed).toEqual([]);
         } finally {
+            setScheduleCellsFiledProbe(undefined);
             errors.mockRestore();
             restore();
         }
