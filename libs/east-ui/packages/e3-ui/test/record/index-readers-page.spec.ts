@@ -16,7 +16,9 @@
  *   gives, each once;
  * - a series' and an area's searches hold more than a window, which a page's
  *   reader tests as it draws: what they hold that the window does is exactly
- *   what the body's `events` and `within` give;
+ *   what the body's `events` and `within` give — the longest event a level
+ *   files among them, read from the tile before the window's first up to the
+ *   millisecond it ends at, where the page's runs stop reading that tile;
  * - a series index in time order's searches, a range a tile from a first key
  *   through a last (`inTimeCellQueries`, #1710), hold of every key what the
  *   body's `events` gives, and of a run of keys exactly what the index in key
@@ -43,12 +45,14 @@ import {
     compareFor, compareKeyToBoundFor, decodeBeast2For, encodeBeast2For, equalFor, keyLeaves, none, parseFor, printFor, some, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import e3, { NestedUnderType, builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef } from "@elaraai/e3";
+import e3, {
+    NestedUnderType, RECORD_TILES, SHORTEST_MS, builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef,
+} from "@elaraai/e3";
 import { at, seededStream } from "@elaraai/e3-core/test";
 import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
-    RecordSliceIndexType, areaQueries, inTimeCellQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun,
-    tileNext, totalsCellQueries, totalsRun,
+    RecordSliceIndexType, SHORTEST_TILE_MS, areaQueries, inTimeCellQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries,
+    summaryRun, tileNext, totalsCellQueries, totalsRun,
 } from "@elaraai/east-ui/internal";
 
 type Index = ValueTypeOf<typeof RecordSliceIndexType>;
@@ -125,6 +129,19 @@ const STATES = ["confirmed", "proposed"];
 const ZONES = ["inbound", "storage"];
 const OCT_5 = at("2026-10-05T00:00:00.000");
 
+/**
+ * The longest job a level files, started in the last millisecond of a tile: a month's 28 days from the end of
+ * September, a quarter's 90 from the end of the third, and a year's 365 from the end of 2027, into a leap year. Each is
+ * filed under the tile it starts in and ends late in the next, which is as far as a job filed before a tile reaches
+ * into it: a window that starts before its end holds it, and one from its end on holds nothing filed before its own
+ * tile.
+ */
+const LONGEST: readonly { readonly name: string; readonly level: "month" | "quarter" | "year"; readonly start: string; readonly end: string }[] = [
+    { name: "E-longest-of-a-month", level: "month", start: "2026-09-30T23:59:59.999", end: "2026-10-28T23:59:59.999" },
+    { name: "E-longest-of-a-quarter", level: "quarter", start: "2026-09-30T23:59:59.999", end: "2026-12-29T23:59:59.999" },
+    { name: "E-longest-of-a-year", level: "year", start: "2027-12-31T23:59:59.999", end: "2028-12-30T23:59:59.999" },
+];
+
 /** The jobs: an hour to three years long, around October 2026; instants, ends before starts, and some not yet scheduled. */
 function seededJobs(): SortedMap<string, Job> {
     const draw = seededStream(1618);
@@ -146,6 +163,7 @@ function seededJobs(): SortedMap<string, Job> {
     rows.set("E-instant-at-from", job(0, at("2026-10-12T00:00:00.000"), undefined));
     rows.set("E-instant-at-to", job(0, at("2026-10-19T00:00:00.000"), undefined));
     rows.set("E-past-a-year", job(0, at("2025-11-20T06:00:00.000"), at("2027-02-10T18:00:00.000")));
+    for (const edge of LONGEST) rows.set(edge.name, job(0, at(edge.start), at(edge.end)));
     return rows;
 }
 
@@ -174,7 +192,7 @@ function seededLines(): ValueTypeOf<typeof LinesType> {
     let n = 0;
     for (const [key, job] of JOBS) dealt[n++ % dealt.length]!.set(key, job);
     // The first unit holds the edges, whatever else it is dealt
-    for (const name of ["E-ends-at-from", "E-instant-at-from", "E-instant-at-to", "E-past-a-year"]) {
+    for (const name of ["E-ends-at-from", "E-instant-at-from", "E-instant-at-to", "E-past-a-year", ...LONGEST.map((edge) => edge.name)]) {
         const job = JOBS.get(name);
         assert.ok(job !== undefined, name);
         dealt[0]!.set(name, job);
@@ -195,13 +213,18 @@ function seededLines(): ValueTypeOf<typeof LinesType> {
 
 const LINES = seededLines();
 
-/** The windows of time: the week of the edges, an hour, two years, and seeded ones. */
+/** The windows that start two milliseconds before each of the longest jobs ends, at its end, and a millisecond on: three days each. */
+const REACHED = LONGEST.flatMap((edge) =>
+    [-2n, 0n, 1n].map((ms) => ({ from: later(at(edge.end), ms), to: later(at(edge.end), ms + 3n * DAY), edge, ms })));
+
+/** The windows of time: the week of the edges, an hour, two years, those at the longest jobs' ends, and seeded ones. */
 const WINDOWS: { from: Date; to: Date }[] = (() => {
     const draw = seededStream(55);
     const out = [
         { from: at("2026-10-12T00:00:00.000"), to: at("2026-10-19T00:00:00.000") },
         { from: at("2026-10-12T09:00:00.000"), to: at("2026-10-12T10:00:00.000") },
         { from: at("2025-06-01T00:00:00.000"), to: at("2027-06-01T00:00:00.000") },
+        ...REACHED.map(({ from, to }) => ({ from, to })),
     ];
     for (let n = 0; n < 30; n++) {
         const from = later(OCT_5, BigInt(Math.floor((draw() - 0.5) * 900)) * DAY + BigInt(Math.floor(draw() * 24)) * HOUR);
@@ -397,7 +420,7 @@ test("a series index: of what the page's run a level holds, the events that over
         let more = 0;
         for (const w of WINDOWS) {
             for (const press of PRESSES) {
-                // The page reads a run a level, two tiles before the window's first and one after its last
+                // The page reads a run a level: the window's tiles, and the one before them where a job filed there can reach it
                 const runs = levelRuns("week", w.from, w.to);
                 const cells = runs.flatMap((run) => levelCellQueries(index, where, run, [printString(press)]).queries.flatMap((query) => searched(held, query)));
                 const inWindow = cells.filter(([, row]) => overlaps(row, w.from, w.to));
@@ -418,6 +441,30 @@ test("a series index: of what the page's run a level holds, the events that over
     through("press_weeks_by_state", jobs.indexes.press_weeks_by_state, heldOf(byState, JOBS), "confirmed",
         East.compile(East.function([byState.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
             byState.read(entries).events({ on: { state: "confirmed" }, key: press, from, to }).collect($)), []));
+});
+
+test("a level's shortest tile is e3's, and the longest job a level files is read from the tile before a window's first up to the millisecond it ends at (#1797)", () => {
+    // How far a job filed at a level reaches past its tile: the page's lengths are e3's.
+    assert.equal(Object.keys(SHORTEST_TILE_MS).length, RECORD_TILES.length);
+    for (const tile of RECORD_TILES) assert.equal(BigInt(SHORTEST_TILE_MS[tile]), SHORTEST_MS[tile], `the shortest ${tile}`);
+
+    const pressWeeks = e3.index(jobs.indexes.press_weeks);
+    const body = East.compile(East.function([pressWeeks.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
+        pressWeeks.read(entries).events({ key: press, from, to }).collect($)), []);
+    const held = heldOf(pressWeeks, JOBS);
+    const index = pageIndex("press_weeks", jobs.indexes.press_weeks);
+    const press = PRESSES[0]!;
+    const sameKey = equalFor(StringType);
+    for (const { from, to, edge, ms } of REACHED) {
+        // A window that starts before the job's end holds it; one from its end on does not.
+        const given = body(held.dict, press, from, to);
+        assert.equal(given.has(edge.name), ms < 0n, `${edge.name} in ${window({ from, to })}, as the body gives it`);
+        // The job is filed once, under the tile before the window's own at the level its length is the shortest tile
+        // of: that level's run holds it up to the millisecond it ends at, and a millisecond on no run reads that tile.
+        const holding = levelRuns("week", from, to).filter((run) => levelCellQueries(index, new Map(), run, [printString(press)]).queries
+            .some((query) => searched(held, query).some(([entry]) => sameKey(entry.k, edge.name)))).map((run) => run.level);
+        assert.deepEqual(holding, ms > 0n ? [] : [edge.level], `the runs of ${window({ from, to })} holding ${edge.name}`);
+    }
 });
 
 test("a series index in time order: a range a tile from a first press through a last holds every press's events the body's `events` gives, and of a run of presses what the index in key order holds of each (#1710)", () => {
@@ -639,7 +686,7 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
     let tiles = 0;
     for (const w of WINDOWS) {
         for (const [line, row] of LINES) {
-            // A unit's own jobs: a run a level, two tiles before the window's first and one after its last
+            // A unit's own jobs: a run a level, the window's tiles and the one before them where a job filed there can reach it
             for (const unit of row.units.keys()) {
                 const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
                     searched(held, pageRun(["units", "jobs"], line, [unit], variant("items", null), run.level, run.from, run.to)));

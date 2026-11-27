@@ -27,7 +27,8 @@
  * so it reads no event on no resource ({@link ScheduleCellPaged.unassigned}). The series index files each event once, at the level its
  * length fits (#1433), so a cell is a block of {@link SCHEDULE_CELL_BLOCK} of
  * the paged kind's resources, in the kind's order, over one level's run of
- * tiles (`levelRuns`: from two tiles before the range read to one after it):
+ * tiles (`levelRuns`: the range's own tiles, and the one before them where an
+ * event filed there can reach the range):
  * one range a resource (`levelCellQueries`), whatever the range's width. The
  * cells wanted are the blocks meeting the rows in view and
  * {@link SCHEDULE_CELL_MARGIN} resources either side, each a level, with the

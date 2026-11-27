@@ -6,11 +6,12 @@
 /**
  * The series and summary indexes' planner (#1039, #1433): their markers read
  * back as themselves; their tiles are e3's, before 1970 and in the first
- * century too; a reader's runs are a level's tiles from two before the range
- * to one after it, and a summary's from one before; a cell's searches are a
- * range a key, holding exactly its keys' entries over its run under each
- * combination of the leading fields' chosen values; and neither index ever
- * serves the rail's narrowing.
+ * century too; a reader's runs are a level's tiles that can hold an event
+ * overlapping the range — from the tile before the range's first, or its
+ * first where no event filed before it reaches, to its last — and a summary's
+ * from one before to one after; a cell's searches are a range a key, holding
+ * exactly its keys' entries over its run under each combination of the leading
+ * fields' chosen values; and neither index ever serves the rail's narrowing.
  *
  * And a series index in time order's (#1710): its marker names its order; a
  * cell's searches are a range a tile, from its first key through its last;
@@ -35,9 +36,9 @@ import { randomStream } from "@elaraai/east/internal";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere } from "../../src/platform/slice/record-plan.js";
 import {
-    RECORD_TILES, inTimeCellQueries, isTiledIndex, levelCellQueries, levelRuns, levelsOf, readTileMarker, readTotalsMarker, seriesIndexFor, summaryCellQueries,
-    summaryRun, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext, tileStart, tilingOf, totalsCellQueries, totalsIndexFor, totalsMarkerFields, totalsOf,
-    totalsRun, type RecordTile,
+    RECORD_TILES, SHORTEST_TILE_MS, inTimeCellQueries, isTiledIndex, levelCellQueries, levelRuns, levelsOf, readTileMarker, readTotalsMarker, seriesIndexFor,
+    summaryCellQueries, summaryRun, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext, tileStart, tilingOf, totalsCellQueries, totalsIndexFor,
+    totalsMarkerFields, totalsOf, totalsRun, type RecordTile,
 } from "../../src/platform/slice/record-series.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
@@ -199,30 +200,130 @@ test("every instant lies in the one tile its start names, whose next tile starts
     }
 });
 
-test("a series index files at its tile and every coarser one; a reader reads a run a level, from two tiles before the range to one after it", () => {
+test("a series index files at its tile and every coarser one; a reader reads a run a level, from the tile before the range's first to its last", () => {
     assert.deepEqual(levelsOf("week"), ["week", "month", "quarter", "year"]);
     assert.deepEqual(levelsOf("day"), ["day", "week", "month", "quarter", "year"]);
     assert.deepEqual(levelsOf("year"), ["year"]);
     const runs = (tile: RecordTile, from: string, to: string) => levelRuns(tile, at(from), at(to))
         .map(run => [run.level, printInstant(run.from), printInstant(run.to)]);
-    // 1–14 October 2026 over a week tile: the weeks from Mondays 14 September to 19 October, August to November, the
-    // second quarter of 2026 to the first of 2027, and 2024 to 2027 — each run's end the start of the tile after its last.
+    // 1–14 October 2026 over a week tile: the weeks from Mondays 21 September to 12 October, September and October,
+    // the third and the fourth quarter, and 2025 and 2026 — each run's end the start of the tile after its last.
     assert.deepEqual(runs("week", "2026-10-01T00:00:00.000", "2026-10-15T00:00:00.000"), [
-        ["week", "2026-09-14T00:00:00.000", "2026-10-26T00:00:00.000"],
-        ["month", "2026-08-01T00:00:00.000", "2026-12-01T00:00:00.000"],
-        ["quarter", "2026-04-01T00:00:00.000", "2027-04-01T00:00:00.000"],
-        ["year", "2024-01-01T00:00:00.000", "2028-01-01T00:00:00.000"],
+        ["week", "2026-09-21T00:00:00.000", "2026-10-19T00:00:00.000"],
+        ["month", "2026-09-01T00:00:00.000", "2026-11-01T00:00:00.000"],
+        ["quarter", "2026-07-01T00:00:00.000", "2027-01-01T00:00:00.000"],
+        ["year", "2025-01-01T00:00:00.000", "2027-01-01T00:00:00.000"],
     ]);
     // Across a year's end and a quarter's at a day tile: Sunday 20 December is in the week of Monday the 14th.
     assert.deepEqual(runs("day", "2026-12-20T00:00:00.000", "2027-01-10T00:00:00.000"), [
-        ["day", "2026-12-18T00:00:00.000", "2027-01-11T00:00:00.000"],
-        ["week", "2026-11-30T00:00:00.000", "2027-01-18T00:00:00.000"],
-        ["month", "2026-10-01T00:00:00.000", "2027-03-01T00:00:00.000"],
-        ["quarter", "2026-04-01T00:00:00.000", "2027-07-01T00:00:00.000"],
-        ["year", "2024-01-01T00:00:00.000", "2029-01-01T00:00:00.000"],
+        ["day", "2026-12-19T00:00:00.000", "2027-01-10T00:00:00.000"],
+        ["week", "2026-12-07T00:00:00.000", "2027-01-11T00:00:00.000"],
+        ["month", "2026-11-01T00:00:00.000", "2027-02-01T00:00:00.000"],
+        ["quarter", "2026-07-01T00:00:00.000", "2027-04-01T00:00:00.000"],
+        ["year", "2025-01-01T00:00:00.000", "2028-01-01T00:00:00.000"],
     ]);
     // A range ending at or before it starts is the instant at its start.
-    assert.deepEqual(runs("year", "2026-10-07T00:00:00.000", "2026-10-07T00:00:00.000"), [["year", "2024-01-01T00:00:00.000", "2028-01-01T00:00:00.000"]]);
+    assert.deepEqual(runs("year", "2026-10-07T00:00:00.000", "2026-10-07T00:00:00.000"), [["year", "2025-01-01T00:00:00.000", "2027-01-01T00:00:00.000"]]);
+});
+
+test("a run starts at the range's own tile where the range starts too far into it for an event filed before it to reach", () => {
+    assert.deepEqual(SHORTEST_TILE_MS, { day: DAY, week: 7 * DAY, month: 28 * DAY, quarter: 90 * DAY, year: 365 * DAY });
+    /** Where the run of a level starts, for a range starting at an instant. */
+    const first = (level: RecordTile, from: string) => printInstant(levelRuns(level, at(from), at(from))[0]!.from);
+    // A month's events are at most 28 days long: one filed in September ends before 29 October, to the millisecond.
+    assert.equal(first("month", "2026-10-28T23:59:59.999"), "2026-09-01T00:00:00.000");
+    assert.equal(first("month", "2026-10-29T00:00:00.000"), "2026-10-01T00:00:00.000");
+    assert.equal(first("month", "2026-10-31T12:00:00.000"), "2026-10-01T00:00:00.000");
+    assert.equal(first("month", "2026-11-01T00:00:00.000"), "2026-10-01T00:00:00.000", "the next month's start is reached from October again");
+    // No instant of a February of 28 days is 28 days into it.
+    assert.equal(first("month", "2026-02-28T23:59:59.999"), "2026-01-01T00:00:00.000");
+    assert.equal(first("month", "2028-02-29T00:00:00.000"), "2028-02-01T00:00:00.000", "a leap year's last day of February is");
+    // A quarter's are at most 90 days long: the fourth quarter's own from 30 December.
+    assert.equal(first("quarter", "2026-12-29T23:59:59.999"), "2026-07-01T00:00:00.000");
+    assert.equal(first("quarter", "2026-12-30T00:00:00.000"), "2026-10-01T00:00:00.000");
+    assert.equal(first("quarter", "2026-03-31T23:59:59.999"), "2025-10-01T00:00:00.000", "a first quarter of 90 days is always reached");
+    // A year's are at most 365: a leap year's own on its last day, a common year's never.
+    assert.equal(first("year", "2028-12-30T23:59:59.999"), "2027-01-01T00:00:00.000");
+    assert.equal(first("year", "2028-12-31T00:00:00.000"), "2028-01-01T00:00:00.000");
+    assert.equal(first("year", "2026-12-31T23:59:59.999"), "2025-01-01T00:00:00.000");
+    // Every day and every week is its level's shortest tile: always a tile back.
+    assert.equal(first("day", "2026-10-07T23:59:59.999"), "2026-10-06T00:00:00.000");
+    assert.equal(first("week", "2026-10-11T23:59:59.999"), "2026-09-28T00:00:00.000");
+    // Each level by its own length: late in October the month's run is October's, the week's still a week back.
+    assert.deepEqual(levelRuns("week", at("2026-10-30T00:00:00.000"), at("2026-11-03T00:00:00.000")).map(run => [run.level, printInstant(run.from), printInstant(run.to)]), [
+        ["week", "2026-10-19T00:00:00.000", "2026-11-09T00:00:00.000"],
+        ["month", "2026-10-01T00:00:00.000", "2026-12-01T00:00:00.000"],
+        ["quarter", "2026-07-01T00:00:00.000", "2027-01-01T00:00:00.000"],
+        ["year", "2025-01-01T00:00:00.000", "2027-01-01T00:00:00.000"],
+    ]);
+});
+
+/**
+ * Where a series index declared at a tile files an event, as e3 does: once, at the finest level from the tile up whose
+ * shortest tile holds its length, under that level's tile holding its start; past a year, under each year it touches.
+ */
+function filings(tile: RecordTile, start: Date, end: Date): { level: RecordTile; tile: Date }[] {
+    const length = end.getTime() - start.getTime();
+    for (const level of levelsOf(tile)) {
+        if (length <= SHORTEST_TILE_MS[level]) return [{ level, tile: tileStart(level, start) }];
+    }
+    const out: { level: RecordTile; tile: Date }[] = [];
+    for (let year = tileStart("year", start); year.getTime() < end.getTime(); year = tileNext("year", year)) out.push({ level: "year", tile: year });
+    return out;
+}
+
+/** Whether an event overlaps `[from, to)`: an instant — an end at or before its start — where the range holds its start. */
+function overlaps(start: Date, end: Date, from: Date, to: Date): boolean {
+    if (to.getTime() <= from.getTime()) return false;
+    if (end.getTime() <= start.getTime()) return start.getTime() >= from.getTime() && start.getTime() < to.getTime();
+    return start.getTime() < to.getTime() && end.getTime() > from.getTime();
+}
+
+test("a range's runs hold every event that overlaps it, wherever e3 files it, and start no earlier than one can reach from", () => {
+    const next = randomStream(1797);
+    const pick = <T>(of: readonly T[]): T => of[Math.floor(next() * of.length)]!;
+    /** Whether a run of the event's level holds one of the tiles it is filed under. */
+    const held = (tile: RecordTile, start: Date, end: Date, from: Date, to: Date): boolean => {
+        const runs = levelRuns(tile, from, to);
+        return filings(tile, start, end).some(filed => {
+            const run = runs.find(r => r.level === filed.level)!;
+            return filed.tile.getTime() >= run.from.getTime() && filed.tile.getTime() < run.to.getTime();
+        });
+    };
+    let overlapping = 0;
+    // At random: events an hour to four years long and instants, ranges an hour to two years wide, around 2026.
+    for (let n = 0; n < 20_000; n++) {
+        const tile = pick(RECORD_TILES);
+        const start = new Date(Date.UTC(2026, 0, 1) + Math.floor((next() - 0.5) * 1500 * DAY));
+        const length = pick([0, -3_600_000, 3_600_000, Math.floor(next() * 3 * DAY), Math.floor(next() * 120 * DAY), Math.floor(next() * 1500 * DAY)]);
+        const end = new Date(start.getTime() + length);
+        const from = new Date(start.getTime() + Math.floor((next() - 0.5) * 800 * DAY));
+        const to = new Date(from.getTime() + pick([3_600_000, Math.floor(next() * 40 * DAY), Math.floor(next() * 730 * DAY)]));
+        if (!overlaps(start, end, from, to)) continue;
+        overlapping++;
+        assert.ok(held(tile, start, end, from, to), `${tile}: [${printInstant(start)}, ${printInstant(end)}) in [${printInstant(from)}, ${printInstant(to)})`);
+    }
+    assert.ok(overlapping > 4000, `events overlap their ranges: ${overlapping}`);
+    // At each level's edge, to the millisecond: the longest event a level files, started in the last millisecond of a
+    // tile, and a range starting where it ends, a millisecond either side of it.
+    for (const level of RECORD_TILES) {
+        for (let n = 0; n < 400; n++) {
+            const boundary = tileStart(level, new Date(Date.UTC(2026, 0, 1) + Math.floor((next() - 0.5) * 3000 * DAY)));
+            const start = new Date(boundary.getTime() - 1);
+            const end = new Date(start.getTime() + SHORTEST_TILE_MS[level]);
+            assert.deepEqual(filings(level, start, end), [{ level, tile: tileStart(level, start) }], `the ${level}'s longest event is filed at it, a tile before`);
+            for (const off of [-2, -1, 0, 1]) {
+                const from = new Date(end.getTime() + off);
+                const to = new Date(from.getTime() + DAY);
+                const run = levelRuns(level, from, to)[0]!;
+                const reaches = overlaps(start, end, from, to);
+                assert.equal(reaches, off < 0, `${level}: a range from ${off} ms of the event's end`);
+                if (reaches) assert.ok(held(level, start, end, from, to), `${level}: the event reaching ${printInstant(from)} is held`);
+                // Past the event's end nothing filed before the range's own tile reaches it: the run starts there, or later.
+                if (off > 0) assert.ok(run.from.getTime() >= boundary.getTime(), `${level}: no tile before ${printInstant(boundary)} is read from ${printInstant(from)}`);
+            }
+        }
+    }
 });
 
 test("a summary's run is its tiles from the one before the range to the one after it", () => {
@@ -276,16 +377,16 @@ const october = summaryRun("month", at("2026-10-01T00:00:00.000"), at("2026-10-1
 test("a series cell is a range a key over its run, under each combination of the leading fields' chosen values, the key flattened", () => {
     assert.deepEqual(levelCellQueries(byName("jobs_by_press_week"), where([]), weekRun, presses), {
         queries: presses.map(press => variant("range", {
-            from: [press, ".week", "2026-09-21T00:00:00.000"], to: [press, ".week", "2026-10-26T00:00:00.000"],
+            from: [press, ".week", "2026-09-28T00:00:00.000"], to: [press, ".week", "2026-10-19T00:00:00.000"],
         })), residual: [],
     });
     const led = levelCellQueries(byName("jobs_by_state_press_week"), where([["state", values(".late", ".held")]]), weekRun, presses.slice(0, 2));
     assert.deepEqual(led.queries, [".late", ".held"].flatMap(state => presses.slice(0, 2).map(press => variant("range", {
-        from: [state, press, ".week", "2026-09-21T00:00:00.000"], to: [state, press, ".week", "2026-10-26T00:00:00.000"],
+        from: [state, press, ".week", "2026-09-28T00:00:00.000"], to: [state, press, ".week", "2026-10-19T00:00:00.000"],
     }))), "the keys inner, in the order given, the leading values one by one");
     const year = levelRuns("week", monday, at("2026-10-19T00:00:00.000"))[3]!;
     assert.deepEqual(levelCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"')]]), year, presses.slice(0, 1)).queries,
-        [variant("range", { from: ['"C-1"', presses[0]!, ".year", "2024-01-01T00:00:00.000"], to: ['"C-1"', presses[0]!, ".year", "2028-01-01T00:00:00.000"] })]);
+        [variant("range", { from: ['"C-1"', presses[0]!, ".year", "2025-01-01T00:00:00.000"], to: ['"C-1"', presses[0]!, ".year", "2027-01-01T00:00:00.000"] })]);
 });
 
 test("a summary cell is a range a key over its tiles", () => {
@@ -369,8 +470,8 @@ test("the record's totals at a tile are read through those led by the most of th
 });
 
 test("a cell of a series index in time order is a range a tile, from its first key through its last (#1710)", () => {
-    // A fortnight from Monday 5 October: the weeks from Mondays 21 September to 19 October.
-    const mondays = ["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19"].map(day => `${day}T00:00:00.000`);
+    // A fortnight from Monday 5 October: its two weeks, and the one before them.
+    const mondays = ["2026-09-28", "2026-10-05", "2026-10-12"].map(day => `${day}T00:00:00.000`);
     const first = presses[0]!;
     const last = presses[2]!;
     assert.deepEqual(inTimeCellQueries(byName("jobs_by_week"), where([]), weekRun, first, last), {
@@ -385,7 +486,7 @@ test("a cell of a series index in time order is a range a tile, from its first k
         [variant("range", { from: [".week", mondays[0]!, first], to: [".week", mondays[0]!, first, "true"] })]);
     const year = levelRuns("week", monday, at("2026-10-19T00:00:00.000"))[3]!;
     assert.deepEqual(inTimeCellQueries(byName("jobs_by_week"), where([]), year, first, last).queries,
-        ["2024", "2025", "2026", "2027"].map(y => variant("range", {
+        ["2025", "2026"].map(y => variant("range", {
             from: [".year", `${y}-01-01T00:00:00.000`, first], to: [".year", `${y}-01-01T00:00:00.000`, last, "true"],
         })), "a year's tiles of a week's index, as its runs name them");
     // What the narrowing chooses beside the leading fields and the window is the reader's, as a key-ordered cell's is.

@@ -12,10 +12,13 @@
  *   the finest level, from its declared tile up to the year, whose shortest
  *   tile holds the event's length, under that level's tile holding its start —
  *   or, past a year, under each year it touches — carrying the row. An event
- *   filed at a level ends before the end of the tile after the one holding its
- *   start, so a reader finds every event at a level that overlaps a range by
- *   reading that level's tiles from the one before the range's first: a
- *   **run** ({@link levelRuns}).
+ *   filed at a level is no longer than that level's shortest tile
+ *   ({@link SHORTEST_TILE_MS}), so it ends before the end of the tile after
+ *   the one holding its start: a reader finds every event at a level that
+ *   overlaps a range by reading that level's tiles from the one before the
+ *   range's first — or from the range's first, where the range starts too far
+ *   into it for an event filed before it to reach: a **run**
+ *   ({@link levelRuns}).
  * - A **summary index** keeps one entry for each key in each of its tiles,
  *   `{ on, key, tile }` → `{ count, ms }`, standing for every event touching
  *   it; a reader reads its tiles over the range ({@link summaryRun}).
@@ -237,6 +240,21 @@ const WEEK_MS = 604_800_000;
 /** 1969-12-29T00:00:00Z, the Monday before the epoch, in milliseconds: where weeks are counted from. */
 const MONDAY_MS = -259_200_000;
 
+/**
+ * Each level's shortest tile, in milliseconds, as e3 files by it: a day; a
+ * week; a month's 28 days; a quarter's 90, January to March in a common year;
+ * a year's 365. An event a series index files at a level is no longer than
+ * this, which is what bounds how far one filed in a tile reaches past it
+ * ({@link levelRuns}).
+ */
+export const SHORTEST_TILE_MS: Readonly<Record<RecordTile, number>> = {
+    day: DAY_MS,
+    week: WEEK_MS,
+    month: 28 * DAY_MS,
+    quarter: 90 * DAY_MS,
+    year: 365 * DAY_MS,
+};
+
 /** An instant floored to a whole number of `length` milliseconds from `origin`, whichever its sign. */
 function flooredTo(ms: number, length: number, origin: number): number {
     return ms - ((((ms - origin) % length) + length) % length);
@@ -434,10 +452,18 @@ export function levelsOf(tile: RecordTile): readonly RecordTile[] {
 
 /**
  * What a reader reads of a series index over a range `[from, to)` (#1433): a
- * run a level, each from two tiles before the one holding `from` — the tile
- * before it, which may hold an event reaching into the range, and the one a
- * pan back reaches first — to the one after the tile holding the range's last
- * instant, the one a pan on reaches first.
+ * run a level, the tiles that can hold an event overlapping the range and no
+ * other — to the tile holding the range's last instant, from the one holding
+ * `from`, or the one before it where an event filed there can reach the range.
+ *
+ * An event filed at a level starts in its tile and is no longer than the
+ * level's shortest tile ({@link SHORTEST_TILE_MS}), so one filed before the
+ * tile holding `from` ends less than that length after the tile's start. Where
+ * `from` lies at least as far into its tile, no such event reaches it, and the
+ * run starts at the tile holding `from`: late in a month, a quarter or a year.
+ * Every day and every week is its level's shortest tile, so theirs always
+ * starts a tile back. An event longer than a year is filed under each year it
+ * touches, the range's own among them.
  *
  * @param tile - The declared tile
  * @param from - The range's start
@@ -445,11 +471,11 @@ export function levelsOf(tile: RecordTile): readonly RecordTile[] {
  * @returns A run a level, the finest first
  */
 export function levelRuns(tile: RecordTile, from: Date, to: Date): TileRun[] {
-    return levelsOf(tile).map(level => ({
-        level,
-        from: tilePrevious(level, tilePrevious(level, tileStart(level, from))),
-        to: tileNext(level, tileNext(level, lastTile(level, from, to))),
-    }));
+    return levelsOf(tile).map(level => {
+        const first = tileStart(level, from);
+        const reached = from.getTime() - first.getTime() < SHORTEST_TILE_MS[level];
+        return { level, from: reached ? tilePrevious(level, first) : first, to: tileNext(level, lastTile(level, from, to)) };
+    });
 }
 
 /**

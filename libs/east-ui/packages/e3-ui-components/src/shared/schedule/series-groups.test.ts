@@ -93,19 +93,20 @@ describe("a group's searches through the series index that serves it (#1710)", (
         { name: "jobs_by_hall_week", fields: ["hall"], sets: new Set(), structured: true, ...plain, series: some({ ...week, order: variant("time", null) }) },
     ])) as [ValueTypeOf<typeof RecordSliceIndexType>, ValueTypeOf<typeof RecordSliceIndexType>];
     const literals = ["10", "9", "12"];
-    // The week of Monday 5 October 2026: the weeks' run is two before it to one after, Mondays 21 September to 12 October.
+    // The week of Monday 5 October 2026: the weeks' run is the week before it and the week itself, Mondays 28 September
+    // and 5 October — an event a week long that began in the week before reaches into it, and none from before that.
     const run = levelRuns("week", new Date("2026-10-05T00:00:00Z"), new Date("2026-10-12T00:00:00Z"))[0]!;
 
     test("a range a key through an index in key order; a range a tile, from its first key through its last, through one in time order", () => {
         const group = { id: "presses:0.0", literals, under: NO_UNDER };
         const byKey: SeriesGroup = { ...group, where: new Map(), run: undefined };
         expect(groupQueries(byPress, byKey, run)).toEqual(literals.map((press) =>
-            variant("range", { from: [press, ".week", "2026-09-21T00:00:00.000"], to: [press, ".week", "2026-10-19T00:00:00.000"] })));
+            variant("range", { from: [press, ".week", "2026-09-28T00:00:00.000"], to: [press, ".week", "2026-10-12T00:00:00.000"] })));
         const inTime: SeriesGroup = {
             ...group, under: ["H-01"], where: new Map([["hall", variant("values", ['"H-01"'])]]),
             run: keyRunOf(keyOrderOf(cellsType, "press"), literals),
         };
-        const mondays = ["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12"].map((monday) => `${monday}T00:00:00.000`);
+        const mondays = ["2026-09-28", "2026-10-05"].map((monday) => `${monday}T00:00:00.000`);
         expect(groupQueries(byHall, inTime, run)).toEqual(mondays.map((tile) =>
             variant("range", { from: ['"H-01"', ".week", tile, "9"], to: ['"H-01"', ".week", tile, "12", "true"] })));
     });
