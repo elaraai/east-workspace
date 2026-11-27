@@ -12,12 +12,13 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, SortedMap, compareFor, encodeBeast2For, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, StringType, compareFor, encodeBeast2For, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { decodeCollectionManifest, type SyncDescription, type SyncSelection } from '@elaraai/e3-types';
+import { decodeCollectionManifest, encodeCollectionManifest, type SyncDescription, type SyncSelection } from '@elaraai/e3-types';
 import { dataflowGetGraph, dataflowResolveInputHashes } from '../dataflow.js';
-import { SyncObjectError, SyncReleaseError, WorkspaceExistsError } from '../errors.js';
+import { SyncObjectError, SyncReleaseError, SyncSelectionError, WorkspaceExistsError } from '../errors.js';
 import { dataflowExecute } from '../execution/local-orchestrator.js';
 import { LocalTaskRunner } from '../execution/LocalTaskRunner.js';
 import { inputsHash } from '../executions.js';
@@ -27,7 +28,8 @@ import { recordMutate } from '../records.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { LocalStorage } from '../storage/local/LocalBackend.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
-import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
+import { workspaceSetDataset } from '../trees.js';
+import { readStateOrThrow, workspaceCreate, workspaceDeploy } from '../workspaces.js';
 import { syncDescribe } from './describe.js';
 import { originObjects, replicaCreate, withReadThrough, type OriginObjects } from './replica.js';
 
@@ -144,11 +146,14 @@ describe('a replica of a selection', { concurrency: false }, () => {
     assert.equal(there.success, true);
     await sameResults(t, storage, origin, replica, ['first', 'second']);
 
-    // Nothing of `other` was asked for, and none of it may be read
-    const other = await closureOf(storage, origin, (await valueOf(storage, origin, 'inputs/other')).hash);
+    // Nothing of `other` was asked for, and none of it may be read: not its
+    // manifest, nor a segment of it
+    const otherValue = (await valueOf(storage, origin, 'inputs/other')).hash;
+    const other = await closureOf(storage, origin, otherValue);
     assert.deepEqual(asked.asked.filter((hash) => other.has(hash)), []);
-    const segment = [...other][0]!;
-    assert.equal((await originObjects(storage, origin, description).read([segment])).size, 0);
+    const segment = decodeCollectionManifest(await storage.objects.read(origin, otherValue)).entries[0]!.hash;
+    assert.ok(other.has(segment) && segment !== otherValue, 'a segment of `other`');
+    assert.equal((await originObjects(storage, origin, description).read([otherValue, segment])).size, 0);
     t.diagnostic(`the origin was asked for ${new Set(asked.asked).size} objects of the ${await storage.objects.count(origin)} it holds, in ${asked.requests.length} requests`);
   });
 
@@ -256,6 +261,96 @@ describe('a replica of a selection', { concurrency: false }, () => {
     assert.ok(!asked.asked.includes(held.self), 'its head commit was not');
   });
 
+  it('refuses a task whose inputs the origin made from two values of one input, and runs it with the task the origin makes again first', async (t) => {
+    const { storage, origin, replica, dir } = repositories(t);
+    const a = e3.input('a', IntegerType, variant('value', 1n));
+    const left = e3.task('left', [a], add);
+    const right = e3.task('right', [a], add);
+    const joined = e3.task('join', [left.output, right.output], East.function([IntegerType, IntegerType], IntegerType, ($, l, r) => l.add(r)));
+    await deploy(storage, origin, dir, 'diamond', e3.package('diamond', '1.0.0', a, left, right, joined));
+    assert.equal((await dataflowExecute(storage, origin, 'ws')).success, true);
+    // `left` made again from a new value of `a`, `right` still from the old
+    await workspaceSetDataset(storage, origin, 'ws', [variant('field', 'inputs'), variant('field', 'a')], 2n, IntegerType);
+    assert.equal((await dataflowExecute(storage, origin, 'ws', { filter: 'left' })).success, true);
+
+    await assert.rejects(syncDescribe(storage, origin, 'ws', tasks('join')),
+      (err: unknown) => err instanceof SyncSelectionError && /'join'/.test(err.message) && /'\.inputs\.a'/.test(err.message));
+    const description = await syncDescribe(storage, origin, 'ws', tasks('right', 'join'));
+    const asked = recording(originObjects(storage, origin, description));
+    await replicaCreate(storage, replica, 'ws', description, asked);
+    assert.equal((await dataflowExecute(withReadThrough(storage, replica, asked), replica, 'ws')).executed, 2);
+    const there = await dataflowExecute(storage, origin, 'ws');
+    assert.equal(there.executed, 2, 'the origin makes `right` again, then `join`');
+    await sameResults(t, storage, origin, replica, ['right', 'join']);
+  });
+
+  it('takes an object too large to hold whole as a stream, and runs to the origin\'s result', async (t) => {
+    const { storage, origin, replica, dir } = repositories(t);
+    const big = e3.input('big', StringType);
+    const size = e3.task('size', [big], East.function([StringType], IntegerType, ($, text) => text.length()));
+    await deploy(storage, origin, dir, 'big', e3.package('big', '1.0.0', big, size));
+    // Random, so that it is stored at about its size: 16 MiB of base64
+    await workspaceSetDataset(storage, origin, 'ws', [variant('field', 'inputs'), variant('field', 'big')], randomBytes(12 * 1024 * 1024).toString('base64'), StringType);
+
+    const description = await syncDescribe(storage, origin, 'ws', tasks('size'));
+    const objects = originObjects(storage, origin, description);
+    const streamed: string[] = [];
+    const kinds: string[] = [];
+    const watching: OriginObjects = {
+      async read(hashes) {
+        const answered = await objects.read(hashes);
+        for (const [hash, bytes] of answered) {
+          kinds.push(`${hash.slice(0, 8)}:${bytes instanceof Uint8Array ? `whole ${bytes.length}` : 'stream'}`);
+          if (!(bytes instanceof Uint8Array)) streamed.push(hash);
+        }
+        return answered;
+      },
+    };
+    await replicaCreate(storage, replica, 'ws', description, watching);
+    assert.equal((await dataflowExecute(withReadThrough(storage, replica, watching), replica, 'ws')).success, true);
+    const bigHash = (await valueOf(storage, origin, 'inputs/big')).hash;
+    t.diagnostic(`the input is ${(await storage.objects.stat(origin, bigHash)).size} bytes; the origin answered ${kinds.join(', ')}`);
+    assert.deepEqual(streamed, [bigHash], 'the input, and only it, came as a stream');
+    assert.equal((await dataflowExecute(storage, origin, 'ws')).success, true);
+    await sameResults(t, storage, origin, replica, ['size']);
+  });
+
+  it('works out the origin\'s closure again after a read that could not', async (t) => {
+    const { storage, origin, dir } = repositories(t);
+    await deploy(storage, origin, dir, 'chain', chainWithOther());
+    const description = await syncDescribe(storage, origin, 'ws', tasks('first', 'second'));
+    let fail = true;
+    const objects = new Proxy(storage.objects, {
+      get(target, key) {
+        const member: unknown = Reflect.get(target, key, target);
+        if (typeof member !== 'function') return member;
+        return (...args: unknown[]): unknown => {
+          if (fail && (key === 'read' || key === 'readRange')) {
+            fail = false;
+            return Promise.reject(new Error('the store is throttled'));
+          }
+          return Reflect.apply(member, target, args);
+        };
+      },
+    });
+    const flaky = new Proxy(storage, { get: (target, key) => (key === 'objects' ? objects : Reflect.get(target, key, target) as unknown) });
+    const origins = originObjects(flaky, origin, description);
+    const root = description.package.tasks.get('first')!;
+    await assert.rejects(origins.read([root]));
+    assert.equal((await origins.read([root])).size, 1, 'the next read worked it out');
+  });
+
+  it('names its package by the origin\'s name, at a version of its own', async (t) => {
+    const { storage, origin, replica, dir } = repositories(t);
+    await deploy(storage, origin, dir, 'chain', chainWithOther());
+    const description = await syncDescribe(storage, origin, 'ws', tasks('first', 'second'));
+    const { packageHash } = await replicaCreate(storage, replica, 'ws', description, originObjects(storage, origin, description));
+    const state = await readStateOrThrow(storage, replica, 'ws');
+    assert.equal(state.packageName, 'chain');
+    assert.equal(state.packageVersion, `1.0.0-replica.${packageHash.slice(0, 12)}`);
+    assert.equal(state.packageHash, packageHash);
+  });
+
   describe('refuses', () => {
     async function described(t: TestContext): Promise<{ storage: StorageBackend; origin: string; replica: string; description: SyncDescription }> {
       const { storage, origin, replica, dir } = repositories(t);
@@ -269,6 +364,20 @@ describe('a replica of a selection', { concurrency: false }, () => {
       await assert.rejects(replicaCreate(storage, replica, 'ws', { ...description, release: '99.0.0' }, objects), SyncReleaseError);
       await replicaCreate(storage, replica, 'older', { ...description, release: '1.0.0' }, objects);
       assert.ok(await storage.refs.workspaceRead(replica, 'older') !== null);
+    });
+
+    it('a description that names no release', async (t) => {
+      const { storage, origin, replica, description } = await described(t);
+      await assert.rejects(replicaCreate(storage, replica, 'ws', { ...description, release: 'dev' }, originObjects(storage, origin, description)),
+        (err: unknown) => err instanceof SyncObjectError && /'dev'/.test(err.message));
+    });
+
+    it('a description whose version vector names something that is no hash', async (t) => {
+      const { storage, origin, replica, description } = await described(t);
+      const [path, ref] = [...description.datasets].find(([, each]) => each.type === 'value')!;
+      assert.ok(ref.type === 'value');
+      const datasets = new Map(description.datasets).set(path, variant('value', { hash: ref.value.hash, versions: new Map([['.inputs.a', 'zz']]) }));
+      await assert.rejects(replicaCreate(storage, replica, 'ws', { ...description, datasets }, originObjects(storage, origin, description)), /SHA-256/);
     });
 
     it('a workspace that exists', async (t) => {
@@ -295,6 +404,26 @@ describe('a replica of a selection', { concurrency: false }, () => {
       const leaving: OriginObjects = { read: async (hashes) => new Map([...await objects.read(hashes)].filter(([hash]) => hash !== left)) };
       await assert.rejects(replicaCreate(storage, replica, 'ws', description, leaving), (err: unknown) => err instanceof SyncObjectError && err.message.includes(left));
       assert.equal(await storage.refs.workspaceRead(replica, 'ws'), null, 'and makes no workspace');
+    });
+
+    it('an origin that leaves out an object below a root, naming it', async (t) => {
+      const { storage, origin, replica, dir } = repositories(t);
+      await deploy(storage, origin, dir, 'chain', chainWithOther());
+      // `other` as a manifest a level above its own, which names it: what the
+      // structure's read reaches below a root
+      const below = (await valueOf(storage, origin, 'inputs/other')).hash;
+      const manifest = decodeCollectionManifest(await storage.objects.read(origin, below));
+      const above = await storage.objects.write(origin, encodeCollectionManifest({ ...manifest, level: 1n, entries: [{ ...manifest.entries[0]!, hash: below }] }));
+      await storage.datasets.write(origin, 'ws', 'inputs/other', variant('value', { hash: above, versions: new Map() }));
+      const description = await syncDescribe(storage, origin, 'ws', tasks('use_other'));
+      const objects = originObjects(storage, origin, description);
+
+      const leaving: OriginObjects = { read: async (hashes) => new Map([...await objects.read(hashes)].filter(([hash]) => hash !== below)) };
+      await assert.rejects(replicaCreate(storage, replica, 'ws', description, leaving), (err: unknown) => err instanceof SyncObjectError && err.message.includes(below));
+      assert.equal(await storage.refs.workspaceRead(replica, 'ws'), null, 'and makes no workspace');
+      const asked = recording(objects);
+      await replicaCreate(storage, replica, 'ws', description, asked);
+      assert.ok(asked.asked.includes(below), 'an origin that gives it makes the replica, having read it');
     });
   });
 });

@@ -47,8 +47,10 @@ export interface SelectionCut {
  * @returns The cut
  * @throws {SyncSelectionError} When the selection is the whole workspace,
  *   which a workspace bundle carries; when it names bindings or records,
- *   which are not supported yet; or when it names a task the package does
- *   not have, naming each
+ *   which are not supported yet; when it names a task the package does not
+ *   have, naming each; or when it leaves out a task between two of its own,
+ *   naming each, since a task of the cut would then read what that task made
+ *   from the origin's values, not the cut's
  *
  * @example
  * ```ts
@@ -77,6 +79,24 @@ export function selectionCut(pkg: PackageObject, graph: DataflowGraph, selection
   const edge = new Set<string>();
   for (const task of tasks) {
     for (const input of task.inputs) if (!outputs.has(input)) edge.add(input);
+  }
+
+  // A task outside the cut that depends, however far back, on a task of it,
+  // and writes what a task of it reads, is between two of its tasks
+  const byName = new Map(graph.tasks.map((task) => [task.name, task]));
+  const reaches = new Map<string, boolean>();
+  const belowCut = (name: string): boolean => {
+    const known = reaches.get(name);
+    if (known !== undefined) return known;
+    const below = (byName.get(name)?.dependsOn ?? []).some((dep) => wanted.has(dep) || belowCut(dep));
+    reaches.set(name, below);
+    return below;
+  };
+  const between = graph.tasks
+    .filter((task) => !wanted.has(task.name) && edge.has(task.output) && belowCut(task.name))
+    .map((task) => `'${task.name}'`);
+  if (between.length > 0) {
+    throw new SyncSelectionError(`the selection leaves out ${between.join(', ')}, between tasks it holds`);
   }
 
   return {

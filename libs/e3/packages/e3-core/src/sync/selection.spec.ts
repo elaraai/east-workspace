@@ -104,6 +104,16 @@ describe('selectionCut', () => {
     assert.throws(() => selectionCut(chain.pkg, chain.graph, withRecord), SyncSelectionError);
   });
 
+  it('refuses a selection that leaves out a task between two of its own, naming it, and takes one that leaves out a task above it', () => {
+    const four = packageOf([['first', [A]], ['mid', [output('first')]], ['last', [output('mid')]]]);
+    assert.throws(() => selectionCut(four.pkg, four.graph, tasks('first', 'last')),
+      (err: unknown) => err instanceof SyncSelectionError && /leaves out 'mid'/.test(err.message));
+    // However far back the task left out reads the cut's
+    const five = packageOf([['first', [A]], ['mid', [output('first')]], ['deeper', [output('mid')]], ['last', [output('deeper')]]]);
+    assert.throws(() => selectionCut(five.pkg, five.graph, tasks('first', 'last')), /leaves out 'deeper'/);
+    assert.deepEqual(selectionCut(four.pkg, four.graph, tasks('mid', 'last')).edge, [output('first')]);
+  });
+
   it('refuses the whole workspace, which a bundle carries', () => {
     assert.throws(() => selectionCut(chain.pkg, chain.graph, variant('full', null)), /workspace bundle/);
   });
