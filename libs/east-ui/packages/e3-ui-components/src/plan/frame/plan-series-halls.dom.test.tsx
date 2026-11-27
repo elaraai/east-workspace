@@ -17,7 +17,7 @@
  *   the index — the halls' presses a window at a time, in the index's order —
  *   never the presses whole, and the rail counts them.
  * - The jobs' cells are read for the narrowed presses in view alone, and a
- *   scroll reads the blocks it brings in alone.
+ *   scroll reads the block it brings in and the next the way it went (#1797).
  * - A choice changes nothing drawn early: until its first window lands the
  *   last view stands in, retained, and no cell is read for it.
  * - Drafts are the jobs' session's whatever the halls, and Save commits them.
@@ -293,7 +293,7 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
         }
     });
 
-    test("the jobs' cells are read for the narrowed presses in view alone; a scroll into presses further down reads their blocks', never the first's again", async () => {
+    test("the jobs' cells are read for the narrowed presses in view alone; a scroll into presses further down reads their block's and the next one down's, never those above them (#1797)", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container } = await h.mount(hallsPlan());
@@ -306,14 +306,13 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
             const first = searchedPresses(opened);
             expect(first.size).toBeGreaterThan(0);
             expect([...first].every((key) => chosen.slice(0, 50).includes(key))).toBe(true);
-            // Down to the hundredth: the blocks around it, the second and the third — none of the first.
+            // Down to the hundredth: the block its rows meet, the third, and the next one down, the fourth, the way the view
+            // went — every press of the two, and none of the two above them, which a view going down is not headed for.
             const scrolled = h.requests().length;
             act(() => { window.scrollTo({ top: 100 * ROW_PX }); });
             await waitFor(() => expect(searchedPresses(scrolled).size).toBeGreaterThan(0), { timeout: 10_000 });
             await settle();
-            const below = searchedPresses(scrolled);
-            expect([...below].every((key) => chosen.slice(50, 150).includes(key))).toBe(true);
-            expect([...below].some((key) => chosen.slice(0, 50).includes(key))).toBe(false);
+            expect(searchedPresses(scrolled)).toEqual(new Set(chosen.slice(100, 200)));
         } finally {
             restore();
         }
@@ -344,7 +343,8 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
             await waitFor(() => expect(loadingLine(container)).toMatch(/^Filtering/));
             expect(h.requests().slice(asked).filter(searchesCells)).toEqual([]);
             // Landed: the halls' rows, live again, where the page is — their hundred and forty-first press on — and the cells
-            // of the blocks around them read alone: none of the narrowing's first presses, which no view of it has shown.
+            // of the blocks their rows meet read alone: none of the narrowing's first presses, which no view of it has shown,
+            // and no block past them, a narrowing's first view having gone no way (#1797).
             await act(async () => { windows.release(); });
             await settle();
             await waitFor(() => expect(plot(container, "P-1141")).toBeNull());

@@ -9,10 +9,12 @@
  *
  * # What it reads
  *
- * The canvas's rows in view and 25 either side (`SCHEDULE_CELL_MARGIN`), in
- * blocks of {@link SCHEDULE_CELL_BLOCK} of its rows — top rows and child rows
- * alike, in the canvas's order. A folded row's children are no rows of it, and
- * their items are not read. For each row, each collection its series reads
+ * The blocks of {@link SCHEDULE_CELL_BLOCK} of the canvas's rows meeting those
+ * in view, and the next block the way the view last went (#1797) — the one
+ * after them where it went on down the rows, the one before them where it went
+ * back up; none beside them for a view that has gone no way — top rows and
+ * child rows alike, in the canvas's order. A folded row's children are no rows
+ * of it, and their items are not read. For each row, each collection its series reads
  * (the seam's `uses`) and each level the collection's items are filed at, one
  * range over that level's run of tiles (#1433): `[place, row, path, .items,
  * level, from]` to `[…, to]`, every literal as the index's key prints it. A row
@@ -71,7 +73,7 @@ import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexe
 import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
-import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
+import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket, type ScheduleCellTravel } from "../../shared/schedule/cells.js";
 import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
 import { bucketsOver } from "./cells.js";
@@ -357,18 +359,20 @@ function viewOf(view: PlanNestedView | undefined, visible: readonly PlanRowValue
 
 /**
  * Every search a view wants (see the module docs): each row of the blocks
- * meeting it, each collection its series reads at each level it is filed at;
- * each parent's subtotals or subtree; and, past the cap, each row's totals.
+ * meeting it and of the next the way it went, each collection its series reads
+ * at each level it is filed at; each parent's subtotals or subtree; and, past
+ * the cap, each row's totals.
  *
  * @param args - What the reader reads over
  * @param lit - The index's literals
  * @param capped - The places past the cap, as their key prints them: their rows read totals in place of items
  * @param derives - How a row derives its numbers from its children's: as it was drawn before the reader shaded it
  * @param summary - The period the rows past the cap read their totals at; `undefined` where the index keeps them at none that divides the canvas's bucket
+ * @param way - The way the rows in view last went (#1797); `undefined` for a view that has gone none
  * @returns The runs, each node's at a level once
  */
 function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<string>, summary: RecordTile | undefined,
-    derives: (row: PlanRowValue) => Derives): Cell[] {
+    derives: (row: PlanRowValue) => Derives, way: ScheduleCellTravel | undefined): Cell[] {
     const { seam, visible, index, range, resolution } = args;
     if (range === undefined) return [];
     const tile = seam.tile.type as RecordTile;
@@ -432,7 +436,7 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
         });
     };
     const view = viewOf(args.view, visible);
-    for (const block of wantedBlocks(view, visible.length)) {
+    for (const block of wantedBlocks(view, visible.length, way)) {
         for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) want(visible[i]!);
     }
     // A pinned row stands under the ruler wherever the view rests, and is none of the rows laid out: its cells are
@@ -641,6 +645,32 @@ class NestedCellsReader {
      */
     private derived = new Map<string, Derives>();
     private shadedRows: ReadonlySet<string> = new Set();
+    /**
+     * The first row in view the way was last told from, by its key, and the way the view had gone through the rows laid
+     * out by then (#1797): none for a view that has gone no way. `undefined` before the canvas reports a view.
+     */
+    private went: { readonly first: string; readonly way: ScheduleCellTravel | undefined } | undefined;
+
+    /**
+     * The way the rows in view last went through the rows laid out (#1797): on where the view's first row stands after
+     * the one the way was last told from, back where it stands before it — and as it stood while the view begins at the
+     * same row, or that row is laid out no more. A read made again over the same view is told the same.
+     *
+     * @returns The way; `undefined` for a view that has gone none — before the canvas reports one, the first it reports,
+     *   and one whose first row is laid out no more, which reads the first block alone
+     */
+    private wayOf(args: PlanNestedArgs): ScheduleCellTravel | undefined {
+        const view = args.view;
+        if (view === undefined) return undefined;
+        const went = this.went;
+        if (went !== undefined && stringEqual(went.first, view.first)) return went.way;
+        const now = args.visible.findIndex((row) => stringEqual(row.key, view.first));
+        if (now < 0) return undefined;
+        const was = went === undefined ? -1 : args.visible.findIndex((row) => stringEqual(row.key, went.first));
+        const way = was < 0 ? went?.way : was < now ? "forward" : "back";
+        this.went = { first: view.first, way };
+        return way;
+    }
 
     /** How a row derives its numbers from its children's: as drawn, or, while this reader shades it, as it was. */
     private derivesOf = (row: PlanRowValue): Derives => {
@@ -665,8 +695,10 @@ class NestedCellsReader {
             throw new Error(`The Plan's rows are read through '${args.seam.source}', which no indexed runtime here built with a nested series index`);
         }
         const lit = literals(binding);
+        // The way the rows in view last went: the next block that way is read beside those they meet (#1797).
+        const way = this.wayOf(args);
         const revision = binding.handle.revision();
-        if (revision.type !== "some") return waitingOn(wantedCells(args, lit, new Set(), undefined, this.derivesOf));
+        if (revision.type !== "some") return waitingOn(wantedCells(args, lit, new Set(), undefined, this.derivesOf, way));
         if (this.held === undefined || !stringEqual(this.held.revision, revision.value)) {
             this.held = { revision: revision.value, spans: new Map(), found: new Map(), read: new Map(), counting: [], reading: [] };
         }
@@ -676,7 +708,7 @@ class NestedCellsReader {
         const kept = new Set(args.seam.summary.map((period) => period.type as RecordTile));
         const summary = dividingTiles(args.resolution).find((tile) => kept.has(tile));
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
-        const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf);
+        const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf, way);
         const firstParts = this.partsOf(first, lit);
         if (!this.counted(binding, index, firstParts)) return waitingOn(firstParts.map((part) => part.cell));
         const items = new Map<string, number>();
@@ -685,7 +717,7 @@ class NestedCellsReader {
             items.set(cell.place, (items.get(cell.place) ?? 0) + this.countOf(cell, firstParts));
         }
         const capped = new Set([...items].filter(([, n]) => n > SCHEDULE_EVENT_CAP).map(([place]) => place));
-        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf);
+        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf, way);
         const parts = capped.size === 0 ? firstParts : this.partsOf(wanted, lit);
         if (!this.counted(binding, index, parts)) return waitingOn(parts.map((part) => part.cell));
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.

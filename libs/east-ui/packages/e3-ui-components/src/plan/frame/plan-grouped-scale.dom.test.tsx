@@ -14,8 +14,9 @@
  * row mounting says nothing of it.
  *
  * - At each rest the jobs read are those of the blocks of presses meeting the
- *   view and its margin, never every block from the page's first row: a hall's
- *   own row stands for no press (#1711).
+ *   view, and of the next block the way the view went (#1797) — none where a
+ *   page opens, which has gone no way — never every block from the page's
+ *   first row: a hall's own row stands for no press (#1711).
  * - The halls draw in the order their binding gives: by name beside their
  *   nested series index, in their keys' order without it. Their names run
  *   against their keys, so a hall's presses mount where the view looks for
@@ -437,6 +438,28 @@ const findsOf = (index: string, from: number): E3Request[] => h.requests().slice
 /** The searches the series index was asked since `from`: each a press's jobs at a level. */
 const searchesOf = (from: number): number => findsOf(SERIES, from).reduce((n, request) => n + request.searches.length, 0);
 
+/** Each press's place among the presses the page draws — each hall's, in the halls' order — by the press as the jobs' indexes file a job on it. */
+const PLACE_OF = new Map(DRAWN.flatMap((hall) => pressCodes[hall]!).map((code, at) => [pressLiteral(code), at] as const));
+
+/**
+ * The presses whose jobs the series index was asked for since `from`, each by its place among the presses the page
+ * draws, ascending: a search of the index in key order names its press first.
+ */
+const pressesAsked = (from: number): number[] => {
+    const places = new Set<number>();
+    for (const search of findsOf(SERIES, from).flatMap((request) => request.searches)) {
+        const press = "from" in search ? search.from?.[0] : undefined;
+        const at = press === undefined ? undefined : PLACE_OF.get(press);
+        // Every search is a press's: one that names none is no search of the page's.
+        expect(at).toBeDefined();
+        places.add(at!);
+    }
+    return [...places].sort((a, b) => a - b);
+};
+
+/** The blocks of presses some places are in, where every press is in one window of the rows, ascending. */
+const blocksOf = (places: readonly number[]): number[] => [...new Set(places.map((at) => Math.floor(at / SCHEDULE_CELL_BLOCK)))];
+
 /** The jobs' marks drawn now, each by its job, in order: what two pages over the same jobs are compared by. */
 const marksOf = (container: HTMLElement): string[] =>
     [...container.querySelectorAll<HTMLElement>("[data-plan-row] [data-mark]")].map((mark) => mark.getAttribute("data-mark") ?? "").sort();
@@ -509,12 +532,13 @@ function report(step: string, from: number, cpu0: number, container: HTMLElement
 }
 
 describe("a Plan over grouped rows at a page's size (#1710)", () => {
-    test("each rest reads the jobs of the presses meeting the view and its margin, a hall's own row at the top of the view among them (#1711)", async () => {
+    test("each rest reads the jobs of the presses meeting the view and of the next block the way it went, a hall's own row at the top of the view among them (#1711, #1797)", async () => {
         const restore = emulateWindowScroll();
         const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
         try {
             if (LOG) process.stdout.write(`\n### sizes: ${JSON.stringify({ nested: NESTED, halls: HALLS, presses: PRESSES, tasks: TASKS, jobs: PRESSES * JOBS, sizes: SIZES })}\n`);
-            // At most three blocks of presses meet a view and its margin either side, each press its jobs at every level.
+            // At most three blocks of presses: two a view may meet, and the next the way it went — each press its jobs at
+            // every level.
             const atMost = 3 * SCHEDULE_CELL_BLOCK * LEVELS;
 
             // Opening: the first block, where a view opens.
@@ -535,11 +559,16 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             // The hall drawn second to last by name, far down the page; by key, the third. The halls before it differ
             // in each order, so its presses mount where the view looks only in the order the binding gives.
             const deep = 2;
+            // The presses the page draws before the hall's, and how far into the hall the view rests: at the fifth press
+            // of a block, so the rows in view meet that block alone.
+            const before = DRAWN.slice(0, DRAWN.indexOf(deep)).reduce((sum, hall) => sum + SIZES[hall]!, 0);
+            const into = (SCHEDULE_CELL_BLOCK + 5 - (before % SCHEDULE_CELL_BLOCK)) % SCHEDULE_CELL_BLOCK;
+            const inside = Math.floor((before + into) / SCHEDULE_CELL_BLOCK);
 
             // Inside a hall far down: a press's row at the top of the view.
             from = h.requests().length;
             cpu0 = cpu();
-            act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + 5 * pressPx }); });
+            act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + into * pressPx }); });
             await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(deep, 2)}`))).toBe(true), { timeout: 600_000 });
             await scrollStopped();
             await settle();
@@ -547,6 +576,8 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(searchesOf(from)).toBeGreaterThan(0);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            // The block the rows in view meet, and the next one down the page, the way the view went: none before it (#1797).
+            expect(blocksOf(pressesAsked(from))).toEqual([inside, inside + 1]);
 
             // A wheel's step on from there, a press down, inside the blocks read: the rows in view move, so the jobs are
             // read again — from the cells held, asking e3 nothing, and ordering none of the jobs by their keys again
@@ -556,7 +587,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             try {
                 from = h.requests().length;
                 const rows = mounted(container);
-                act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + 6 * pressPx }); });
+                act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + (into + 1) * pressPx }); });
                 await waitFor(() => expect(mounted(container)).not.toEqual(rows), { timeout: 600_000 });
                 await scrollStopped();
                 await settle();
@@ -575,6 +606,11 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             report(`hall ${deep}'s own row at the top`, from, cpu0, container);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
+            // Back up the page: the block before the view's first is read, the way the view went, and none past those
+            // the view left, which a view going back is not headed for (#1797).
+            const back = blocksOf(pressesAsked(from));
+            expect(back[0]).toBe(Math.floor(before / SCHEDULE_CELL_BLOCK) - 1);
+            expect(back.every((block) => block < inside)).toBe(true);
             // Its jobs drawn, never its presses' shading from the summary.
             expect(findsOf(SUMMARY, from)).toEqual([]);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
@@ -602,9 +638,10 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             // The first hall's window and the two the driver reads ahead of it, a hall each: no other hall is read, nor made.
             expect(hallPages(from).every((read) => read.limit === 1)).toBe(true);
             expect(hallWindows(from)).toEqual([0, 1, 2]);
-            // The first hall's presses' jobs and, where the margin past the view reaches beyond its presses, the next
-            // hall's first block: a block is a window's own.
-            expect(searchesOf(from)).toBeLessThanOrEqual(2 * SCHEDULE_CELL_BLOCK * LEVELS);
+            // The jobs of the first hall's presses alone, the block the view opens on: a view that has gone no way reads
+            // no block ahead of it (#1797) — never the next hall's first, a window on.
+            expect(searchesOf(from)).toBeLessThanOrEqual(SCHEDULE_CELL_BLOCK * LEVELS);
+            expect(pressesAsked(from).every((at) => at < SIZES[DRAWN[0]!]!)).toBe(true);
 
             // The end of the page, where the last hall drawn sits whatever the halls not read are estimated at: the
             // canvas's height moves as their windows land, and the view goes with it until the hall is drawn.
@@ -626,7 +663,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(hallPages(from).every((read) => read.limit === 1)).toBe(true);
             expect(hallWindows(from)).toContain(HALLS - 1);
             for (const w of hallWindows(from)) expect(w).toBeGreaterThanOrEqual(Math.floor(HALLS / 2));
-            // Its presses' jobs, at most the blocks meeting the view and its margin.
+            // Its presses' jobs, at most the blocks meeting the view and the next the way it went.
             expect(searchesOf(from)).toBeGreaterThan(0);
             expect(searchesOf(from)).toBeLessThanOrEqual(3 * SCHEDULE_CELL_BLOCK * LEVELS);
             expect(findsOf(SUMMARY, from)).toEqual([]);
@@ -688,9 +725,9 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
                 expect(pressCodes[at]!.some((code) => textEqual(pressLiteral(code), last))).toBe(true);
                 runs.add(`${hall} ${first} ${last}`);
             }
-            // The first hall drawn, and where the margin past the view reaches beyond its presses the next one's first
-            // block: a block a hall, never a search a press.
-            expect(runs.size).toBeLessThanOrEqual(2);
+            // The first hall drawn alone: a block a hall, never a search a press — and a view that has gone no way reads
+            // no block ahead of it (#1797), so not the next hall's first.
+            expect(runs.size).toBe(1);
             expect(searches.length).toBeLessThan(asked);
 
             // Further down the first hall drawn that fills a view: its presses' jobs through the same index, drawn.

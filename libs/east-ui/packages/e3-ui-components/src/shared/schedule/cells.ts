@@ -30,8 +30,8 @@
  * tiles (`levelRuns`: the range's own tiles, and the one before them where an
  * event filed there can reach the range):
  * one range a resource (`levelCellQueries`), whatever the range's width. The
- * cells wanted are the blocks meeting the rows in view and
- * {@link SCHEDULE_CELL_MARGIN} resources either side, each a level, with the
+ * cells wanted are the blocks meeting the rows in view and the next block the
+ * way the view last went (see "The way a view went"), each a level, with the
  * Unassigned row's cells where one is drawn. The reader keeps what it read by block, level and
  * tile — a range's entries split by the tile each names — so a pan or a zoom
  * asks, a block a level, one range a resource over the tiles it does not hold
@@ -53,6 +53,21 @@
  * reported under the narrowing their windows are, and a choice's rows still to
  * land are reported by none: until they are, a span of the last narrowing's
  * reads no cell, and its cells stand in.
+ *
+ * # The way a view went
+ *
+ * Beside the blocks meeting the rows in view, a read takes in one place more:
+ * the next block the way the view last went through the paged rows (#1797) —
+ * the one after the last block its rows meet where it went on, the one before
+ * the first where it went back, in the window next to theirs where theirs ends
+ * there — so a scroll on the same way draws rows whose events are held
+ * already, and nothing is read on the side the view left. The reader tells the
+ * way from one span of the rows in view to the next
+ * ({@link scheduleCellTravel}), and it stands while the rows in view do:
+ * through a pan, a zoom, a commit, and a view of no row. A view that has gone
+ * no way — one opening, the first under a narrowing — reads the blocks meeting
+ * its rows alone. The block ahead is never waited on: while its window of the
+ * paged rows is in flight, the blocks in view are read without it.
  *
  * # A view of no row
  *
@@ -115,10 +130,10 @@
  * # The cap
  *
  * While the cells of the blocks meeting the rows in view hold at most
- * {@link SCHEDULE_EVENT_CAP} entries, their events draw (#1768). The margin's
- * blocks are counted with them, in the same request, and read too, in their
- * order, while what is read stays within the cap: the cap holds what the
- * screen draws, never the rows read ahead. A block of the margin left unread
+ * {@link SCHEDULE_EVENT_CAP} entries, their events draw (#1768). The blocks
+ * read ahead of them are counted with them, in the same request, and read
+ * too, in their order, while what is read stays within the cap: the cap holds
+ * what the screen draws, never the rows read ahead. A block ahead left unread
  * is no block whose cells landed: scrolled to before the read that has it in
  * view lands, its rows draw as unread. Past the cap in view — or past one
  * batch of searches — and for a counted
@@ -278,9 +293,6 @@ import type { ScheduleEventDraftsValue, ScheduleKindRows, ScheduleLanded, Schedu
 
 /** How many of a paged resource kind's resources a cell holds: a block of them, in the kind's order. */
 export const SCHEDULE_CELL_BLOCK = 50;
-
-/** The resources either side of the rows in view whose blocks are read too. */
-export const SCHEDULE_CELL_MARGIN = 25;
 
 /** A kind's source of the slice: a record Slice's controls — its reads, its counts and its cells go through it. */
 export type ScheduleCellPart = ValueTypeOf<RecordSliceBindType>;
@@ -574,6 +586,14 @@ export function sameCellSpan(a: ScheduleCellSpan, b: ScheduleCellSpan): boolean 
         && sameNarrowing(a.narrowing, b.narrowing);
 }
 
+/**
+ * The way the rows in view last went through the paged rows (#1797): on,
+ * toward the rows after them, or back, toward those before — what the next
+ * block a read takes in beside those in view is told by (see the module docs,
+ * "The way a view went").
+ */
+export type ScheduleCellTravel = "forward" | "back";
+
 /** One bucket of the host's, by its start and its end, in ms. */
 export interface ScheduleCellBucket {
     /** Its start. */
@@ -770,20 +790,20 @@ export function scheduleWithinCap(count: ScheduleCellKind["count"], from: Date, 
 /**
  * Which of the blocks a read wants it reads, by how many entries each block's
  * cells hold (#1768): every block meeting the rows in view, while together
- * they hold at most {@link SCHEDULE_EVENT_CAP} entries, and each of the
- * margin's, in their order, while what is read stays within it — the cap holds
- * what the screen draws, never the rows read ahead. A block of the margin past
- * it is left unread, and one after it that fits is read.
+ * they hold at most {@link SCHEDULE_EVENT_CAP} entries, and each read ahead of
+ * them, in their order, while what is read stays within it — the cap holds
+ * what the screen draws, never the rows read ahead. A block ahead past it is
+ * left unread, and one after it that fits is read.
  *
- * @param blocks - Each block wanted, in order: whether only the margin wants it, and how many entries its cells hold
+ * @param blocks - Each block wanted, in order: whether it is read ahead of the rows in view, and how many entries its cells hold
  * @returns Whether each is read, in order; `undefined` where the blocks in view alone hold more than the cap
  */
-export function scheduleCellsWithinCap(blocks: readonly { readonly margin: boolean; readonly count: number }[]): boolean[] | undefined {
+export function scheduleCellsWithinCap(blocks: readonly { readonly ahead: boolean; readonly count: number }[]): boolean[] | undefined {
     let held = 0;
-    for (const block of blocks) if (!block.margin) held += block.count;
+    for (const block of blocks) if (!block.ahead) held += block.count;
     if (held > SCHEDULE_EVENT_CAP) return undefined;
     return blocks.map((block) => {
-        if (!block.margin) return true;
+        if (!block.ahead) return true;
         if (held + block.count > SCHEDULE_EVENT_CAP) return false;
         held += block.count;
         return true;
@@ -829,25 +849,31 @@ export interface ScheduleCellView {
 
 /**
  * No row in view reported yet: the first resource, where a view opens — the
- * first block, and the next only once the rows in view reach within
- * {@link SCHEDULE_CELL_MARGIN} of it.
+ * first block alone, a view that has gone no way reading none ahead of it.
  */
 export const SCHEDULE_CELL_OPENING: ScheduleCellView = { first: 0, last: 0 };
 
 /**
  * The blocks of a paged resource kind's resources a reader wants: those
- * meeting the resources in view and {@link SCHEDULE_CELL_MARGIN} either side.
+ * meeting the resources in view, and the next block the way the view last
+ * went (#1797) — the one after them where it went on, the one before them
+ * where it went back, where the kind has one.
  *
  * @param view - The resources in view
  * @param total - How many resources the kind has, once known
+ * @param travel - The way the view last went; left out for a view that has gone none, which reads no block ahead
  * @returns The blocks, by their place, ascending
  */
-export function wantedBlocks(view: ScheduleCellView, total: number | undefined): number[] {
-    const lo = Math.max(0, view.first - SCHEDULE_CELL_MARGIN);
-    const hi = total === undefined ? view.last + SCHEDULE_CELL_MARGIN : Math.min(view.last + SCHEDULE_CELL_MARGIN, total - 1);
+export function wantedBlocks(view: ScheduleCellView, total: number | undefined, travel?: ScheduleCellTravel): number[] {
+    const first = Math.max(0, view.first);
+    const last = total === undefined ? view.last : Math.min(view.last, total - 1);
+    if (last < first) return [];
     const out: number[] = [];
-    for (let b = Math.floor(lo / SCHEDULE_CELL_BLOCK); b <= Math.floor(hi / SCHEDULE_CELL_BLOCK); b++) out.push(b);
-    return hi < lo ? [] : out;
+    for (let b = Math.floor(first / SCHEDULE_CELL_BLOCK); b <= Math.floor(last / SCHEDULE_CELL_BLOCK); b++) out.push(b);
+    if (travel === "back" && out[0]! > 0) out.unshift(out[0]! - 1);
+    const next = out[out.length - 1]! + 1;
+    if (travel === "forward" && (total === undefined || next * SCHEDULE_CELL_BLOCK < total)) out.push(next);
+    return out;
 }
 
 /** A block of resources and their keys' texts: what a cell holds of them. */
@@ -865,18 +891,25 @@ export interface ScheduleCellBlock {
     /** Where its resources stand (#1710): the keys' texts of the rows they nest under, outermost first; left out under no row. */
     readonly under?: readonly string[] | undefined;
     /**
-     * Whether only the margin wants it (#1768): none of its resources is in view. The cap holds the blocks in view, and
-     * such a block is read while what is read stays within it ({@link scheduleCellsWithinCap}); left out for one in view.
+     * Whether it is read ahead of the rows in view (#1768, #1797): none of its resources is in view, and it is the next
+     * the way the view went. The cap holds the blocks in view, and such a block is read while what is read stays within
+     * it ({@link scheduleCellsWithinCap}); left out for one in view.
      */
-    readonly margin?: boolean | undefined;
+    readonly ahead?: boolean | undefined;
     /** The rows beneath each of its resources a kind's `child` lands on (#1541, U1), by the resource's key's text; left out for none. */
     readonly children?: ReadonlyMap<string, readonly ScheduleCellChild[]> | undefined;
 }
 
 /**
- * The paged rows' blocks a view wants, each its resources' keys: those meeting the rows in view and
- * {@link SCHEDULE_CELL_MARGIN} resources either side, in their windows' order — a block only the margin wants, none of
- * its resources in view, marked so (`margin`, #1768).
+ * The paged rows' blocks a view wants, each its resources' keys: those meeting the rows in view, in their windows'
+ * order, and — where the view has gone a way (`travel`, #1797) — the next block that way, none of its resources in
+ * view, marked so (`ahead`, #1768).
+ *
+ * The block ahead is the one after the last block the rows in view meet, for a view that went on, and the one before
+ * the first, for one that went back: in the window next to theirs where theirs ends there — that window's first
+ * block, or its last. It is never waited on: while that window is in flight the blocks meeting the rows in view are
+ * wanted without it, the window asked for, and a tracked read made over them runs again once it lands. A view
+ * opening has no row to go on from, and wants no block ahead.
  *
  * A block is a window's own (#1541): its resources `[j × BLOCK, (j + 1) × BLOCK)` in the order the window draws
  * them, a block a slot their rows land on — as many as the window draws, one an entry of a resource kind's, any
@@ -891,16 +924,18 @@ export interface ScheduleCellBlock {
  *
  * Rows in view that run from one series of the rows on into another over the same windows — rows beside a group at a
  * Plan's top (#1710) — are a run each: each run's blocks are wanted, a window two runs meet in wanting the blocks
- * around each, and never the windows between one run's and another's. Rows in view reported as none — they stand for
- * no resource (#1795) — want no block, and no window is asked for them.
+ * meeting each, and never the windows between one run's and another's; the block ahead is the view's, after its last
+ * run's last block or before its first run's first. Rows in view reported as none — they stand for no resource
+ * (#1795) — want no block, and no window is asked for them.
  *
  * @param paged - The paged rows
  * @param span - The rows in view, as the host last reported them — a run of them, several, or none; `undefined` before it has: the first resource, where a view opens
- * @returns The blocks; `undefined` while a window of them is in flight, and while the rows in view are another
- *   narrowing's than the one the windows read now (#1344) — a choice's rows still to land and be reported, whose places
- *   the last narrowing's windows do not hold
+ * @param travel - The way the rows in view last went ({@link scheduleCellTravel}); left out for a view that has gone none
+ * @returns The blocks; `undefined` while a window the rows in view are in is in flight, and while the rows in view are
+ *   another narrowing's than the one the windows read now (#1344) — a choice's rows still to land and be reported,
+ *   whose places the last narrowing's windows do not hold
  */
-export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined): ScheduleCellBlock[] | undefined {
+export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined, travel?: ScheduleCellTravel): ScheduleCellBlock[] | undefined {
     const narrowing = paged.narrowing();
     if (span !== undefined && !sameNarrowing(span.narrowing, narrowing)) return undefined;
     const total = paged.total();
@@ -926,24 +961,21 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
         const at = keys.findIndex((k) => stringEqual(k.key, end.key));
         return at < 0 ? null : { w: end.w, at };
     };
-    // Each window's wanted blocks: those meeting its places a run wants. A window two runs meet in wants the blocks
-    // around each, never those between them; a place past its window's resources wants none.
-    const wanted = new Map<number, Set<number>>();
-    const want = (w: number, keys: readonly ScheduleCellKey[], lo: number, hi: number): void => {
-        let held = wanted.get(w);
-        if (held === undefined) wanted.set(w, (held = new Set()));
+    // Each window's blocks meeting the rows in view: what the cap holds (#1768). A window two runs meet in wants the
+    // blocks meeting each, never those between them; a place past its window's resources wants none.
+    const seen = new Map<number, Set<number>>();
+    const see = (w: number, keys: readonly ScheduleCellKey[], lo: number, hi: number): void => {
+        let held = seen.get(w);
+        if (held === undefined) seen.set(w, (held = new Set()));
         const end = Math.min(keys.length - 1, hi);
         for (let j = Math.floor(Math.max(0, lo) / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= end; j++) held.add(j);
     };
-    // Each window's blocks meeting the rows in view, the margin aside (#1768): what the cap holds.
-    const seen = new Map<number, Set<number>>();
-    const see = (w: number, lo: number, hi: number): void => {
-        let held = seen.get(w);
-        if (held === undefined) seen.set(w, (held = new Set()));
-        for (let j = Math.floor(Math.max(0, lo) / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= hi; j++) held.add(j);
-    };
-    // Each run of the rows in view (#1710) — or, before any is reported, where a view opens — from its first row less the
-    // margin to its last plus it.
+    // The first block the rows in view meet and the last, in the view's order, by their windows and their places there:
+    // what the block ahead is told from. None before a row in view is reported, where a view opens.
+    let head: { readonly w: number; readonly j: number } | undefined;
+    let tail: { readonly w: number; readonly j: number } | undefined;
+    // Each run of the rows in view (#1710) — or, before any is reported, where a view opens — from its first row to its
+    // last.
     for (const run of span?.runs ?? [undefined]) {
         const firstAt = placeOf(run?.first);
         const lastAt = placeOf(run?.last);
@@ -956,52 +988,118 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
         for (let w = first.w; w <= last.w; w++) {
             const keys = keysOf(w);
             if (keys === undefined) return undefined;
-            want(w, keys, w === first.w ? first.at - SCHEDULE_CELL_MARGIN : 0, w === last.w ? last.at + SCHEDULE_CELL_MARGIN : keys.length - 1);
-            see(w, w === first.w ? first.at : 0, w === last.w ? last.at : keys.length - 1);
+            see(w, keys, w === first.w ? first.at : 0, w === last.w ? last.at : keys.length - 1);
         }
-        // The margin spills into the window before the first, and after the last, as far as it reaches.
-        if (first.at - SCHEDULE_CELL_MARGIN < 0 && first.w > 0) {
-            const before = keysOf(first.w - 1);
-            if (before === undefined) return undefined;
-            want(first.w - 1, before, before.length + first.at - SCHEDULE_CELL_MARGIN, before.length - 1);
-        }
-        const lastKeys = keysOf(last.w);
-        if (lastKeys === undefined) return undefined;
-        if (last.at + SCHEDULE_CELL_MARGIN >= lastKeys.length) {
-            const after = keysOf(last.w + 1);
-            if (after === undefined) return undefined;
-            want(last.w + 1, after, 0, last.at + SCHEDULE_CELL_MARGIN - lastKeys.length);
+        if (run === undefined) continue;
+        head ??= { w: first.w, j: Math.floor(first.at / SCHEDULE_CELL_BLOCK) };
+        tail = { w: last.w, j: Math.floor(last.at / SCHEDULE_CELL_BLOCK) };
+    }
+    // The next block the way the view went (#1797): after the last block its rows meet, or before the first — in the
+    // window next to theirs where theirs ends there. Never waited on: while that window is in flight it is left out,
+    // the window asked for, and a tracked read made over these runs again when it lands.
+    let next: { readonly w: number; readonly j: number } | undefined;
+    if (travel === "forward" && tail !== undefined) {
+        if ((tail.j + 1) * SCHEDULE_CELL_BLOCK < (keysOf(tail.w) ?? []).length) next = { w: tail.w, j: tail.j + 1 };
+        else if ((keysOf(tail.w + 1) ?? []).length > 0) next = { w: tail.w + 1, j: 0 };
+    }
+    if (travel === "back" && head !== undefined) {
+        if (head.j > 0) next = { w: head.w, j: head.j - 1 };
+        else {
+            const before = keysOf(head.w - 1) ?? [];
+            if (before.length > 0) next = { w: head.w - 1, j: Math.floor((before.length - 1) / SCHEDULE_CELL_BLOCK) };
         }
     }
+    // The places wanted, in their windows' order: those the rows in view meet, and the one ahead where none of them
+    // does (#1768).
+    const places = [...seen].flatMap(([w, held]) => [...held].map((j) => ({ w, j, ahead: false })));
+    if (next !== undefined && seen.get(next.w)?.has(next.j) !== true) places.push({ ...next, ahead: true });
+    places.sort((a, b) => a.w - b.w || a.j - b.j);
     const blocks: ScheduleCellBlock[] = [];
-    for (const w of [...wanted.keys()].sort((a, b) => a - b)) {
-        const keys = keysOf(w)!;
-        for (const j of [...wanted.get(w)!].sort((a, b) => a - b)) {
-            // Only the margin wants it (#1768): none of its resources is in view.
-            const margin = seen.get(w)?.has(j) !== true;
-            // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
-            // window draws them — each with the rows beneath it a kind's `child` lands on (#1541, U1).
-            const runs: { slot: string; under: readonly string[]; keys: string[]; children: Map<string, readonly ScheduleCellChild[]> }[] = [];
-            for (const k of keys.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
-                const under = k.under ?? NO_UNDER;
-                let run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
-                if (run === undefined) runs.push(run = { slot: k.slot, under, keys: [k.key], children: new Map() });
-                else run.keys.push(k.key);
-                if (k.children !== undefined) run.children.set(k.key, [...(run.children.get(k.key) ?? []), ...k.children]);
-            }
-            // A slot's first block of a place is named by the place; each further one, under another row, by which it is.
-            const placed = new Map<string, number>();
-            for (const run of runs) {
-                const n = placed.get(run.slot) ?? 0;
-                placed.set(run.slot, n + 1);
-                blocks.push({
-                    slot: run.slot, id: n === 0 ? `${w}.${j}` : `${w}.${j}.${n}`, keys: run.keys, ...(run.under.length > 0 && { under: run.under }),
-                    ...(margin && { margin: true }), ...(run.children.size > 0 && { children: run.children }),
-                });
-            }
+    for (const { w, j, ahead } of places) {
+        // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
+        // window draws them — each with the rows beneath it a kind's `child` lands on (#1541, U1).
+        const runs: { slot: string; under: readonly string[]; keys: string[]; children: Map<string, readonly ScheduleCellChild[]> }[] = [];
+        for (const k of keysOf(w)!.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
+            const under = k.under ?? NO_UNDER;
+            let run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
+            if (run === undefined) runs.push(run = { slot: k.slot, under, keys: [k.key], children: new Map() });
+            else run.keys.push(k.key);
+            if (k.children !== undefined) run.children.set(k.key, [...(run.children.get(k.key) ?? []), ...k.children]);
+        }
+        // A slot's first block of a place is named by the place; each further one, under another row, by which it is.
+        const placed = new Map<string, number>();
+        for (const run of runs) {
+            const n = placed.get(run.slot) ?? 0;
+            placed.set(run.slot, n + 1);
+            blocks.push({
+                slot: run.slot, id: n === 0 ? `${w}.${j}` : `${w}.${j}.${n}`, keys: run.keys, ...(run.under.length > 0 && { under: run.under }),
+                ...(ahead && { ahead: true }), ...(run.children.size > 0 && { children: run.children }),
+            });
         }
     }
     return blocks;
+}
+
+/**
+ * The way the rows in view went, from one span of them to the next (#1797):
+ * told by where the next begins against the last — on where it begins among
+ * the last's rows after their first, back where the last began among its own,
+ * and, where neither holds a row of the other, a jump, by their first rows'
+ * windows and then their places in one. Told by the rows the views hold, never
+ * by their windows alone: a view going on from one series of the rows into the
+ * next over the same windows — rows beside a group at a Plan's top (#1710) —
+ * begins in an earlier window and has still gone on.
+ *
+ * Rows that say no way leave the one the view had gone: the same first row —
+ * a view grown, a row beneath unfolded — and a first row its window holds no
+ * more. Every window asked is one a row of the next span stands in, which its
+ * blocks ask for too: telling the way reads nothing of its own.
+ *
+ * @param paged - The paged rows
+ * @param was - The rows in view the way was last told from
+ * @param now - The rows in view now
+ * @returns The way they went; `"still"` where they say none; `undefined` while a window a row of `now` stands in is in flight
+ */
+export function scheduleCellTravel(paged: ScheduleCellPaged, was: ScheduleCellSpan, now: ScheduleCellSpan): ScheduleCellTravel | "still" | undefined {
+    const a = was.runs[0]?.first;
+    const b = now.runs[0]?.first;
+    if (a === undefined || b === undefined) return "still";
+    // Where one row stands to another: before it, at it, or after it, as a number below, at or above nothing — by their
+    // windows where they differ, else by their places in the one; `null` where the window holds one of them no more,
+    // `undefined` while it is in flight.
+    const order = (x: ScheduleCellEnd, y: ScheduleCellEnd): number | null | undefined => {
+        if (x.w !== y.w) return x.w - y.w;
+        if (stringEqual(x.key, y.key)) return 0;
+        const keys = scheduleWindowKeys(paged, x.w);
+        if (keys === undefined) return undefined;
+        if (keys === SCHEDULE_WINDOW_FAILED) return null;
+        const at = keys.findIndex((k) => stringEqual(k.key, x.key));
+        const to = keys.findIndex((k) => stringEqual(k.key, y.key));
+        return at < 0 || to < 0 ? null : at - to;
+    };
+    // The run of a span's a row stands in, by its place among them: none where it stands in none of them.
+    const runOf = (end: ScheduleCellEnd, span: ScheduleCellSpan): number | undefined => {
+        for (const [n, run] of span.runs.entries()) {
+            const after = order(run.first, end);
+            const before = order(end, run.last);
+            if (after === undefined || before === undefined) return undefined;
+            if (after !== null && before !== null && after <= 0 && before <= 0) return n;
+        }
+        return -1;
+    };
+    const moved = order(a, b);
+    if (moved === undefined) return undefined;
+    if (moved === 0) return "still";
+    // The next view begins among the last's rows, after their first: it went on.
+    const on = runOf(b, was);
+    if (on === undefined) return undefined;
+    if (on >= 0) return "forward";
+    // The last began among the next's rows, after their first: it went back.
+    const back = runOf(a, now);
+    if (back === undefined) return undefined;
+    if (back >= 0) return "back";
+    // A jump: neither holds a row of the other.
+    return moved === null ? "still" : moved < 0 ? "forward" : "back";
 }
 
 /** The tiles that divide a bucket of each resolution — a bucket is a union of whole ones — the largest first. */
@@ -1124,7 +1222,7 @@ type KindRead =
         readonly mode: "cells"; readonly handle: string; readonly held: HeldRows; readonly dropped: ReadonlySet<string>; readonly revision: string;
         /** Whether they are a series index's cells over the paged kind's blocks; `false` for its window's own rows. */
         readonly paged: boolean;
-        /** The resources of the margin's blocks left unread beneath the cap (#1768), by {@link scheduleCellId}: their rows wait on a read. */
+        /** The resources of the blocks ahead left unread beneath the cap (#1768), by {@link scheduleCellId}: their rows wait on a read. */
         readonly unread: ReadonlySet<string>;
     }
     | { readonly mode: "shade"; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
@@ -1413,6 +1511,12 @@ class CellsReader {
         readonly revisions: ReadonlyMap<string, string>;
     } | undefined;
     /**
+     * The rows in view the way was last told from, and the way they had gone through the paged rows by then (#1797; see
+     * the module docs, "The way a view went") — none for a view that has gone no way: one opening, or the first under a
+     * narrowing. `undefined` before any row in view is reported.
+     */
+    private went: { readonly span: ScheduleCellSpan; readonly way: ScheduleCellTravel | undefined } | undefined;
+    /**
      * Which drafts a kind given {@link ScheduleCellKind.isNew} draws, and those its last read drew: what stands through
      * a carry-over (`drafted-rows.ts`).
      */
@@ -1459,6 +1563,29 @@ class CellsReader {
     /** The view the latest read was asked for, whatever of it is in flight: its host's period, and each kind's source's choices. */
     asked(): ReadView {
         return this.askedView;
+    }
+
+    /**
+     * The way the rows in view last went through the paged rows (#1797; see the module docs, "The way a view went"):
+     * told from the rows the way was last told from to those reported now, and the same while they are the same rows —
+     * a read made again is told the same. Rows that say no way leave the way as it stood, as do rows in view reported
+     * as none, and rows of another narrowing than the windows read now, whose blocks wait on the rows; the first rows
+     * reported under a narrowing have gone none.
+     *
+     * @returns The way; `undefined` for a view that has gone none; {@link READING} while a window the rows in view are in is in flight
+     */
+    private travelOf(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined): ScheduleCellTravel | undefined | typeof READING {
+        const went = this.went;
+        if (span === undefined || span.runs.length === 0 || !sameNarrowing(span.narrowing, paged.narrowing())) return went?.way;
+        if (went === undefined || !sameNarrowing(went.span.narrowing, span.narrowing)) {
+            this.went = { span, way: undefined };
+            return undefined;
+        }
+        if (sameCellSpan(went.span, span)) return went.way;
+        const way = scheduleCellTravel(paged, went.span, span);
+        if (way === undefined) return READING;
+        this.went = { span, way: way === "still" ? went.way : way };
+        return this.went.way;
     }
 
     /** The revision a kind's record reads at now: its source's, else its host's say of it; `none` while it is not known. */
@@ -1740,7 +1867,7 @@ class CellsReader {
         const notices: ScheduleCellNotice[] = [];
         const capped = new Set<string>();
         const windowed = new Set<string>();
-        // The resources of the margin's blocks a kind left unread beneath the cap (#1768): their rows wait on a read.
+        // The resources of the blocks ahead a kind left unread beneath the cap (#1768): their rows wait on a read.
         const unread = new Set<string>();
         const over: ScheduleCellRange = { from: range.from.getTime(), to: range.to.getTime() };
         // The shading, by a row's key, then by the resource's key: each tile's totals, or the hatch.
@@ -1752,7 +1879,12 @@ class CellsReader {
         const blocksOfPaged = (): ScheduleCellBlock[] | typeof READING => {
             if (pagedBlocks !== undefined) return pagedBlocks;
             try {
-                pagedBlocks = paged === undefined || paged.hidden ? [] : schedulePagedBlocks(paged, span) ?? READING;
+                if (paged === undefined || paged.hidden) pagedBlocks = [];
+                else {
+                    // The blocks meeting the rows in view, and the next the way they last went (#1797).
+                    const way = this.travelOf(paged, span);
+                    pagedBlocks = way === READING ? READING : schedulePagedBlocks(paged, span, way) ?? READING;
+                }
             } catch (thrown) {
                 // The paged kind's own rows — their count, a window — failing to read: what its host's paging says where
                 // those rows are, never as its period's (#1710). Anything else thrown is the reader's own failure.
@@ -1894,7 +2026,7 @@ class CellsReader {
             capped: capped.size === 0 ? NONE_CAPPED : capped,
             dropped,
             // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them — but
-            // those of the margin's blocks a kind left unread beneath the cap (#1768), whose rows wait on a read.
+            // those of the blocks ahead a kind left unread beneath the cap (#1768), whose rows wait on a read.
             covered: !byCells ? undefined : unread.size === 0 ? this.wantedKeys : new Set([...this.wantedKeys].filter((id) => !unread.has(id))),
             range: over,
             revisions: revisions.size === 0 ? NO_REVISIONS : revisions,
@@ -1992,8 +2124,9 @@ class CellsReader {
         // each a run of each level (#1433). Where none draws them they are read for nothing (#1710), and through an index
         // in time order led by the rows' group, which no block of theirs stands under, none would serve them.
         const groups: CellGroup[] = [];
-        // The resources of each group only the margin wants, by the group (#1768): what waits on a read where the cap leaves it.
-        const margins = new Map<string, readonly string[]>();
+        // The resources of each group read ahead of the rows in view, by the group (#1768): what waits on a read where the
+        // cap leaves it.
+        const aheads = new Map<string, readonly string[]>();
         for (const block of blocks) {
             const literals = block.keys.flatMap((key) => {
                 const literal = this.literal(kind, block.slot, key);
@@ -2002,7 +2135,7 @@ class CellsReader {
             if (literals.length === 0) continue;
             const id = `${block.slot}:${block.id}`;
             groups.push({ id, literals, under: block.under ?? NO_UNDER });
-            if (block.margin === true) margins.set(id, block.keys.map((key) => scheduleCellId(block.slot, key)));
+            if (block.ahead === true) aheads.set(id, block.keys.map((key) => scheduleCellId(block.slot, key)));
         }
         const unplaced = unassigned ? this.noResource(kind) : undefined;
         if (unplaced !== undefined) groups.push({ id: "none", literals: [unplaced], under: NO_UNDER });
@@ -2051,12 +2184,12 @@ class CellsReader {
         for (const name of [...spansHeld.keys()]) if (!plans.has(name)) spansHeld.delete(name);
         if (counted.some((one) => one === READING)) return READING;
         const counts = counted as SeriesCounted[];
-        // The cap holds the groups meeting the rows in view, through every index together; the margin's are read too, in
-        // their order, while what is read stays within it (#1768). Past it in view: its summary's shading.
-        const weighed = counts.flatMap((one, p) => reading[p]!.groups.map((group, g) => ({ margin: margins.has(group.id), count: one.counts[g]! })));
+        // The cap holds the groups meeting the rows in view, through every index together; those read ahead are read too,
+        // in their order, while what is read stays within it (#1768). Past it in view: its summary's shading.
+        const weighed = counts.flatMap((one, p) => reading[p]!.groups.map((group, g) => ({ ahead: aheads.has(group.id), count: one.counts[g]! })));
         const taken = scheduleCellsWithinCap(weighed);
         if (taken === undefined) {
-            const inView = weighed.reduce((sum, group) => (group.margin ? sum : sum + group.count), 0);
+            const inView = weighed.reduce((sum, group) => (group.ahead ? sum : sum + group.count), 0);
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, inView, true);
         }
         // Each index's groups taken in read, asked together; the resources of those the cap leaves wait on a read.
@@ -2068,7 +2201,7 @@ class CellsReader {
             const mine = taken.slice(first, first + plan.groups.length);
             first += plan.groups.length;
             for (const [g, group] of plan.groups.entries()) {
-                if (mine[g] !== true) for (const id of margins.get(group.id) ?? []) unread.add(id);
+                if (mine[g] !== true) for (const id of aheads.get(group.id) ?? []) unread.add(id);
             }
             reads.push(this.seriesRead(spansHeld, part, plan.series, one, mine));
         }

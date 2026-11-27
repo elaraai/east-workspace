@@ -18,9 +18,10 @@
  *   weeks its window touches: every cell's searches in one request, their
  *   entries in one more — never a page of the window through the interval
  *   index, which reads the backlog alone.
- * - A scroll down reads the presses' windows and the cells it brings into
- *   view alone; a scroll along to the week's end moves no period and reads
- *   nothing: the timeline shows the period chosen (ruled 9 Nov 2026).
+ * - A scroll down reads the presses' windows, and the cells of the block it
+ *   brings into view and of the next one down, alone (#1797); a scroll along
+ *   to the week's end moves no period and reads nothing: the timeline shows
+ *   the period chosen (ruled 9 Nov 2026).
  * - Fifty thousand presses: the timeline lays them out in as many lines as the
  *   windows it holds, the places between one run each, and the Resources view
  *   places the columns it draws at their own offsets — no line, column or grid
@@ -294,19 +295,20 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         for (const job of ["W-0001", "W-0002", "W-0003", "W-0004"]) expect(jobEvent(c, job), job).not.toBeNull();
     });
 
-    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll along to the week's end moves no period and reads nothing", async () => {
+    test("a scroll down reads the presses' windows, and the cells of the block it brings into view and of the next one down, alone; a scroll along to the week's end moves no period and reads nothing (#1797)", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scroll" });
         await settle();
-        // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the blocks
-        // around the presses in view — Presses 1151 to 1250 — alone.
+        // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the block
+        // the presses in view are in and the next one down, the way the view went — Presses 1201 to 1300 — alone: none
+        // of the block above them, which a view going down is not headed for.
         let since = h.requests().length;
         await scrollTimeline(c, { top: lineOf(200) });
         await waitFor(() => expect(jobEvent(c, "W-0009")).not.toBeNull(), { timeout: 10_000 });
         expect(askedOf(PRESSES, since)).toEqual(["page own 400+200"]);
         expect(indexAsked(SERIES, since)).toEqual(["find", "runs"]);
-        expect(searchedPresses(since)).toEqual(pressesFrom(150, 249));
+        expect(searchedPresses(since)).toEqual(pressesFrom(200, 299));
         expect(windowReads(since)).toEqual([]);
-        // On down to Press 1333: its window held, and the blocks around it alone — Presses 1301 to 1400.
+        // On down to Press 1333: its window held, and its block and the next one down alone — Presses 1301 to 1400.
         since = h.requests().length;
         await scrollTimeline(c, { top: lineOf(332) });
         await waitFor(() => expect(jobEvent(c, "W-0011")).not.toBeNull(), { timeout: 10_000 });

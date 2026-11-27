@@ -15,7 +15,7 @@
  * the events of a kind over rows read whole — are read over the window:
  * whole, or through their interval index alone.
  *
- * - The cells around the rows in view are read in two requests: every cell's
+ * - The cells of the rows in view are read in two requests: every cell's
  *   searches in one, which counts its entries before one is read, then the
  *   entries of the cells it does not hold in one more. The bars are those a
  *   Plan reading the jobs whole draws, and the interval index serves the
@@ -25,7 +25,8 @@
  * - A pan within the tiles held reads nothing, and one into a new week reads
  *   that week alone, a range a press; a zoom reads only the tiles it does not
  *   hold, at each level whose run it grows; a scroll into presses further
- *   down reads their blocks' cells.
+ *   down reads their blocks' cells and the next block's, the way it went
+ *   (#1797).
  * - A Save reads the cells in view again at the revision it committed.
  * - A link's end the cells do not hold is read by its key, so the link finds
  *   its row; a backlog job a draft schedules draws where it is dropped.
@@ -477,18 +478,19 @@ describe("the jobs read a cell at a time (#1039)", () => {
         expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 
-    test("a scroll into presses further down reads their blocks' cells, two requests; back up, the first block's entries are read again — never its counts", async () => {
+    test("a scroll into presses further down reads their blocks' cells and the next block's, two requests; back up, the first block's entries are read again — never its counts", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container } = await h.mount(seriesPlan);
             await settle();
             const opened = askedOf(SERIES).length;
-            // Down to Press 1141: the blocks of the presses from 1101 to 1200, which hold the seed catalogue on Press 1150 and
-            // the tour brochure on Press 1200.
+            // Down to Press 1141: the two blocks its rows meet, of the presses from 1101 to 1200 — which hold the seed
+            // catalogue on Press 1150 and the tour brochure on Press 1200 — and the next one down, to Press 1250, the way
+            // the view went (#1797): none of the block above them.
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(bar(container, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
             await settle();
-            expect(askedOf(SERIES, opened)).toEqual([`find ${LEVELS * 2 * BLOCK}`, "runs"]);
+            expect(askedOf(SERIES, opened)).toEqual([`find ${LEVELS * 3 * BLOCK}`, "runs"]);
             const series = drawn(container);
             expect(series.some((line) => line.includes("Seed catalogue"))).toBe(true);
             const { container: windows } = await h.mount(windowsPlan, { storageKey: "windows" });
@@ -790,7 +792,7 @@ describe("the cells on their way (#1398, CL2)", () => {
             await selectPress(c, "P-1003");
             expect(fact(c, "events")).toBe("1");
             expect(fact(c, "hours")).toBe("60");
-            // Down to Press 1141: the blocks of the presses from 1101 to 1200 read, the first block's cells let go.
+            // Down to Press 1141: the blocks of the presses from 1101 to 1250 read, the first block's cells let go.
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(bar(c, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
             await settle();

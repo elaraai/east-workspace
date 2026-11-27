@@ -29,10 +29,11 @@ import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/fixtures/plan/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { SCHEDULE_CELL_BLOCK } from "../../shared/schedule/cells.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
-import { emulateWindowScroll } from "../window-scroll.test-utils.js";
+import { emulateWindowScroll, scrollStopped } from "../window-scroll.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot, toggleSeries } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-nested.fixtures": ex });
@@ -205,14 +206,19 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
         expect(drawnTwelve(container)).toEqual(TWELVE.map((key) => `presses ${key}: no row`));
         expect(askedOf(IN_TIME).slice(before)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]);
-        // Shown again, the presses' cells are read in one batch and one read: the view keeps the load it showed, and the
-        // presses above it draw what they drew.
+        // Shown again, the view keeps the load it showed, whose cells it holds: nothing is read for the presses above it,
+        // out of view (#1797)...
         const shown = askedOf(IN_TIME).length;
         await toggleSeries(container, "Presses");
-        await waitFor(() => expect(askedOf(IN_TIME).slice(shown)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]));
         await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(shown)).toEqual([]);
+        // ...until the view is on them: their cells read in one batch and one read, and they draw what they drew.
         act(() => { window.scrollTo({ top: 0 }); });
         await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(whole)), { timeout: 10_000 });
+        await settle();
+        expect(askedOf(IN_TIME).slice(shown)).toEqual(["find 250", "runs"]);
     });
 
     test("every series switched off draws no row, and one switched back on draws its rows again", async () => {
@@ -265,24 +271,35 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await waitFor(() => expect(waiting()).toEqual([]));
     });
 
-    test("a scroll to machines further down reads their blocks' cells alone, two requests", async () => {
+    test("a scroll to machines further down reads the cells of the block its rows meet and of the next one down, two requests; back up, of the block before them, and none on the side it left (#1797)", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(nestedPlan);
         await settle();
+        /** The blocks of machines whose cells were searched since a request, each by its place among the machines' rows, ascending. */
+        const blocksSearched = (since: number) => [...new Set(h.requests().slice(since).filter((request) => request.kind === "find" && through(IN_TIME)(request))
+            .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])[1]!))
+            .map((key) => Math.floor((Number(/M-(\d+)/.exec(key)![1]) - 10_001) / SCHEDULE_CELL_BLOCK)))].sort((a, b) => a - b);
+        // Each machine of a block, five ranges: its jobs at four levels, its alarms at one.
+        const aBlock = `find ${SCHEDULE_CELL_BLOCK * 5}`;
         const opened = askedOf(IN_TIME).length;
-        act(() => { window.scrollTo({ top: 140 * PLAN_GEOMETRY.default.row }); });
-        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10150")))).not.toBeNull(), { timeout: 10_000 });
-        // The view reported as its scroll rests: the blocks around it read.
+        const down = h.requests().length;
+        // Down to the fourth block's first machines: the rows in view meet that block alone.
+        act(() => { window.scrollTo({ top: (3 * SCHEDULE_CELL_BLOCK + 5) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10160")))).not.toBeNull(), { timeout: 10_000 });
+        // The view reported as its scroll rests: the block it meets and the next one down read, and none before it.
         await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
         await settle();
-        const asked = askedOf(IN_TIME).slice(opened);
-        expect(asked).toHaveLength(2);
-        expect(asked[1]).toBe("runs");
-        // Each machine of the blocks wanted, five ranges: its jobs at four levels, its alarms at one.
-        const searches = Number(asked[0]!.replace("find ", ""));
-        expect(searches % 5).toBe(0);
-        expect(searches).toBeGreaterThan(0);
-        expect(drawnRow(container, "presses", "M-10150").length).toBeGreaterThan(0);
+        expect(askedOf(IN_TIME).slice(opened)).toEqual([`find ${2 * SCHEDULE_CELL_BLOCK * 5}`, "runs"]);
+        expect(blocksSearched(down)).toEqual([3, 4]);
+        expect(drawnRow(container, "presses", "M-10160").length).toBeGreaterThan(0);
+        // Back up three machines, still within the block: the block before it is read, the way the view now goes.
+        const rested = askedOf(IN_TIME).length;
+        const up = h.requests().length;
+        act(() => { window.scrollTo({ top: (3 * SCHEDULE_CELL_BLOCK + 2) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(rested + 2), { timeout: 10_000 });
+        await settle();
+        expect(askedOf(IN_TIME).slice(rested)).toEqual([aBlock, "runs"]);
+        expect(blocksSearched(up)).toEqual([2]);
     });
 
     test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {
@@ -324,11 +341,12 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
         await settle();
-        // The view on the second block: the first three blocks wanted, 150 machines, 80 jobs each over the year.
+        // The view down across the second block's end and the third's start: those two and the next one down wanted, 150
+        // machines, 80 jobs each over the year.
         const opened = askedOf(IN_TIME).length;
-        act(() => { window.scrollTo({ top: 70 * PLAN_GEOMETRY.default.row }); });
-        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10075")))).not.toBeNull(), { timeout: 10_000 });
-        // The view reported as its scroll rests: the blocks around it read.
+        act(() => { window.scrollTo({ top: (2 * SCHEDULE_CELL_BLOCK - 15) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10090")))).not.toBeNull(), { timeout: 10_000 });
+        // The view reported as its scroll rests: the blocks it meets and the next one down read.
         await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
         await settle();
         const before = askedOf(IN_TIME).length;
@@ -338,7 +356,7 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         // view the zoomed rows report at rest is counted after.)
         expect(asked.slice(0, 3).map((kind) => kind.replace(/\d+/, "n"))).toEqual(["find n", "find n", "runs"]);
         // A machine's jobs draw as its months booked: no run, and a weight a bucket.
-        const row = slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", "M-10075")))!;
+        const row = slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", "M-10090")))!;
         expect(row.querySelectorAll("[data-run]")).toHaveLength(0);
         expect(row.querySelectorAll("[data-cell]").length).toBeGreaterThan(0);
     });
