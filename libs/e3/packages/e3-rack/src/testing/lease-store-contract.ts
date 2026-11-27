@@ -53,6 +53,20 @@ export function leaseStoreContract(label: string, makeStore: () => RackLeaseStor
       assert.deepEqual((await store.get('repo', lease.leaseId))?.targets, ['c'.repeat(64)]);
     });
 
+    void it('releases only the targets named, of a lease the rack holds, and takes one released again', async () => {
+      const store = await makeStore();
+      const lease = pending();
+      await store.put(lease);
+      await store.claim('repo', lease.leaseId, 'rack', Date.now() + 60_000);
+      const [a, b, c] = ['a', 'b', 'c'].map((char) => char.repeat(64)) as [string, string, string];
+      assert.equal(await store.recordTargets('repo', lease.leaseId, 'rack', [a, b, c]), true);
+      assert.equal(await store.releaseTargets('repo', lease.leaseId, 'other', [a]), false, 'not by a rack that does not hold it');
+      assert.equal(await store.releaseTargets('repo', lease.leaseId, 'rack', [a, c]), true);
+      assert.deepEqual((await store.get('repo', lease.leaseId))?.targets, [b]);
+      assert.equal(await store.recordTargets('repo', lease.leaseId, 'rack', [a]), true);
+      assert.deepEqual([...((await store.get('repo', lease.leaseId))?.targets ?? [])].sort(), [a, b]);
+    });
+
     for (const stop of ['cancel', 'supersede'] as const) {
       void it(`discards late completions after ${stop}`, async () => {
         const store = await makeStore();

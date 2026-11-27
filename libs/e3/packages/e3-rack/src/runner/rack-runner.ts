@@ -65,11 +65,14 @@ export interface OpenRackRunnerOptions {
   signal?: AbortSignal;
   /** Receives hub startup messages. */
   log?: (line: string) => void;
-  /** What the run forces, as its start is given it: what a rack's run it is
-   *  granted predicts by */
-  force?: boolean | readonly string[];
-  /** The run's filter, as its start is given it */
-  filter?: string;
+  /**
+   * The dataflow run the runner runs, as its start is given it: what it
+   * forces, and its filter. Given, the tasks a rack's run can run whole are
+   * granted one before it starts, when a rack that hosts runs has room.
+   * Absent, as for a command's one piece of work or a run whose scope its
+   * caller does not know, no rack's run is granted.
+   */
+  run?: { readonly force?: boolean | readonly string[]; readonly filter?: string };
 }
 
 /** Owns the runner's session and reports capacity for the local orchestrator. */
@@ -91,9 +94,13 @@ export interface RackRunnerHandle {
    */
   describe(formatBytes?: (bytes: number) => string): string;
   /** Refreshes capacity before a watch run without replacing its session,
-   *  and forgets the environment builds that failed, which that run tries
-   *  again. */
+   *  forgets the environment builds that failed, which that run tries
+   *  again, and grants that run a rack's run afresh. */
   refreshSlots(): Promise<number>;
+  /** Ends the rack's run the last run was granted, once that run is done:
+   *  its lease goes back to its rack. A watch ends each run's so, as it
+   *  waits for the next change. */
+  endRun(): Promise<void>;
   /** What the rack work since the last take came to: a run's summary, read
    *  with `describeRackSummary`. */
   takeSummary(): RackRunSummary;
@@ -129,7 +136,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     // routes would wait for one. A command's flag selects its work itself.
     if (options.selected !== true && !policyTargetsRack(policy)) {
       return { runner: local, unattached: 'the rack policy selects no task for a rack', rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally',
-        refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
+        refreshSlots: () => Promise.resolve(0), endRun: () => Promise.resolve(), takeSummary, close: () => Promise.resolve() };
     }
     const client = await connectHub({ home: options.home, log: options.log, signal: options.signal });
     session = await RackSession.open(client, options);
@@ -185,20 +192,36 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     // to a rack, or runs here, as it would with no grant. A watch's later
     // runs are each granted afresh.
     let run: RackRunHandle | undefined;
-    const openRun = async (): Promise<void> => {
+    const endRun = async (): Promise<void> => {
       await run?.close().catch(() => undefined);
       run = undefined;
-      if (!compatibleRacks(attached.capacity()).some((rack) => rack.features.includes(RACK_RUNS))) return;
+    };
+    const openRun = async (): Promise<void> => {
+      await endRun();
+      // Only a dataflow run whose scope its caller gives is granted one, and
+      // only while a rack that hosts runs has a slot free: a run waits on no
+      // rack's claim that cannot come
+      const given = options.run;
+      if (given === undefined || options.selected === true || options.signal?.aborted === true) return;
+      const hosts = compatibleRacks(attached.capacity()).filter((rack) => rack.features.includes(RACK_RUNS) && rack.busy < rack.capacity);
+      if (hosts.length === 0) return;
+      // Granted the tiers of the rack that boots the most: a lease of a tier
+      // no rack that hosts runs boots is claimed by none
+      const host = hosts.reduce((best, rack) => (rack.tiers.length > best.tiers.length ? rack : best));
       const opened = await openRackRun({
         repoPath: options.repoPath, workspace: options.workspace, storage: options.storage, policy, inner: body, detached,
+        tiers: new Set(host.tiers),
+        onPlacement: delegation.onPlacement,
         ...(options.budget !== undefined && { budget: options.budget }),
         ...(options.settings !== undefined && { settings: options.settings }),
-        ...(options.force !== undefined && { force: options.force }),
-        ...(options.filter !== undefined && { filter: options.filter }),
+        ...(given.force !== undefined && { force: given.force }),
+        ...(given.filter !== undefined && { filter: given.filter }),
         open: (granted, verdicts) => Promise.resolve(sessionReplicaRun(attached, {
           storage: options.storage, repo: options.repoPath, workspace: options.workspace, verdicts: verdicts,
           claimTimeoutMs: Math.max(1, Number(policy.claimTimeoutSeconds)) * 1000,
-          timeoutMs: Math.max(1, Number(policy.defaultTimeoutMinutes)) * 60_000,
+          // As long as every task granted, each its own longest, run one after another
+          timeoutMs: Math.max(1, [...verdicts.values()].reduce((sum, verdict) => sum + verdict.timeoutMinutes, 0)) * 60_000,
+          ...(options.signal !== undefined && { signal: options.signal }),
         })),
       });
       if (opened.selected.length > 0) run = opened;
@@ -212,6 +235,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
       get rackSlots() { return slots + (run?.rackSlots ?? 0); },
       describe: described,
       refreshSlots: async () => { const refreshed = await refreshSlots(); await openRun(); return refreshed + (run?.rackSlots ?? 0); },
+      endRun,
       takeSummary,
       close: async () => { await run?.close().catch(() => undefined); await attached.close(); },
     };
@@ -222,6 +246,6 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     // answers: nothing of the caller's runs on
     const stopped = options.signal?.aborted === true;
     return { runner: local, unattached: message, rackSlots: 0, describe: () => (stopped ? message : `${message}; running locally`),
-      refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
+      refreshSlots: () => Promise.resolve(0), endRun: () => Promise.resolve(), takeSummary, close: () => Promise.resolve() };
   }
 }

@@ -85,12 +85,16 @@ interface RunAsked {
   /** The asker's attempt, under which the task's log is teed to it */
   readonly executionId: string;
   answered: boolean;
+  /** Whether a rack has teed some of its task's log */
+  teed: boolean;
 }
 /** A run lease's asks (`RACK_RUNS`), numbered from 1. */
 interface RunAsks {
   seq: number;
   readonly asked: Map<number, RunAsked>;
   readonly waiters: Set<() => void>;
+  /** Whether a rack has taken the lease up */
+  claimed: boolean;
 }
 const RACK_TIERS = ['node', 'py', 'py-datascience', 'c', 'full'];
 const RACK_SIZES = ['serverless', 'small', 'medium', 'large', 'xlarge'];
@@ -680,6 +684,22 @@ export class RackHub {
     if (lease === null) return;
     if (signal.kind === 'claimed') {
       sub.claimants.add(lease.claimedBy!);
+      // A run lease taken up again: an ask whose log a rack before had begun
+      // to tee is answered unknown, so its asker runs the task under a fresh
+      // attempt, rather than take the next rack's log from its first byte
+      // under the same one
+      const asks = this.runAsks.get(lease.leaseId);
+      if (asks !== undefined) {
+        if (asks.claimed) {
+          for (const [seq, asked] of asks.asked) {
+            if (asked.answered || !asked.teed) continue;
+            asked.answered = true;
+            const session = this.sessions.get(asked.session);
+            if (session !== undefined) this.emit(session, variant('answered', { leaseId: lease.leaseId, seq: BigInt(seq), answerJson: JSON.stringify({ kind: 'unknown' }) }));
+          }
+        }
+        asks.claimed = true;
+      }
       // Reclaim invalidates every prior-attempt data URL before its new grant.
       await this.bridge.discardWrites(lease.repo, lease.leaseId, lease.targets ?? []);
       const event = await this.claimedEvent(lease);
@@ -784,7 +804,7 @@ export class RackHub {
     const lease = await this.dispatch.createLease(event, request.tier, request.computeSize);
     this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, version: session.registration.e3Version,
       owner: session.id, subscribers: new Set([session.id]), claimants: new Set(), envManifests: new Set() });
-    this.runAsks.set(lease.leaseId, { seq: 0, asked: new Map(), waiters: new Set() });
+    this.runAsks.set(lease.leaseId, { seq: 0, asked: new Map(), waiters: new Set(), claimed: false });
     return { leaseId: lease.leaseId, attached: false, attempt: none };
   }
 
@@ -835,6 +855,7 @@ export class RackHub {
       if (sub === undefined || sub.repo !== repo || asked === undefined) return false;
       const session = this.sessions.get(asked.session);
       if (session === undefined || session.dead || chunks.length === 0) return true;
+      asked.teed = true;
       // Best effort, as a subscriber's display is: the asker writes the log
       await socketRequest(session.registration.dataSocket, 'POST', '/v1/logs/tee', {
         bearer: session.registration.dataToken, requestType: SessionLogsType, responseType: BooleanType, timeoutMs: 5000,
@@ -978,7 +999,7 @@ export class RackHub {
         }
         const seq = ++asks.seq;
         asks.asked.set(seq, { ask: { seq, taskName: request.taskName, taskHash: request.taskHash, inputsHash: request.inputsHash },
-          session: session.id, executionId: request.executionId, answered: false });
+          session: session.id, executionId: request.executionId, answered: false, teed: false });
         for (const wake of asks.waiters) wake();
         return Promise.resolve(answer(RunAskResultType, { seq: BigInt(seq) }));
       });

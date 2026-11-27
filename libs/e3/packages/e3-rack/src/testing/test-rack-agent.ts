@@ -66,6 +66,13 @@ export interface TestRackAgentTransfers {
 const TRANSFER_TRIES = 5;
 
 /** A transfer its source refused for good: the same request is not sent again. */
+/** A stream's bytes, whole. */
+async function gathered(stream: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  for await (const part of stream) parts.push(part);
+  return Buffer.concat(parts);
+}
+
 class TransferRefused extends Error {}
 
 /** A transfer that failed every try it was given. */
@@ -894,7 +901,13 @@ export class TestRackAgent {
         // Its writes say what its source holds: each is declared, and only
         // what the source lacks is sent
         have: (hashes) => Promise.resolve(hashes.map(() => false)),
-        write: async (objects) => { await this.writeObjects(lease, objects); },
+        // A stream is taken whole here: a PUT of the test agent's sends each
+        // object in one body
+        write: async (objects) => {
+          const whole = new Map<string, Uint8Array>();
+          for (const [hash, bytes] of objects) whole.set(hash, bytes instanceof Uint8Array ? bytes : await gathered(bytes));
+          await this.writeObjects(lease, whole);
+        },
       };
       replica = replicaRunOpen({ storage: this.storage, repo: this.repo, origin, width: Math.max(1, this.capacity),
         runner: this.options.runRunner?.(this.repo) ?? new LocalTaskRunner(this.repo) });

@@ -434,6 +434,9 @@ export class RackSession {
    * @param leaseId - The run lease
    * @param listener - Told each answer's ask and its JSON
    * @returns Unregisters it
+   * @example
+   * const off = session.onAnswer(lease.leaseId, (seq, answerJson) => settle(seq, JSON.parse(answerJson)));
+   * try { await session.askRun(lease.leaseId, ask); } finally { off(); }
    */
   onAnswer(leaseId: string, listener: (seq: bigint, answerJson: string) => void): () => void {
     this.answers.set(leaseId, listener);
@@ -446,6 +449,8 @@ export class RackSession {
    * @param leaseId - The run lease
    * @param ask - The task, its identity, and the id its log is teed under
    * @returns The ask's number in the lease
+   * @example
+   * const seq = await session.askRun(lease.leaseId, { taskName: 'train', taskHash, inputsHash, executionId: uuidv7() });
    */
   askRun(leaseId: string, ask: { taskName: string; taskHash: string; inputsHash: string; executionId: string }): Promise<bigint> {
     return this.client.askRun(this.sessionId, leaseId, ask);

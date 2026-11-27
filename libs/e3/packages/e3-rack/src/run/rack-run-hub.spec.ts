@@ -33,7 +33,7 @@ import type { RackLeaseGrant } from '../protocol/rack-wire.js';
 import { readRackRun } from '../protocol/task-envelope.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { DEFAULT_RACK_POLICY, setMode, type RackPolicy } from '../routing/policy.js';
-import { openRackRunner } from '../runner/rack-runner.js';
+import { openRackRunner, type OpenRackRunnerOptions } from '../runner/rack-runner.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -114,7 +114,7 @@ async function fixture(pkg: Pkg, options: FixtureOptions = {}) {
   const policy = options.policy ?? AUTO;
 
   /** Enrolls a rack and starts it, noting each lease it is granted. */
-  const agent = async (as: Pick<TestRackAgentOptions, 'rackRuns' | 'runRunner' | 'capacity'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'rackRuns' | 'runRunner' | 'capacity' | 'tiers'> = {}) => {
     const mint = await client.enroll();
     const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, {
       certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, capacity: 4,
@@ -132,9 +132,10 @@ async function fixture(pkg: Pkg, options: FixtureOptions = {}) {
     return { peer, grants };
   };
 
-  /** One run of the dataflow, with the rack the policy and the fleet give it. */
-  const runOnce = async (start: { cancelWhen?: () => Promise<void> } = {}) => {
-    const rack = await openRackRunner({ repoPath: repo, workspace: 'dev', storage, label: 'rack run test', budget, policy, home, waitForRackMs: 0 });
+  /** One run of the dataflow, with the rack the policy and the fleet give it, and the run it is told */
+  const runOnce = async (start: { cancelWhen?: () => Promise<void>; runner?: Partial<OpenRackRunnerOptions> } = {}) => {
+    const rack = await openRackRunner({ repoPath: repo, workspace: 'dev', storage, label: 'rack run test', budget, policy, home, waitForRackMs: 0,
+      run: {}, ...start.runner });
     const started = Date.now();
     const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
     const handle = await orchestrator.start(storage, repo, 'dev', { runner: rack.runner, width: budget.cores + rack.rackSlots });
@@ -144,7 +145,7 @@ async function fixture(pkg: Pkg, options: FixtureOptions = {}) {
     } finally {
       await rack.close();
     }
-    return { status: await orchestrator.getStatus(handle), ms: Date.now() - started, described: rack.describe() };
+    return { status: await orchestrator.getStatus(handle), ms: Date.now() - started, described: rack.describe(), summary: rack.takeSummary() };
   };
   const identity = async (name: string) => {
     const task = (await dataflowGetGraph(storage, repo, 'dev')).tasks.find((each) => each.name === name)!;
@@ -174,7 +175,7 @@ async function fixture(pkg: Pkg, options: FixtureOptions = {}) {
     assert.ok(run !== undefined, 'a run lease');
     return decodeBeast2For(SyncDescriptionType)(await storage.objects.read(repo, run.description));
   };
-  return { home, hub, repo, storage, budget, agent, runOnce, identity, attempts, outputOf, logs, description };
+  return { home, hub, client, repo, storage, budget, policy, agent, runOnce, identity, attempts, outputOf, logs, description };
 }
 
 describe('a rack\'s run through a hub', { concurrency: false }, () => {
@@ -182,11 +183,15 @@ describe('a rack\'s run through a hub', { concurrency: false }, () => {
     const f = await fixture(chain());
     const hosting = await f.agent({ rackRuns: true });
     const plain = await f.agent();
-    const { status, described } = await f.runOnce();
+    const { status, described, summary } = await f.runOnce();
     assert.equal(status.state, 'completed');
     assert.match(described, /4 tasks granted a rack's run/);
     assert.equal(hosting.grants.length, 1, 'one lease for the run');
     assert.deepEqual(granted(hosting.grants[0]), ['first', 'other', 'second', 'third']);
+    const lease = readRackRun(JSON.parse(hosting.grants[0]!.eventJson))!;
+    assert.equal(lease.timeoutMs, Object.values(lease.verdicts).reduce((sum, verdict) => sum + Number(verdict.timeoutMinutes), 0) * 60_000,
+      'it may take as long as its tasks may, one after another');
+    assert.equal(summary.placed.reduce((sum, each) => sum + each.tasks, 0), 4, 'the run\'s summary counts what its rack ran');
     assert.deepEqual(plain.grants, [], 'a rack that hosts no run claims nothing of it');
     assert.equal(f.budget.peak, 0, 'nothing ran here');
     for (const name of ['first', 'second', 'third', 'other']) {
@@ -346,6 +351,38 @@ describe('a rack\'s run through a hub', { concurrency: false }, () => {
     assert.ok(['success', 'interrupted,success'].includes((await f.attempts('first')).join(',')));
     assert.deepEqual(await f.attempts('second'), ['interrupted', 'success']);
     assert.deepEqual(await f.attempts('third'), ['interrupted', 'success']);
+  });
+
+  it('grants no rack\'s run to a runner of one piece of work, nor to one not told its run', async () => {
+    const f = await fixture(chain());
+    const hosting = await f.agent({ rackRuns: true });
+    for (const runner of [{ selected: true }, { run: undefined }] as const) {
+      const { status, described } = await f.runOnce({ runner });
+      assert.equal(status.state, 'completed');
+      assert.doesNotMatch(described, /granted a rack's run/);
+    }
+    assert.deepEqual(hosting.grants.filter(isRun), [], 'no lease of a rack\'s run');
+  });
+
+  it('ends the rack\'s run of a run that is done, when asked, and its rack then holds no lease', async () => {
+    const f = await fixture(chain());
+    const hosting = await f.agent({ rackRuns: true });
+    const rack = await openRackRunner({ repoPath: f.repo, workspace: 'dev', storage: f.storage, label: 'rack run test', budget: f.budget,
+      policy: f.policy, home: f.home, waitForRackMs: 0, run: {} });
+    try {
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      await orchestrator.wait(await orchestrator.start(f.storage, f.repo, 'dev', { runner: rack.runner, width: f.budget.cores + rack.rackSlots }));
+      assert.equal(hosting.grants.filter(isRun).length, 1);
+      await rack.endRun();
+      let busy = Infinity;
+      for (let i = 0; i < 200 && busy > 0; i++) {
+        busy = (await f.client.status()).capacity.racks.reduce((sum, each) => sum + Number(each.busy), 0);
+        if (busy > 0) await delay(25);
+      }
+      assert.equal(busy, 0, 'its rack holds nothing of it');
+    } finally {
+      await rack.close();
+    }
   });
 
   it('grants no rack\'s run when the cache answers everything', async () => {

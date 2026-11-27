@@ -34,6 +34,14 @@ export interface SessionRunOptions {
   readonly claimTimeoutMs: number;
   /** The longest the run may take, in ms */
   readonly timeoutMs: number;
+  /** Ends the wait for a rack to take the run up, and gives the run up */
+  readonly signal?: AbortSignal;
+}
+
+/** A rack's run through a session, and the rack that took it up. */
+export interface SessionReplicaRun extends ReplicaRun {
+  /** The rack that took the run up, and its lease, once one has */
+  placedOn(): { readonly rackLabel: string; readonly leaseId: string } | undefined;
 }
 
 /** An answer's JSON, read as a replica's answer: unknown when it does not read. */
@@ -63,29 +71,45 @@ function readAnswer(json: string): ReplicaRunAnswer {
  * tier its tasks need, and waits for a rack to claim it. Each ask goes to the
  * hub, which gives it to the lease's rack; the task's log, as the rack sends
  * it, is teed to the ask's `onLog`; and the answer comes back as an event of
- * the session's. Once the lease ends (lost, cancelled or completed), every
- * ask still waiting rejects: its asker runs the task here.
+ * the session's. Once the lease is lost, every ask still waiting rejects: its
+ * asker runs the task here, its rack's run lost. Once it ends otherwise,
+ * cancelled or completed, or the run is cancelled here, each answers
+ * `unknown`, as a replica's cancelled run does.
  *
  * @param session - The session
- * @param options - The repository, the verdicts, and the claim's and the run's
- *   time limits
+ * @param options - The repository, the verdicts, the claim's and the run's
+ *   time limits, and what gives the run up
  * @returns The run
+ *
+ * @example
+ * ```ts
+ * const run = sessionReplicaRun(session, { storage, repo, workspace: 'dev', verdicts, claimTimeoutMs: 30_000, timeoutMs: 3_600_000 });
+ * await run.grant({ description, force: false });
+ * const answer = await run.ask({ taskName: 'train', taskHash, inputsHash, onLog: (stream, text) => process.stdout.write(text) });
+ * await run.cancel();
+ * ```
  */
-export function sessionReplicaRun(session: RackSession, options: SessionRunOptions): ReplicaRun {
+export function sessionReplicaRun(session: RackSession, options: SessionRunOptions): SessionReplicaRun {
   const { storage, repo, workspace, verdicts } = options;
   let handle: LeaseHandle | undefined;
-  let ended: string | undefined;
+  let placed: { rackLabel: string; leaseId: string } | undefined;
+  let ended: { why: string; lost: boolean } | undefined;
   let offAnswer: (() => void) | undefined;
   const waiting = new Map<bigint, { resolve: (answer: ReplicaRunAnswer) => void; reject: (error: Error) => void }>();
   // An answer told before its ask's number was known
   const early = new Map<bigint, ReplicaRunAnswer>();
-  const end = (why: string): void => {
-    ended ??= why;
-    for (const each of waiting.values()) each.reject(new Error(why));
+  const end = (why: string, lost: boolean): void => {
+    ended ??= { why, lost };
+    for (const each of waiting.values()) {
+      if (lost) each.reject(new Error(why));
+      else each.resolve({ kind: 'unknown' });
+    }
     waiting.clear();
   };
 
   return {
+    placedOn: () => placed,
+
     async grant(grant) {
       if (handle !== undefined) throw new Error('A rack\'s run takes one grant');
       const description = await storage.objects.write(repo, encodeBeast2For(SyncDescriptionType)(grant.description));
@@ -115,57 +139,93 @@ export function sessionReplicaRun(session: RackSession, options: SessionRunOptio
         waiting.delete(seq);
         asker.resolve(answer);
       });
-      // A rack takes it up within the claim timeout, or it is given up
+      // A rack takes it up within the claim timeout, or it is given up, as
+      // it is when the caller stops first
       let timer: NodeJS.Timeout | undefined;
+      let stopped: (() => void) | undefined;
       const first = await Promise.race([
         leased.next(),
         new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), options.claimTimeoutMs); timer.unref(); }),
-      ]).finally(() => clearTimeout(timer));
-      if (first === 'timeout' || first.kind !== 'claimed') {
+        new Promise<'stopped'>((resolve) => {
+          stopped = () => resolve('stopped');
+          if (options.signal?.aborted) stopped();
+          else options.signal?.addEventListener('abort', stopped, { once: true });
+        }),
+      ]).finally(() => {
+        clearTimeout(timer);
+        if (stopped !== undefined) options.signal?.removeEventListener('abort', stopped);
+      });
+      if (first === 'timeout' || first === 'stopped' || first.kind !== 'claimed') {
         offAnswer();
         await leased.cancel().catch(() => undefined);
-        throw new Error(first === 'timeout' ? `no rack took the run up within ${Math.round(options.claimTimeoutMs / 1000)} s` : `the run's lease ended before a rack took it up (${first.kind})`);
+        throw new Error(first === 'timeout' ? `no rack took the run up within ${Math.round(options.claimTimeoutMs / 1000)} s`
+          : first === 'stopped' ? 'the run was stopped before a rack took it up'
+            : `the run's lease ended before a rack took it up (${first.kind})`);
       }
+      placed = { rackLabel: first.rackLabel, leaseId: leased.leaseId };
       // Its end, however it comes, ends every ask still waiting; a claim
       // after the first is another rack taking it up
       void (async () => {
         for (;;) {
           const update = await leased.next();
-          if (update.kind === 'claimed') continue;
-          end(`its rack's run ${update.kind === 'lost' ? `was lost: ${update.reason}` : update.kind}`);
+          if (update.kind === 'claimed') {
+            placed = { rackLabel: update.rackLabel, leaseId: leased.leaseId };
+            continue;
+          }
+          end(`its rack's run ${update.kind === 'lost' ? `was lost: ${update.reason}` : update.kind}`, update.kind === 'lost');
           return;
         }
       })();
     },
 
     async ask(ask) {
-      if (handle === undefined) return { kind: 'unknown' };
-      if (ended !== undefined) throw new Error(ended);
+      if (handle === undefined || ask.signal?.aborted) return { kind: 'unknown' };
+      const { leaseId } = handle;
+      if (ended !== undefined) {
+        if (ended.lost) throw new Error(ended.why);
+        return { kind: 'unknown' };
+      }
+      // An abort heard from the start, while the ask is posted too: it
+      // answers unknown at once
+      let seq: bigint | undefined;
+      let aborted!: () => void;
+      const stopped = new Promise<ReplicaRunAnswer>((resolve) => {
+        aborted = () => {
+          if (seq !== undefined) waiting.delete(seq);
+          resolve({ kind: 'unknown' });
+        };
+      });
+      ask.signal?.addEventListener('abort', aborted, { once: true });
       // The id the task's log is teed under: the asker's attempt writes it
       const tee = uuidv7();
       const untee = ask.onLog === undefined ? undefined : session.onLog(tee, ask.onLog);
       try {
-        const seq = await session.askRun(handle.leaseId, { taskName: ask.taskName, taskHash: ask.taskHash, inputsHash: ask.inputsHash, executionId: tee });
-        const told = early.get(seq);
-        if (told !== undefined) {
-          early.delete(seq);
-          return told;
-        }
-        return await new Promise<ReplicaRunAnswer>((resolve, reject) => {
-          if (ended !== undefined) { reject(new Error(ended)); return; }
-          waiting.set(seq, { resolve, reject });
-          ask.signal?.addEventListener('abort', () => {
-            waiting.delete(seq);
-            resolve({ kind: 'unknown' });
-          }, { once: true });
-        });
+        const answered = (async (): Promise<ReplicaRunAnswer> => {
+          seq = await session.askRun(leaseId, { taskName: ask.taskName, taskHash: ask.taskHash, inputsHash: ask.inputsHash, executionId: tee });
+          const told = early.get(seq);
+          if (told !== undefined) {
+            early.delete(seq);
+            return told;
+          }
+          const asked = seq;
+          return new Promise<ReplicaRunAnswer>((resolve, reject) => {
+            if (ended !== undefined) {
+              if (ended.lost) reject(new Error(ended.why));
+              else resolve({ kind: 'unknown' });
+              return;
+            }
+            waiting.set(asked, { resolve, reject });
+          });
+        })();
+        return await Promise.race([answered, stopped]);
       } finally {
+        ask.signal?.removeEventListener('abort', aborted);
         untee?.();
       }
     },
 
     async cancel() {
-      end('cancelled');
+      end('cancelled', false);
       offAnswer?.();
       await handle?.cancel().catch(() => undefined);
     },

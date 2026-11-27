@@ -21,6 +21,7 @@ import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, Se
   SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import type { RackLogChunk } from '../protocol/rack-wire.js';
 import { RACK_INLINE_OBJECT_DEFAULT, RACK_TRANSFERS_AT_ONCE } from '../protocol/rack-json.js';
+import { isRunLease } from '../protocol/task-envelope.js';
 import type { RackLinkMeter } from './link-meter.js';
 
 /** Identifies the session that currently owns repository I/O for a lease. */
@@ -348,7 +349,12 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     const cap = [...this.capabilities.values()].find((c) => c.repo === repo && c.leaseId === leaseId &&
       c.hash === hash && c.executionId === lease.attempt?.executionId && c.upload?.receipt === version && Number(c.upload.size) === size);
     if (cap?.upload === undefined || cap.revoked) return false;
-    return this.post(cap, `/v1/uploads/${cap.id}/commit`, SessionUploadType, cap.upload, BooleanType);
+    const committed = await this.post(cap, `/v1/uploads/${cap.id}/commit`, SessionUploadType, cap.upload, BooleanType);
+    // A run lease writes every output of its run: an upload taken in is no
+    // longer held for it, so what it holds is what it has in flight, never
+    // the hub's every capability
+    if (committed && isRunLease(lease.event)) this.capabilities.delete(cap.id);
+    return committed;
   }
 
   async stagedTarget(repo: string, _workspace: string, hash: string, size: bigint) {

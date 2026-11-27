@@ -225,7 +225,7 @@ export async function watchCommand(
         rackOpened = true;
         if (await rackEnabled(repoPath, options)) {
           rack = await openRack({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
-            rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log });
+            rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log, run: {} });
           console.log(`Rack: ${rack.describe(formatSize)}`);
         }
       } else await rack?.refreshSlots();
@@ -273,8 +273,13 @@ export async function watchCommand(
         console.log(`  ${formatError(err)}`);
       }
     } finally {
-      // Each run's rack work is summed up on its own, however the run ended.
-      if (rack !== undefined) await printRackSummary(rack);
+      // Each run's rack work is summed up on its own, however the run ended,
+      // and the rack's run it was granted ends with it: the watch then waits
+      // holding no rack's slot
+      if (rack !== undefined) {
+        await rack.endRun();
+        await printRackSummary(rack);
+      }
     }
   }
 

@@ -189,13 +189,19 @@ it('gives a run lease whose rack went quiet to another rack, with every ask not 
   const grant = (await claim(quiet))!;
   await ask(f, session, leaseId, 'first');
   await ask(f, session, leaseId, 'second');
+  await ask(f, session, leaseId, 'third');
   await quiet.runRequest('answers', { repo: grant.repo, leaseId, answers: [{ seq: 1, answer: { kind: 'unknown' } }] });
+  // The quiet rack had begun to tee `third`'s log
+  await quiet.runRequest('logs', { repo: grant.repo, leaseId, seq: 3, chunks: [{ stream: 'stdout', text: 'half of it\n' }] });
 
   await new Promise((resolve) => setTimeout(resolve, 400));
   const next = await f.agent({ rackRuns: true });
   const taken = await claim(next);
   assert.ok(taken !== null && taken.leaseId === leaseId, 'another rack took it up');
-  assert.deepEqual((await asks(next, taken)).asks.map(({ seq }) => seq), [2]);
+  assert.deepEqual((await asks(next, taken)).asks.map(({ seq }) => seq), [2], 'given the ask whose log no rack began');
+  const answered = (await session.events()).events.filter((each) => each.event.type === 'answered')
+    .map((each) => each.event.type === 'answered' ? [each.event.value.seq, JSON.parse(each.event.value.answerJson) as unknown] : []);
+  assert.deepEqual(answered, [[1n, { kind: 'unknown' }], [3n, { kind: 'unknown' }]], 'the one it began is answered unknown, for a fresh attempt');
 
   await new Promise((resolve) => setTimeout(resolve, 700));
   await f.hub.sweep();
