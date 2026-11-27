@@ -115,6 +115,16 @@ export type TaskBodyExecutor = ((
    * one unit first. Read as each stage starts.
    */
   readonly stopsUnits?: boolean;
+  /**
+   * Whether the body runs a split task whole, as one execution planned
+   * wherever it runs, in place of this runner planning it and handing the
+   * body each unit (`TaskRunner.takesWhole`). The body is then called once,
+   * with `role: 'task'`, and its `local` fallback plans the task here, as one
+   * this runner runs on its own, each unit going through the body as usual.
+   * Asked of a split task after its cache probe missed. Absent, the runner
+   * plans every split task.
+   */
+  readonly takesWhole?: (taskHash: string, options: { taskName?: string }) => boolean;
 };
 
 /**
@@ -277,6 +287,14 @@ export class LocalTaskRunner implements TaskRunner {
     return localFirstWave({ budget: this.budget, body: this.settings.body });
   }
 
+  /**
+   * Whether this runner runs a split task whole: when its body says it does
+   * (`TaskBodyExecutor.takesWhole`), and never without one.
+   */
+  takesWhole(taskHash: string, options: { taskName?: string }): boolean {
+    return this.settings.body?.takesWhole?.(taskHash, options) === true;
+  }
+
   async execute(
     storage: StorageBackend,
     taskHash: string,
@@ -285,6 +303,7 @@ export class LocalTaskRunner implements TaskRunner {
   ): Promise<TaskResult> {
     return toTaskResult(await taskExecute(storage, this.repo, taskHash, inputHashes, {
       force: options?.force,
+      ...(options?.whole !== undefined && { whole: options.whole }),
       verbose: options?.verbose,
       taskName: options?.taskName,
       signal: options?.signal,
@@ -450,16 +469,26 @@ export async function taskExecute(
     // each unit is probed with the caller's judgement of what still runs.
     // Its stages start every unit at once, each reserving an estimate, where
     // the budget's guard stops a unit that outgrows its share.
-    return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, { ...options, firstWave: options.firstWave ?? localFirstWave(options) },
-      (unitInputs, unitIds, merge, expectedPeakBytes, own, guessed, scope) =>
-        runBody({ storage, repo, taskHash, task, inputHashes: unitInputs, ids: unitIds,
-          options: { ...options, expectedPeakBytes, expectedPeakGuessed: guessed === true, ...(scope !== undefined && { splitScope: scope }) },
-          role: 'unit', logicalTaskHash: taskHash, unit: { inputs: unitInputs, merge, own } }),
-      {
-        width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
-        owner: options.owner === undefined ? await processOwner() : options.owner,
-        ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
-      });
+    const planHere = async (attempt: ExecutionIds): Promise<ExecutionResult> =>
+      executeSplitTask(storage, repo, taskHash, task, inputHashes, attempt, { ...options, firstWave: options.firstWave ?? localFirstWave(options) },
+        (unitInputs, unitIds, merge, expectedPeakBytes, own, guessed, scope) =>
+          runBody({ storage, repo, taskHash, task, inputHashes: unitInputs, ids: unitIds,
+            options: { ...options, expectedPeakBytes, expectedPeakGuessed: guessed === true, ...(scope !== undefined && { splitScope: scope }) },
+            role: 'unit', logicalTaskHash: taskHash, unit: { inputs: unitInputs, merge, own } }),
+        {
+          width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
+          owner: options.owner === undefined ? await processOwner() : options.owner,
+          ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
+        });
+    // Whole as the loop decided it, asked once; else as the body says
+    const body = options.body;
+    const whole = options.whole ?? body?.takesWhole?.(taskHash, { taskName: options.taskName }) === true;
+    if (!whole || body === undefined) return planHere(ids);
+    // The body runs it whole: its fallback plans it here, as above
+    return body({ storage, repo, taskHash, task, inputHashes, ids, options, role: 'task' }, (attempt = ids) => {
+      if (attempt.inHash !== ids.inHash) return Promise.reject(new Error('A local fallback cannot change its inputs hash'));
+      return planHere(attempt);
+    });
   }
   return runBody({ storage, repo, taskHash, task, inputHashes, ids, options, role: 'task' });
 }

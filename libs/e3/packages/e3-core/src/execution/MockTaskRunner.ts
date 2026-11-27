@@ -128,6 +128,21 @@ export class MockTaskRunner implements TaskRunner {
     return { ...result, executionId: result.executionId ?? uuidv7() };
   }
 
+  private readonly whole = new Set<string>();
+
+  /**
+   * Set the runner to take a split task whole (`TaskRunner.takesWhole`), so
+   * the loop calls {@link execute} for it in place of planning it.
+   * @param taskHash - The task hash
+   */
+  setTakesWhole(taskHash: string): void {
+    this.whole.add(taskHash);
+  }
+
+  takesWhole(taskHash: string): boolean {
+    return this.whole.has(taskHash);
+  }
+
   private alive: (running: RunningExecution) => boolean | StopReason = () => false;
 
   /**

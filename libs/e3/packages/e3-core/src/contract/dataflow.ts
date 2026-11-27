@@ -506,6 +506,81 @@ export function dataflowTests(setup: BackendSetup): void {
       await assert.rejects(orchestrator.cancel(handle), /not found/, 'as for any run that has ended, there is nothing to cancel');
     });
 
+    it('leaves a task its runner hands back waiting, and its dependents, with no failure: the run completes, and the next one runs them', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { extract, model, report } = await deployChain(t, context);
+      const runner = new MockTaskRunner();
+      runner.setResult(extract, { state: 'success', cached: false, outputHash: 'extract-out' });
+      runner.setResult(model, { state: 'error', cached: false, error: 'no room on its rack', handedBack: 'no-room' });
+      runner.setResult(report, { state: 'success', cached: false, outputHash: 'report-out' });
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handedBack: [string, string][] = [];
+      const waiting: string[] = [];
+      const handle = await orchestrator.start(storage, repo, 'ws', {
+        runner,
+        onTaskHandedBack: (task, reason) => handedBack.push([task, reason]),
+        onTaskWaiting: (task) => waiting.push(task),
+      });
+      const result = await orchestrator.wait(handle);
+
+      assert.equal(result.success, true, 'a task handed back fails nothing');
+      assert.deepEqual([result.failed, result.skipped], [0, 0]);
+      assert.deepEqual(handedBack, [['model', 'no-room']]);
+      assert.deepEqual(waiting, ['report'], 'its dependent waits on it');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.equal(ended?.status, 'completed');
+      assert.deepEqual([ended?.tasks.get('model')?.status, ended?.tasks.get('report')?.status], ['waiting', 'waiting']);
+      assert.equal((await storage.datasets.read(repo, 'ws', 'tasks/model/output'))?.type ?? 'unassigned', 'unassigned', 'nothing was written for it');
+
+      runner.setResult(model, { state: 'success', cached: false, outputHash: 'model-out' });
+      runner.clearCalls();
+      const next = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
+      assert.equal(next.success, true);
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash).slice(-2), [model, report], 'the next run runs it, then its dependent');
+    });
+
+    it('runs a split task its runner takes whole as one execution, planning nothing and recording no plan', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const pieceBytes = process.env.E3_TEST_PIECE_BYTES;
+      process.env.E3_TEST_PIECE_BYTES = '64';
+      t.after(() => {
+        if (pieceBytes === undefined) delete process.env.E3_TEST_PIECE_BYTES;
+        else process.env.E3_TEST_PIECE_BYTES = pieceBytes;
+      });
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, x, y) => x.add(y) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const zip = join(scratch(t), 'whole.zip');
+      await e3.export(e3.package('whole', '1.0.0', rows, total), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, 'ws');
+      await workspaceDeploy(storage, repo, 'ws', 'whole', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+      const runner = new MockTaskRunner();
+      runner.setTakesWhole(totalHash);
+      runner.setResult(totalHash, { state: 'success', cached: false, outputHash: 'total-out' });
+
+      const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+      const result = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
+      assert.equal(result.success, true);
+      assert.deepEqual(runner.getUnitCalls(), [], 'no unit was handed over');
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [totalHash], 'it ran as one execution');
+      const rowsRef = await storage.datasets.read(repo, 'ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      assert.equal(await storage.refs.executionPlanRead(repo, totalHash, inputsHash([rowsRef.value.hash])), null, 'and no plan was recorded');
+    });
+
     it('ends a split task the loop left between stages cancelled when the loop throws, and the run failed', async (t) => {
       const context = await setup(t);
       const { storage, repo } = context;

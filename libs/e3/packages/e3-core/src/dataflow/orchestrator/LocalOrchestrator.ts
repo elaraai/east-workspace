@@ -260,9 +260,20 @@ interface TaskOutcome {
   peakBytes?: number;
   /** Where its time went, as the host that ran it says it (`TaskResult.timing`) */
   timing?: string;
+  /** Why its runner could not run it where it runs (`TaskResult.handedBack`):
+   *  no failure of the task's */
+  handedBack?: string;
 }
 
 /** A split task's execution, as the loop completes it. */
+/**
+ * How long a result's work took, in whole ms: as the host that ran it
+ * measured it (`TaskResult.durationMs`), or by the loop's own clock.
+ */
+function durationOf(result: { readonly durationMs?: number }, startTime: number): number {
+  return result.durationMs === undefined ? Date.now() - startTime : Math.max(0, Math.round(result.durationMs));
+}
+
 function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
   return {
     state: result.state,
@@ -272,9 +283,10 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
     exitCode: result.exitCode ?? undefined,
     error: result.error ?? undefined,
     cancelled: result.cancelled,
-    duration: Date.now() - startTime,
+    duration: durationOf(result, startTime),
     ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
     ...(result.timing !== undefined && { timing: result.timing }),
+    ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
   };
 }
 
@@ -1047,12 +1059,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           options.onTaskStart?.(taskName);
 
           // A task whose work is split over its inputs runs as the units of
-          // its stages, which join the loop's; any other task runs as one.
+          // its stages, which join the loop's, unless its runner takes it
+          // whole (`TaskRunner.takesWhole`); any other task runs as one.
           const task = await this.readSplitTask(storage, repo, prepared.taskHash);
-          if (task !== null) {
+          const whole = task !== null && await this.takenWhole(storage, repo, execution, taskName, prepared);
+          if (task !== null && !whole) {
             this.launchSplit(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, task);
           } else {
-            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV);
+            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, whole);
           }
         }
 
@@ -1545,6 +1559,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           state: 'cancelled',
           duration: result.duration,
         });
+      } else if (result.handedBack !== undefined) {
+        // Its runner could not run it where it runs, for a reason that is not
+        // the task's: no failure. It waits, and its dependents with it, and
+        // the run goes on without them, as it does for a task waiting on an
+        // unassigned input.
+        const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+        if (ts) ts.plan = none;
+        const { waiting } = stepTasksWaiting(state, taskName, []);
+        options.onTaskHandedBack?.(taskName, result.handedBack);
+        for (const each of waiting) if (each.task !== taskName) options.onTaskWaiting?.(each.task, each.inputs);
       } else {
         execution.hasFailure = true;
 
@@ -1616,15 +1640,41 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /** Launches a task that runs as one execution, tracked under its name. */
+  /**
+   * Whether a split task's runner takes it whole (`TaskRunner.takesWhole`),
+   * asked once for its launch. Never one a stage of which was begun here, which
+   * the loop takes up again: a resumed run's, or one a run before left rooted.
+   * A runner that cannot say, or throws, does not.
+   */
+  private async takenWhole(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+  ): Promise<boolean> {
+    const runner = execution.options.runner;
+    if (runner?.takesWhole === undefined) return false;
+    if (execution.state.tasks.get(taskName)?.plan.type === 'some') return false;
+    const begun = await storage.refs.executionPlanRead(repo, prepared.taskHash, inputsHash(prepared.inputHashes)).catch(() => null);
+    if (begun !== null) return false;
+    try {
+      return await runner.takesWhole(prepared.taskHash, { taskName });
+    } catch {
+      return false;
+    }
+  }
+
   private launchTask(
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
     taskName: string,
     prepared: PrepareTaskResult,
-    launchMergedVV: VersionVector
+    launchMergedVV: VersionVector,
+    whole = false,
   ): void {
-    const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared)
+    const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared, whole)
       .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, result))
       .catch((err) => this.failTask(execution, taskName, err))
       .finally(() => {
@@ -1807,6 +1857,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
       });
     }
+    // A stage whose units were handed back, none failing of its own, ends the
+    // task handed back (`SplitTask.advance`)
     await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(result, run.startTime));
     execution.splits.delete(taskName);
   }
@@ -1913,11 +1965,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       state: result.state,
       outputHash: result.outputHash ?? null,
       exitCode: result.exitCode ?? null,
-      duration: Date.now() - startTime,
+      duration: durationOf(result, startTime),
       error: result.error ?? null,
       cancelled: result.cancelled ?? false,
       ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
       ...(result.timing !== undefined && { timing: result.timing }),
+      ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
     };
   }
 
@@ -1929,13 +1982,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     repo: string,
     execution: RunningExecution,
     taskName: string,
-    prepared: { taskHash: string; inputHashes: string[] }
+    prepared: { taskHash: string; inputHashes: string[] },
+    whole = false,
   ): Promise<TaskOutcome> {
     const { options } = execution;
     const startTime = Date.now();
 
     const execOptions: TaskExecuteOptions = {
       taskName,
+      // A split task its runner takes whole, which the loop asked it once
+      ...(whole && { whole: true }),
       // Scoped like the cache bypass in stepPrepareTask: a filtered run forces
       // only the target, so a launched dependency still honours its own cache.
       force: stepTaskForced(execution.state, taskName),
@@ -1967,9 +2023,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         exitCode: result.exitCode,
         error: result.error,
         cancelled: result.cancelled,
-        duration: Date.now() - startTime,
+        duration: durationOf(result, startTime),
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
+        ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
       };
     } else {
       const result = await this.hostRunner().execute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
@@ -1981,9 +2038,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         exitCode: result.exitCode ?? undefined,
         error: result.error ?? undefined,
         cancelled: result.cancelled,
-        duration: Date.now() - startTime,
+        duration: durationOf(result, startTime),
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
+        ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
       };
     }
   }

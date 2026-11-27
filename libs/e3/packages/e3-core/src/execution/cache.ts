@@ -43,6 +43,10 @@ export interface ExecuteOptions {
   /** The task's graph name, for labelling work handed to another executor.
    *  Runtime-only: never hashed or part of the execution cache. */
   taskName?: string;
+  /** A split task the dataflow's loop asked its runner of once and the
+   *  runner takes whole (`TaskExecuteOptions.whole`): run whole, the body
+   *  not asked again. Runtime-only. */
+  whole?: boolean;
   /** Timeout in milliseconds (default: none) */
   timeout?: number;
   /** AbortSignal for cancellation */
@@ -154,6 +158,17 @@ export interface ExecutionResult {
    *  cached) 260 s · …`). Runtime-only, never recorded; absent from an
    *  execution that ran here, or was served from the cache. */
   timing?: string;
+  /** How long the work took, in ms, as the host that ran it measured it,
+   *  when that is not this call's own length (`duration`): a result taken
+   *  from a run that ran it before it was asked for. The dataflow's loop
+   *  records it as the work's duration, in place of its own clock
+   *  (`TaskResult.durationMs`); `duration` stays this call's length, which
+   *  a split's progress reports. Absent from an execution that ran here. */
+  durationMs?: number;
+  /** Set when the work could not be run where it was sent, for a reason that
+   *  is not the work's own (`TaskResult.handedBack`): the reason. Runtime-only,
+   *  never recorded. */
+  handedBack?: string;
 }
 
 /** The identity of one execution attempt: the execution-cache key it is
