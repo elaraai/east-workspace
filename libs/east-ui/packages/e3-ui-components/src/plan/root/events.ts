@@ -56,11 +56,17 @@
  * view scrolls is a few rows' own: joined whole, every window held was made
  * again, folded or out of view. New blocks, another set hidden or another
  * period join the window whole. Until the first read answers the rows draw
- * with no events. The wrapper names the snapshot of the source's own
- * data apart from that revision (`snapshot`, #1199): new events over the same
- * data read the windows again and are no new snapshot of it, so a key search
- * standing stays where it is. Over rows read a page at a time no Unassigned row
- * is drawn: an event on no row of the canvas's is in no window (#1541).
+ * with no events. The events as last read are compared with the new once, as
+ * they are read (#1793): the rows the new ones moved are kept beside them, and
+ * a window joined again takes those — every step since the events it was
+ * joined with — never comparing the two itself, so what an answer costs
+ * follows the rows it moved, not the windows held. Events that hold under a
+ * new shading are the object the canvas has, and are compared by no window.
+ * The wrapper names the snapshot of the source's own data apart from that
+ * revision (`snapshot`, #1199): new events over the same data read the windows
+ * again and are no new snapshot of it, so a key search standing stays where it
+ * is. Over rows read a page at a time no Unassigned row is drawn: an event on
+ * no row of the canvas's is in no window (#1541).
  *
  * # Placed for a period
  *
@@ -213,7 +219,8 @@ const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], c
 const NOTHING_PLACED: PlanEventPlacedValue = { on: new SortedMap([], compareString), lost: new SortedMap([], compareString) };
 /** Nothing hidden: every kind and series draws. */
 const NONE_HIDDEN: readonly string[] = [];
-const placedEqual = equalFor(PlanEventPlacedType);
+/** Whether two placings hold the same events on no row, kind by kind: what the rows read whole draw after their own. */
+const lostEqual = equalFor(PlanEventPlacedType.fields.lost);
 const shadingEqual = equalFor(PlanEventShadingType);
 /** Whether two lists of the events filed for a row, one way of drawing, are one: what a landing row's join reads. */
 const listEqual = equalFor(PlanEventPlacedType.fields.on.value.value.value);
@@ -488,16 +495,27 @@ export function usePlanEventPlaced(
         failed.current = next;
         return next;
     }, [result, cellsFailure]);
+    // The read the events held were last compared with: the same read again — under another shading, or for another
+    // period — holds what they hold, and is compared with them no more.
+    const compared = useRef<PlanEventPlacedValue | undefined>(undefined);
     const now = useMemo(() => {
         const previous = held.current;
         if (!result.ok || result.value === undefined) return previous;
         const next = result.value;
+        // Events that hold are the object the canvas has: under a new shading no window compares them again.
+        let kept = previous.placed !== undefined && Object.is(compared.current, next) ? previous.placed : undefined;
+        if (kept === undefined) {
+            // Compared with the last once, here (#1793): the rows the new events moved, which every window joined again takes.
+            const was = previous.placed ?? NOTHING_PLACED;
+            const moved = movedKeys(was, next);
+            if (previous.placed !== undefined && moved.size === 0 && lostEqual(previous.placed.lost, next.lost)) kept = previous.placed;
+            else keepMoved(was, next, moved);
+            compared.current = next;
+        }
         // The shading and what the viewer hides are placed with the events, for the columns' period: a new one places
         // the rows again — another period too, whatever it holds, so every row is joined for the period it is drawn under.
-        const same = previous.placed !== undefined && placedEqual(previous.placed, next)
-            && shadingEqual(previous.shading, shading) && previous.hidden === hidden && previous.period === period;
-        if (same) return previous;
-        held.current = { placed: next, shading, hidden, version: previous.version + 1, period };
+        if (kept !== undefined && shadingEqual(previous.shading, shading) && previous.hidden === hidden && previous.period === period) return previous;
+        held.current = { placed: kept ?? next, shading, hidden, version: previous.version + 1, period };
         return held.current;
     }, [result, hidden, shading, period]);
     // The read that landed, with what it was read over, handed to the frame (#1771) — never one in flight or failed: the
@@ -660,15 +678,29 @@ function placedIndex(blocks: readonly PlanWireBlock[], joined: readonly PlanWire
     return { rowsOf, places };
 }
 
+/** The keys whose events moved between two placings, by the landing series they are filed under. */
+type PlacedMoved = ReadonlyMap<string, ReadonlySet<string>>;
+
+/**
+ * Test-only probe of two placings compared list by list — lets "the old placing is compared with the new once an
+ * answer, never once a window held" be asserted. `undefined` outside tests.
+ */
+let comparedProbe: (() => void) | undefined;
+/** Install (or clear) the test probe of two placings compared. Test use only. */
+export function setPlacedComparedProbe(fn: (() => void) | undefined): void {
+    comparedProbe = fn;
+}
+
 /**
  * The keys whose events moved between two placings (#1712), by landing series: a list against a list by East's
- * equality, in every way of drawing — events arrived, changed or left.
+ * equality, in every way of drawing — events arrived, changed or left. A list that is the object it was has not moved.
  *
  * @param was - The events a window was joined with
  * @param now - The events it is joined with now
  * @returns The keys, by landing series
  */
 function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<string, Set<string>> {
+    comparedProbe?.();
     const moved = new Map<string, Set<string>>();
     const mark = (series: string, key: string): void => {
         const keys = moved.get(series);
@@ -680,7 +712,7 @@ function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<st
             const then = was.on.get(series)?.get(draw);
             for (const [key, list] of byKey) {
                 const before = then?.get(key);
-                if (before === undefined || !listEqual(before, list)) mark(series, key);
+                if (before === undefined || !(Object.is(before, list) || listEqual(before, list))) mark(series, key);
             }
         }
     }
@@ -689,6 +721,62 @@ function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<st
             const next = now.on.get(series)?.get(draw);
             for (const key of byKey.keys()) if (next?.has(key) !== true) mark(series, key);
         }
+    }
+    return moved;
+}
+
+/** How many of the latest steps from one placing to the next are kept: a window joined with events read before them compares the two itself. */
+const PLACED_STEPS_KEPT = 64;
+/** Each placing's place in the order the events were read in: what the steps from one to another are found by. */
+const placedAt = new WeakMap<PlanEventPlacedValue, number>();
+/** What each placing moved from the one read before it, by its place, with that one's place: the latest {@link PLACED_STEPS_KEPT}. */
+const placedSteps = new Map<number, { readonly from: number; readonly moved: PlacedMoved }>();
+/** How many places have been given. */
+let placedCount = 0;
+
+/**
+ * Keeps what a placing moved from the one read before it (#1793): compared once, as the events are read, and taken by
+ * every window joined again ({@link movedBetween}).
+ *
+ * @param was - The events as last read
+ * @param now - The events read now
+ * @param moved - The keys whose events moved between them, by landing series
+ */
+function keepMoved(was: PlanEventPlacedValue, now: PlanEventPlacedValue, moved: PlacedMoved): void {
+    let from = placedAt.get(was);
+    if (from === undefined) placedAt.set(was, (from = ++placedCount));
+    placedCount += 1;
+    placedAt.set(now, placedCount);
+    placedSteps.set(placedCount, { from, moved });
+    if (placedSteps.size > PLACED_STEPS_KEPT) placedSteps.delete(placedSteps.keys().next().value!);
+}
+
+/**
+ * The keys whose events moved from one placing to a later one (#1793), by landing series, from what each read kept of
+ * the one before it ({@link keepMoved}): every step from the one to the other, a key that moved in any of them moved —
+ * one that moved and moved back among them, which a join again leaves as it was.
+ *
+ * @param was - The events a window was joined with
+ * @param now - The events it is joined with now
+ * @returns The keys; `undefined` where the steps between the two are not all kept, and the two are to be compared
+ */
+function movedBetween(was: PlanEventPlacedValue, now: PlanEventPlacedValue): PlacedMoved | undefined {
+    const from = placedAt.get(was);
+    let at = placedAt.get(now);
+    if (from === undefined || at === undefined) return undefined;
+    // One step, the usual: what the read kept, as it is.
+    const last = placedSteps.get(at);
+    if (last !== undefined && last.from === from) return last.moved;
+    const moved = new Map<string, Set<string>>();
+    while (at !== from) {
+        const step = placedSteps.get(at);
+        if (step === undefined) return undefined;
+        for (const [series, keys] of step.moved) {
+            const held = moved.get(series);
+            if (held === undefined) moved.set(series, new Set(keys));
+            else for (const key of keys) held.add(key);
+        }
+        at = step.from;
     }
     return moved;
 }
@@ -794,7 +882,9 @@ function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: Plac
         }
     };
     if (!Object.is(was.with.placed, now.placed)) {
-        for (const [series, keys] of movedKeys(was.with.placed, now.placed)) for (const key of keys) take(series, key);
+        // What the reads since kept of each step (#1793); compared here only where a step between the two is not kept.
+        const moved = movedBetween(was.with.placed, now.placed) ?? movedKeys(was.with.placed, now.placed);
+        for (const [series, keys] of moved) for (const key of keys) take(series, key);
     }
     if (!Object.is(was.with.shading, now.shading)) {
         const moved = movedShading(was.with.shading, now.shading, landings);

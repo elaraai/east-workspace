@@ -17,15 +17,17 @@
  * was read over, a window's events those of it that meet the window by the
  * views' rule (#1771); the root's rows are joined with them — inline once, a
  * page at a time each window its source serves, and a window read again over
- * new events or a new shading alone only in the rows they moved (#1712, #1791) — and the windows name the
+ * new events or a new shading alone only in the rows they moved (#1712, #1791),
+ * the events compared with the last once, as they are read, and by no window
+ * (#1793) — and the windows name the
  * snapshot of their data apart from the revision new events move (#1199), a
  * live source its narrowing with it (#1344). The events say the columns' period
  * they were placed for, and so does each landing row joined (#1740).
  */
 
-import { describe, test, expect, vi } from "vitest";
+import { afterEach, describe, test, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { FloatType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanEventShadingType, ScheduleEventRefType, planChildRowKey, planHideId, type PlanEventDraftsType } from "@elaraai/e3-ui/internal";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { toCanvasRows, type PlanLinkValue, type PlanRootValue, type PlanRowId, type PlanWireBlock, type PlanWireRow } from "../model.js";
@@ -34,7 +36,7 @@ import { entry } from "../row-id.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import {
-    createEventPlacings, placedEvents, placedPeriodOf, resolveEventLinks, usePlanEventPlaced, usePlanEventRoot,
+    createEventPlacings, placedEvents, placedPeriodOf, resolveEventLinks, setPlacedComparedProbe, usePlanEventPlaced, usePlanEventRoot,
     type PlanEventLead, type PlanEventPlacedValue, type PlanEventPlacing, type PlanEventRows, type PlanEventSeamValue, type PlanLandingValue,
 } from "./events.js";
 
@@ -694,6 +696,146 @@ describe("the root's rows, the events joined in (#1541)", () => {
             expect(after[0]!.rows.map((one) => printRowId(one.id))).toEqual(before[0]!.rows.map((one) => printRowId(one.id)));
             expect(after).toEqual(rowByRow(onTasks, [])(blocks, now, NO_SHADING_HERE, [], false));
             expect(marksOn(after, entry("tasks", "P-02", "T-1"))).toEqual([elementKey("job", "J-1")]);
+        });
+
+        describe("the events as last read, compared with the new once (#1793)", () => {
+            /** Four weeks by the day, from Monday 5 October. */
+            const scale = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "day" }) as PlanScale;
+            /** Nothing hidden: the one list both halves of the canvas are given. */
+            const SHOWN: readonly string[] = [];
+            /** Where each of three windows begins. */
+            const AT: readonly bigint[] = [0n, 20n, 40n];
+            /** Three windows of twenty presses each — P-101 …, P-201 …, P-301 … — each press a landing row drawing marks and tiles. */
+            const HELD = [1, 2, 3].map((w) => [{
+                fixed: false, parent: none, charts: none,
+                rows: Array.from({ length: 20 }, (_x, i) => row(entry("presses", `P-${w * 100 + i + 1}`), spanKind)),
+            }]) as unknown as PlanWireBlock[][];
+            const WINDOWS = new SortedMap(AT.map((at, w) => [at, HELD[w]!] as const), compareFor(IntegerType));
+            /** A press's landing row's id, as East prints it. */
+            const press = (key: string) => printRowId(entry("presses", key));
+            /** A window joined whole with events and a shading: what a join again is to give. */
+            const whole = (w: number, placed: PlanEventPlacedValue, shading: PlanEventLead["shading"] = NO_SHADING_HERE) =>
+                rowByRow(ON_PRESSES, [])(HELD[w]!, placed, shading, [], false);
+
+            afterEach(() => { setPlacedComparedProbe(undefined); });
+
+            /**
+             * The canvas's two halves over one seam: the reader of the events — read again at each new object of drafts,
+             * as a landing reads them again — and the root's wrapper over a source of three windows, each the same blocks
+             * at every read, as the kept layer gives them while they hold (`kept.ts`). It counts each time two placings
+             * are compared, and keeps the ids of the rows each join is given.
+             */
+            function reading() {
+                const given: string[][] = [];
+                const count = { compared: 0 };
+                setPlacedComparedProbe(() => { count.compared += 1; });
+                const answers = { next: (): ReturnType<PlanEventSeamValue["placed"]> => none };
+                const src = {
+                    id: "windows", page: (offset: bigint) => some({ rows: WINDOWS.get(offset)!, entries: [] }), total: () => some(60n), seek: none,
+                    revision: () => some("R1"), refresh: () => null,
+                };
+                const root = rootOf(variant("pinned", src));
+                const events: PlanEventRows = { seam: seamOf(() => answers.next(), rowByRow(ON_PRESSES, given)), landings: [...ON_PRESSES], paged: true };
+                const noDrafts = (): ValueTypeOf<typeof PlanEventDraftsType> => new SortedMap([], compareString);
+                const { result, rerender } = renderHook(({ drafts, cells }) => {
+                    const lead = usePlanEventPlaced(events, scale, SHOWN, drafts, cells);
+                    return { lead, roots: usePlanEventRoot(root, root, lead, events, SHOWN) };
+                }, { initialProps: { drafts: noDrafts(), cells: undefined as ScheduleCellsRead | undefined } });
+                /** The events answer as given, under a shading where one is: read again, and handed to the root. */
+                const land = (placed: PlanEventPlacedValue, shading?: PlanEventLead["shading"]): void => {
+                    answers.next = () => some(placed);
+                    const drafts = noDrafts();
+                    rerender({
+                        drafts,
+                        cells: shading === undefined ? undefined : ({ reads: new SortedMap([], compareString), shading, drafts }) as unknown as ScheduleCellsRead,
+                    });
+                };
+                /** One of the three windows, read through the wrapper. */
+                const read = (w: number): PlanWireBlock[] => {
+                    const page = sourceOf(result.current.roots.data).page(AT[w]!, 20n);
+                    return page.type === "some" ? page.value.rows : [];
+                };
+                return { given, count, land, read, lead: () => result.current.lead };
+            }
+
+            test("an answer is compared with the events held once, however many windows are held: each window joined again takes the rows it moved, and compares nothing itself", () => {
+                const { given, count, land, read } = reading();
+                land(placedOn([["presses", "marks", "P-101", "job", "J-1"], ["presses", "marks", "P-201", "job", "J-2"], ["presses", "marks", "P-301", "job", "J-3"]]));
+                const before = [0, 1, 2].map(read);
+                expect(given.map((ids) => ids.length)).toEqual([20, 20, 20]);
+                // J-2 moves to P-202 and J-4 comes to P-305; P-101 and P-301 hold their jobs, read again as equal lists.
+                const now = placedOn([
+                    ["presses", "marks", "P-101", "job", "J-1"], ["presses", "marks", "P-202", "job", "J-2"],
+                    ["presses", "marks", "P-301", "job", "J-3"], ["presses", "marks", "P-305", "job", "J-4"],
+                ]);
+                count.compared = 0;
+                land(now);
+                expect(count.compared).toBe(1);
+                const after = [0, 1, 2].map(read);
+                // No window compared the two: the first joins no row, the others the rows the answer moved.
+                expect(count.compared).toBe(1);
+                expect(given.slice(3).map((ids) => new Set(ids))).toEqual([new Set([press("P-201"), press("P-202")]), new Set([press("P-305")])]);
+                after.forEach((blocks, w) => expect(blocks).toEqual(whole(w, now)));
+                expect(after[0]![0]!.rows.every((one, j) => Object.is(one, before[0]![0]!.rows[j]))).toBe(true);
+            });
+
+            test("a window not read since an earlier answer takes the rows of every answer since, and gives what a join of the whole window gives", () => {
+                const { count, land, read } = reading();
+                const jobs = (third: string) => placedOn([["presses", "marks", "P-101", "job", "J-1"], ["presses", "marks", third, "job", "J-3"]]);
+                land(jobs("P-301"));
+                const before = [0, 1, 2].map(read);
+                count.compared = 0;
+                // J-3 moves to P-302, the third window not read; then on to P-303.
+                land(jobs("P-302"));
+                read(0);
+                const now = jobs("P-303");
+                land(now);
+                const after = read(2);
+                expect(count.compared).toBe(2);
+                expect(after).toEqual(whole(2, now));
+                expect(["P-301", "P-302", "P-303"].map((key) => marksOn(after, entry("presses", key)))).toEqual([[], [], [elementKey("job", "J-3")]]);
+                // Every row neither answer moved is the object it was.
+                const moved = new Set(["P-301", "P-302", "P-303"].flatMap((key) => [press(key), printRowId(entry("presses.buckets", key))]));
+                const remade = after[0]!.rows.filter((one, j) => !Object.is(one, before[2]![0]!.rows[j])).map((one) => printRowId(one.id));
+                expect(remade.every((id) => moved.has(id))).toBe(true);
+            });
+
+            test("a window joined with events read longer ago than the answers kept compares the two itself, and joins the same", () => {
+                const { count, land, read } = reading();
+                const job = (on: string) => placedOn([["presses", "marks", on, "job", "J-3"]]);
+                land(job("P-301"));
+                read(2);
+                count.compared = 0;
+                // A hundred answers, the job to and fro — more than are kept — and the window read after none of them.
+                let now = job("P-301");
+                for (let i = 0; i < 100; i++) land((now = job(i % 2 === 0 ? "P-302" : "P-303")));
+                expect(count.compared).toBe(100);
+                expect(read(2)).toEqual(whole(2, now));
+                expect(count.compared).toBe(101);
+            });
+
+            test("events that hold under a new shading are the object the canvas has — compared once, as they are read, and by no window — and the same read again is compared no more", () => {
+                const { count, land, read, lead } = reading();
+                const first = placedOn([["presses", "marks", "P-101", "job", "J-1"]]);
+                land(first);
+                [0, 1, 2].forEach(read);
+                count.compared = 0;
+                // The same events, read again as another object, and the presses' marks shaded past the cap.
+                const again = placedOn([["presses", "marks", "P-101", "job", "J-1"]]);
+                const shaded = shadingOf({ "presses.marks": { "P-101": [1] } });
+                land(again, shaded);
+                expect(lead().placed).toBe(first);
+                expect(lead().version).toBe(2);
+                [0, 1, 2].map(read).forEach((blocks, w) => expect(blocks).toEqual(whole(w, first, shaded)));
+                expect(count.compared).toBe(1);
+                // The very read again, under another shading: the events hold, and nothing compares them.
+                const fuller = shadingOf({ "presses.marks": { "P-101": [2] } });
+                land(again, fuller);
+                expect(lead().placed).toBe(first);
+                expect(lead().version).toBe(3);
+                [0, 1, 2].map(read).forEach((blocks, w) => expect(blocks).toEqual(whole(w, first, fuller)));
+                expect(count.compared).toBe(1);
+            });
         });
     });
 });
