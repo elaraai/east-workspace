@@ -222,6 +222,16 @@ export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
 export const RACK_SPLIT_SCOPES = 'split-scopes';
 
 /**
+ * What a rack's report names when it hosts a whole rack run for a lease
+ * (`RackRunEvent`): it makes a replica from the run's description, runs it
+ * with e3's own loop, leasing a VM for each body, and answers its source's
+ * asks for each task's result through the run's routes
+ * (`/api/rack/run/asks`, `/answers`, `/logs`). A source grants a run lease
+ * only to a rack whose report names it.
+ */
+export const RACK_RUNS = 'rack-runs';
+
+/**
  * The header of a heartbeat's answer that names the scopes that ended
  * of those the rack was granted a lease of: a JSON array of their ids. Each is
  * named once, to a rack whose report names {@link RACK_SPLIT_SCOPES}; an

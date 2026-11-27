@@ -221,8 +221,105 @@ export function readRackLeaseScope(value: unknown): RackLeaseScope | undefined {
 }
 
 /**
- * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
- * function call.
+ * What a rack run's grant says of one of its tasks: the policy's verdict, by
+ * which the rack's run leases a VM for each of its bodies.
+ */
+export interface RackRunVerdict {
+  /** The tier it runs on */
+  readonly tier: string;
+  /** Its compute size */
+  readonly size: string;
+  /** The most minutes a run of it may take */
+  readonly timeoutMinutes: number;
+  /** The most memory, in bytes, it may use; null for its size's */
+  readonly memoryLimit: number | null;
+  /** Whether it runs with a GPU */
+  readonly gpu: boolean;
+}
+
+/**
+ * A rack run's work (`RACK_RUNS`): the lease is for a whole replica run, which
+ * the rack makes from a description and runs with e3's own loop, leasing a VM
+ * for each of its bodies, and answers its source's asks for each task's
+ * result. A rack that does not name the feature is never granted one.
+ */
+export interface RackRunEvent {
+  readonly mode: 'run';
+  /** The launch's id, a UUIDv7 */
+  readonly launchId: string;
+  /** The repository */
+  readonly repo: string;
+  /** The longest the run may take, in ms */
+  readonly timeoutMs: number;
+  /** A beast2 `SyncDescription` object in the source's store */
+  readonly description: string;
+  /** What the run forces: every task, the tasks named, or none */
+  readonly force: boolean | readonly string[];
+  /** Every tier a task of the run needs */
+  readonly tiers: readonly string[];
+  /** Each task's verdict, by its name */
+  readonly verdicts: Readonly<Record<string, RackRunVerdict>>;
+}
+
+/**
+ * Reads a lease event's rack run, for what this build knows of it.
+ *
+ * @remarks
+ * Lenient, as {@link readRackLeaseScope} is: an event whose run does not read
+ * is not a run, and no field this build does not know is required.
+ *
+ * @param event - The lease's event
+ * @returns The run, or undefined when the event is no run or one that does
+ *   not read
+ * @example
+ * ```ts
+ * const run = readRackRun(lease.event);
+ * if (run !== undefined) await hostRun(run);
+ * ```
+ */
+export function readRackRun(event: unknown): RackRunEvent | undefined {
+  if (typeof event !== 'object' || event === null) return undefined;
+  const value = (event as { runnerEvent?: unknown }).runnerEvent;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const run = value as Record<string, unknown>;
+  if (run.mode !== 'run' || typeof run.launchId !== 'string' || typeof run.repo !== 'string') return undefined;
+  if (typeof run.timeoutMs !== 'number' || !Number.isFinite(run.timeoutMs) || run.timeoutMs <= 0) return undefined;
+  if (typeof run.description !== 'string' || !/^[0-9a-f]{64}$/.test(run.description)) return undefined;
+  const force = run.force;
+  if (typeof force !== 'boolean' && !(Array.isArray(force) && force.every((name) => typeof name === 'string'))) return undefined;
+  const tiers = run.tiers;
+  if (!Array.isArray(tiers) || tiers.length === 0 || !tiers.every((tier) => typeof tier === 'string')) return undefined;
+  const verdicts = run.verdicts;
+  if (typeof verdicts !== 'object' || verdicts === null || Array.isArray(verdicts)) return undefined;
+  for (const verdict of Object.values(verdicts as Record<string, unknown>)) {
+    if (typeof verdict !== 'object' || verdict === null) return undefined;
+    const { tier, size, timeoutMinutes, memoryLimit, gpu } = verdict as Record<string, unknown>;
+    if (typeof tier !== 'string' || typeof size !== 'string' || typeof timeoutMinutes !== 'number' || typeof gpu !== 'boolean') return undefined;
+    if (memoryLimit !== null && typeof memoryLimit !== 'number') return undefined;
+  }
+  return {
+    mode: 'run', launchId: run.launchId, repo: run.repo, timeoutMs: run.timeoutMs, description: run.description,
+    force: typeof force === 'boolean' ? force : [...force as string[]], tiers: [...tiers as string[]],
+    verdicts: verdicts as Record<string, RackRunVerdict>,
+  };
+}
+
+/**
+ * Whether a lease is a rack run's: its rack hosts a whole replica run, and no
+ * attempt is recorded for the lease itself.
+ *
+ * @param event - The lease's event
+ * @returns Whether it is a run's lease
+ * @example
+ * const attempt = isFunctionLease(event) || isRunLease(event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
+ */
+export function isRunLease(event: RackLeaseEvent): boolean {
+  return event.runnerEvent.mode === 'run';
+}
+
+/**
+ * A lease's work, v2 (#214): a dataflow task, a unit of a split task, a
+ * function call, or a whole rack run.
  */
 export interface RackLeaseEvent {
   /** {@link RACK_LEASE_VERSION} */
@@ -233,7 +330,7 @@ export interface RackLeaseEvent {
    * stamped with. A function lease's `spec.bodyIr` is empty: its program is
    * {@link program}.
    */
-  readonly runnerEvent: RunnerTaskEvent | RunnerUnitEvent | RunnerDetachedEvent;
+  readonly runnerEvent: RunnerTaskEvent | RunnerUnitEvent | RunnerDetachedEvent | RackRunEvent;
   /** The workspace */
   readonly workspace: string;
   /** The task's name, or `fn:{name}` for a function: what the activity view shows */
@@ -705,8 +802,8 @@ export function isFunctionLease(event: RackLeaseEvent): boolean {
 }
 
 /**
- * The task object a lease's work runs: a task's or a unit's task, or a
- * function lease's program.
+ * The task object a lease's work runs: a task's or a unit's task, a function
+ * lease's program, or a run lease's description.
  *
  * @param event - The lease's event
  * @returns The object's hash
@@ -715,7 +812,7 @@ export function isFunctionLease(event: RackLeaseEvent): boolean {
  */
 export function leaseTaskHash(event: RackLeaseEvent): string {
   const run = event.runnerEvent;
-  return run.mode === 'run-detached' ? event.program ?? '' : run.taskHash;
+  return run.mode === 'run-detached' ? event.program ?? '' : run.mode === 'run' ? run.description : run.taskHash;
 }
 
 /**

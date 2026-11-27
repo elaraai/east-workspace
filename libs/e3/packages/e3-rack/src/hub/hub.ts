@@ -12,7 +12,7 @@ import { isAbsolute } from 'node:path';
 import { Hono } from 'hono';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
+import { BooleanType, IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { inputsHash, isObjectHash, isProcessAlive, readTierManifest, tierManifestDigest } from '@elaraai/e3-core';
 import { answer, decodeBody } from '../server/beast2.js';
 import { FileMachineIdentityStore } from '../identity/file-identity-store.js';
@@ -21,19 +21,20 @@ import { FileRackRegistry } from '../registry/file-rack-registry.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, leaseRefusal, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
-import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
+import { createRackRoutes, type RackLeaseSignal, type RackRunAsk, type RackRunRelay } from '../server/rack-routes.js';
 import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackRegistration } from '../protocol/registration.js';
-import { RACK_DATA_ORIGINS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
+import { RACK_DATA_ORIGINS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_RUNS, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
   type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, readRackLeaseScope,
-  type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
+  readRackRun, type RackLeaseEvent, type RackLeaseScope, type RackRunEvent } from '../protocol/task-envelope.js';
+import { SessionLogsType } from '../protocol/session-data.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
   FetchCostResultType, HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
-  RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
+  RemoveRackResultType, RunAskResultType, RunAskType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
-import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
+import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket, socketRequest } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { certificateSha256 } from '../tls/tls.js';
@@ -76,6 +77,23 @@ interface Subscription {
   envManifests: Set<string>;
   endedAt?: number;
 }
+/** An ask of a run lease: what a session asked, and whether its rack answered. */
+interface RunAsked {
+  readonly ask: RackRunAsk;
+  /** The session that asked, which its answer and the task's log go to */
+  readonly session: string;
+  /** The asker's attempt, under which the task's log is teed to it */
+  readonly executionId: string;
+  answered: boolean;
+}
+/** A run lease's asks (`RACK_RUNS`), numbered from 1. */
+interface RunAsks {
+  seq: number;
+  readonly asked: Map<number, RunAsked>;
+  readonly waiters: Set<() => void>;
+}
+const RACK_TIERS = ['node', 'py', 'py-datascience', 'c', 'full'];
+const RACK_SIZES = ['serverless', 'small', 'medium', 'large', 'xlarge'];
 const equalString = equalFor(StringType);
 const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -218,6 +236,8 @@ export class RackHub {
   private readonly now: () => number;
   private readonly sessions = new Map<string, Session>();
   private readonly subscriptions = new Map<string, Subscription>();
+  /** Each run lease's asks, by its lease (`RACK_RUNS`) */
+  private readonly runAsks = new Map<string, RunAsks>();
   private readonly dedupe = new Map<string, string>();
   /** What each rack last reported of itself, by rack: kept here, since a
    *  registration is a stored value whose shape does not grow. */
@@ -489,6 +509,13 @@ export class RackHub {
     if (!rack.healthy || this.now() - rack.lastSeenAt.getTime() > DEFAULT_HEALTHY_WINDOW_MS) return false;
     const bundled = bundledE3Version(rack.agentVersion);
     if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
+    // A run lease goes only to a rack that hosts runs, and boots every tier
+    // its tasks need
+    const run = readRackRun(lease.event);
+    if (run !== undefined) {
+      if (this.reports.get(rack.rackId)?.features.includes(RACK_RUNS) !== true) return false;
+      return run.tiers.every((tier) => rack.tiers.includes(tier));
+    }
     // Work that declares an environment is a rack's that composes
     // environments, when its sessions keep the layers built for that
     // rack's platform: another rack is never granted it.
@@ -636,6 +663,12 @@ export class RackHub {
 
   private async finish(sub: Subscription): Promise<void> {
     sub.endedAt ??= this.now();
+    // A run lease's rack is told, at its next poll of the asks, that it ended
+    const asks = this.runAsks.get(sub.id);
+    if (asks !== undefined) {
+      this.runAsks.delete(sub.id);
+      for (const wake of asks.waiters) wake();
+    }
     if (sub.key !== undefined && this.dedupe.get(sub.key) === sub.id) this.dedupe.delete(sub.key);
     await this.bridge.discardWrites(sub.repo, sub.id, []).catch((error: unknown) => this.options.log?.(`rack cleanup: ${messageOf(error)}`));
   }
@@ -687,6 +720,8 @@ export class RackHub {
     if (this.draining) throw new RackHubError('draining', 'Rack hub is draining');
     const value: unknown = JSON.parse(request.eventJson);
     if (!isLeaseEventV2(value)) throw new Error('Expected a v2 rack lease');
+    const run = readRackRun(value);
+    if (run !== undefined) return this.submitRun(session, value, run, request, attachOnly);
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode === 'intake') throw new Error('Local rack delegation runs tasks, units and calls: an intake runs where its delivery is');
     // A call's program is an object of the repository, staged with its closure
@@ -728,6 +763,87 @@ export class RackHub {
     if (key !== undefined) this.dedupe.set(key, lease.leaseId);
     return { leaseId: lease.leaseId, attached: false, attempt: none };
   }
+
+  /**
+   * Queues a run lease (`RACK_RUNS`): never shared, so never attached to, with
+   * its closure an object, and every tier its tasks need one this hub knows.
+   */
+  private async submitRun(session: Session, value: RackLeaseEvent, run: RackRunEvent, request: ValueTypeOf<typeof CreateLeaseType>, attachOnly: boolean): Promise<ValueTypeOf<typeof CreateLeaseResultType> | null> {
+    if (attachOnly) return null;
+    const closure = value.closure;
+    if (!('object' in closure) || !isObjectHash(closure.object) || !Number.isSafeInteger(closure.count) || closure.count < 0) {
+      throw new Error('A run\'s lease names its closure as an object');
+    }
+    if (!run.tiers.every((tier) => RACK_TIERS.includes(tier)) || !run.tiers.includes(request.tier) || !RACK_SIZES.includes(request.computeSize)) {
+      throw new Error('Invalid rack tier or compute size');
+    }
+    if (this.subscriptions.size >= 16384) throw new RackHubError('capacity', 'Rack hub queue is full');
+    const { scope: _scope, ...work } = value;
+    const event: RackLeaseEvent = { ...work, runnerEvent: { ...run, repo: session.alias },
+      workspace: session.registration.workspace, e3Version: session.registration.e3Version };
+    const lease = await this.dispatch.createLease(event, request.tier, request.computeSize);
+    this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, version: session.registration.e3Version,
+      owner: session.id, subscribers: new Set([session.id]), claimants: new Set(), envManifests: new Set() });
+    this.runAsks.set(lease.leaseId, { seq: 0, asked: new Map(), waiters: new Set() });
+    return { leaseId: lease.leaseId, attached: false, attempt: none };
+  }
+
+  /**
+   * The asks of the hub's run leases, as their racks poll and answer them:
+   * an answer goes to the session that asked, and a task's log is teed to it
+   * under its attempt, which writes the log itself.
+   */
+  private readonly runRelay: RackRunRelay = {
+    asks: async (repo, leaseId, after, waitMs, signal) => {
+      const unanswered = (): RackRunAsk[] | null => {
+        const sub = this.subscriptions.get(leaseId);
+        const asks = this.runAsks.get(leaseId);
+        if (sub === undefined || sub.repo !== repo || sub.endedAt !== undefined || asks === undefined) return null;
+        return [...asks.asked.values()].filter((asked) => asked.ask.seq > after && !asked.answered).map((asked) => asked.ask);
+      };
+      let found = unanswered();
+      if (found !== null && found.length === 0 && waitMs > 0) {
+        const asks = this.runAsks.get(leaseId)!;
+        await new Promise<void>((resolve) => {
+          const done = () => { clearTimeout(timer); asks.waiters.delete(done); signal.removeEventListener('abort', done); resolve(); };
+          const timer = setTimeout(done, waitMs);
+          timer.unref();
+          asks.waiters.add(done);
+          signal.addEventListener('abort', done, { once: true });
+          if (signal.aborted) done();
+        });
+        found = unanswered();
+      }
+      return found === null ? { asks: [], ended: true } : { asks: found, ended: false };
+    },
+    answer: (repo, leaseId, answers) => {
+      const sub = this.subscriptions.get(leaseId);
+      const asks = this.runAsks.get(leaseId);
+      if (sub === undefined || sub.repo !== repo || asks === undefined) return Promise.resolve();
+      for (const { seq, answer: given } of answers) {
+        const asked = asks.asked.get(seq);
+        if (asked === undefined || asked.answered) continue;
+        asked.answered = true;
+        const session = this.sessions.get(asked.session);
+        if (session !== undefined) this.emit(session, variant('answered', { leaseId, seq: BigInt(seq), answerJson: JSON.stringify(given) }));
+      }
+      return Promise.resolve();
+    },
+    logs: async (repo, leaseId, seq, chunks) => {
+      const sub = this.subscriptions.get(leaseId);
+      const asked = this.runAsks.get(leaseId)?.asked.get(seq);
+      if (sub === undefined || sub.repo !== repo || asked === undefined) return false;
+      const session = this.sessions.get(asked.session);
+      if (session === undefined || session.dead || chunks.length === 0) return true;
+      // Best effort, as a subscriber's display is: the asker writes the log
+      await socketRequest(session.registration.dataSocket, 'POST', '/v1/logs/tee', {
+        bearer: session.registration.dataToken, requestType: SessionLogsType, responseType: BooleanType, timeoutMs: 5000,
+        body: { taskHash: asked.ask.taskHash, inputsHash: asked.ask.inputsHash, executionId: asked.executionId,
+          chunks: chunks.map((chunk) => ({ stream: variant(chunk.stream, null), data: chunk.text })) },
+      }).catch((error: unknown) => this.options.log?.(`rack run ${leaseId}: a log was not teed: ${messageOf(error)}`));
+      return true;
+    },
+  };
 
   private async unsubscribe(session: Session, id: string): Promise<string> {
     const sub = this.subscriptions.get(id);
@@ -843,6 +959,28 @@ export class RackHub {
       return this.mutations.run(async () => {
         const attached = await this.submit(this.session(c.req.param('id')), request, true);
         return answer(AttachLeaseResultType, attached === null ? none : some(attached));
+      });
+    });
+    // A session asks its run lease for a task's result (`RACK_RUNS`): the
+    // lease's rack is given the ask at its next poll
+    app.post('/v1/sessions/:id/leases/:leaseId/asks', async (c) => {
+      const request = await decodeBody(c, RunAskType);
+      return this.mutations.run(() => {
+        const session = this.session(c.req.param('id'));
+        const leaseId = c.req.param('leaseId');
+        const sub = this.subscriptions.get(leaseId);
+        const asks = this.runAsks.get(leaseId);
+        if (sub === undefined || asks === undefined || sub.endedAt !== undefined || !sub.subscribers.has(session.id)) {
+          throw new RackHubError('unknown_lease', 'No such run lease of this session');
+        }
+        if (!isObjectHash(request.taskHash) || !isObjectHash(request.inputsHash) || request.executionId.length === 0 || request.taskName.length === 0) {
+          throw new Error('Invalid run ask');
+        }
+        const seq = ++asks.seq;
+        asks.asked.set(seq, { ask: { seq, taskName: request.taskName, taskHash: request.taskHash, inputsHash: request.inputsHash },
+          session: session.id, executionId: request.executionId, answered: false });
+        for (const wake of asks.waiters) wake();
+        return Promise.resolve(answer(RunAskResultType, { seq: BigInt(seq) }));
       });
     });
     app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => answer(CancelLeaseResultType, {
@@ -1036,6 +1174,8 @@ export class RackHub {
       // A unit of a split scope goes first to a rack that holds what the
       // scope's leases wrote, which it then reads there
       canClaim: async (rack, lease) => await this.mayClaim(rack, lease) && !await this.waitsForHolder(rack.rackId, lease),
+      // A run lease's rack polls its asks, answers them and sends each task's log
+      runs: this.runRelay,
     }));
     let server: Server | HttpsServer | undefined;
     try {

@@ -23,7 +23,7 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
 import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_SCOPES_ENDED_HEADER,
-  RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
+  RACK_RUNS, RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
 import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
   type RackTransferRetry } from '../protocol/task-envelope.js';
@@ -148,6 +148,8 @@ export interface TestRackAgentOptions {
    *  says ended ({@link TestRackAgent.scopesEnded}). It keeps every object in
    *  its store already, so a merge it runs reads its pieces there. */
   splitScopes?: boolean;
+  /** Says it hosts a whole rack run for a run lease ({@link RACK_RUNS}). */
+  rackRuns?: boolean;
 }
 
 /**
@@ -369,7 +371,7 @@ export class TestRackAgent {
     const tier = image === undefined ? undefined
       : { digest: image.digest, ...(this.sourceFeatures.includes(RACK_TIER_MANIFESTS) && { manifest: this.options.overTier! }) };
     return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER]),
-      ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : [])],
+      ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : []), ...(this.options.rackRuns === true ? [RACK_RUNS] : [])],
       ...(target !== null && { target }), ...(tier !== undefined && { tiers: Object.fromEntries(this.tiers.map((name) => [name, tier])) }),
       ...(all !== undefined && { resources: all, free: this.free(all) }) };
   }
@@ -442,6 +444,58 @@ export class TestRackAgent {
       this.bookedMost.memoryBytes = Math.max(this.bookedMost.memoryBytes, held.reduce((sum, lease) => sum + leaseReserve(lease), 0));
     }
     return grant;
+  }
+
+  /**
+   * Posts JSON to a run lease's route (`/api/rack/run/<route>`), naming the
+   * agent's protocol.
+   * @param route - `asks`, `answers` or `logs`
+   * @param body - The request
+   * @returns The reply's JSON
+   * @throws {Error} When the source refuses it, naming its status and code
+   */
+  async runRequest(route: 'asks' | 'answers' | 'logs', body: unknown): Promise<unknown> {
+    const response = await this.transport(`${this.options.apiUrl}/api/rack/run/${route}`, { method: 'POST',
+      headers: { 'content-type': 'application/json', [RACK_PROTOCOL_HEADER]: String(this.options.protocol ?? RACK_PROTOCOL),
+        ...(this.token ? { authorization: `Bearer ${this.token}` } : {}) },
+      body: JSON.stringify(body), signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(25000)]) });
+    if (response.status !== 200) throw await this.refused(`run/${route}`, response);
+    return response.json() as Promise<unknown>;
+  }
+
+  /**
+   * Writes objects to a held lease's source, as a lease writes its output:
+   * each declared, a batch at a time, sent where its source lacks it, and
+   * committed.
+   * @param lease - The lease
+   * @param objects - Each object's bytes, by its hash
+   * @returns How many the source held already, and how many were sent
+   */
+  async writeObjects(lease: RackLeaseRef, objects: ReadonlyMap<string, Uint8Array>): Promise<{ held: number; sent: number }> {
+    let held = 0;
+    let sent = 0;
+    const all = [...objects];
+    for (let from = 0; from < all.length; from += 256) {
+      const batch = all.slice(from, from + 256);
+      const answered = await this.storageRequest(lease, { outputs: batch.map(([hash, bytes]) => ({ hash, size: BigInt(bytes.length) })) });
+      const commits: RackObjectCommit[] = [];
+      for (const [i, { target }] of answered.targets.entries()) {
+        if (target.type === 'held') { held++; continue; }
+        const [hash, bytes] = batch[i]!;
+        const put = await this.transport(target.value.url, { method: 'PUT', headers: Object.fromEntries(target.value.headers), body: bytes });
+        if (!put.ok) throw new Error(`Rack object ${hash}: HTTP ${put.status}`);
+        const version = put.headers.get('x-amz-version-id');
+        await put.arrayBuffer();
+        if (version === null) throw new Error('Rack upload has no receipt');
+        commits.push({ hash, size: BigInt(bytes.length), version });
+      }
+      if (commits.length > 0) {
+        const done = await this.storageRequest(lease, { commits });
+        if (!done.committed.every(({ committed }) => committed)) throw new Error('Rack object commit refused');
+        sent += commits.length;
+      }
+    }
+    return { held, sent };
   }
 
   /** Resolves storage descriptors and write receipts for a held lease. */

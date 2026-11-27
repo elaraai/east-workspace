@@ -50,6 +50,14 @@ export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringT
  * them, which no request ends before it.
  */
 export const EndScopeType = StructType({ scope: StringType });
+/**
+ * Asks a run lease (`RackRunEvent`) for a task's result, by the identity the
+ * session's run found it with. `executionId` names the asker's attempt, under
+ * which the hub tees the task's log as the rack sends it.
+ */
+export const RunAskType = StructType({ taskName: StringType, taskHash: StringType, inputsHash: StringType, executionId: StringType });
+/** The ask's number in its lease, by which its answer comes back. */
+export const RunAskResultType = StructType({ seq: IntegerType });
 /** Names a claim-time attempt, which changes on reclaim. */
 export const HubAttemptType = StructType({ executionId: StringType, startedAt: DateTimeType });
 /** Attaches to a lease, replaying its current attempt through the event stream. */
@@ -66,6 +74,9 @@ export const SessionEventType = StructType({ seq: IntegerType, event: VariantTyp
   completed: StructType({ leaseId: StringType, attempt: OptionType(HubAttemptType), resultJson: StringType, at: DateTimeType }),
   lost: StructType({ leaseId: StringType, reason: StringType }),
   cancelled: StructType({ leaseId: StringType }),
+  /** A run lease's answer to an ask, as its rack gave it: a
+   *  `ReplicaRunAnswer` in JSON */
+  answered: StructType({ leaseId: StringType, seq: IntegerType, answerJson: StringType }),
 }) });
 /** A rack's cores, memory in bytes and GPUs, or the part of them that is free. */
 export const RackResourcesType = StructType({ cores: IntegerType, memoryBytes: IntegerType, gpus: IntegerType });
