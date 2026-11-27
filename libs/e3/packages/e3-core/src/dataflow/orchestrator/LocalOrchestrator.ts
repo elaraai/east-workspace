@@ -1039,6 +1039,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
                 cached: true,
                 state: 'success',
                 duration: 0,
+                executionId: cached.executionId,
               });
 
               // Detect input changes after cached result
@@ -1537,6 +1538,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             cached: result.cached,
             state: 'success',
             duration: result.duration,
+            executionId: result.executionId,
             ...(result.timing !== undefined && { timing: result.timing }),
           });
         }
@@ -1587,6 +1589,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           error: result.error,
           exitCode: result.exitCode,
           duration: result.duration,
+          executionId: result.executionId,
           ...(result.timing !== undefined && { timing: result.timing }),
         });
 

@@ -9,7 +9,8 @@
  * there before the run starts or made by another of them.
  */
 
-import { dataflowGetGraph, dataflowPredict, type StorageBackend } from '@elaraai/e3-core';
+import { dataflowGetGraph, dataflowPredict, isSplitTask, type StorageBackend } from '@elaraai/e3-core';
+import { decodeTaskObject } from '@elaraai/e3-types';
 import type { EligibilityEvaluator } from '../routing/eligibility.js';
 import type { RackVerdict } from '../runner/rack-lease.js';
 
@@ -37,13 +38,24 @@ export interface RackRunSelectionOptions {
   readonly hostBound: boolean;
 }
 
+/** Whether a task's work is split over its inputs: no, when its object does not read. */
+async function isSplit(storage: StorageBackend, repo: string, taskHash: string): Promise<boolean> {
+  try {
+    return isSplitTask(decodeTaskObject(await storage.objects.read(repo, taskHash)));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Selects the tasks of a run a rack runs whole.
  *
  * @remarks
  * The run's prediction ({@link dataflowPredict}) says which tasks the cache
  * answers. Each other task is a candidate when the policy sends it to a rack
- * and nothing keeps it here: it is eligible, and declares no environment. In
+ * and nothing keeps it here: it is eligible, declares no environment, and is
+ * no split task whose merges the policy keeps here, which a rack's run would
+ * take whole, merges and all. In
  * dependency order, a candidate is selected when every task it depends on is
  * answered or selected: its inputs are then there before the run starts, or
  * made by the grant. Every other task runs as it would with no grant.
@@ -81,6 +93,7 @@ export async function rackRunSelection(storage: StorageBackend, repo: string, ws
       if (!task.dependsOn.every((dep) => prediction.answered.has(dep) || selected.has(dep))) continue;
       const verdict = await options.evaluator.evaluateTask(storage, repo, task.hash, name);
       if (!verdict.eligible || verdict.environment !== null) continue;
+      if (options.evaluator.keepsMergesHere(name) && await isSplit(storage, repo, task.hash)) continue;
       selected.add(name);
       verdicts.set(name, verdict);
     }

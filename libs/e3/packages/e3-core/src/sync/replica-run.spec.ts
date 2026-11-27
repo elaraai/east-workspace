@@ -13,9 +13,11 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DictType, East, IntegerType, SortedMap, compareFor, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, StringType, compareFor, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { SyncSelection } from '@elaraai/e3-types';
 import { dataflowGetGraph, dataflowResolveInputHashes } from '../dataflow.js';
@@ -46,6 +48,20 @@ function chain(second?: (first: ReturnType<typeof e3.task>) => ReturnType<typeof
   const first = e3.task('first', [a], add);
   const middle = second?.(first) ?? e3.task('second', [first.output], add);
   return e3.package('chain', '1.0.0', a, first, middle, e3.task('third', [middle.output], add));
+}
+
+/** Takes an object the replica's run gives the origin, whole or as a stream, into a repository. */
+function held(storage: StorageBackend, repo: string, bytes: Uint8Array | AsyncIterable<Uint8Array>): Promise<string> {
+  return bytes instanceof Uint8Array ? storage.objects.write(repo, bytes) : storage.objects.writeStream(repo, bytes);
+}
+
+/** A local runner that counts what it executes. */
+class Counting extends LocalTaskRunner {
+  calls = 0;
+  override execute(storage: StorageBackend, taskHash: string, inputHashes: string[], options?: TaskExecuteOptions): Promise<TaskResult> {
+    this.calls++;
+    return super.execute(storage, taskHash, inputHashes, options);
+  }
 }
 
 /** What a task is asked by, and what a plain run of it made. */
@@ -99,7 +115,7 @@ async function rig(t: TestContext, pkg: Parameters<typeof e3.export>[0]) {
     },
     write: async (objects) => {
       for (const [hash, bytes] of objects) {
-        assert.equal(await storage.objects.write(origin, bytes), hash);
+        assert.equal(await held(storage, origin, bytes), hash);
         written.push(hash);
       }
     },
@@ -110,7 +126,7 @@ async function rig(t: TestContext, pkg: Parameters<typeof e3.export>[0]) {
     const { taskHash, inputsHash: inHash } = expected.get(name)!;
     return run.ask({ taskName: name, taskHash, inputsHash: inHash, ...(onLog !== undefined && { onLog }) });
   };
-  return { storage, origin, replica, expected, description, written, haves: () => haves, open, ask };
+  return { storage, origin, replica, expected, description, written, haves: () => haves, side, open, ask };
 }
 
 /** A local runner over a repository whose `execute` of one task does as it is told. */
@@ -265,7 +281,7 @@ describe('a replica\'s run', { concurrency: false }, () => {
       write: async (objects) => {
         await delay(200);
         for (const [hash, bytes] of objects) {
-          assert.equal(await r.storage.objects.write(r.origin, bytes), hash);
+          assert.equal(await held(r.storage, r.origin, bytes), hash);
           written.push(hash);
         }
       },
@@ -278,6 +294,154 @@ describe('a replica\'s run', { concurrency: false }, () => {
     }
     assert.deepEqual(written.filter((hash) => hash === output), [output], 'the output they share was written once');
     assert.equal(new Set(written).size, written.length, 'as was every object');
+  });
+
+  it('starts no run when it is cancelled while its grant is being made', async (t) => {
+    const r = await rig(t, chain());
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const slow: ReplicaRunOrigin = { ...r.side, objects: { read: async (hashes) => { await gate; return r.side.objects.read(hashes); } } };
+    const runner = new Counting(r.replica);
+    const run = replicaRunOpen({ storage: r.storage, repo: r.replica, runner, origin: slow, width: 4 });
+    const granting = run.grant({ description: r.description, force: false });
+    const cancelling = run.cancel();
+    release();
+    await granting;
+    await cancelling;
+    assert.equal(runner.calls, 0, 'nothing ran');
+    assert.equal((await r.ask(run, 'first')).kind, 'unknown');
+  });
+
+  it('resolves its cancel only once what it was writing to the origin is written, and removes its workspace', async (t) => {
+    const r = await rig(t, chain());
+    let began = 0;
+    let done = 0;
+    const slow: ReplicaRunOrigin = {
+      ...r.side,
+      write: async (objects) => {
+        began++;
+        await delay(200);
+        await r.side.write(objects);
+        done++;
+      },
+    };
+    const run = replicaRunOpen({ storage: r.storage, repo: r.replica, runner: new LocalTaskRunner(r.replica), origin: slow, width: 4 });
+    await run.grant({ description: r.description, force: false });
+    for (let i = 0; i < 300 && began === 0; i++) await delay(10);
+    assert.ok(began > 0, 'a write is under way');
+    await run.cancel();
+    assert.equal(done, began, 'every write it began was done when its cancel resolved');
+    assert.deepEqual((await r.storage.refs.workspaceList(r.replica)).filter((name) => name.startsWith('replica-')), [], 'its workspace is gone');
+  });
+
+  it('answers from the execution it settled a task with, not a later one in its repository', async (t) => {
+    const r = await rig(t, chain());
+    const run = r.open();
+    await run.grant({ description: r.description, force: false });
+    const settled = await r.ask(run, 'first');
+    assert.ok(settled.kind === 'done' && settled.state === 'success');
+    // Another run of the repository then fails the task over the same inputs
+    const { taskHash, inputsHash: inHash } = r.expected.get('first')!;
+    const latest = await r.storage.refs.executionGetLatest(r.replica, taskHash, inHash);
+    assert.ok(latest?.type === 'success');
+    const executionId = uuidv7();
+    await r.storage.refs.executionWrite(r.replica, taskHash, inHash, executionId, variant('failed', {
+      executionId, inputHashes: latest.value.inputHashes, startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
+    }));
+    const again = await r.ask(run, 'first');
+    assert.ok(again.kind === 'done' && again.state === 'success' && again.outputHash === settled.outputHash, JSON.stringify(again));
+    await run.cancel();
+  });
+
+  it('gives an ask no log of an execution an earlier process left recorded running', async (t) => {
+    const r = await rig(t, chain((first) => e3.customTask('second', [first.output], IntegerType,
+      ($, inputs, output) => East.str`printf 'fresh\n' && cp ${inputs.get(0n)} ${output}`)));
+    const { taskHash, inputsHash: inHash } = r.expected.get('second')!;
+    const stale = uuidv7();
+    await r.storage.refs.executionWrite(r.replica, taskHash, inHash, stale, variant('running', {
+      executionId: stale, inputHashes: [], startedAt: new Date(Date.now() - 3600_000), pid: 1n, pidStartTime: 0n, bootId: 'gone', unit: false,
+    }));
+    await r.storage.logs.append(r.replica, taskHash, inHash, stale, 'stdout', 'stale\n');
+    const run = r.open();
+    await run.grant({ description: r.description, force: false });
+    const seen: string[] = [];
+    const answered = await r.ask(run, 'second', (stream, text) => { if (stream === 'stdout') seen.push(text); });
+    assert.equal(answered.kind, 'done');
+    assert.equal(seen.join(''), 'fresh\n');
+    await run.cancel();
+  });
+
+  it('writes again what a write that failed left, and answers', async (t) => {
+    const r = await rig(t, chain());
+    let failing = true;
+    const flaky: ReplicaRunOrigin = {
+      ...r.side,
+      write: async (objects) => {
+        if (failing) {
+          failing = false;
+          throw new Error('the hub hiccuped');
+        }
+        await r.side.write(objects);
+      },
+    };
+    const run = replicaRunOpen({ storage: r.storage, repo: r.replica, runner: new LocalTaskRunner(r.replica), origin: flaky, width: 4 });
+    await run.grant({ description: r.description, force: false });
+    for (const name of ['first', 'second', 'third']) {
+      const answer = await r.ask(run, name);
+      assert.ok(answer.kind === 'done' && answer.state === 'success', `${name}: ${JSON.stringify(answer)}`);
+      assert.equal(await touchReachable(r.storage, r.origin, [answer.outputHash!]), true, `the origin holds ${name}'s output`);
+    }
+    await run.cancel();
+  });
+
+  it('answers a task whose log cannot be read to its end, without its log', async (t) => {
+    const r = await rig(t, chain());
+    const logs = new Proxy(r.storage.logs, {
+      get: (target, key) => (key === 'read' ? () => Promise.reject(new Error('the log store is down')) : Reflect.get(target, key, target) as unknown),
+    });
+    const storage = new Proxy(r.storage, { get: (target, key) => (key === 'logs' ? logs : Reflect.get(target, key, target) as unknown) });
+    const run = replicaRunOpen({ storage, repo: r.replica, runner: new LocalTaskRunner(r.replica), origin: r.side, width: 4 });
+    await run.grant({ description: r.description, force: false });
+    const answer = await r.ask(run, 'first', () => undefined);
+    assert.ok(answer.kind === 'done' && answer.state === 'success', JSON.stringify(answer));
+    await run.cancel();
+  });
+
+  it('leaves no listener on an ask\'s signal once the ask has settled', async (t) => {
+    const r = await rig(t, chain());
+    const run = r.open();
+    await run.grant({ description: r.description, force: false });
+    const controller = new AbortController();
+    for (const name of ['first', 'second', 'third']) {
+      const { taskHash, inputsHash: inHash } = r.expected.get(name)!;
+      await run.ask({ taskName: name, taskHash, inputsHash: inHash, signal: controller.signal });
+    }
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    await run.cancel();
+  });
+
+  it('gives the origin an output too large for one write as a stream of its own', async (t) => {
+    // Random, so that it is stored at about its size: 24 MiB of base64, over 16 MiB stored
+    const big = randomBytes(18 * 1024 * 1024).toString('base64');
+    const text = e3.input('text', StringType, variant('value', big));
+    const grow = e3.task('grow', [text], East.function([StringType], StringType, ($, value) => value.concat('!')));
+    const r = await rig(t, e3.package('chain', '1.0.0', text, grow));
+    const streamed: string[] = [];
+    const watching: ReplicaRunOrigin = {
+      ...r.side,
+      write: async (objects) => {
+        for (const [hash, bytes] of objects) if (!(bytes instanceof Uint8Array)) streamed.push(hash);
+        await r.side.write(objects);
+      },
+    };
+    const run = replicaRunOpen({ storage: r.storage, repo: r.replica, runner: new LocalTaskRunner(r.replica), origin: watching, width: 4 });
+    await run.grant({ description: r.description, force: false });
+    const answer = await r.ask(run, 'grow');
+    assert.ok(answer.kind === 'done' && answer.state === 'success', JSON.stringify(answer));
+    assert.equal(answer.outputHash, r.expected.get('grow')!.outputHash);
+    assert.deepEqual(streamed, [answer.outputHash], 'its output went as a stream');
+    assert.equal(await touchReachable(r.storage, r.origin, [answer.outputHash]), true);
+    await run.cancel();
   });
 
   it('answers a split task with the output a plain run makes, and gives the origin no plan', async (t) => {

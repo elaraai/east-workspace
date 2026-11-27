@@ -24,14 +24,16 @@ import { dataflowGetGraph, parsePathString } from '../dataflow.js';
 import { LocalOrchestrator } from '../dataflow/orchestrator/LocalOrchestrator.js';
 import type { ExecutionHandle, TaskCompletedCallback } from '../dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
-import type { TaskExecuteOptions, TaskResult, TaskRunner } from '../execution/interfaces.js';
+import type { TaskRunner } from '../execution/interfaces.js';
 import { gcObjectReaders, markReachable } from '../gc-graph.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
+import { workspaceRemove } from '../workspaces.js';
 import { replicaCreate, withReadThrough, type OriginObjects } from './replica.js';
 
-/** The most bytes of objects one write to the origin carries. */
+/** The most bytes of objects one write to the origin carries: a larger
+ *  object goes alone, as a stream. */
 const WRITE_BYTES = 16 * 1024 * 1024;
 
 /** What a replica's run needs of its origin. */
@@ -46,12 +48,13 @@ export interface ReplicaRunOrigin {
    */
   have(hashes: readonly string[]): Promise<boolean[]>;
   /**
-   * Gives the origin objects.
+   * Gives the origin objects: each whole, in writes of at most 16 MiB, or, one
+   * larger, alone, as a stream of its bytes.
    *
-   * @param objects - Each object's bytes, by its hash
+   * @param objects - Each object's bytes, or a stream of them, by its hash
    * @returns Once the origin holds them
    */
-  write(objects: ReadonlyMap<string, Uint8Array>): Promise<void>;
+  write(objects: ReadonlyMap<string, Uint8Array | AsyncIterable<Uint8Array>>): Promise<void>;
 }
 
 /** How a replica's run is opened. */
@@ -123,14 +126,16 @@ export interface ReplicaRun {
   grant(grant: ReplicaRunGrant): Promise<void>;
   /**
    * The result of a task over the inputs asked, once the run has settled the
-   * task, or ended.
+   * task, or ended: only ever from the execution this run settled it with.
    *
    * @param ask - The task, its identity and where its log goes
    * @returns The answer
    */
   ask(ask: ReplicaRunAsk): Promise<ReplicaRunAnswer>;
-  /** Cancels the run: every ask still waiting answers `unknown`, and it
-   *  resolves once the run has ended, so nothing of it is written after. */
+  /** Cancels the run, or a grant still being made, which then starts none:
+   *  every ask still waiting answers `unknown`. It resolves once the run has
+   *  ended and what it was writing to the origin is written, so nothing of it
+   *  is written after, and the replica's workspace is removed. */
   cancel(): Promise<void>;
 }
 
@@ -148,6 +153,13 @@ function settledOf(): Settled {
 
 const UNKNOWN: ReplicaRunAnswer = { kind: 'unknown' };
 
+/** An object's bytes, read a range at a time as they are wanted. */
+async function* streamOf(storage: StorageBackend, repo: string, hash: string, size: number): AsyncIterable<Uint8Array> {
+  for (let offset = 0; offset < size; offset += WRITE_BYTES) {
+    yield await storage.objects.readRange(repo, hash, offset, Math.min(WRITE_BYTES, size - offset));
+  }
+}
+
 /**
  * One ask's log, read from the replica's log store by offset as the run says
  * the task wrote some, and to its end once the ask is answered.
@@ -155,6 +167,8 @@ const UNKNOWN: ReplicaRunAnswer = { kind: 'unknown' };
 class LogFollower {
   private readonly offsets = { stdout: 0, stderr: 0 };
   private executionId: string | undefined;
+  /** Whether any of the log has been given */
+  private given = false;
   private reading: Promise<void> = Promise.resolve();
 
   constructor(
@@ -179,33 +193,43 @@ class LogFollower {
   }
 
   private async read(answering: string | undefined, final: boolean): Promise<void> {
-    if (this.executionId === undefined) {
-      if (answering !== undefined) this.executionId = answering;
-      else {
-        // Only an execution this run started, or one running: never an
-        // earlier run's log
-        const status = await this.storage.refs.executionGetLatest(this.repo, this.ask.taskHash, this.ask.inputsHash);
-        if (status === null) return;
-        if (status.type !== 'running' && status.value.startedAt.getTime() < this.runStartedAt) return;
-        this.executionId = status.value.executionId;
-      }
+    // The execution that answers is the one read: one followed before it was
+    // known gives way to it while nothing of the one followed has been given
+    if (answering !== undefined && answering !== this.executionId && !this.given) {
+      this.executionId = answering;
+      this.offsets.stdout = 0;
+      this.offsets.stderr = 0;
     }
+    if (this.executionId === undefined) {
+      // Only an execution this run started: never an earlier run's, nor one a
+      // process that went away left recorded running
+      const status = await this.storage.refs.executionGetLatest(this.repo, this.ask.taskHash, this.ask.inputsHash);
+      if (status === null || status.value.startedAt.getTime() < this.runStartedAt) return;
+      this.executionId = status.value.executionId;
+    }
+    const executionId = this.executionId;
     // One execution's log, once it is followed: another's is not mixed in
-    if (answering !== undefined && answering !== this.executionId) return;
+    if (answering !== undefined && answering !== executionId) return;
     for (const stream of ['stdout', 'stderr'] as const) {
+      const read = (limit?: number) => this.storage.logs.read(this.repo, this.ask.taskHash, this.ask.inputsHash, executionId, stream,
+        { offset: this.offsets[stream], ...(limit !== undefined && { limit }) });
       for (;;) {
-        const chunk = await this.storage.logs.read(this.repo, this.ask.taskHash, this.ask.inputsHash, this.executionId, stream, { offset: this.offsets[stream] });
+        let chunk = await read();
         if (chunk.size === 0) break;
-        let { data, size } = chunk;
         // A read that reaches the end of a log still written may end in a
-        // character cut short: it is read again whole next time
-        if (!final && chunk.offset + chunk.size >= chunk.totalSize && data.endsWith('�')) {
-          data = data.slice(0, -1);
-          size = new TextEncoder().encode(data).length;
+        // character cut short: it is read again a byte at a time shorter, by
+        // the store's own count of bytes, until it ends whole, and the rest
+        // is read whole next time
+        if (!final && chunk.offset + chunk.size >= chunk.totalSize) {
+          const whole = chunk.size;
+          for (let cut = 1; cut <= 3 && chunk.size > 0 && chunk.data.endsWith('�'); cut++) chunk = await read(whole - cut);
         }
-        if (data.length > 0) this.ask.onLog(stream, data);
-        this.offsets[stream] += size;
-        if (size === 0 || chunk.complete) break;
+        if (chunk.data.length > 0) {
+          this.ask.onLog(stream, chunk.data);
+          this.given = true;
+        }
+        this.offsets[stream] += chunk.size;
+        if (chunk.size === 0 || chunk.complete) break;
       }
     }
   }
@@ -218,15 +242,18 @@ class Run implements ReplicaRun {
   private ws = '';
   private store: StorageBackend;
   private handle: ExecutionHandle | undefined;
+  /** Settles once the grant has been made, or given up */
+  private granting: Promise<void> = Promise.resolve();
   /** Settles once the run has ended */
   private ending: Promise<void> = Promise.resolve();
   private runStartedAt = 0;
-  private forced: (name: string) => boolean = () => false;
   private readonly orchestrator = new LocalOrchestrator(new InMemoryStateStore());
   /** Each task of the grant's output keypath, by its name */
   private readonly outputs = new Map<string, string>();
   private readonly settled = new Map<string, Settled>();
   private readonly completions = new Map<string, TaskCompletedCallback>();
+  /** The execution this run settled each task with, by its name */
+  private readonly executions = new Map<string, string>();
   private readonly handedBack = new Map<string, string>();
   private readonly waiting = new Set<string>();
   private readonly sent = new Map<string, Promise<void>>();
@@ -239,32 +266,44 @@ class Run implements ReplicaRun {
     this.store = options.storage;
   }
 
-  async grant(grant: ReplicaRunGrant): Promise<void> {
-    if (this.granted) throw new Error('A replica run takes one grant');
+  grant(grant: ReplicaRunGrant): Promise<void> {
+    if (this.granted) return Promise.reject(new Error('A replica run takes one grant'));
     this.granted = true;
+    const begun = this.begin(grant);
+    this.granting = begun.then(() => undefined, () => undefined);
+    return begun;
+  }
+
+  /** Makes the replica and starts its run, unless the run is cancelled first. */
+  private async begin(grant: ReplicaRunGrant): Promise<void> {
     const { storage, repo, origin } = this.options;
     this.ws = `replica-${uuidv7()}`;
     await replicaCreate(storage, repo, this.ws, grant.description, origin.objects);
+    if (this.cancelled) return;
     this.store = withReadThrough(storage, repo, origin.objects);
     for (const task of (await dataflowGetGraph(this.store, repo, this.ws)).tasks) {
       this.outputs.set(task.name, task.output);
       this.settled.set(task.name, settledOf());
     }
-    const { force } = grant;
-    this.forced = (name) => force === true || (Array.isArray(force) && force.includes(name));
+    if (this.cancelled) return;
 
     this.runStartedAt = Date.now();
     this.handle = await this.orchestrator.start(this.store, repo, this.ws, {
-      runner: this.noting(this.options.runner),
+      runner: this.options.runner,
       width: this.options.width,
-      force,
+      force: grant.force,
       onTaskComplete: (done) => {
         this.completions.set(done.name, done);
-        if (done.state === 'success') this.send(done.name);
+        if (done.executionId !== undefined) this.executions.set(done.name, done.executionId);
+        if (done.state === 'success' && !this.cancelled) this.send(done.name);
         this.settle(done.name);
       },
       onTaskWaiting: (name) => {
         this.waiting.add(name);
+        this.settle(name);
+      },
+      onTaskHandedBack: (name, reason) => {
+        this.handedBack.set(name, reason);
         this.settle(name);
       },
       onStdout: (name) => { this.signal(name); },
@@ -286,16 +325,18 @@ class Run implements ReplicaRun {
       this.followers.set(ask.taskName, following);
       void follower.poll();
     }
+    let stop!: () => void;
+    const aborted = new Promise<'aborted'>((resolve) => { stop = () => resolve('aborted'); });
+    if (ask.signal?.aborted) stop();
+    else ask.signal?.addEventListener('abort', stop, { once: true });
     try {
-      const aborted = new Promise<'aborted'>((resolve) => {
-        if (ask.signal?.aborted) resolve('aborted');
-        ask.signal?.addEventListener('abort', () => resolve('aborted'), { once: true });
-      });
       if (await Promise.race([settled.promise.then(() => 'settled' as const), aborted]) === 'aborted') return UNKNOWN;
       const answer = await this.answer(ask);
-      await follower?.finish(answer.executionId);
+      // A log that cannot be read to its end costs the ask its log, not its answer
+      await follower?.finish(answer.executionId).catch(() => undefined);
       return answer.answer;
     } finally {
+      ask.signal?.removeEventListener('abort', stop);
       if (follower !== undefined) this.followers.get(ask.taskName)?.delete(follower);
     }
   }
@@ -303,9 +344,18 @@ class Run implements ReplicaRun {
   async cancel(): Promise<void> {
     this.cancelled = true;
     for (const name of this.settled.keys()) this.settle(name);
-    if (this.handle === undefined) return;
-    await this.orchestrator.cancel(this.handle).catch(() => undefined);
-    await this.ending;
+    // A grant still being made starts no run; a run it started is cancelled
+    await this.granting;
+    for (const name of this.settled.keys()) this.settle(name);
+    if (this.handle !== undefined) {
+      await this.orchestrator.cancel(this.handle).catch(() => undefined);
+      await this.ending;
+    }
+    // What the run was writing to the origin is written, or has failed
+    await Promise.allSettled([...this.sent.values(), ...this.writes.values()]);
+    // Its workspace goes with it: what it made stays the repository's, rooted
+    // by its executions
+    if (this.ws !== '') await workspaceRemove(this.options.storage, this.options.repo, this.ws).catch(() => undefined);
   }
 
   /** The answer to an ask whose task the run has settled, and the execution
@@ -316,15 +366,18 @@ class Run implements ReplicaRun {
     const reason = this.handedBack.get(taskName);
     if (reason !== undefined) return { answer: { kind: 'handed-back', reason } };
     if (this.waiting.has(taskName) || this.completions.get(taskName)?.state === 'skipped') return { answer: UNKNOWN };
-    const status = await this.store.refs.executionGetLatest(this.options.repo, ask.taskHash, ask.inputsHash);
+    // Only the execution this run settled the task with answers, over the
+    // inputs asked: never another run's of the same repository
+    const settledWith = this.executions.get(taskName);
+    if (settledWith === undefined) return { answer: UNKNOWN };
+    const status = await this.store.refs.executionGet(this.options.repo, ask.taskHash, ask.inputsHash, settledWith);
     if (status === null || status.type === 'running') return { answer: UNKNOWN };
-    // A task the grant forces is answered only by an execution this run started
-    if (this.forced(taskName) && status.value.startedAt.getTime() < this.runStartedAt) return { answer: UNKNOWN };
     const { executionId } = status.value;
     const timing = { startedAtMs: status.value.startedAt.getTime(), durationMs: status.value.completedAt.getTime() - status.value.startedAt.getTime() };
     switch (status.type) {
       case 'success': {
-        await (this.sent.get(taskName) ?? this.sendOutput(status.value.outputHash));
+        // Its own output's objects, whatever the workspace's ref names now
+        await this.sendOutput(status.value.outputHash);
         return {
           executionId,
           answer: {
@@ -351,28 +404,8 @@ class Run implements ReplicaRun {
     }
   }
 
-  /** The runner, with each hand-back noted under its task's name. */
-  private noting(runner: TaskRunner): TaskRunner {
-    const note = (result: TaskResult, options: TaskExecuteOptions | undefined): TaskResult => {
-      if (result.handedBack !== undefined && options?.taskName !== undefined && !this.handedBack.has(options.taskName)) {
-        this.handedBack.set(options.taskName, result.handedBack);
-      }
-      return result;
-    };
-    return new Proxy(runner, {
-      get(target, key) {
-        const member: unknown = Reflect.get(target, key, target);
-        if (typeof member !== 'function') return member;
-        if (key === 'execute' || key === 'executeUnit') {
-          return async (...args: unknown[]): Promise<TaskResult> =>
-            note(await (Reflect.apply(member, target, args) as Promise<TaskResult>), args[3] as TaskExecuteOptions | undefined);
-        }
-        return (...args: unknown[]): unknown => Reflect.apply(member, target, args);
-      },
-    });
-  }
-
-  /** Starts sending a completed task's output to the origin. */
+  /** Starts sending a completed task's output to the origin, before anything
+   *  asks for it. */
   private send(name: string): void {
     const output = this.outputs.get(name);
     if (output === undefined || this.sent.has(name)) return;
@@ -380,7 +413,7 @@ class Run implements ReplicaRun {
       const ref = await workspaceGetDatasetHash(this.options.storage, this.options.repo, this.ws, parsePathString(output));
       if (ref.refType === 'value' && ref.hash !== null) await this.sendOutput(ref.hash);
     })();
-    // Observed where an ask waits on it
+    // An ask sends again what this could not
     sending.catch(() => undefined);
     this.sent.set(name, sending);
   }
@@ -390,30 +423,36 @@ class Run implements ReplicaRun {
    * another output is writing, or wrote, is waited for, not sent again: an
    * origin through a hub refuses a second write of an object whose first it
    * has taken in while the second was in flight. One whose write failed is
-   * written by the next output that reaches it.
+   * written again, by this output.
    */
   private async sendOutput(root: string): Promise<void> {
     const { readObject, readHead } = gcObjectReaders(this.store, this.options.repo);
     const reached = await markReachable(readObject, new Set([root]), { readHead });
     reached.add(root);
-    // Taken, with no wait between, so that no two outputs take one object
-    const theirs = new Set<Promise<void>>();
-    const mine: string[] = [];
-    for (const hash of reached) {
-      const writing = this.writes.get(hash);
-      if (writing === undefined) mine.push(hash);
-      else theirs.add(writing);
+    for (let attempt = 1; ; attempt++) {
+      // Taken, with no wait between, so that no two outputs take one object
+      const theirs = new Set<Promise<void>>();
+      const mine: string[] = [];
+      for (const hash of reached) {
+        const writing = this.writes.get(hash);
+        if (writing === undefined) mine.push(hash);
+        else theirs.add(writing);
+      }
+      const writing = this.sendObjects(mine);
+      for (const hash of mine) this.writes.set(hash, writing);
+      writing.catch(() => {
+        for (const hash of mine) if (this.writes.get(hash) === writing) this.writes.delete(hash);
+      });
+      const [own, ...others] = await Promise.allSettled([writing, ...theirs]);
+      if (own!.status === 'rejected') throw own!.reason;
+      const failed = others.find((each): each is PromiseRejectedResult => each.status === 'rejected');
+      if (failed === undefined) return;
+      if (attempt === 3) throw failed.reason;
     }
-    const writing = this.sendObjects(mine);
-    for (const hash of mine) this.writes.set(hash, writing);
-    writing.catch(() => {
-      for (const hash of mine) if (this.writes.get(hash) === writing) this.writes.delete(hash);
-    });
-    await Promise.all([writing, ...theirs]);
   }
 
-  /** Writes to the origin each of a list of objects it does not hold, in
-   *  writes of at most {@link WRITE_BYTES}. */
+  /** Writes to the origin each of a list of objects it does not hold: in
+   *  writes of at most {@link WRITE_BYTES}, a larger one alone, as a stream. */
   private async sendObjects(hashes: readonly string[]): Promise<void> {
     const { repo, origin } = this.options;
     for (let from = 0; from < hashes.length; from += TOUCH_BATCH) {
@@ -423,6 +462,11 @@ class Run implements ReplicaRun {
       let bytes = 0;
       for (const [i, hash] of batch.entries()) {
         if (held[i] === true) continue;
+        const { size } = await this.store.objects.stat(repo, hash);
+        if (size > WRITE_BYTES) {
+          await origin.write(new Map([[hash, streamOf(this.store, repo, hash, size)]]));
+          continue;
+        }
         const data = await this.store.objects.read(repo, hash);
         if (bytes + data.length > WRITE_BYTES && pending.size > 0) {
           await origin.write(pending);
@@ -457,6 +501,7 @@ class Run implements ReplicaRun {
  * const run = replicaRunOpen({ storage, repo: replica, runner: new LocalTaskRunner(replica), origin, width: 8 });
  * await run.grant({ description, force: false });
  * const answer = await run.ask({ taskName: 'first', taskHash, inputsHash });
+ * await run.cancel();
  * ```
  */
 export function replicaRunOpen(options: ReplicaRunOptions): ReplicaRun {

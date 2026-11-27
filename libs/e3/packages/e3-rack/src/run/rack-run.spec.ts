@@ -26,6 +26,7 @@ import {
 import { DEFAULT_RACK_POLICY, setMode, type RackPolicy } from '../routing/policy.js';
 import type { EligibilityEvaluator } from '../routing/eligibility.js';
 import { openRackRun } from './rack-run.js';
+import { createRackRunBody } from './run-body.js';
 import { rackRunSelection } from './selection.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -104,7 +105,9 @@ async function rig(pkg: Pkg, options: RigOptions = {}) {
       origin: {
         objects: originObjects(storage, origin, description),
         have: (hashes) => storage.objects.touch(origin, hashes),
-        write: async (objects) => { for (const [, bytes] of objects) await storage.objects.write(origin, bytes); },
+        write: async (objects) => {
+          for (const [, bytes] of objects) await (bytes instanceof Uint8Array ? storage.objects.write(origin, bytes) : storage.objects.writeStream(origin, bytes));
+        },
       },
     });
     return Promise.resolve({
@@ -352,6 +355,43 @@ describe('a run a rack\'s run runs part of', { concurrency: false }, () => {
     assert.deepEqual(throughInner.sort(), ['second', 'third']);
   });
 
+  it('selects no split task whose merges the policy keeps here, nor one below it', async () => {
+    const pieceBytes = process.env.E3_TEST_PIECE_BYTES;
+    process.env.E3_TEST_PIECE_BYTES = '64';
+    cleanup.push(() => {
+      if (pieceBytes === undefined) delete process.env.E3_TEST_PIECE_BYTES;
+      else process.env.E3_TEST_PIECE_BYTES = pieceBytes;
+      return Promise.resolve();
+    });
+    const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+      Array.from({ length: 800 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+    const total = e3.streamTask('total', {
+      inputs: [e3.partition(rows)],
+      output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, rows, emit) => {
+      $.for(rows, ($, value) => {
+        $(emit(value));
+      });
+    });
+    const start = e3.input('start', IntegerType, variant('value', 1n));
+    const r = await rig(e3.package('flow', '1.0.0', rows, total, e3.task('report', [total.output], add), start, e3.task('plain', [start], add)));
+    const merging = (local: boolean) => ({
+      evaluateTask: () => Promise.resolve({ eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 60, memoryLimit: null, gpu: false, environment: null }),
+      keepsMergesHere: () => local,
+    }) as unknown as EligibilityEvaluator;
+    const kept = await rackRunSelection(r.storage, r.origin, 'dev', { evaluator: merging(true), hostBound: false });
+    assert.deepEqual([...kept.tasks].sort(), ['plain'], 'a task that is not split is the rack\'s all the same');
+    const taken = await rackRunSelection(r.storage, r.origin, 'dev', { evaluator: merging(false), hostBound: false });
+    assert.deepEqual([...taken.tasks].sort(), ['plain', 'report', 'total']);
+  });
+
+  it('says a body with nothing to wrap stops its units, as a runner with no body does, and one that wraps a body as that body says', () => {
+    const run = { grant: () => Promise.resolve(), ask: () => Promise.resolve({ kind: 'unknown' as const }), cancel: () => Promise.resolve() };
+    assert.equal(createRackRunBody({ run, selected: new Set(), retryTaskFailuresLocally: false }).stopsUnits, true);
+    const inner = Object.assign(() => Promise.reject(new Error('unused')), { stopsUnits: false });
+    assert.equal(createRackRunBody({ run, selected: new Set(), retryTaskFailuresLocally: false, inner }).stopsUnits, false);
+  });
+
   it('selects no task whose verdict declares an environment, nor one below it', async () => {
     const r = await rig(chain());
     const evaluator = {
@@ -359,6 +399,7 @@ describe('a run a rack\'s run runs part of', { concurrency: false }, () => {
         eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 60, memoryLimit: null, gpu: false,
         environment: name === 'second' ? 'e'.repeat(64) : null,
       }),
+      keepsMergesHere: () => false,
     } as unknown as EligibilityEvaluator;
     const selection = await rackRunSelection(r.storage, r.origin, 'dev', { evaluator, hostBound: false });
     assert.deepEqual([...selection.tasks].sort(), ['first', 'other']);

@@ -53,9 +53,12 @@ export function createRackRunBody(options: RackRunBodyOptions): TaskBodyExecutor
     if (request.role !== 'task' || name === undefined || !selected.has(name)) return inner === undefined ? local() : inner(request, local);
     return fromTheRack(request, local, name, run, options.retryTaskFailuresLocally);
   };
+  // With no body it wraps, every unit runs through `local()`, under the
+  // budget's guard, as a runner with no body runs it: it stops units
+  const stopsUnits = inner === undefined ? true : inner.stopsUnits;
   return Object.assign(body, {
     takesWhole: (_taskHash: string, { taskName }: { taskName?: string }) => taskName !== undefined && selected.has(taskName),
-    ...(inner?.stopsUnits !== undefined && { stopsUnits: inner.stopsUnits }),
+    ...(stopsUnits !== undefined && { stopsUnits }),
   });
 }
 
@@ -94,6 +97,8 @@ async function fromTheRack(
   try {
     answer = await run.ask({ taskName, taskHash, inputsHash: ids.inHash, onLog, ...(options.signal !== undefined && { signal: options.signal }) });
   } catch (err) {
+    // What the rack sent of its log before it was lost is the attempt's
+    await Promise.all([logs.stdout.idle(), logs.stderr.idle()]);
     if (options.signal?.aborted) return attempt.recordStopped('cancelled', 'cancelled: e3 stopped waiting on the rack because the run was aborted');
     return runHere('rack.lost', `its rack run was lost (${err instanceof Error ? err.message : String(err)})`);
   }
