@@ -474,6 +474,9 @@ export { useColorMode, applyColorMode, storedColorMode, type ColorMode } from ".
 // its local state and derivations on DATA changes only.
 export { useValueSync } from "./hooks/useValueSync.js";
 export { useDataStable } from "./hooks/useDataStable.js";
+// A textarea as tall as its text, its height alone set (east-workspace#1779) — for a sibling renderer package's own
+// text boxes: the query's description.
+export { useGrowWithText } from "./primitives/grow-with-text.js";
 
 // Platform (State Management)
 export {

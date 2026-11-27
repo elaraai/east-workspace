@@ -210,12 +210,13 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             gap: "{spacing.1}",
         },
         // A multi-line field under the name (a query's description), on the
-        // `input` recipe's chrome: as tall as its rows, never resized by
-        // hand, and muted while it holds the text generated for it
-        // (`data-generated`) rather than the author's own.
+        // `input` recipe's chrome: as tall as its text, never under its rows —
+        // its renderer grows it (`useGrowWithText`, east-workspace#1779) —
+        // never resized by hand, and muted while it holds the text generated
+        // for it (`data-generated`) rather than the author's own.
         textArea: {
             resize: "none",
-            /* A phone's view: its three lines (QP34). */
+            /* A phone's view: never under its three lines (QP34). */
             "[data-frame-view] &": { height: "auto", minHeight: "84px", lineHeight: "20px", paddingY: "8px" },
             "&[data-generated]": { color: "fg.muted" },
         },

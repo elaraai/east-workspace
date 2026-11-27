@@ -270,6 +270,34 @@ test.describe("Query builder (#940)", () => {
         });
     });
 
+    test("the description holds its whole sentence: as tall as its text, never under its three rows, nothing hidden in it, never resized by hand; Use generated keeps it the generated one (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.getByRole("textbox", { name: "What the query answers, in one sentence" });
+        // What the box hides of its text, how tall it stands, whether it holds the generated sentence, and its resize.
+        const fit = () => box.evaluate((el) => {
+            const area = el as HTMLTextAreaElement;
+            return { hidden: area.scrollHeight - area.clientHeight, tall: Math.round(area.getBoundingClientRect().height), generated: area.hasAttribute("data-generated"), resize: getComputedStyle(area).resize };
+        });
+        // The open query's generated sentence: all of it shows — the box once stood at a one-line field's height, its
+        // last line hidden.
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.generated, now.resize]; }).toEqual([0, true, "none"]);
+        const generated = (await fit()).tall;
+        // A line of the author's: the box its three rows, which the generated sentence fills or passes.
+        await box.fill("Shipped orders.");
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.generated]; }).toEqual([0, false]);
+        const rows = (await fit()).tall;
+        expect(generated).toBeGreaterThanOrEqual(rows);
+        // Four lines of the author's: taller than its rows, all of it showing.
+        await box.fill("Shipped orders.\nTheir totals.\nTheir customers.\nTheir regions.");
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.tall > rows]; }).toEqual([0, true]);
+        // Use generated: the generated sentence back — still the generated one, never the author's — as tall as before.
+        await dialog.getByRole("button", { name: "Use generated" }).click();
+        await expect.poll(fit).toEqual({ hidden: 0, tall: generated, generated: true, resize: "none" });
+    });
+
     test("a tag typed and not Entered, then Save pressed once: nothing under the press moves while it is held, and the query is saved with the tag (east-workspace#1779)", async ({ page }) => {
         const builder = await openBuilder(page);
         await builder.locator("[data-query-save-open]").click();
@@ -483,6 +511,9 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         await expect(save.getByText("Tags", { exact: true })).toBeVisible();
         const halves = await save.locator("[data-part], button").filter({ hasText: /^(Cancel|Save)$/ }).evaluateAll((els) => els.map((b) => Math.round(b.getBoundingClientRect().width)));
         expect(halves[0]).toBe(halves[1]);
+        // Its description holds its whole sentence, nothing hidden in it (east-workspace#1779).
+        const description = save.getByRole("textbox", { name: "What the query answers, in one sentence" });
+        await expect.poll(() => description.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0);
         await nothingFloats(page);
         // A tag typed and not Entered: the first Esc puts it back, the Save view staying; the next leaves the Query view
         // under it (east-workspace#1779).

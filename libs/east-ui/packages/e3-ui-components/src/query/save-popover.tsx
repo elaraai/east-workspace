@@ -13,7 +13,9 @@
  *   holds is the field's error, "{name} is taken"; the open query's own is
  *   not, and saving under it updates the query.
  * - **The description**, under the name: one sentence, at most
- *   {@link DESCRIPTION_MAX} characters. Untouched, it holds the sentence
+ *   {@link DESCRIPTION_MAX} characters, its box as tall as the sentence —
+ *   never under three lines — so all of it shows (`useGrowWithText`,
+ *   east-workspace#1779). Untouched, it holds the sentence
  *   generated from the steps, muted, and says so; once edited it counts its
  *   characters and offers **Use generated**, which returns it to the
  *   generated sentence. A query that has a description opens edited, showing
@@ -50,7 +52,7 @@ import { memo, useCallback, useId, useMemo, useRef, useState, type ChangeEvent, 
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { OptionType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
-import { FieldForm, composingKey, useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
+import { FieldForm, composingKey, useGrowWithText, useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 import { NamePopover } from "../shared/name-popover.js";
 import { TagsFormType, TagsType, type Tags } from "../shared/tags-form.js";
 import { DESCRIPTION_MAX } from "./model/step-words.js";
@@ -162,6 +164,9 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
 
     const edited = draft.type === "some";
     const text = edited ? draft.value : generated;
+    // Its box as tall as its sentence, held as it mounts with the popover.
+    const [descriptionBox, setDescriptionBox] = useState<HTMLTextAreaElement | null>(null);
+    useGrowWithText(descriptionBox, text);
     const hint = edited
         ? m.descriptionCount({ count: f.number(text.length), max: f.number(DESCRIPTION_MAX), n: text.length })
         : m.descriptionGenerated();
@@ -187,7 +192,7 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
         >
             <Box css={edit.field} data-query-description="">
                 {phone && <chakra.label css={edit.viewFieldLabel}>{m.descriptionLabel()}</chakra.label>}
-                <chakra.textarea css={[input, edit.textArea]} rows={3} maxLength={DESCRIPTION_MAX} value={text}
+                <chakra.textarea ref={setDescriptionBox} css={[input, edit.textArea]} rows={3} maxLength={DESCRIPTION_MAX} value={text}
                     placeholder={m.descriptionPlaceholder()} aria-label={m.descriptionPlaceholder()} aria-describedby={`${id}-hint`}
                     data-generated={edited ? undefined : ""} onChange={onDescription} onKeyDown={onDescriptionKey} />
                 <Box css={edit.hintRow}>
