@@ -16,6 +16,9 @@
  *   read of their entries; it never reads a machine whole, nor a window of the
  *   record's own rows. Each of the first twelve machines draws what a Plan
  *   over the same machines read whole draws for it.
+ * - A scroll to machines further down reads the cells of the blocks its rows
+ *   meet and of the next the way it went; back to the machines it left it
+ *   reads nothing, their cells kept (#1797).
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -214,11 +217,13 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await scrollStopped();
         await settle();
         expect(askedOf(IN_TIME).slice(shown)).toEqual([]);
-        // ...until the view is on them: their cells read in one batch and one read, and they draw what they drew.
+        // ...nor once the view is on them: their cells, read as the page opened, were kept while the presses were hidden
+        // and while they stood out of view (#1797), and they draw what they drew.
         act(() => { window.scrollTo({ top: 0 }); });
         await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(whole)), { timeout: 10_000 });
+        await scrollStopped();
         await settle();
-        expect(askedOf(IN_TIME).slice(shown)).toEqual(["find 250", "runs"]);
+        expect(askedOf(IN_TIME).slice(shown)).toEqual([]);
     });
 
     test("every series switched off draws no row, and one switched back on draws its rows again", async () => {
@@ -300,6 +305,36 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await settle();
         expect(askedOf(IN_TIME).slice(rested)).toEqual([aBlock, "runs"]);
         expect(blocksSearched(up)).toEqual([2]);
+    });
+
+    test("a scroll back to the machines it left reads nothing, and down again to those it left for them: their cells are kept (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(nestedPlan);
+        await settle();
+        const first = drawnTwelve(container);
+        const opened = askedOf(IN_TIME).length;
+        // Down to the fourth block's first machines: that block and the next one down read, the first wanted no more.
+        const below = (3 * SCHEDULE_CELL_BLOCK + 5) * PLAN_GEOMETRY.default.row;
+        act(() => { window.scrollTo({ top: below }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10160")))).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
+        await settle();
+        const fourth = drawnRow(container, "presses", "M-10160");
+        expect(fourth.length).toBeGreaterThan(0);
+        // Back to the top: the first block's cells were kept — nothing is counted, nothing read, and its machines draw
+        // what they drew.
+        const left = askedOf(IN_TIME).length;
+        act(() => { window.scrollTo({ top: 0 }); });
+        await waitFor(() => expect(drawnTwelve(container)).toEqual(first), { timeout: 10_000 });
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(left)).toEqual([]);
+        // Down again: the fourth block's cells and the next one's, wanted no more at the top, were kept too.
+        act(() => { window.scrollTo({ top: below }); });
+        await waitFor(() => expect(drawnRow(container, "presses", "M-10160")).toEqual(fourth), { timeout: 10_000 });
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(left)).toEqual([]);
     });
 
     test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {

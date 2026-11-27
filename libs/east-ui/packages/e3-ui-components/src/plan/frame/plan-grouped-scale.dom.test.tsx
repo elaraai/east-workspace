@@ -16,7 +16,9 @@
  * - At each rest the jobs read are those of the blocks of presses meeting the
  *   view, and of the next block the way the view went (#1797) — none where a
  *   page opens, which has gone no way — never every block from the page's
- *   first row: a hall's own row stands for no press (#1711).
+ *   first row: a hall's own row stands for no press (#1711). A rest back
+ *   where the view has rested asks the jobs' index nothing: the jobs of the
+ *   blocks it left are kept (#1797), through either index.
  * - The halls draw in the order their binding gives: by name beside their
  *   nested series index, in their keys' order without it. Their names run
  *   against their keys, so a hall's presses mount where the view looks for
@@ -435,6 +437,10 @@ const pressLiteral = (code: string) => printPress(some(code));
 const findsOf = (index: string, from: number): E3Request[] => h.requests().slice(from)
     .filter((request) => request.kind === "find" && request.dataset === JOBS_AT && request.query.get("index") === index);
 
+/** What one of the jobs' indexes was asked since `from`, its searches and its entries alike: each request's kind. */
+const askedOf = (index: string, from: number): string[] => h.requests().slice(from)
+    .filter((request) => request.dataset === JOBS_AT && request.query.get("index") === index).map((request) => request.kind);
+
 /** The searches the series index was asked since `from`: each a press's jobs at a level. */
 const searchesOf = (from: number): number => findsOf(SERIES, from).reduce((n, request) => n + request.searches.length, 0);
 
@@ -578,6 +584,8 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(findsOf(SUMMARY, from)).toEqual([]);
             // The block the rows in view meet, and the next one down the page, the way the view went: none before it (#1797).
             expect(blocksOf(pressesAsked(from))).toEqual([inside, inside + 1]);
+            const rested = marksOf(container);
+            expect(rested.length).toBeGreaterThan(0);
 
             // A wheel's step on from there, a press down, inside the blocks read: the rows in view move, so the jobs are
             // read again — from the cells held, asking e3 nothing, and ordering none of the jobs by their keys again
@@ -614,6 +622,17 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             // Its jobs drawn, never its presses' shading from the summary.
             expect(findsOf(SUMMARY, from)).toEqual([]);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
+
+            // Back down to where the view rested inside the hall: the block it meets there was read and is still held,
+            // and the next one down, which the view going back wanted no more, was kept (#1797) — the jobs' index is
+            // asked nothing, neither a search nor an entry, and the jobs drawn there draw again.
+            from = h.requests().length;
+            act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + into * pressPx }); });
+            await waitFor(() => expect(marksOf(container)).toEqual(rested), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            expect(askedOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Nothing failed to read on the way.
             const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
@@ -740,6 +759,24 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             report("down the page, in time order", from, cpu0, container);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
             expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // On down into the next hall drawn, whose presses' jobs are read there, the first hall's wanted no more...
+            const next = DRAWN[1]!;
+            from = h.requests().length;
+            act(() => { window.scrollTo({ top: 2 * PLAN_GEOMETRY.default.group + (SIZES[DRAWN[0]!]! + Math.floor(SIZES[next]! / 2)) * pressPx }); });
+            await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(next, 2)}`))).toBe(true), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            expect(askedOf(IN_TIME, from).length).toBeGreaterThan(0);
+            // ...then back to the top of the page: the first hall's jobs were kept (#1797) — the index is asked nothing,
+            // neither a search nor an entry, and the jobs the page opened on draw again.
+            from = h.requests().length;
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(marksOf(container)).toEqual(drawn), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            expect(askedOf(IN_TIME, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Nothing failed to read on the way.

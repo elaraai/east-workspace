@@ -38,9 +38,10 @@
  * (two, when a zoom out grows the run both ways): their searches in one
  * request, which counts their entries before one is read, beside the entries
  * of the tiles held; their entries in one more. Tiles are kept while their run
- * is wanted, at the revision they were read at: a pan or a scroll within the
- * tiles held reads nothing, and a commit reads the wanted runs again, the old
- * ones standing in until they land. An event past a year, filed under each
+ * is wanted — and, of the runs a view has left, while they fit (see "What a
+ * view has left") — at the revision they were read at: a pan or a scroll
+ * within the tiles held reads nothing, and a commit reads the wanted runs
+ * again, the old ones standing in until they land. An event past a year, filed under each
  * year it touches, is one event, kept by its key. A window of
  * the paged kind's resources whose read failed — the paging runtime throws a
  * `PagedReadError` for it — gives no block, its host saying so where its rows
@@ -68,6 +69,19 @@
  * no way — one opening, the first under a narrowing — reads the blocks meeting
  * its rows alone. The block ahead is never waited on: while its window of the
  * paged rows is in flight, the blocks in view are read without it.
+ *
+ * # What a view has left
+ *
+ * The tiles of the blocks no read wants any more are kept too (#1797): the
+ * most recently wanted of them, while together they hold no more than a view
+ * may draw, the least recently wanted let go first — the one rule every
+ * reader of a schedule's events keeps them by (`kept-spans.ts`). A view going
+ * back to rows it has left so reads nothing, and after a pan made meanwhile
+ * only the tiles the pan brought in. They are kept at the revision they were
+ * read at, as the tiles wanted are, and a commit lets go of them all. They are
+ * no part of what a read hands on: a kind's rows are those of the blocks its
+ * read wants, and a resource whose block the view has left is no resource
+ * whose cells the read holds.
  *
  * # A view of no row
  *
@@ -286,6 +300,7 @@ import { coarserThan } from "../time/zoom.js";
 import { sameView, viewState, type ReadView, type ViewState } from "../view-read.js";
 import { holdCellRows, releaseCellRows } from "./cell-rows.js";
 import { DraftedStanding } from "./drafted-rows.js";
+import { scheduleSpansKept } from "./kept-spans.js";
 import {
     NO_UNDER, entryKey, groupQueries, keyOrderOf, keyRunOf, sameUnder, underOf, type CellGroup, type KeyOrder, type SeriesGroup,
 } from "./series-groups.js";
@@ -1397,8 +1412,41 @@ interface Span {
     readonly entries: readonly RecordSliceEntry[];
 }
 
-/** The spans a series read holds, by the index read through: each group's a level, at the revision they were read at. */
-type SpansByIndex = Map<string, { revision: string; spans: ReadonlyMap<string, Span> }>;
+/**
+ * The spans a series read holds of one index, at the revision they were read at: each group's a level the latest read
+ * took in, and those of the groups it wants no more, kept while they fit — the least recently wanted first (#1797; see
+ * the module docs, "What a view has left").
+ */
+interface SpansHeld {
+    readonly revision: string;
+    readonly spans: ReadonlyMap<string, Span>;
+    readonly kept: ReadonlyMap<string, Span>;
+}
+
+/** The spans a series read holds, by the index read through. */
+type SpansByIndex = Map<string, SpansHeld>;
+
+/** No span kept of a view's past. */
+const NONE_KEPT: ReadonlyMap<string, Span> = new Map();
+
+/**
+ * The spans a series read keeps of those it wants no more (#1797, `kept-spans.ts`): those kept before and those the
+ * last read took in, less the ones this read takes in — the last read's the most recently wanted. The same map while
+ * a read takes in every span the last did and none kept: the rows in view moving within the blocks held — a wheel's
+ * step — makes none again.
+ *
+ * @param was - What was held at the revision this read is made at; `undefined` for nothing, or for what another revision's read held
+ * @param taken - The spans this read takes in
+ * @returns The spans kept, the least recently wanted first
+ */
+function keptSpans(was: SpansHeld | undefined, taken: ReadonlyMap<string, Span>): ReadonlyMap<string, Span> {
+    if (was === undefined) return NONE_KEPT;
+    let moved = false;
+    for (const key of was.spans.keys()) if (!taken.has(key)) { moved = true; break; }
+    if (!moved) for (const key of taken.keys()) if (was.kept.has(key)) { moved = true; break; }
+    if (!moved) return was.kept;
+    return new Map(scheduleSpansKept([...was.kept, ...was.spans].filter(([key]) => !taken.has(key)), (span) => span.entries.length));
+}
 
 /** One group's run of one level a series read wants (#1433): the span of it held, and a cell for each part of it not held. */
 interface SeriesWant {
@@ -1745,8 +1793,9 @@ class CellsReader {
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
         const last = stored.get(series.name);
-        const kept = last !== undefined && stringEqual(last.revision, revision.value) ? last.spans : new Map<string, Span>();
-        // Each group's run of each level: the span of it held, and a cell for each part of it not held.
+        const was = last !== undefined && stringEqual(last.revision, revision.value) ? last : undefined;
+        // Each group's run of each level: the span of it held — the last read's, or one kept of a view's past (#1797) —
+        // and a cell for each part of it not held.
         const wanted: SeriesWant[] = [];
         const missing: RecordSliceCell[] = [];
         groups.forEach((group, g) => {
@@ -1760,7 +1809,7 @@ class CellsReader {
                 const key = `${group.id}\u0000${run.level}`;
                 const from = run.from.getTime();
                 const to = run.to.getTime();
-                const span = kept.get(key);
+                const span = was?.spans.get(key) ?? was?.kept.get(key);
                 const held = span !== undefined && stringEqual(span.identity, identity) && span.from < to && span.to > from ? span : undefined;
                 const parts: [number, number][] = held === undefined ? [[from, to]] : [];
                 if (held !== undefined && from < held.from) parts.push([from, held.from]);
@@ -1793,8 +1842,9 @@ class CellsReader {
      * A kind's series cells read, of the groups `taken` takes in (#1433,
      * #1768): the entries of the parts not held, in one request — each cell
      * counted already, so none is searched again — each kept under the tile it
-     * names, and every span no group taken in wants let go. Through an index in
-     * time order the entries of each group's own keys are kept (#1710).
+     * names, and the spans no group taken in wants kept while they fit (#1797,
+     * {@link keptSpans}). Through an index in time order the entries of each
+     * group's own keys are kept (#1710).
      *
      * @returns The groups taken in's entries a level, in order; {@link READING} while the entries are in flight
      */
@@ -1829,8 +1879,11 @@ class CellsReader {
             spans.set(key, span);
             return span.entries;
         });
-        // The spans this read takes in, and no other.
-        stored.set(series.name, { revision: counted.revision, spans });
+        // The spans this read takes in, and of those it wants no more — at the revision it was counted at — the most
+        // recently wanted, while they fit (#1797): a view going back to them reads nothing.
+        const last = stored.get(series.name);
+        const was = last !== undefined && stringEqual(last.revision, counted.revision) ? last : undefined;
+        stored.set(series.name, { revision: counted.revision, spans, kept: keptSpans(was, spans) });
         return { entries, revision: counted.revision };
     }
 

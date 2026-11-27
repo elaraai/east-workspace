@@ -28,7 +28,10 @@
  * entries first; the entries it does not hold go in one more. What it holds is
  * kept at the record's revision: a pan or a scroll within what it holds reads
  * nothing, and a commit reads what is wanted again, the last standing in until
- * it lands.
+ * it lands. Of the runs a view has left it keeps the most recently wanted
+ * while they fit — the one rule every reader of a schedule's events keeps them
+ * by (#1797, `shared/schedule/kept-spans.ts`) — so a view going back to rows it
+ * has left reads nothing; they are none of the cells it hands on.
  *
  * # The cap
  *
@@ -74,6 +77,7 @@ import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket, type ScheduleCellTravel } from "../../shared/schedule/cells.js";
+import { scheduleSpansKept } from "../../shared/schedule/kept-spans.js";
 import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
 import { bucketsOver } from "./cells.js";
@@ -624,7 +628,9 @@ function withChanges(entries: readonly Entry[], ops: ReadonlyMap<string, Change>
  */
 class NestedCellsReader {
     /**
-     * The tiles held of each run, by its prefix, at a revision; each part's
+     * The tiles held of each run, by its prefix, at a revision — the runs the
+     * latest read wants last, and before them those it wants no more, kept
+     * while they fit, the least recently wanted first (#1797); each part's
      * bounds counted and its entries once read; and the batches of searches and
      * of reads in flight, each asked again until it lands, so a part is asked
      * in one batch however the wanted runs move meanwhile.
@@ -723,7 +729,8 @@ class NestedCellsReader {
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.
         const read = this.held.read;
         if (!this.entries(binding, index, parts)) return waitingOn(parts.filter((part) => !read.has(part.text)).map((part) => part.cell));
-        // Each run's tiles held now: those it held in its span, and its parts' — and nothing else.
+        // Each run's tiles held now: those it held in its span, and its parts'. A run wanted stands last among the spans:
+        // the most recently wanted.
         const spans = this.held.spans;
         const byCell = new Map<string, Part[]>();
         for (const part of parts) {
@@ -736,11 +743,17 @@ class NestedCellsReader {
             const span = spans.get(cell.prefix);
             const kept = span === undefined ? [] : span.entries.filter((entry) => { const t = tileOf(entry).getTime(); return t >= from && t < to; });
             const added = (byCell.get(cell.prefix) ?? []).flatMap((part) => read.get(part.text) ?? []);
+            spans.delete(cell.prefix);
             spans.set(cell.prefix, { from, to, entries: added.length === 0 && span !== undefined && span.from === from && span.to === to ? span.entries : [...kept, ...added] });
         }
-        // Every run no longer wanted let go, and every part counted and read, held now.
-        const prefixes = new Set(wanted.map((cell) => cell.prefix));
-        for (const prefix of [...spans.keys()]) if (!prefixes.has(prefix)) spans.delete(prefix);
+        // Of the runs wanted no more, the most recently wanted are kept while they fit, so a view going back to them
+        // reads nothing (#1797) — the rest let go; and every part counted and read is held now.
+        if (spans.size > wanted.length) {
+            const prefixes = new Set(wanted.map((cell) => cell.prefix));
+            const unwanted = [...spans].filter(([prefix]) => !prefixes.has(prefix));
+            const staying = new Set(scheduleSpansKept(unwanted, (left) => left.entries.length).map(([prefix]) => prefix));
+            for (const [prefix] of unwanted) if (!staying.has(prefix)) spans.delete(prefix);
+        }
         for (const part of parts) {
             this.held.found.delete(part.text);
             read.delete(part.text);
