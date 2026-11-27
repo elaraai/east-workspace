@@ -10,7 +10,8 @@
  * The Plan's adapter to the shared cells' reader (#1039), worked out with no
  * read: the buckets a range is cut into at the canvas's resolution, and where
  * the canvas reports its paged rows in view — at rest, the rows its view
- * shows, or the span standing while it shows only rows not read; and the
+ * shows, the span standing while it shows only rows not read, or a span of no
+ * row while its rows stand for no resource (#1795); and the
  * resources a window's rows are read by, a row beneath a resource by the one
  * it stands beneath (#1541, U1). What the reader wants and decides is the
  * shared reader's (`shared/schedule/cells.test.ts`).
@@ -96,14 +97,18 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         expect(cellSpanOf(items, origin, undefined)).toEqual(oneRun([0, "P-11"], [0, "P-21"], undefined));
     });
 
-    test("at rest over paged rows none of which stands for a resource — every group folded: the span standing while it is of the narrowing the windows are now, and none under another (#1711)", () => {
+    test("at rest over paged rows none of which stands for a resource — every group folded: a span of no row under the narrowing the windows are now, never the rows that stood, so no row's events are read while it lasts (#1795)", () => {
         const origin = new Map([["h1", { w: 0 }], ["h2", { w: 0 }]]);
         const standing = oneRun([0, "P-11"], [0, "P-21"], "status: Ready");
         const halls = [{ key: "h1", path: [] }, { key: "h2", path: [] }];
-        expect(shownCellSpan(halls, false, standing, origin, "status: Ready")).toBe(standing);
-        // Under another narrowing no row of the view reports one: none, or the reader waits on the last narrowing's rows.
-        expect(shownCellSpan(halls, false, standing, origin, "status: Done")).toBeUndefined();
-        expect(shownCellSpan(halls, false, undefined, origin, "status: Ready")).toBeUndefined();
+        expect(shownCellSpan(halls, false, standing, origin, "status: Ready")).toEqual({ runs: [], narrowing: "status: Ready" });
+        // Whatever stood: under another narrowing, and before any span was reported — a page opened folded.
+        expect(shownCellSpan(halls, false, standing, origin, "status: Done")).toEqual({ runs: [], narrowing: "status: Done" });
+        expect(shownCellSpan(halls, false, undefined, origin, undefined)).toEqual({ runs: [], narrowing: undefined });
+        // And whatever a run not read yet beside them holds: its rows report their own once they are drawn.
+        expect(shownCellSpan(halls, true, standing, origin, "status: Ready")).toEqual({ runs: [], narrowing: "status: Ready" });
+        // A row no paged window placed is no paged row: the Plan's own rows alone report none.
+        expect(shownCellSpan([{ key: "stock", path: [] }], false, standing, origin, "status: Ready")).toBeUndefined();
     });
 
     test("the store holds the span reported last, and tells its listeners only of one that moves — its rows, its runs or its narrowing", () => {

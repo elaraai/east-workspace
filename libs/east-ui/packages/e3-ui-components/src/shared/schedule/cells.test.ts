@@ -9,8 +9,9 @@
  *
  * What a schedule's cells' reader wants and decides, worked out with no read
  * (#1039): the blocks of a paged kind's resources around the rows in view — an
- * end of them its window does not hold read as the other end (#1711), and a
- * block only the margin wants marked so — which of them a read takes in beneath
+ * end of them its window does not hold read as the other end (#1711), a
+ * block only the margin wants marked so, and none for rows in view reported
+ * as none (#1795) — which of them a read takes in beneath
  * the cap, the rows in view first (#1768), the
  * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
@@ -147,6 +148,19 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
     test("none while a window of them is in flight, nor while the rows in view are another narrowing's", () => {
         expect(schedulePagedBlocks(pagedOf([presses(0, 200), undefined]), span([1, "P-0210"], [1, "P-0220"]))).toBeUndefined();
         expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 1"))).toBeUndefined();
+    });
+
+    test("rows in view reported as none — they stand for no resource, every group folded — want no block, and no window is asked for them: never the first block, where a view opens (#1795)", () => {
+        const asked: bigint[] = [];
+        const counted: ScheduleCellPaged = { ...two, keys: (offset, limit) => { asked.push(offset); return two.keys(offset, limit); } };
+        expect(schedulePagedBlocks(counted, { runs: [], narrowing: undefined })).toEqual([]);
+        expect(asked).toEqual([]);
+        // Where a view opens the first window is asked, and its first block wanted: none reported is no view opening.
+        expect(named(schedulePagedBlocks(counted, undefined))).toEqual(["0.0"]);
+        expect(asked).toEqual([0n]);
+        // Reported under another narrowing than the windows read now, it waits on the rows as any span does.
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), { runs: [], narrowing: "hall: Hall 1" })).toBeUndefined();
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), { runs: [], narrowing: "hall: Hall 2" })).toEqual([]);
     });
     test("a block's resources stand under one row: a place whose resources nest under two is a block each, the first named by the place (#1710)", () => {
         /** Presses under a hall: each names the row it stands under. */

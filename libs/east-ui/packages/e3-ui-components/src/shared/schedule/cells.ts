@@ -53,6 +53,21 @@
  * land are reported by none: until they are, a span of the last narrowing's
  * reads no cell, and its cells stand in.
  *
+ * # A view of no row
+ *
+ * The rows in view may be reported as none ({@link ScheduleCellSpan.runs}
+ * empty): the paged rows a view shows stand for no resource — a Plan's group
+ * rows alone, every group folded (#1795). Such a view draws no row's events,
+ * so none is read for it: no block is wanted, and a kind read by its cells is
+ * handed nothing — neither past the cap nor given a notice. A pan, a zoom or
+ * a commit under it asks e3 for no event. What the reader holds stays held —
+ * the tiles it read, and each kind's rows — so the rows a view shows next draw
+ * from it, and only the tiles it does not hold are read. While nothing a read
+ * is made under has moved since the last one made over rows — its view, its
+ * range, the paged rows' narrowing and each kind's revision — that read
+ * stands as it was: folding every group of a page at rest hands its host
+ * nothing new, and unfolding them draws their events at once.
+ *
  * # In time order
  *
  * A kind's source may list a series index in time order (#1710,
@@ -506,10 +521,12 @@ export interface ScheduleCellRun {
  * narrowing they were drawn under. One run, but where the rows in view go from
  * one series of the rows on into another over the same windows — a Plan's
  * rows beside a group at its top, each paging the same entries (#1710): a run
- * each, in the view's order.
+ * each, in the view's order. And none, where the paged rows in view stand for
+ * no resource — a Plan's group rows alone (#1795): no row's events are wanted
+ * (see the module docs, "A view of no row").
  */
 export interface ScheduleCellSpan {
-    /** The runs of rows in view, in the view's order: at least one. */
+    /** The runs of rows in view, in the view's order; none for a view whose paged rows stand for no resource. */
     readonly runs: readonly ScheduleCellRun[];
     /**
      * The narrowing the rows were drawn under, as the kind's source names it
@@ -604,7 +621,10 @@ export interface ScheduleCellsArgs {
     readonly zoomShades?: boolean | undefined;
     /** Every kind's drafts — the same object while they hold. */
     readonly drafts: ScheduleEventDraftsValue;
-    /** The paged kind's rows in view, as the host last reported them; `undefined` before it has. */
+    /**
+     * The paged kind's rows in view, as the host last reported them — of no run where they stand for no resource, which
+     * reads no row's events (see the module docs, "A view of no row"); `undefined` before it has.
+     */
     readonly span: ScheduleCellSpan | undefined;
     /**
      * What confirmed Saves landed of the kinds read by their cells, as the host's editing hands them on (its `landed`):
@@ -870,10 +890,11 @@ export interface ScheduleCellBlock {
  *
  * Rows in view that run from one series of the rows on into another over the same windows — rows beside a group at a
  * Plan's top (#1710) — are a run each: each run's blocks are wanted, a window two runs meet in wanting the blocks
- * around each, and never the windows between one run's and another's.
+ * around each, and never the windows between one run's and another's. Rows in view reported as none — they stand for
+ * no resource (#1795) — want no block, and no window is asked for them.
  *
  * @param paged - The paged rows
- * @param span - The rows in view, as the host last reported them — a run of them, or several; `undefined` before it has: the first resource, where a view opens
+ * @param span - The rows in view, as the host last reported them — a run of them, several, or none; `undefined` before it has: the first resource, where a view opens
  * @returns The blocks; `undefined` while a window of them is in flight, and while the rows in view are another
  *   narrowing's than the one the windows read now (#1344) — a choice's rows still to land and be reported, whose places
  *   the last narrowing's windows do not hold
@@ -1106,6 +1127,8 @@ type KindRead =
         readonly unread: ReadonlySet<string>;
     }
     | { readonly mode: "shade"; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
+    /** Read by its cells under a view of no row (#1795): none of its events is read, and it is neither past the cap nor given a notice. */
+    | { readonly mode: "none" }
     | { readonly mode: "window" };
 
 /** A kind's types, as its rows are read: their keys ordered and named, its window's stored rows unpacked, a row packed alone. */
@@ -1379,6 +1402,15 @@ class CellsReader {
     private readonly windows = new Map<string, { readonly at: string; readonly handle: string; readonly held: HeldRows }>();
     /** The view the latest read was asked for, in flight or not — the same object while it says the same. */
     private askedView: ReadView = NO_VIEW;
+    /**
+     * The paged rows' blocks the last complete read not of a view of no row was made over, and what it was made under —
+     * its view, its range, the rows' narrowing and each kind's revision: what a view of no row is read over while none
+     * of them has moved (see the module docs, "A view of no row"). `undefined` once one has, and before any such read.
+     */
+    private stood: {
+        readonly blocks: ScheduleCellBlock[]; readonly made: ReadView; readonly range: ScheduleCellRange; readonly narrowing: string | undefined;
+        readonly revisions: ReadonlyMap<string, string>;
+    } | undefined;
     /**
      * Which drafts a kind given {@link ScheduleCellKind.isNew} draws, and those its last read drew: what stands through
      * a carry-over (`drafted-rows.ts`).
@@ -1712,6 +1744,8 @@ class CellsReader {
         const over: ScheduleCellRange = { from: range.from.getTime(), to: range.to.getTime() };
         // The shading, by a row's key, then by the resource's key: each tile's totals, or the hatch.
         const totals: Totals = new Map();
+        // A view of no row (#1795): the paged rows in view are reported, and none of them stands for a resource.
+        const noRow = paged !== undefined && !paged.hidden && span !== undefined && span.runs.length === 0;
         // The paged kind's blocks in view, read once for every kind placed on it — and its resources wanted, kept.
         let pagedBlocks: ScheduleCellBlock[] | typeof READING | undefined;
         const blocksOfPaged = (): ScheduleCellBlock[] | typeof READING => {
@@ -1722,6 +1756,14 @@ class CellsReader {
                 // The paged kind's own rows — their count, a window — failing to read: what its host's paging says where
                 // those rows are, never as its period's (#1710). Anything else thrown is the reader's own failure.
                 throw isPagedReadError(thrown) ? new PagedRowsFailure(thrown) : thrown;
+            }
+            // A view of no row wants no block: while nothing the last read over rows was made under has moved, it is read
+            // over that read's blocks — the read it made, which asks e3 nothing — and once anything has, over none.
+            if (noRow && pagedBlocks !== READING) {
+                const stood = this.stood;
+                if (stood !== undefined && sameView(stood.made, this.askedView) && sameRange(stood.range, over)
+                    && sameNarrowing(stood.narrowing, paged.narrowing()) && sameRevisions(stood.revisions, this.nowAt)) pagedBlocks = stood.blocks;
+                else this.stood = undefined;
             }
             if (pagedBlocks !== READING) {
                 const wanted = new Set(pagedBlocks.flatMap((block) => block.keys.map((key) => scheduleCellId(block.slot, key))));
@@ -1768,11 +1810,17 @@ class CellsReader {
                         // Hidden: it draws nothing, so no cell of it is read — and given none, nothing reads its range.
                         read = { mode: "shade", notice: undefined, paged: false };
                     } else {
-                        // The paged rows' blocks of the slots it lands on.
+                        // The paged rows' blocks of the slots it lands on. Under a view of no row with no read standing
+                        // (#1795) none of its events is read — and its cells are never asked over no block, which would
+                        // let go of every tile held: the rows a view shows next draw from them.
                         const blocks = blocksOfPaged();
-                        read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where,
-                            blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
-                            resolution, drafts, totals, zoomShades === true);
+                        if (blocks === READING) read = READING;
+                        else if (noRow && this.stood === undefined) read = { mode: "none" };
+                        else {
+                            read = this.cellsKind(kind, kind.part!, kind.part!.read().where,
+                                blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
+                                resolution, drafts, totals, zoomShades === true);
+                        }
                     }
                 } else {
                     read = this.countedKind(kind, range, buckets, resolution, totals, blocksOf);
@@ -1821,9 +1869,21 @@ class CellsReader {
                     // no host's figure at all, so it is named here by none.
                     if (!kind.hidden) capped.add(kind.key);
                     break;
+                case "none":
+                    // No row's events are wanted: it draws nothing, over the paged rows — whose rows, shown next, wait on
+                    // their cells — and is no kind past the cap.
+                    reads.push([kind.key, READ_NOTHING]);
+                    held.set(kind.key, NO_ROWS);
+                    byCells = true;
+                    break;
             }
         }
         if (inFlight) return READING;
+        // What a view of no row is read over next (#1795): the blocks this read was made over, and what it was made under.
+        if (!noRow) {
+            this.stood = paged === undefined || pagedBlocks === undefined || pagedBlocks === READING ? undefined
+                : { blocks: pagedBlocks, made: this.askedView, range: over, narrowing: paged.narrowing(), revisions: this.nowAt };
+        }
         return {
             reads: new SortedMap(reads, compareString),
             shading: shadingOf(totals, buckets),

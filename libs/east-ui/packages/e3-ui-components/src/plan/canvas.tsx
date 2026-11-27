@@ -158,7 +158,7 @@ import {
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
 import { PlanBandCountsContext, PlanBandCountsReader, createBandCountsStore, createBandSpanStore, type PlanBandInView } from "./root/band-counts.js";
 import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
-import { scheduleCellId } from "../shared/schedule/cells.js";
+import { scheduleCellId, type ScheduleCellSpan } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import {
@@ -645,9 +645,13 @@ export function usePlanCanvas({
         value: { ...kept.value, links: [...kept.value.links, ...ofKinds] },
         data: { ...kept.data, links: [...kept.data.links, ...ofKinds] },
     }), [kept, ofKinds]);
+    // Which of `data`'s series its pick shows (#590), as the Series tab switches them: the root's page function reads
+    // which are on as it makes a window, so the wrappers a paging driver reads the rows through name a switch in their
+    // revision — the nested series', and the event kinds'.
+    const pickVersion = useSliceReactivity(linked.data.pick.type === "some" ? linked.data.pick.value.key : undefined);
     // The event kinds' events joined into the drafted root's own rows, and its links' event ends named where the events
     // draw (#1192, #1541).
-    const shown = usePlanEventRoot(linked.value, linked.data, events !== undefined ? lead : undefined, events, hidden);
+    const shown = usePlanEventRoot(linked.value, linked.data, events !== undefined ? lead : undefined, events, hidden, pickVersion);
     const value = shown.value;
     const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
@@ -664,9 +668,7 @@ export function usePlanCanvas({
     // So did what was read of the rows' nested series index (#1438), which every window is drawn with.
     const nestedVersion = nestedLead?.version ?? 0;
     useLayoutEffect(() => { if (nestedVersion > 0) controller.refreshSource(); }, [controller, nestedVersion]);
-    // So did which of `data`'s series its pick shows (#590): a window of the rows read beside their nested series index
-    // draws with them, and names them in its revision.
-    const pickVersion = useSliceReactivity(data.pick.type === "some" ? data.pick.value.key : undefined);
+    // So did which of `data`'s series its pick shows (#590): a window draws with them, and names them in its revision.
     useLayoutEffect(() => { if (pickVersion > 0) controller.refreshSource(); }, [controller, pickVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
@@ -1293,9 +1295,19 @@ export function usePlanCanvas({
     // The paged rows in view, once the scroll rests (#1039): the reader of the kinds' cells reads the blocks around them
     // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
     // the rows the view shows, never the overscan mounted beside them, and a view showing a run not read yet and no row read
-    // leaves the span standing (`shownCellSpan`).
+    // leaves the span standing — while one whose paged rows stand for no resource, group rows alone with every group
+    // folded, reports a span of no row, for which no row's events are read (#1795, `shownCellSpan`).
     const pagingOrigin = paging.origin;
     const pagingNarrowing = paging.narrowing;
+    // Until the view has reported its rows at rest, the reader takes what the canvas has laid out (#1795): a span of no
+    // row while no paged row of it stands for a resource — none landed yet, or every group folded — so a page opened
+    // folded reads no row's events, and none is read ahead of rows the canvas has yet to lay out. One that does leaves
+    // the reader to read where a view opens. The narrow list reports no rows, and its reader reads as a view opening.
+    const opensOnNoRow = useMemo(() => paged && !narrow && !body.items.some((item) => item.kind === "row" && item.row.row.id.type === "entry"
+        && pagingOrigin.has(item.row.row.key) && readPathOf(item.row.row, landings, (key) => index.byKey.get(key)).length > 0),
+    [paged, narrow, body.items, pagingOrigin, landings, index]);
+    const openingSpan = useMemo((): ScheduleCellSpan | undefined => (opensOnNoRow ? { runs: [], narrowing: pagingNarrowing } : undefined),
+        [opensOnNoRow, pagingNarrowing]);
     // How many entries each of those windows holds (#1714): the root's, as the driver pages by it.
     const pagingWindowEntries = paging.windowEntries;
     const reportRange = usePlanRangeReport(body.items, body.heights, controller, pagingOrigin, pagingWindowEntries);
@@ -2152,7 +2164,7 @@ export function usePlanCanvas({
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
                 kinds={kinds} rows={kept.data.rows.type === "inline" ? kept.data.rows : kept.value.rows} windowEntries={pagingWindowEntries} parts={eventParts}
-                links={linked.data.links} spans={cellSpans} editing={eventEditing} placings={placings} onLead={setLead} />
+                links={linked.data.links} spans={cellSpans} opening={openingSpan} editing={eventEditing} placings={placings} onLead={setLead} />
         )
         : null;
     // The group rows' counts of the events beneath them (#1716): over rows read a page at a time, read by a component of

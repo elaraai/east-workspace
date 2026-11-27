@@ -11,8 +11,10 @@
  * A window is asked of the source under the layer again only when that source,
  * its revision or its narrowing moves, or the series the viewer shows: the
  * root's page function reads which show each time it makes a window
- * (`planShown`), and only the nested series' wrapper names that in its
- * revision. The layer reads the pick's state as that function does, each time
+ * (`planShown`), and of the sources under the layer only the nested series'
+ * wrapper names that in its revision — the event kinds' wrapper, over the
+ * layer, names it for the paging driver (`events.ts`). The layer reads the
+ * pick's state as that function does, each time
  * a window is asked, kept or not: a reader handed a kept window follows a
  * switch as it follows the source's own reads, and is read again when the
  * viewer switches a series (the cells' reader is so, its next window read

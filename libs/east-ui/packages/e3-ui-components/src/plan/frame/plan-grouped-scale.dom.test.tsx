@@ -33,6 +33,10 @@
  *   Unassigned row (#1541), so it reads none of them: no search asks for them,
  *   through either index, and the index in time order is the only series index
  *   its page lists (#1710).
+ * - With every hall folded the view shows no row a job lands on, so no press's
+ *   jobs are read (#1795): folding them, a pan of the window under them, and a
+ *   page opened with them so ask the jobs' index nothing. Unfolded, the jobs
+ *   held draw at once, and the index is asked for what is not held alone.
  * - Zoomed out past the jobs' series tile (#1541, U1), each task beneath a
  *   press counts its own jobs, from a summary led by the task. With none, a
  *   task row draws its own jobs while the range holds few, and past the cap is
@@ -49,7 +53,7 @@
 
 import { createHash } from "node:crypto";
 import { describe, test, expect, vi } from "vitest";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import {
     DateTimeType, DictType, East, OptionType, StringType, StructType, VariantType, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -699,6 +703,107 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
             expect(findsOf(SERIES, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Nothing failed to read on the way.
+            const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
+            expect(failed).toEqual([]);
+        } finally {
+            errors.mockRestore();
+            restore();
+        }
+    }, 1_800_000);
+
+    test("with every group folded no press's jobs are read — as the window is panned under them, nor as a page opens so — and an Expand all draws what is held and reads what is not (#1795)", async () => {
+        const restore = emulateWindowScroll();
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            let from = h.requests().length;
+            const first = await h.mount(byHall, { storageKey: "plan-folded" });
+            const { container } = first;
+            await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            // What a view opening on the first hall's presses asks of the jobs' index: every level of each.
+            const opened = searchesOf(from);
+            expect(opened).toBeGreaterThan(0);
+            const drawn = marksOf(container);
+            const fold = (of: HTMLElement) => slot(of, "toolbar")!.querySelector<HTMLElement>("[data-plan-fold-all]")!;
+            /** Every hall's own row drawn, folded, and no press's: the view shows no row a job lands on. */
+            const folded = async (of: HTMLElement) => {
+                await waitFor(() => expect(of.querySelectorAll("[data-plan-group]").length).toBe(HALLS), { timeout: 600_000 });
+                await scrollStopped();
+                await settle();
+                expect(mounted(of)).toEqual([]);
+                expect(fold(of).getAttribute("aria-label")).toBe("Expand all");
+            };
+            /** The window moved a day at a time, a week in all: past the week tiles the jobs read so far lie in. */
+            const pan = async (of: HTMLElement, key: "[" | "]") => {
+                for (let step = 0; step < 7; step++) {
+                    await act(async () => { fireEvent.keyDown(of.querySelector("[data-plan-body]")!, { key }); });
+                    await settle();
+                }
+            };
+
+            // A page at rest: folding every group asks for no job, and unfolding them draws the jobs it held, asking for none.
+            from = h.requests().length;
+            fireEvent.click(fold(container));
+            await folded(container);
+            expect(findsOf(SERIES, from)).toEqual([]);
+            fireEvent.click(fold(container));
+            await waitFor(() => expect(marksOf(container)).toEqual(drawn), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Folded, the window panned a week on: the jobs of the weeks it comes to are nobody's to see, and none is asked for.
+            fireEvent.click(fold(container));
+            await folded(container);
+            from = h.requests().length;
+            await pan(container, "]");
+            await scrollStopped();
+            await settle();
+            expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Unfolded there: the jobs of the presses in view are drawn, and the index is asked for the weeks not held alone —
+            // fewer searches than the view's opening, which asked every level of each press.
+            from = h.requests().length;
+            fireEvent.click(fold(container));
+            await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await scrollStopped();
+            await settle();
+            expect(searchesOf(from)).toBeGreaterThan(0);
+            expect(searchesOf(from)).toBeLessThan(opened);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // The page opened as it was left — every group folded, its window on weeks no press's jobs have been read for,
+            // which no read before this one answers: its halls are read, and no press's jobs — nor as its window is panned
+            // on under them.
+            fireEvent.click(fold(container));
+            await folded(container);
+            await pan(container, "]");
+            await scrollStopped();
+            await settle();
+            first.unmount();
+            from = h.requests().length;
+            const again = await h.mount(byHall, { storageKey: "plan-folded" });
+            await folded(again.container);
+            expect(hallPages(from).length).toBeGreaterThan(0);
+            expect(findsOf(SERIES, from)).toEqual([]);
+            await pan(again.container, "]");
+            await scrollStopped();
+            await settle();
+            expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Unfolded, the presses it shows are drawn, and their jobs asked for then.
+            fireEvent.click(fold(again.container));
+            await waitFor(() => expect(searchesOf(from)).toBeGreaterThan(0), { timeout: 600_000 });
+            await settle();
+            expect(mounted(again.container).length).toBeGreaterThan(0);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+            again.unmount();
 
             // Nothing failed to read on the way.
             const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));

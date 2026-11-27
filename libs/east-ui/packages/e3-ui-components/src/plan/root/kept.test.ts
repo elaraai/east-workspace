@@ -14,14 +14,15 @@
  * more windows than the layer keeps the one asked longest ago is asked again.
  * Every other part of the source is its own. Over the nested series' wrapper,
  * the event kinds' wrapper over it and the cells' reader reading it, new events
- * and the reader's reads make no window's rows again. Without readers that read
- * the windows again, the roots are the ones given.
+ * and the reader's reads make no window's rows again, and a series switched is
+ * a new revision to the paging driver whatever the events (#1795). Without
+ * readers that read the windows again, the roots are the ones given.
  */
 
 import { describe, test, expect } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { SortedMap, StringType, compareFor, none, some, variant } from "@elaraai/east";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { getStore, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
@@ -257,6 +258,36 @@ describe("over the nested series' wrapper, read by the event kinds' wrapper and 
         driver();
         reader();
         expect(made).toEqual([0, 0, 0, 0]);
+    });
+
+    test("a series the viewer switches is a new revision to the paging driver, the events as they were — the cells' reader reading no window, its view of no row — and each window is asked of the source again, with the series shown (#1795)", () => {
+        const PICK = "plan.kept.test.revision";
+        const pages: number[] = [];
+        const root = rootOf(variant("pinned", pinnedSource(pages)), PICK);
+        const events: PlanEventRows = { seam: { placed: () => none, place: (blocks) => blocks }, landings: [], paged: true };
+        const lead = leadAt(1);
+        const { result } = renderHook(() => {
+            const kept = usePlanKeptRoot(root, root, true);
+            // The pick's version, as the canvas reads it and hands it on.
+            return usePlanEventRoot(kept.value, kept.data, lead, events, undefined, useSliceReactivity(PICK));
+        });
+        // The paging driver's read, through the event kinds' wrapper: its revision, then a window at it.
+        const revision = () => {
+            const r = sourceOf(result.current.data).revision!();
+            return r.type === "some" ? r.value : undefined;
+        };
+        const before = revision();
+        sourceOf(result.current.data).page(0n, 200n);
+        sourceOf(result.current.data).page(0n, 200n);
+        expect(pages).toEqual([0]);
+        // The Series tab switches a series: no event moves, and the driver is told all the same.
+        act(() => { getStore().write(PICK, new Uint8Array([1])); });
+        const after = revision();
+        expect(before).toBeDefined();
+        expect(after).toBeDefined();
+        expect(after).not.toBe(before);
+        sourceOf(result.current.data).page(0n, 200n);
+        expect(pages).toEqual([0, 0]);
     });
 
     test("what the driver holds is said on through the event kinds' wrapper: more windows than the layer keeps beside them are made once each, new events or not (#1712)", () => {

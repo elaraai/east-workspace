@@ -30,8 +30,10 @@
  * range the canvas reads and its scale's buckets. And it keeps the span store the
  * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
- * never the overscan, the span standing while it shows only rows not read, or
- * only rows that stand for no resource ({@link shownCellSpan}). A row names its
+ * never the overscan, the span standing while it shows only rows not read, and
+ * a span of no row while the rows it shows stand for no resource — group rows
+ * alone, every group folded — for which no row's events are read
+ * ({@link shownCellSpan}). A row names its
  * resource by the last step of the path it is read by (`readPathOf`), and a
  * group's own row, whose path is none, names none (#1711). A resource beneath
  * a group names the rows it stands under too, by the steps of its path before
@@ -92,8 +94,6 @@ type Links = PlanRootValue["links"];
 
 const stringEqual = equalFor(StringType);
 const compareDate = compareFor(DateTimeType);
-/** Whether two narrowings, as a source names them, are one — none being none (#1344). */
-const sameNarrowing = (a: string | undefined, b: string | undefined): boolean => (a === undefined || b === undefined ? a === b : stringEqual(a, b));
 
 /**
  * The buckets a range is cut into at a scale's resolution: the range the
@@ -446,17 +446,19 @@ export function cellSpanOf(
  * their own once they are drawn.
  *
  * A view of paged rows none of which stands for a resource — group rows alone,
- * every group folded — reads no row's events: the span standing stays while it
- * is of the narrowing the windows are now (#1711). Under another narrowing it
- * is none: no row of the view will report one, and the reader would wait on the
- * last narrowing's rows.
+ * every group folded (#1711) — draws no row's events, so it wants none read
+ * (#1795): it reports a span of no row, under the narrowing the windows are
+ * now, whatever stood and whatever a run beside them holds. The reader reads
+ * nothing for it while it lasts and keeps what it holds (the shared reader's
+ * "A view of no row"), where the span standing had every pan and zoom read the
+ * events of rows nobody saw.
  *
  * @param rows - The rows the view shows, in order: each its key and the path its events are read by (`readPathOf`)
  * @param unread - Whether the view shows a run of rows not read yet, or a window whose read failed
  * @param standing - The span reported last
  * @param origin - Which window each paged row came from
  * @param narrowing - The narrowing the windows belong to, as the source names it (#1344)
- * @returns The span to report; `standing` while the view shows rows not read alone, or of the same narrowing rows that stand for no resource alone
+ * @returns The span to report: of no row while the view's paged rows stand for no resource, and `standing` while it shows rows not read alone
  */
 export function shownCellSpan(
     rows: readonly { readonly key: string; readonly path: readonly string[] }[], unread: boolean, standing: ScheduleCellSpan | undefined,
@@ -464,7 +466,6 @@ export function shownCellSpan(
 ): ScheduleCellSpan | undefined {
     const span = cellSpanOf(rows, origin, narrowing);
     if (span !== undefined) return span;
-    if (unread) return standing;
-    const paged = rows.some((row) => origin.has(row.key));
-    return paged && standing !== undefined && sameNarrowing(standing.narrowing, narrowing) ? standing : undefined;
+    if (rows.some((row) => origin.has(row.key))) return { runs: [], narrowing };
+    return unread ? standing : undefined;
 }

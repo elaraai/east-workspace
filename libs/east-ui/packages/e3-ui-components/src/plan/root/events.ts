@@ -44,7 +44,12 @@
  * that places each window the source serves — and a window standing in, as
  * the canvas's editing redraws it (#1599) — and names a new revision when the
  * events move, so the driver reads its windows again and keeps the rows it
- * has standing in until they land (#821). A window read again over new events
+ * has standing in until they land (#821). It names which series the viewer
+ * shows there too, as the nested series' wrapper does (`nested.ts`): the root's
+ * page function reads which show as it makes a window, and nothing else tells
+ * the driver of a switch — the cells' reader follows one only through the
+ * windows it asks, and asks none while the view shows no row a kind lands on
+ * (#1795). A window read again over new events
  * or a new shading alone — the same blocks from the source under the wrapper,
  * which the kept layer gives while they hold (`kept.ts`) — is joined again only
  * in the rows they moved (#1712, #1791): a landing row's rows depend on the
@@ -115,7 +120,7 @@ import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRo
 import type { PlanResolution, PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
-import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellSpan, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { meetsWindow } from "../../shared/schedule/window.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, landingRowSeries, type PlanLandingValue } from "./landings.js";
@@ -558,6 +563,12 @@ export interface PlanEventsReaderProps {
     links: PlanCellsArgs["links"];
     /** The canvas's paged rows in view, as it reports them. */
     spans: PlanCellSpanStore;
+    /**
+     * The rows in view until the canvas has reported any (#1795): a span of no row while no paged row it has laid out
+     * stands for a resource — none landed yet, or a page opened with every group folded, whose rows' events nobody sees —
+     * so none is read; `undefined` once one does, where the first block is read as a view opening.
+     */
+    opening?: ScheduleCellSpan | undefined;
     /** What confirmed Saves landed of the kinds read by their cells, and how it is let go: drawn until the cells are read again. */
     editing: PlanCellsArgs["editing"];
     /** Where each read of the events that lands is handed to the frame, with what it was read over (#1771): the footer's counts take a window's events from it. */
@@ -574,7 +585,8 @@ export interface PlanEventsReaderProps {
  * render the whole canvas. A kind read by its cells (#1039) is read here too,
  * every cell it wants in one request a read, and every other kind counted
  * before one of its events is read; the rows the canvas reports in view are
- * read here alone. What a Save landed of a kind read by its cells draws as the
+ * read here alone — and until it has reported any, the rows it opens on
+ * (`opening`, #1795). What a Save landed of a kind read by its cells draws as the
  * Save left it until they are read again: its confirmation reads its events by
  * their keys, never the cells. Each read that lands is handed to the frame as
  * well, with what it was read over, which the canvas renders nothing for
@@ -583,8 +595,10 @@ export interface PlanEventsReaderProps {
  * @param props - What the events are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, editing, placings, onLead }: PlanEventsReaderProps): null {
-    const span = useSyncExternalStore(spans.subscribe, spans.get);
+export function PlanEventsReader({
+    events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, opening, editing, placings, onLead,
+}: PlanEventsReaderProps): null {
+    const span = useSyncExternalStore(spans.subscribe, spans.get) ?? opening;
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
@@ -928,11 +942,13 @@ function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: Plac
  * @param lead - The event kinds' events; `undefined` for a Plan with none
  * @param events - The Plan's event rows: the seam that places the events, and the series they land on
  * @param hidden - The ids the viewer hides in the library's Series tab: a further row whose kinds are all hidden is left out
+ * @param picked - The version of which of `data`'s series the viewer shows — its pick's state's, which moves at each
+ *   switch: a paged root's wrapper names it in its revision; none picked, nought
  * @returns The two roots the canvas draws
  */
 export function usePlanEventRoot(
     value: PlanRootValue, data: PlanRootValue, lead: PlanEventLead | undefined,
-    events?: PlanEventRows | undefined, hidden: readonly string[] = NONE_HIDDEN,
+    events?: PlanEventRows | undefined, hidden: readonly string[] = NONE_HIDDEN, picked = 0,
 ): { value: PlanRootValue; data: PlanRootValue } {
     const seam = lead !== undefined ? events?.seam : undefined;
     const placed = lead?.placed ?? NOTHING_PLACED;
@@ -949,7 +965,7 @@ export function usePlanEventRoot(
     }, [seam, data.rows, placed, shading, hidden, landings, period]);
     // Paged: one wrapper per source, placing each window it serves with the latest events.
     const paged = seam !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0, period }, (source, latest) => {
+    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0, period, picked }, (source, latest) => {
         // A window's blocks with the latest events joined in: no Unassigned row, an event on no row of the canvas's being
         // in no window.
         const placedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
@@ -990,10 +1006,11 @@ export function usePlanEventRoot(
                 return read.type === "some" ? some({ rows: joinedIn(read.value.rows), entries: read.value.entries }) : read;
             },
             // New events are a new revision: the driver reads its windows again, the rows it has standing in until they land.
+            // So is a series the viewer switches (#1795): the windows are made with the series shown, whatever the events.
             revision: () => {
                 const l = latest();
                 const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#events-${l.version}`);
+                return some(`${r.type === "some" ? r.value : ""}#events-${l.version}-${l.picked}`);
             },
             // A window standing in is drawn as it is composed now: the events joined into the data's own rows (#1599) —
             // where the source under this one, the canvas's editing's, says how it draws one.
