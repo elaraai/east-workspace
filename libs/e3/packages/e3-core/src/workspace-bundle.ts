@@ -385,34 +385,62 @@ async function importBundle(storage: StorageBackend, repo: string, ws: string, s
     if (await storage.refs.workspaceRead(repo, ws) !== null) throw new WorkspaceExistsError(ws);
     const { head, objects } = await storeEntries(storage, repo, source);
     await checkHeld(storage, repo, head);
-
-    // The package's ref, where the repository has none of its name and version
-    const { name, version, hash } = head.package;
-    if (await packageHeldAs(storage, repo, head) === null) await storage.refs.packageWrite(repo, name, version, hash);
-    // Each execution the repository does not record
-    await eachAtMost(head.executions, OBJECT_CONCURRENCY, async ({ taskHash, inputsHash, status }) => {
-      const executionId = status.value.executionId;
-      if (await storage.refs.executionGet(repo, taskHash, inputsHash, executionId) === null) {
-        await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, status);
-      }
-    });
-    // The refs, once those an import or a copy cut short left under the name
-    // are gone
-    await storage.datasets.removeAll(repo, ws);
-    await eachAtMost([...head.datasets], OBJECT_CONCURRENCY, ([path, ref]) => storage.datasets.write(repo, ws, path, ref));
-    // The record last, as a deploy writes it: an import cut short leaves no
-    // workspace that reads as whole
-    await storage.refs.workspaceWrite(repo, ws, encodeBeast2For(WorkspaceRecordType)(some({
-      packageName: name,
-      packageVersion: version,
-      packageHash: hash,
-      deployedAt: head.deployedAt,
-      currentRunId: none,
-    })));
-    return { package: { name, version }, objects };
+    await writeMadeWorkspace(storage, repo, ws, head, { packageRef: true });
+    return { package: { name: head.package.name, version: head.package.version }, objects };
   } finally {
     await lock.release();
   }
+}
+
+/**
+ * Writes a workspace made from a head, once every object it names that the
+ * workspace must hold is held: the package's ref, when asked for and the
+ * repository has none of its name and version; each execution the repository
+ * does not record; the refs; and the workspace's record last, as a deploy
+ * writes it, so a make cut short leaves no workspace that reads as whole.
+ *
+ * @remarks
+ * A bundle's import makes a workspace with this, and so does a replica of a
+ * selection (`replicaCreate`), whose package is nobody's named package and so
+ * writes no package ref. The caller holds the name's lock.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param head - The workspace: its package, refs and executions
+ * @param options - Whether to write the package's ref
+ * @internal
+ */
+export async function writeMadeWorkspace(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  head: WorkspaceBundleHead,
+  options: { readonly packageRef: boolean },
+): Promise<void> {
+  // The package's ref, where the repository has none of its name and version
+  const { name, version, hash } = head.package;
+  if (options.packageRef && await packageHeldAs(storage, repo, head) === null) await storage.refs.packageWrite(repo, name, version, hash);
+  // Each execution the repository does not record
+  await eachAtMost(head.executions, OBJECT_CONCURRENCY, async ({ taskHash, inputsHash, status }) => {
+    const executionId = status.value.executionId;
+    if (await storage.refs.executionGet(repo, taskHash, inputsHash, executionId) === null) {
+      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, status);
+    }
+  });
+  // The refs, once those an import or a copy cut short left under the name
+  // are gone
+  await storage.datasets.removeAll(repo, ws);
+  await eachAtMost([...head.datasets], OBJECT_CONCURRENCY, ([path, ref]) => storage.datasets.write(repo, ws, path, ref));
+  // The record last, as a deploy writes it: a make cut short leaves no
+  // workspace that reads as whole
+  await storage.refs.workspaceWrite(repo, ws, encodeBeast2For(WorkspaceRecordType)(some({
+    packageName: name,
+    packageVersion: version,
+    packageHash: hash,
+    deployedAt: head.deployedAt,
+    currentRunId: none,
+  })));
 }
 
 /**

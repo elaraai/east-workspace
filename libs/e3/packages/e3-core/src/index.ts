@@ -235,6 +235,7 @@ export {
 // Part of a workspace, cut to a list of tasks and described for a replica
 export { selectionCut, type SelectionCut } from './sync/selection.js';
 export { syncDescribe, descriptionRoots, type SyncDescribeOptions } from './sync/describe.js';
+export { replicaCreate, withReadThrough, originObjects, type OriginObjects } from './sync/replica.js';
 
 // What a deploy decides for each record, index and input, and its policies for
 // records and inputs: the wire types' values, which its callbacks and its job
