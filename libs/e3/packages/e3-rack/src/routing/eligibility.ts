@@ -5,7 +5,7 @@
 
 import { pythonInstalls } from '@elaraai/e3';
 import { decodeEnvironmentFile, type DetachedCallRequest, type StorageBackend, type TaskBodyRequest } from '@elaraai/e3-core';
-import { decodeEnvironmentSpec, decodeTaskObject, type EnvironmentSpec, type RunnerValue } from '@elaraai/e3-types';
+import { decodeEnvironmentSpec, decodeTaskObject, type EnvironmentSpec, type RunnerValue, type TaskObject } from '@elaraai/e3-types';
 import { selectTask, type RackComputeSize, type RackPolicy, type TaskSelection } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms, scanProgram } from './host-coupling.js';
@@ -115,11 +115,33 @@ export class EligibilityEvaluator {
       return Promise.resolve({ eligible: false, reason: 'merges-local' });
     }
     const hash = request.logicalTaskHash ?? request.taskHash;
-    const key = JSON.stringify([request.repo, hash, name]);
+    return this.verdictOf(request.storage, request.repo, hash, name, hash === request.taskHash ? request.task : undefined);
+  }
+
+  /**
+   * Checks a whole task as {@link evaluate} checks it, by its hash and name,
+   * before any body of it is run: what a run asks of each task it may send a
+   * rack whole.
+   *
+   * @param storage - The repository's storage
+   * @param repo - The repository
+   * @param taskHash - The task object's hash
+   * @param taskName - The task's name in the graph
+   * @returns Its eligibility, with a deterministic reason on refusal
+   * @example
+   * const eligibility = await new EligibilityEvaluator(policy).evaluateTask(storage, repo, taskHash, 'train');
+   */
+  evaluateTask(storage: StorageBackend, repo: string, taskHash: string, taskName: string): Promise<Eligibility> {
+    return this.verdictOf(storage, repo, taskHash, taskName, undefined);
+  }
+
+  /** A task's verdict, reached once for the evaluator's life. */
+  private verdictOf(storage: StorageBackend, repo: string, hash: string, name: string, task: TaskObject | undefined): Promise<Eligibility> {
+    const key = JSON.stringify([repo, hash, name]);
     let result = this.verdicts.get(key);
     if (result === undefined) {
       if (this.verdicts.size >= 4096) this.verdicts.clear();
-      result = this.check(request, hash, name);
+      result = this.check(storage, repo, hash, name, task);
       this.verdicts.set(key, result);
     }
     return result;
@@ -197,13 +219,13 @@ export class EligibilityEvaluator {
     return rackTierFor(runner, { ...asks, installs: await installs });
   }
 
-  private async check(request: TaskBodyRequest, logicalHash: string, name: string): Promise<Eligibility> {
+  private async check(storage: StorageBackend, repo: string, logicalHash: string, name: string, given: TaskObject | undefined): Promise<Eligibility> {
     const selection = this.select(name);
     if (selection === null) return { eligible: false, reason: 'not-selected' };
     try {
-      const task = logicalHash === request.taskHash ? request.task : decodeTaskObject(await request.storage.objects.read(request.repo, logicalHash));
+      const task = given ?? decodeTaskObject(await storage.objects.read(repo, logicalHash));
       const environment = task.environment.type === 'some' ? task.environment.value : null;
-      const tier = await this.route(request.storage, request.repo, task.runner, environment, selection.gpu);
+      const tier = await this.route(storage, repo, task.runner, environment, selection.gpu);
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (task.body.type !== 'east') return { eligible: false, reason: 'custom-runner' };
       if (!selection.allowHostCoupled) {
@@ -212,7 +234,7 @@ export class EligibilityEvaluator {
         if (output.type === 'dict' && output.value.merge.type === 'some') programs.push(output.value.merge.value);
         if (output.type === 'fold') programs.push(output.value.combine);
         const blocked: string[] = [];
-        for (const hash of programs) blocked.push(...await scanProgram(hash, () => request.storage.objects.read(request.repo, hash)));
+        for (const hash of programs) blocked.push(...await scanProgram(hash, () => storage.objects.read(repo, hash)));
         const coupled = hostCoupling(blocked);
         if (coupled !== null) return { eligible: false, reason: coupled };
       }

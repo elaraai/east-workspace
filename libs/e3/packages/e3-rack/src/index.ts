@@ -38,3 +38,6 @@ export * from './runner/environment.js';
 export * from './runner/rack-runner.js';
 export * from './runner/summary.js';
 export * from './runner/api-server.js';
+export * from './run/selection.js';
+export * from './run/run-body.js';
+export * from './run/rack-run.js';
