@@ -23,20 +23,28 @@
  * (#1750): a line a named series down its gutter, in place of its meta and its
  * swatches, as many as the row has room for. And the right axis's rail (#1750):
  * where the Plan declares it, a track after every row's plot, which a right
- * axis reads its numbers in.
+ * axis reads its numbers in. And its fold (#1798): its layers folded to each
+ * period its columns take, once a period, as it draws — never again for a
+ * period it was drawn at, nor for a window landing, which draws none of the
+ * chart rows on screen again.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { Profiler } from "react";
-import { render, cleanup, fireEvent, screen } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen, act, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
-import { system } from "@elaraai/east-ui-components";
+import { system, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
+import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
-import { oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { numberInstant } from "./instant.js";
 import { maxOf, minOf } from "./reductions.js";
+import { setChartFoldProbe } from "./derive.js";
+import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
+import type { ChartKindValue } from "./rows/chart-geometry.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -868,5 +876,128 @@ describe("the right axis's rail (#1750, ruled 25 Nov 2026)", () => {
         expect([template(both), template(container.querySelector("[data-slot='ruler']")), container.querySelector("[data-plan-rail]")])
             .toEqual(["var(--plan-gutter-w) 1fr", "var(--plan-gutter-w) 1fr", null]);
         expect(both.querySelectorAll("[data-plan-plot] [data-plan-tick-right]")).toHaveLength(5);
+    });
+});
+
+describe("a chart row folds as it draws, once a period (#1798)", () => {
+    /** A row's columns, a point at the middle of each step from 0, in a layer named for the row: what its folds are
+     *  told apart by. */
+    const columns = (name: string, ys: readonly number[]) => chartKind([
+        variant("column", { points: ys.map((y, i) => pt(i + 0.5, y)), axis: left, breach: none, fold: SUM,
+            style: { label: some(name), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+    ]);
+    /** The row a fold was made for: its column layer's name. */
+    const rowOf = (chart: ChartKindValue): string => {
+        const layer = chart.layers[0];
+        return layer !== undefined && layer.type === "column" && layer.value.style.label.type === "some" ? layer.value.style.label.value : "";
+    };
+    /** A canvas on a number axis over `[min, max)`, a column a `step`. */
+    const stepped = (rows: PlanWireRow[], min: number, max: number, step: number) => ({
+        ...planRoot(rows, max),
+        axis: variant("number", { window: some({ min, max }), step, now: none, format: none }),
+    }) as unknown as PlanRootValue;
+
+    test("each row draws its layers folded to the period its columns take, folding once a period — drawn again at a period it was drawn at, or panned, it folds nothing", () => {
+        const folded: string[] = [];
+        setChartFoldProbe((chart) => folded.push(rowOf(chart)));
+        try {
+            const rows = [planRow("c", columns("c", [1, 2, 3, 4])), planRow("d", columns("d", [4, 3, 2, 1]))];
+            const tree = (value: PlanRootValue) => (
+                <ChakraProvider value={system}>
+                    <EastChakraPlan value={value} storageKey="chart-1798-periods" />
+                </ChakraProvider>
+            );
+            const { container, rerender } = render(tree(stepped(rows, 0, 4, 1)));
+            const c = () => container.querySelector(rowSel("c"))!;
+            // A point a column, each its own: [0, 4] over the 64px between 12.5 and 76.5 of an 88px row's plot.
+            expect(rects(c())).toEqual([[60.5, 16], [44.5, 32], [28.5, 48], [12.5, 64]]);
+            expect([...folded].sort()).toEqual(["c", "d"]);
+            // Two points a column, summed — 3 and 7, on [0, 7] — each row folding once more.
+            rerender(tree(stepped(rows, 0, 4, 2)));
+            expect(rects(c())).toEqual([[49.071, 27.429], [12.5, 64]]);
+            expect([...folded].sort()).toEqual(["c", "c", "d", "d"]);
+            // Back at a point a column, drawn as it was and folded no more; and a pan there folds nothing.
+            rerender(tree(stepped(rows, 0, 4, 1)));
+            expect(rects(c())).toEqual([[60.5, 16], [44.5, 32], [28.5, 48], [12.5, 64]]);
+            rerender(tree(stepped(rows, 1, 5, 1)));
+            expect(folded).toHaveLength(4);
+        } finally {
+            setChartFoldProbe(undefined);
+        }
+    });
+
+    test("a window landing draws none of the chart rows on screen again, and folds the rows it brings, each once", async () => {
+        initializeStore(new UIStore());
+        // A source whose windows after the first stay in flight until opened, each read naming its window's channel and
+        // each window the same rows each time it is read, as a runtime's cache hands them back.
+        const subs = new Map<string, Set<() => void>>();
+        let recording: string[] | null = null;
+        const tracker: ReactiveTracker = {
+            id: "chart-1798-channels",
+            enableTracking() { recording = []; },
+            disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
+            getStore: () => ({
+                subscribe(key, cb) {
+                    const set = subs.get(key) ?? new Set<() => void>();
+                    set.add(cb);
+                    subs.set(key, set);
+                    return () => { set.delete(cb); };
+                },
+                getKeyVersion: () => 0,
+            }),
+        };
+        const open = { upTo: 0 };
+        const windows = new Map<number, PlanWireRow[]>();
+        const keyOf = (w: number, i: number) => `w${w}r${String(i).padStart(2, "0")}`;
+        const source = {
+            id: "chart-1798-held",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                recording?.push(`w${w}`);
+                if (w > open.upTo) return none;
+                let rows = windows.get(w);
+                if (rows === undefined) {
+                    rows = Array.from({ length: 16 }, (_u, i) => planRow(keyOf(w, i), columns(keyOf(w, i), [1, 2, 3, 4])));
+                    windows.set(w, rows);
+                }
+                return some(rows);
+            },
+            total: () => some(BigInt(5 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+        const unregister = registerReactiveTracker(tracker);
+        const rendered: string[] = [];
+        const folded: string[] = [];
+        try {
+            // Two points a column, so each row's chart folds.
+            const { container } = renderPlan({
+                ...stepped([], 0, 4, 2),
+                rows: variant("paged", blocksSource(source)),
+                windowEntries: BigInt(PLAN_PAGE_SIZE),
+            } as unknown as PlanRootValue, "chart-1798-landing");
+            await waitFor(() => expect(container.querySelector(rowSel("w0r15"))).toBeTruthy());
+            setBodyRowRenderProbe((key) => rendered.push(testKeyOf(key)));
+            setChartFoldProbe((chart) => folded.push(rowOf(chart)));
+            // Windows 1 and 2 land together — one channel firing, one settle.
+            act(() => {
+                open.upTo = 2;
+                for (const cb of [...(subs.get("w1") ?? [])]) cb();
+            });
+            expect(container.querySelector(rowSel("w2r15"))).toBeTruthy();
+            const brought = [1, 2].flatMap((w) => Array.from({ length: 16 }, (_u, i) => keyOf(w, i)));
+            // Every row that drew is one the landing brought: window 0's kept their memo, the fold they drew with being
+            // the one the landing's derivation hands them.
+            expect([...new Set(rendered)].sort()).toEqual(brought);
+            // Each row it brought folded once, as it drew; none of window 0's again.
+            expect([...folded].sort()).toEqual(brought);
+        } finally {
+            // The canvas goes before the tracker it reads through does.
+            cleanup();
+            unregister();
+            setBodyRowRenderProbe(undefined);
+            setChartFoldProbe(undefined);
+        }
     });
 });

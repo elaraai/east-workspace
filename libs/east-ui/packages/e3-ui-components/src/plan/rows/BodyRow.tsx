@@ -20,7 +20,11 @@
  * canvas keeps an entry's identity while its content holds
  * (`stableDerived`). So the memo compares those entries, not the maps: a
  * window landing renders the rows it added and the rows whose numbers it
- * moved, and none of the rows already on screen (#815).
+ * moved, and none of the rows already on screen (#815). A chart row folds its
+ * chart as it draws, through the derivations' one fold for the period
+ * (`PlanDerived.chart`, #1798) — the same function while the period holds,
+ * which the memo compares: the row drawn again by a new scale must be drawn
+ * with the new period's fold, never with the props it last kept.
  *
  * Scale changes still repaint every row — correctly: the row CONTENT consumes
  * `PlanScaleContext`, and context pierces the memo by design. What the memo
@@ -169,7 +173,8 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
     return da === db || (Object.is(da.bands.get(k), db.bands.get(k))
         && Object.is(da.heatArms.get(k), db.heatArms.get(k))
         && Object.is(da.tableSeries.get(k), db.tableSeries.get(k))
-        && Object.is(da.charts.get(k), db.charts.get(k))
+        // A chart row's chart is the period's fold of the chart its row declares: the same while the fold is.
+        && (a.v.row.kind.type !== "chart" || Object.is(da.chart, db.chart))
         && Object.is(da.groupStrips.get(k), db.groupStrips.get(k))
         && Object.is(da.groupMembers.get(k), db.groupMembers.get(k))
         && Object.is(da.diagnostics.get(k), db.diagnostics.get(k)));
@@ -327,10 +332,11 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             // A chart taller than a spark at rest stands its name on the row's first line, never in the middle of the
             // chart's height (#1750). A spark at rest is a row's own lines tall, and keeps them as any row does.
             const gutterTop = chartExpanded_ || kind.value.height.type !== "spark" || v.row.height.type === "some";
+            // What its plot draws (#824), folded as the row draws (#1798) — a diagnostic row draws none, and folds none.
+            const drawn = diagnostic === undefined ? derived.chart(kind.value) : kind.value;
             // Its legend (#1750): a line a named series under the row's lines — its name's, and its sub line's where
             // it has one, as a gathered row's path is — in the room the row has under them. A strip, a row open on
             // its render and a diagnostic draw none, nor does a row with no room for a line: its meta stays.
-            const drawn = derived.charts.get(v.row.key) ?? kind.value;
             const legend = chartLegend(drawn);
             const twoLine = v.row.gutter.sub.type === "some" || (v.gathered !== undefined && v.gathered.path.length > 0);
             const legendTop = (twoLine ? geometry.rowStacked : geometry.row) - geometry.rule;

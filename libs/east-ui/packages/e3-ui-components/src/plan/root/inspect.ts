@@ -182,7 +182,9 @@ export function rowValueAt(row: PlanRowValue, derived: PlanDerived, scale: PlanS
             return texts.length === 0 ? undefined : tablePartsText(texts, w);
         }
         case "chart": {
-            const texts = readoutTable(derived.charts.get(row.key) ?? kind.value, scale, w, { hover: false, units: true }).get(bi);
+            // As the row draws it (#824, #1798): a diagnostic row draws no chart, and folds none.
+            const drawn = derived.diagnostics.has(row.key) ? kind.value : derived.chart(kind.value);
+            const texts = readoutTable(drawn, scale, w, { hover: false, units: true }).get(bi);
             return texts === undefined ? undefined : w.m.list({ parts: texts });
         }
         default:

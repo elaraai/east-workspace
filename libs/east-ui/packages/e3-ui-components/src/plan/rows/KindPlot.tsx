@@ -123,9 +123,10 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             );
         case "chart":
             // What the row DRAWS (#824) — its layers folded to the period
-            // where a bucket holds several of their points.
+            // where a bucket holds several of their points, as it draws and
+            // kept (#1798).
             return (
-                <ChartRowPlot kind={derived.charts.get(rowKey) ?? kind.value} styles={styles} height={plotHeight}
+                <ChartRowPlot kind={derived.chart(kind.value)} styles={styles} height={plotHeight}
                     expanded={chartExpanded} rowKey={rowKey} ctx={ctx} railed={rail === true} />
             );
         case "heat":

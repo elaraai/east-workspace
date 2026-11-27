@@ -35,7 +35,9 @@ import { axisKindMismatches } from "./row-instants.js";
 // FOLD FIRST (#824): every row's values are folded to the canvas's period
 // before anything aggregates them, so a parent summarises what its children
 // SHOW — a month's mean of four weekly heat cells, not four overlapping cells.
-// Without a period (the ledger's height measure) nothing folds.
+// Without a period (the ledger's height measure) nothing folds. Nothing
+// aggregates a chart row's layers, so they fold as the row draws instead, kept
+// by the chart and the period (#1798): a row never drawn folds nothing.
 //
 // Instants are ordered on their own arm (`instantOrder`): epoch ms, the
 // value, or — for an ordinal axis — the declared index, which the caller
@@ -550,8 +552,19 @@ export interface PlanDerived {
     /** The value series each table row draws: a parent's subtotal positions —
      *  the same shape its members have — or a row's own series folded. */
     tableSeries: ReadonlyMap<RowKey, TableSeriesValue[]>;
-    /** The chart each chart row draws — its line, area and column layers folded. */
-    charts: ReadonlyMap<RowKey, ChartKindValue>;
+    /**
+     * The chart a chart row draws: the chart it declares, its line, area and
+     * column layers folded to the period (#824) — the chart itself where
+     * nothing folds.
+     *
+     * Folded the first time a chart is asked for at a period, as its row draws,
+     * and kept by the chart, the period and an ordinal axis's order (#1798): a
+     * row never drawn folds nothing, and a row drawn again at a period it was
+     * drawn at folds nothing again. The same function while the period and the
+     * order are, so a row's memo compares it. A diagnostic row draws no chart,
+     * and asks for none.
+     */
+    chart: (chart: ChartKindValue) => ChartKindValue;
     /** The strip each group band draws collapsed: its declared aggregate over
      *  its members' drawn heat cells (on the scale they share), or its declared
      *  cells folded. Absent for a plain band, or declared cells as they are. */
@@ -563,6 +576,68 @@ export interface PlanDerived {
     /** The rows that render as diagnostic rows, by key (#811) — excluded
      *  from every band, aggregate, subtotal and strip above. */
     diagnostics: ReadonlyMap<RowKey, PlanRowDiagnostic>;
+}
+
+// ── A chart row's layers, folded as it draws (#1798) ────────────────────────
+
+/**
+ * Test-only fold probe — lets "a chart folds as its row draws, once a period"
+ * be asserted as the folds made, deterministically, never inferred from
+ * timings. `undefined` outside tests.
+ */
+let chartFoldProbe: ((chart: ChartKindValue) => void) | undefined;
+/** Install (or clear) the test fold probe. Test use only. */
+export function setChartFoldProbe(fn: ((chart: ChartKindValue) => void) | undefined): void {
+    chartFoldProbe = fn;
+}
+
+/** What the folds made with no period, and with no ordinal axis's order, are kept under. */
+const NO_PERIOD: object = {};
+const NO_ORDER: object = {};
+
+/**
+ * Each period's fold of the charts, by the period and the ordinal axis's
+ * order: one function for each pair, for as long as the page lives — a
+ * period is one object for as long (`PlanScale.period`) — so a derivation
+ * again at the period, a window landing's, hands every row the function it
+ * drew with, and a row drawn again at a period it was drawn at finds what it
+ * folded there.
+ */
+const CHART_FOLDS = new WeakMap<object, WeakMap<object, (chart: ChartKindValue) => ChartKindValue>>();
+
+/**
+ * The fold of a chart's layers to a period and an ordinal axis's order: the
+ * one function for the pair, which folds a chart the first time it is asked
+ * for it and keeps what it folded by the chart, while the chart lives.
+ *
+ * @param period - The canvas's period; without one, a chart's points fold by their instants
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @returns The fold: a chart's line, area and column layers folded ({@link foldChartLayers}) — the chart itself where
+ *   nothing folds
+ */
+function chartFold(
+    period: PlanPeriod | undefined,
+    ordinal: ReadonlyMap<string, number> | undefined,
+): (chart: ChartKindValue) => ChartKindValue {
+    let byOrder = CHART_FOLDS.get(period ?? NO_PERIOD);
+    if (byOrder === undefined) {
+        byOrder = new WeakMap();
+        CHART_FOLDS.set(period ?? NO_PERIOD, byOrder);
+    }
+    const made = byOrder.get(ordinal ?? NO_ORDER);
+    if (made !== undefined) return made;
+    const folded = new WeakMap<ChartKindValue, ChartKindValue>();
+    const fold = (chart: ChartKindValue): ChartKindValue => {
+        const held = folded.get(chart);
+        if (held !== undefined) return held;
+        chartFoldProbe?.(chart);
+        const layers = foldChartLayers(chart.layers, period, ordinal);
+        const drawn = Object.is(layers, chart.layers) ? chart : { ...chart, layers };
+        folded.set(chart, drawn);
+        return drawn;
+    };
+    byOrder.set(ordinal ?? NO_ORDER, fold);
+    return fold;
 }
 
 /**
@@ -581,7 +656,11 @@ export interface PlanDerived {
  * numbers, not an error — #568.)
  *
  * Each row's values fold to the period FIRST (#824), so a parent aggregates
- * what its children draw.
+ * what its children draw. A chart row's layers are folded here no longer:
+ * nothing aggregates them, and each chart folds as its row draws
+ * ({@link PlanDerived.chart}, #1798) — so a derivation over rows held but not
+ * drawn, a window's landing or the ledger's height measure, groups none of
+ * their points.
  *
  * Rows outside the tree — a `parent` naming a key that does not exist — are
  * unreachable from the roots and derive nothing, exactly as they render
@@ -614,7 +693,6 @@ export function derivePlan(
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatArms = new Map<RowKey, HeatCellsValue>();
     const tableSeries = new Map<RowKey, TableSeriesValue[]>();
-    const charts = new Map<RowKey, ChartKindValue>();
     const groupStrips = new Map<RowKey, HeatCellsValue>();
     const groupMembers = new Map<RowKey, number>();
     const diagnostics = new Map<RowKey, PlanRowDiagnostic>();
@@ -731,11 +809,6 @@ export function derivePlan(
                 tablePositions.set(row.key, rollupPositions(drawn));
                 return;
             }
-            case "chart": {
-                const layers = foldChartLayers(kind.value.layers, period, ordinal);
-                if (!Object.is(layers, kind.value.layers)) charts.set(row.key, { ...kind.value, layers });
-                return;
-            }
             case "group": {
                 const summary = kind.value.summary;
                 if (summary.type === "aggregate") {
@@ -758,12 +831,13 @@ export function derivePlan(
                 }
                 return;
             }
-            case "buckets": case "cards": case "events":
+            // A chart row's layers fold as it draws (`chart`, #1798).
+            case "chart": case "buckets": case "cards": case "events":
                 return;
         }
     };
     for (const root of index.roots) visit(root);
-    return { bands, heatArms, tableSeries, charts, groupStrips, groupMembers, diagnostics };
+    return { bands, heatArms, tableSeries, chart: chartFold(period, ordinal), groupStrips, groupMembers, diagnostics };
 }
 
 // ── Keeping identities across re-derivations (#815) ────────────────────────
@@ -772,7 +846,6 @@ const instantEqual = equalFor(Plan.Types.Instant);
 const runStateEqual = equalFor(Plan.Types.Run.fields.state);
 const heatArmEqual = equalFor(Plan.Types.HeatCells);
 const tableSeriesEqual = equalFor(ArrayType(Plan.Types.TableSeries));
-const chartKindEqual = equalFor(Plan.Types.RowKind.cases.chart);
 
 function sameBands(a: readonly DerivedBand[], b: readonly DerivedBand[]): boolean {
     return a.length === b.length && a.every((x, i) => {
@@ -822,7 +895,9 @@ function keptEntries<V>(
  * entries, so a row memo can skip exactly when those entries are the objects
  * it rendered with. This hands back the old object wherever the new one says
  * the same thing, which is what lets a landing render the rows whose numbers
- * it moved and none of the others.
+ * it moved and none of the others. A chart row's chart is compared by nothing:
+ * the derivations at one period and order hand the one fold for them
+ * ({@link PlanDerived.chart}, #1798), which `next` already holds.
  *
  * @param prev - The previous derivation, if any
  * @param next - The new derivation
@@ -834,7 +909,7 @@ export function stableDerived(prev: PlanDerived | undefined, next: PlanDerived):
         bands: keptEntries(prev.bands, next.bands, sameBands),
         heatArms: keptEntries(prev.heatArms, next.heatArms, heatArmEqual),
         tableSeries: keptEntries(prev.tableSeries, next.tableSeries, tableSeriesEqual),
-        charts: keptEntries(prev.charts, next.charts, chartKindEqual),
+        chart: next.chart,
         groupStrips: keptEntries(prev.groupStrips, next.groupStrips, heatArmEqual),
         groupMembers: next.groupMembers,
         diagnostics: keptEntries(prev.diagnostics, next.diagnostics, sameDiagnostic),

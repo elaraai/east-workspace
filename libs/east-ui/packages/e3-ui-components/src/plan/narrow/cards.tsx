@@ -66,8 +66,9 @@ export interface NarrowRowCardProps {
  * Whether a card's facts are unchanged. The derivations are rebuilt whole on
  * every data change and every paged window landing, but a card reads only
  * its own row's entries from them — the ones `KindPlot` draws (bands, the
- * heat arm, table series and chart it draws, #824) and the diagnostic that
- * replaces it. So a
+ * heat arm and the table series it draws, #824; a chart row's chart, which
+ * the period's one fold makes as the card draws, #1798) and the diagnostic
+ * that replaces it. So a
  * reveal that adds cards below, or a window landing elsewhere, re-renders none
  * of the cards already shown (#812): a tap costs the cards it adds.
  */
@@ -82,7 +83,8 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
     return Object.is(a.derived.bands.get(k), b.derived.bands.get(k))
         && Object.is(a.derived.heatArms.get(k), b.derived.heatArms.get(k))
         && Object.is(a.derived.tableSeries.get(k), b.derived.tableSeries.get(k))
-        && Object.is(a.derived.charts.get(k), b.derived.charts.get(k))
+        // A chart row's chart is the period's fold of the chart its row declares: the same while the fold is.
+        && (a.row.kind.type !== "chart" || Object.is(a.derived.chart, b.derived.chart))
         && Object.is(a.derived.diagnostics.get(k), b.derived.diagnostics.get(k));
 }
 
@@ -110,8 +112,9 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     // (#811) — no marks, and no value ticks for marks that are not there.
     const diagnostic = derived.diagnostics.get(row.key);
     // A chart taller than a row's own lines names its series under the card's lines (#1750), in place of its meta,
-    // which stood in for them; a spark, as the canvas's row, names none.
-    const chart = row.kind.type === "chart" ? derived.charts.get(row.key) ?? row.kind.value : undefined;
+    // which stood in for them; a spark, as the canvas's row, names none. What its plot draws, folded as the card draws
+    // (#1798) — a diagnostic card draws none, and folds none.
+    const chart = row.kind.type !== "chart" ? undefined : diagnostic === undefined ? derived.chart(row.kind.value) : row.kind.value;
     const legend = useMemo(() => (chart === undefined ? undefined : chartLegend(chart)), [chart]);
     const drawsLegend = legend !== undefined && legend.entries.length > 0 && diagnostic === undefined && h >= CHART_TALL_PX;
     const meta = gutter.meta.type === "some" && !drawsLegend ? gutter.meta.value : undefined;
