@@ -254,7 +254,8 @@ export type ScheduleValuesOf<R extends StructType, Placed extends string> = Stru
 // ============================================================================
 
 /**
- * A backlog: how long an unscheduled row takes, and when it is due.
+ * A backlog: how long an unscheduled row takes, and when it is due — each worked out from the row and its key alone, as
+ * an event's `title` is.
  *
  * @typeParam K - The record's key type
  * @typeParam R - Its row type
@@ -361,7 +362,10 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * variant) — the fields it reads are edited as any others. The Calendar and Plan, which draw it, require it; the
      * Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it. On a Plan drawing the
      * kind from the copies a series index holds (#1725), it may name a String field the copy works out, which no row
-     * holds: drawn, and not edited. A function is given the copy there, and reads only the fields it holds.
+     * holds: drawn, and not edited. A function is given the copy there, and reads only the fields it holds. A function
+     * works the title out from the row and its key alone: a Plan places the events a reader holds a block of rows at a
+     * time, and keeps what it placed while the block's rows hold (#1793), so one reading anything else is not read
+     * again as that moves.
      */
     title?: ScheduleStringField<R> | (string & {}) | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>);
     /** The resource an event is on: a key field of one kind (`of: "people"`), or a variant field with a kind per case. Omitted, no resource. */
@@ -402,7 +406,7 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * resizes, changes or removes a locked event, and an optimiser's answer that changes it is refused, naming it. A
      * Plan also draws it with a lock, shows its form read only, and says why a gesture on it is refused. On a Plan
      * drawing the kind from the copies a series index holds (#1725), it is given each event's copy, as the event is
-     * drawn, and reads only the fields the copy holds.
+     * drawn, and reads only the fields the copy holds. Worked out from the row and its key alone, as a `title` is.
      */
     locked?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
     /**
@@ -895,12 +899,13 @@ export interface ScheduleKindCase {
  * Declares an event kind (see {@link scheduleEvents}) — over every row of its record, or, given `kindCase`, over the
  * rows holding one case of a variant field of them (#1769, `Schedule.events.kinds`). A kind of one case reads, counts
  * in memory, draws and writes those rows alone: the rows it holds and the drafts over them — a draft by the case its
- * own row holds, so an edit changing the case moves its event to the case's kind — one event read by its key, the rows
- * its window keeps standing, and an event a template or a card makes, which is refused where its row holds another
- * case. Its `resource.of` may name a slot for some of a variant field's cases alone: a row holding another is on no
- * resource. Its count through a source or a day index counts every case's events, an upper bound (`countExact`). A
- * Calendar, a Roster and an Allocation take no kind of one case, nor a kind given `source`; a Plan draws a kind of one
- * case from rows alone, never from a series index's copies (#1725).
+ * own row holds, so an edit changing the case moves its event to the case's kind — and of the rows a reader holds of
+ * the record, which every case's kind reads, its own case's and those a draft names, never the others' (#1793); one
+ * event read by its key, the rows its window keeps standing, and an event a template or a card makes, which is refused
+ * where its row holds another case. Its `resource.of` may name a slot for some of a variant field's cases alone: a row
+ * holding another is on no resource. Its count through a source or a day index counts every case's events, an upper
+ * bound (`countExact`). A Calendar, a Roster and an Allocation take no kind of one case, nor a kind given `source`; a
+ * Plan draws a kind of one case from rows alone, never from a series index's copies (#1725).
  *
  * @param record - The record, `Record.bind(record)`
  * @param input - The kind's options, as `Schedule.events` takes them
@@ -1588,8 +1593,12 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
          * `item` itself for a build drawing rows; else the row drawn as its copy first, the row beside it.
          */
         readonly overWhole: (itemType: EastType, item: ExprType<FunctionType<[EastType], EastType>>) => ExprType<FunctionType<[EastType], EastType>>;
-        /** The entries a reader read by cells, named by its handle (#1771), held by key: the rows, or each copy with no row beside it. */
-        readonly hold: ExprType<FunctionType<[StringType], DictType<EastType, EastType>>>;
+        /**
+         * The entries a reader read by cells, named by its handle (#1771), held by key: the rows, or each copy with no row
+         * beside it — a kind of one case's (#1769) its own case's rows of them alone, and those the drafts given name, a
+         * draft moving one into the case: no other case's row is walked past that (#1793).
+         */
+        readonly hold: ExprType<FunctionType<[StringType, typeof ScheduleDraftsType], DictType<EastType, EastType>>>;
         /** What {@link Drawn.hold} holds them as: the type of none held, where a reader holds none of the kind's events. */
         readonly heldType: DictType<EastType, EastType>;
         /** Rows read whole, held as the cells are, to stand beside them; `undefined` for a build drawing rows, whose cells are rows. */
@@ -1609,11 +1618,25 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
     const drawnFor = (once: Once, copy: ScheduleCopy | undefined): Drawn => {
         if (copy === undefined) {
             const cellsType = ArrayType(StructType({ key: keyType, row: rowType }));
-            const hold = once(East.function([StringType], HeldType, ($, cells) => {
+            const hold = once(East.function([StringType, ScheduleDraftsType], HeldType, ($, cells, drafts) => {
                 const entries = $.const(scheduleCellRows([cellsType], cells));
                 const held = $.let(new Map(), HeldType);
+                if (ofCase === undefined) {
+                    $.for(entries, ($2, entry) => {
+                        $2(held.insertOrUpdate(entry.key, entry.row, (_$3, _was, now) => now));
+                    });
+                    return held;
+                }
+                // A kind of one case: the cases of its record read one set of rows, and a row of another case draws
+                // nothing of this one's — but one a draft names, which may move it into the case, and draws in its key's
+                // place among the rows held. Held, every other case's row was walked again as the drafts were laid over
+                // them, only to be dropped (#1793).
+                const idText = $.const(idOf);
+                const drafted = $.const(drafts.size().greater(0n));
                 $.for(entries, ($2, entry) => {
-                    $2(held.insertOrUpdate(entry.key, entry.row, (_$3, _was, now) => now));
+                    $2.if(ofCase(entry.row).or(() => drafted.and(() => drafts.has(idText(entry.key)))), ($3) => {
+                        $3(held.insertOrUpdate(entry.key, entry.row, (_$4, _was, now) => now));
+                    });
                 });
                 return held;
             }));
@@ -1633,7 +1656,8 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
         const HeldCopy = StructType({ row: copy.type, whole: OptionType(rowType) });
         const Held = DictType(keyType, HeldCopy);
         const cellsType = ArrayType(StructType({ key: keyType, row: copy.type }));
-        const hold = once(East.function([StringType], Held, ($, cells) => {
+        // A copy holds no case (#1769): every entry is the kind's, whatever the drafts.
+        const hold = once(East.function([StringType, ScheduleDraftsType], Held, ($, cells, _drafts) => {
             const entries = $.const(scheduleCellRows([cellsType], cells));
             const held = $.let(new Map(), Held);
             $.for(entries, ($2, entry) => {
@@ -1675,7 +1699,7 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
             const inPlace = $.const(drawn.inPlace);
             const item = $.const(itemFn);
             const out = $.let([], ArrayType(itemType));
-            $.for(inPlace(hold(cells), drafts), ($2, entry) => {
+            $.for(inPlace(hold(cells, drafts), drafts), ($2, entry) => {
                 const one = $2.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
                 $2.match(one.start, {
                     some: ($3, s) => {
@@ -1715,7 +1739,7 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
                 $.assign(result, East.value(none, OptionType(ArrayType(itemType))));
                 $.match(read, {
                     some: ($2, rows) => {
-                        const all = $2.let(cells.match({ rows: (_$3, handle) => hold(handle) }, () => East.value(new Map(), drawn.heldType)));
+                        const all = $2.let(cells.match({ rows: (_$3, handle) => hold(handle, drafts) }, () => East.value(new Map(), drawn.heldType)));
                         $2(all.unionInPlace((holdRows === undefined ? rows : holdRows(rows)) as never, (_$3, held) => held));
                         const out = $2.let([], ArrayType(itemType));
                         $2.for(inPlace(all, drafts), ($3, entry) => {

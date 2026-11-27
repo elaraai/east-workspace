@@ -25,7 +25,9 @@
  * its window holds, or of a new one, leaves out — never one it last drew,
  * while its session has yet to judge it where its record reads now (#1599).
  * And what a read hands a host that steps to another period: nothing of the
- * period read (#1740).
+ * period read (#1740). And a kind's rows block by block (#1793): a block's
+ * filed by their keys, and which rows a block leaves — an event two groups'
+ * spans hold to the last of them, and a row the narrowing leaves out to none.
  * The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`,
  * `plan/frame/plan-remote-rows.dom.test.tsx`).
@@ -33,12 +35,13 @@
 
 import { describe, test, expect } from "vitest";
 import { SortedMap, StringType, compareFor, none, some, variant, type option, type ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { SCHEDULE_EVENT_CAP, type ScheduleCellReadType } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
     SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, sameCellSpan,
-    scheduleCellSpanOf, scheduleCellTravel, scheduleCellsWithinCap, schedulePagedBlocks, scheduleSteppedCells, scheduleWindowKeys, scheduleWithinCap,
-    shadesOf, wantedBlocks,
+    scheduleBlockEntries, scheduleBlocksLeft, scheduleCellSpanOf, scheduleCellTravel, scheduleCellsWithinCap, schedulePagedBlocks, scheduleSteppedCells,
+    scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks,
     type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
@@ -478,6 +481,59 @@ describe("what a read hands a host that steps to another period (#1740)", () => 
             const read = standing(view, new Set(["presses P-1"]));
             expect(scheduleSteppedCells(read, KINDS)).toBe(read);
         }
+    });
+});
+
+describe("a kind's rows block by block (#1793)", () => {
+    const compareString = compareFor(StringType);
+    /** How the jobs' keys are ordered: String keys, as their record orders them. */
+    const compareKey = (a: unknown, b: unknown) => compareString(a as string, b as string);
+    /** An event's entry of a series index, as a read keeps it: its key and its row — none for an entry of none. */
+    const entry = (key: string, row?: string) => ({ key, row: row === undefined ? none : some(row) }) as unknown as RecordSliceEntry;
+    /** A key's text, each one asked for counted. */
+    const counting = () => {
+        const asked = { n: 0 };
+        return { asked, idOf: (key: unknown) => { asked.n += 1; return key as string; } };
+    };
+
+    test("a block's rows are its spans' entries filed by their keys, in their order — an event filed under two tiles once, the later one's row — but those it leaves, and an entry of no row", () => {
+        const { idOf } = counting();
+        // A week's tiles and a month's: J-2 runs past its week, filed under it and under its month.
+        const levels = [[entry("J-3", "third"), entry("J-2", "second, the week's")], [entry("J-2", "second"), entry("J-1", "first"), entry("J-9")]];
+        expect(scheduleBlockEntries(levels, new Set(), compareKey, idOf)).toEqual([
+            { key: "J-1", row: "first" }, { key: "J-2", row: "second" }, { key: "J-3", row: "third" },
+        ]);
+        expect(scheduleBlockEntries(levels, new Set(["J-2"]), compareKey, idOf).map((one) => one.key)).toEqual(["J-1", "J-3"]);
+    });
+
+    test("groups reading no resource in common leave each other nothing, and with no row the narrowing leaves out nothing is filed to tell", () => {
+        const { asked, idOf } = counting();
+        const groups = [
+            { literals: ['"P-1"', '"P-2"'], entries: [[entry("J-1", "on P-1")]] },
+            { literals: ['"P-3"'], entries: [[entry("J-2", "on P-3")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(), idOf).map((left) => [...left])).toEqual([[], []]);
+        expect(asked.n).toBe(0);
+    });
+
+    test("a resource beneath two groups: its events are the last group's, as the rows of them all file them, and the earlier leaves them", () => {
+        const { idOf } = counting();
+        // P-2 stands beneath two halls: its job J-2 is in the spans of both halls' blocks.
+        const groups = [
+            { literals: ['"P-1"', '"P-2"'], entries: [[entry("J-1", "on P-1"), entry("J-2", "on P-2")]] },
+            { literals: ['"P-3"'], entries: [[entry("J-3", "on P-3")]] },
+            { literals: ['"P-2"', '"P-4"'], entries: [[entry("J-2", "on P-2")], [entry("J-4", "on P-4")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(), idOf).map((left) => [...left])).toEqual([["J-2"], [], []]);
+    });
+
+    test("a row the narrowing leaves out is no group's: every group holding it leaves it", () => {
+        const { idOf } = counting();
+        const groups = [
+            { literals: ['"P-1"'], entries: [[entry("J-1", "on P-1"), entry("J-5", "on P-1")]] },
+            { literals: ['"P-2"'], entries: [[entry("J-2", "on P-2")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(["J-5", "J-2"]), idOf).map((left) => [...left])).toEqual([["J-5"], ["J-2"]]);
     });
 });
 

@@ -17,7 +17,10 @@
  *   the index — the halls' presses a window at a time, in the index's order —
  *   never the presses whole, and the rail counts them.
  * - The jobs' cells are read for the narrowed presses in view alone, and a
- *   scroll reads the block it brings in and the next the way it went (#1797).
+ *   scroll reads the block it brings in and the next the way it went (#1797);
+ *   it places those blocks' jobs alone, and back up places none (#1793) — but
+ *   after a commit, which lets go of the blocks the view left, or past what
+ *   the reader keeps of them: their rows are read and placed again.
  * - A choice changes nothing drawn early: until its first window lands the
  *   last view stands in, retained, and no cell is read for it.
  * - Drafts are the jobs' session's whatever the halls, and Save commits them.
@@ -50,10 +53,27 @@ import { width } from "../../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
+import { setBlockPlacedProbe } from "../root/events.js";
+import { cellRowsHeld } from "../../shared/schedule/cell-rows.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
 import { act, el, entry, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex });
+
+/**
+ * What the reader keeps of the spans a view has left (#1797), weighed as a test asks: by its own rule — but, `heavy`, a
+ * span holding an event weighs past the cap, so the reader lets go of every such span the view leaves (#1793). The
+ * windows example's jobs are too few to fill what it keeps.
+ */
+const keptWeight = vi.hoisted(() => ({ heavy: false }));
+vi.mock("../../shared/schedule/kept-spans.js", async (importOriginal) => {
+    const own = await importOriginal<typeof import("../../shared/schedule/kept-spans.js")>();
+    return {
+        ...own,
+        scheduleSpansKept: <S,>(unwanted: readonly (readonly [string, S])[], entries: (span: S) => number) =>
+            own.scheduleSpansKept(unwanted, keptWeight.heavy ? (span: S) => (entries(span) > 0 ? Number.POSITIVE_INFINITY : 0) : entries),
+    };
+});
 
 type Job = ValueTypeOf<typeof PrintJob>;
 type Press = ValueTypeOf<typeof PrintPress>;
@@ -314,6 +334,131 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
             await settle();
             expect(searchedPresses(scrolled)).toEqual(new Set(chosen.slice(100, 200)));
         } finally {
+            restore();
+        }
+    });
+
+    test("a scroll places the jobs of the blocks it brings in, each once, and nothing of those it leaves; back up places nothing — the block it left kept — and every job in view draws once (#1793)", async () => {
+        const restore = emulateWindowScroll();
+        // Each block of the jobs' rows placed, by its handle.
+        const placed: string[] = [];
+        setBlockPlacedProbe((kind, handle) => { placed.push(`${kind} ${handle}`); });
+        /** The jobs' bars the canvas draws, by their keys: each event once. */
+        const drawnJobs = (c: HTMLElement) => [...slot(c, "main")!.querySelectorAll("[data-run]")].map((run) => run.getAttribute("data-run")!);
+        try {
+            const { container } = await h.mount(hallsPlan());
+            await settle();
+            // The halls chosen: the first block of their presses, placed once.
+            placed.splice(0);
+            await chooseHalls(["Hall 2", "Hall 5"]);
+            const chosen = await pressesOf("Hall 2", "Hall 5");
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull());
+            await settle();
+            const opened = placed.splice(0);
+            expect(opened).toHaveLength(1);
+            // Down to the hundredth press: its block and the next one down, placed once each — the block the view left, none.
+            const scrolled = h.requests().length;
+            act(() => { window.scrollTo({ top: 100 * ROW_PX }); });
+            await waitFor(() => expect(searchedPresses(scrolled).size).toBeGreaterThan(0), { timeout: 10_000 });
+            await settle();
+            expect(searchedPresses(scrolled)).toEqual(new Set(chosen.slice(100, 200)));
+            const down = placed.splice(0);
+            expect([down.length, new Set(down).size, down.some((one) => opened.includes(one))]).toEqual([2, 2, false]);
+            const jobs = drawnJobs(container);
+            expect(new Set(jobs).size).toBe(jobs.length);
+            // Back up to the top: the first block, which the reader kept, placed again for none — and nothing read.
+            const back = h.requests().length;
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull(), { timeout: 10_000 });
+            await settle();
+            expect([placed, searchedPresses(back).size]).toEqual([[], 0]);
+            const again = drawnJobs(container);
+            expect(again.length).toBeGreaterThan(0);
+            expect(new Set(again).size).toBe(again.length);
+        } finally {
+            setBlockPlacedProbe(undefined);
+            restore();
+        }
+    });
+
+    test("a commit lets go of the blocks the view has left: the blocks in view are placed again at its revision, and back up, the first block's rows are read again and placed under a handle of their own (#1793)", async () => {
+        const restore = emulateWindowScroll();
+        const placed: string[] = [];
+        setBlockPlacedProbe((kind, handle) => { placed.push(`${kind} ${handle}`); });
+        try {
+            const { container } = await h.mount(hallsPlan());
+            await settle();
+            placed.splice(0);
+            await chooseHalls(["Hall 2", "Hall 5"]);
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull());
+            await settle();
+            const opened = placed.splice(0);
+            // Down to the hundredth press: its block and the next one down placed, the first block kept as the view left it.
+            const scrolled = h.requests().length;
+            act(() => { window.scrollTo({ top: 100 * ROW_PX }); });
+            await waitFor(() => expect(searchedPresses(scrolled).size).toBeGreaterThan(0), { timeout: 10_000 });
+            await settle();
+            const down = placed.splice(0);
+            expect(down).toHaveLength(2);
+            // Another planner's write: the jobs' record moves on, and the reader reads the blocks in view again at its revision —
+            // two placings, under handles of their own — and lets go of what the view left, kept at the revision before.
+            const jobs = await storedJobs();
+            await h.commit(ex.planWindowJobs, new Map([...jobs].map(([key, job]): [string, Job] => [key, stringEqual(key, "W-0014") ? { ...job, sheets: 30_000 } : job])));
+            await waitFor(() => expect(placed).toHaveLength(2), { timeout: 10_000 });
+            await settle();
+            const committed = placed.splice(0);
+            expect(committed.some((one) => down.includes(one))).toBe(false);
+            // Back up to the top: the first block's cells searched again, and its jobs placed under a handle never placed before.
+            const back = h.requests().length;
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull(), { timeout: 10_000 });
+            await waitFor(() => expect(placed.length).toBeGreaterThan(0), { timeout: 10_000 });
+            await settle();
+            expect(searchedPresses(back).size).toBeGreaterThan(0);
+            expect(placed.filter((one) => [...opened, ...down, ...committed].includes(one))).toEqual([]);
+        } finally {
+            setBlockPlacedProbe(undefined);
+            restore();
+        }
+    });
+
+    test("a block the view has left past what the reader keeps is let go of: back to it, its rows are read again and placed under a handle of their own, each job drawn once — and the rows it held let go (#1793)", async () => {
+        const restore = emulateWindowScroll();
+        const placed: string[] = [];
+        setBlockPlacedProbe((kind, handle) => { placed.push(`${kind} ${handle}`); });
+        // Every span holding a job weighs past the cap: the reader keeps none of them once the view leaves it.
+        keptWeight.heavy = true;
+        try {
+            const { container } = await h.mount(hallsPlan());
+            await settle();
+            placed.splice(0);
+            await chooseHalls(["Hall 2", "Hall 5"]);
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull());
+            await settle();
+            const opened = placed.splice(0);
+            expect(opened).toHaveLength(1);
+            // Down to the hundredth press: the first block's spans holding its jobs let go of as the view leaves them.
+            const scrolled = h.requests().length;
+            act(() => { window.scrollTo({ top: 100 * ROW_PX }); });
+            await waitFor(() => expect(searchedPresses(scrolled).size).toBeGreaterThan(0), { timeout: 10_000 });
+            await settle();
+            placed.splice(0);
+            // Back up to the top: the first block's rows read again — the page answering from what it read before — and its jobs
+            // placed under a handle never placed before.
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(placed.length).toBeGreaterThan(0), { timeout: 10_000 });
+            await waitFor(() => expect(bar(container, "W-0003", "P-1002")).not.toBeNull(), { timeout: 10_000 });
+            await settle();
+            expect(placed.filter((one) => opened.includes(one))).toEqual([]);
+            const jobs = [...slot(container, "main")!.querySelectorAll("[data-run]")].map((run) => run.getAttribute("data-run")!);
+            expect(new Set(jobs).size).toBe(jobs.length);
+            // Down again, past the reads the reader keeps the rows of: the block let go of holds its rows no more.
+            const handle = opened[0]!.slice(opened[0]!.indexOf(" ") + 1);
+            act(() => { window.scrollTo({ top: 100 * ROW_PX }); });
+            await waitFor(() => expect(cellRowsHeld(handle)).toBe(false), { timeout: 10_000 });
+        } finally {
+            keptWeight.heavy = false;
+            setBlockPlacedProbe(undefined);
             restore();
         }
     });

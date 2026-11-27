@@ -25,6 +25,23 @@
  * whose window it could not read: said the same way. The events move only when
  * they differ, so a write that changes none of them redraws nothing.
  *
+ * A kind the reader holds rows of is placed a block at a time (#1793, its
+ * cells' `blocks`): each block's events by the seam's `placed` over that
+ * block's rows alone — the kind given the drafts of the block's own events,
+ * every other kind nothing — and kept while the block's handle, the range and
+ * those drafts hold. A read that brings a block places that block; one that
+ * lets a block go places nothing; a view going back to rows it left, whose
+ * blocks the reader kept, places nothing; an edit places its own block again.
+ * A block's rows are the reader's, and a kind's accessors read only an
+ * event's row and its key, so its placing reads nothing a tracked read
+ * follows, and is made outside one. The kinds read over the window, and the
+ * drafts of events no block holds, are placed in the tracked read, as before
+ * — each kind placed a block at a time given no rows there. The lists are put
+ * together row by row: kind by kind in the kinds' order, a kind's blocks' by
+ * their events' keys and its drafts no block holds after them — the order one
+ * placing of them all gives — each the object it was wherever nothing feeding
+ * it moved.
+ *
  * The read runs in a component of its own, {@link PlanEventsReader}, which
  * hands the canvas what it read only when it moves: a kind narrowed through an
  * interval index lands some fifty-five key searches a window, and each would
@@ -103,7 +120,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
     DateTimeType, FloatType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -112,15 +129,19 @@ import {
     planChildRowKey, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { printEventRef } from "../../shared/schedule/event-ref.js";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useTrackedEvaluation, type TrackedResult } from "@elaraai/east-ui-components";
 import { windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
+import { appendAll } from "../reductions.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
-import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellSpan, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import {
+    SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleBlockRows, type ScheduleCellRead, type ScheduleCellSpan, type ScheduleCellsRead,
+} from "../../shared/schedule/cells.js";
+import { NO_CELL_ROWS, cellRowsHeld } from "../../shared/schedule/cell-rows.js";
 import { meetsWindow } from "../../shared/schedule/window.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, landingRowSeries, type PlanLandingValue } from "./landings.js";
@@ -318,6 +339,291 @@ function sameTexts(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((text, i) => stringEqual(text, b[i]!));
 }
 
+// ============================================================================
+// Placed a block at a time (#1793)
+// ============================================================================
+
+/** One event placed on a row, or on none. */
+type PlacedOne = PlacedListValue[number];
+/** A way of drawing's events on a landing, by the key each row files its events under. */
+type ByKeyValue = ValueTypeOf<typeof PlanEventPlacedType.fields.on.value.value>;
+/** A landing's events, by the way they draw. */
+type ByDrawValue = ValueTypeOf<typeof PlanEventPlacedType.fields.on.value>;
+/** Nothing read of a kind: what every kind but the one a block is of is given, as that block is placed. */
+const READ_NOTHING: ScheduleCellRead = variant("nothing", null);
+const readsEqual = equalFor(PlanEventReadsType);
+const draftsEqual = equalFor(PlanEventDraftsType);
+const kindDraftsEqual = equalFor(PlanEventDraftsType.value);
+
+/** A kind's rows block by block, as the reader holds them, and how its events are ordered by their keys' texts. */
+interface KindBlocks {
+    readonly blocks: readonly ScheduleBlockRows[];
+    readonly compare: ((a: string, b: string) => number) | undefined;
+}
+
+/** A block of a kind's events as last placed, and what it was placed over. */
+interface BlockPlaced {
+    readonly seam: PlanEventSeamValue;
+    readonly from: number;
+    readonly to: number;
+    readonly drafts: KindDrafts;
+    readonly placed: PlanEventPlacedValue;
+}
+
+/** One block's events placed, of the kind at its place among the kinds. */
+interface PlacedPiece {
+    readonly kind: number;
+    readonly placed: PlanEventPlacedValue;
+}
+
+/** One row's events from what placed them: each block's that holds some, by its kind's place, and the tracked read's. */
+interface RowParts {
+    readonly parts: { readonly kind: number; readonly list: PlacedListValue }[];
+    rest: PlacedListValue | undefined;
+}
+
+/** What the kinds held a block at a time placed, and what the tracked read is to place beside them. */
+interface PlacedBlocks {
+    /** Each block's events placed, the kinds in their order, a kind's blocks in its read's — of the kinds the viewer shows. */
+    readonly pieces: readonly PlacedPiece[];
+    /** How each kind's events are ordered by their keys' texts, by its place among the kinds: as its record orders its keys. */
+    readonly compares: readonly (((a: string, b: string) => number) | undefined)[];
+    /** What the tracked read reads each kind from — a kind placed a block at a time, no rows: the same object while it holds. */
+    readonly reads: ValueTypeOf<typeof PlanEventReadsType>;
+    /** The drafts the tracked read is given — a kind placed a block at a time, those of events no block holds: the same object while they hold. */
+    readonly drafts: ValueTypeOf<typeof PlanEventDraftsType>;
+    /** What a block's placing threw, naming the kinds whose blocks threw; `undefined` for none. */
+    readonly failure: EventRowsFailure | undefined;
+}
+
+/**
+ * Test-only probe of a block of a kind's events placed — lets "a read that brings a block places that block alone, and a
+ * view going back places none" be asserted: the kind's slot, and the handle of the block's rows. `undefined` outside
+ * tests.
+ */
+let blockPlacedProbe: ((kind: string, handle: string) => void) | undefined;
+/** Install (or clear) the test probe of a block placed. Test use only. */
+export function setBlockPlacedProbe(fn: ((kind: string, handle: string) => void) | undefined): void {
+    blockPlacedProbe = fn;
+}
+
+/**
+ * A block of one kind's events placed: the seam's `placed` over the block's rows alone, the kind given the drafts of the
+ * block's own events and every other kind nothing.
+ *
+ * @param seam - The payload's seam
+ * @param from - The range's start, in ms
+ * @param to - Its end, exclusive
+ * @param kinds - The event kinds
+ * @param slot - The kind's slot
+ * @param handle - The handle the block's rows are held under
+ * @param drafts - The drafts of the block's own events
+ * @returns The events placed; `undefined` where the seam says a read is in flight, which a block's rows never are
+ */
+function placeBlock(seam: PlanEventSeamValue, from: number, to: number, kinds: PlanEventKinds, slot: string, handle: string,
+    drafts: KindDrafts): PlanEventPlacedValue | undefined {
+    const reads = new SortedMap(kinds.map((kind): [string, ScheduleCellRead] =>
+        [kind.key, stringEqual(kind.key, slot) ? variant("rows", handle) : READ_NOTHING]), compareString);
+    const placed = seam.placed(new Date(from), new Date(to), new SortedMap([[slot, drafts]], compareString), [], reads);
+    return placed.type === "some" ? placed.value : undefined;
+}
+
+/**
+ * A row's events from what placed them (see the module docs): kind by kind in the kinds' order, a kind's blocks' by their
+ * events' keys and the tracked read's of the kind after them.
+ *
+ * @param parts - Each block's events on the row that holds some, by its kind's place
+ * @param rest - The tracked read's events on it; `undefined` for none
+ * @param order - Each kind's place, by its slot
+ * @param compares - How each kind's events are ordered by their keys' texts, by its place
+ * @returns The row's events
+ */
+function mergedList(parts: RowParts["parts"], rest: PlacedListValue | undefined, order: ReadonlyMap<string, number>,
+    compares: PlacedBlocks["compares"]): PlacedListValue {
+    const kindOf = (one: PlacedOne): number => order.get(one.item.kind) ?? order.size;
+    const kinds = [...new Set([...parts.map((part) => part.kind), ...(rest ?? []).map(kindOf)])].sort((a, b) => a - b);
+    const out: PlacedOne[] = [];
+    for (const k of kinds) {
+        const mine = parts.filter((part) => part.kind === k);
+        if (mine.length === 1) appendAll(out, mine[0]!.list);
+        else if (mine.length > 1) {
+            const compare = compares[k] ?? compareString;
+            appendAll(out, mine.flatMap((part) => part.list).sort((a, b) => compare(a.item.key, b.item.key)));
+        }
+        for (const one of rest ?? []) if (kindOf(one) === k) out.push(one);
+    }
+    return out;
+}
+
+/**
+ * What places the kinds a block at a time (see the module docs): each block as last placed, kept while its handle is
+ * held, and the events put together from them and the tracked read's.
+ */
+class BlockPlacer {
+    /** Each block as last placed, by its kind's slot, then by its handle. */
+    private readonly done = new Map<string, Map<string, BlockPlaced>>();
+    /** What the tracked read was last given, kept by identity while it holds. */
+    private reads: ValueTypeOf<typeof PlanEventReadsType> = NO_READS;
+    private drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS;
+    /** The events last put together, and what they were put together from. */
+    private last: { readonly pieces: readonly PlacedPiece[]; readonly rest: PlanEventPlacedValue; readonly placed: PlanEventPlacedValue } | undefined;
+    /** Each row's events put together from more than one placing, by the row, with what they were put together from. */
+    private lists = new Map<string, { readonly from: readonly PlacedListValue[]; readonly list: PlacedListValue }>();
+
+    /**
+     * Places each block of the kinds the reader holds rows of that is not placed already over the same range and drafts,
+     * and works out what the tracked read places beside them.
+     *
+     * @param seam - The payload's seam
+     * @param from - The range's start, in ms
+     * @param to - Its end, exclusive
+     * @param kinds - The event kinds
+     * @param cells - The kinds' cells and counts
+     * @param drafts - Every kind's drafts, as the seams take them
+     * @param hidden - The ids the viewer hides: a hidden kind's blocks are placed for none
+     * @returns What the blocks placed, and what the tracked read is given
+     */
+    place(seam: PlanEventSeamValue | undefined, from: number | undefined, to: number | undefined, kinds: PlanEventKinds,
+        cells: ScheduleCellsRead | undefined, drafts: ValueTypeOf<typeof PlanEventDraftsType>, hidden: readonly string[]): PlacedBlocks {
+        const reads = cells?.reads ?? NO_READS;
+        // A kind the reader holds rows of, by their blocks — one a read built by hand names none of is one block, its handle's.
+        const held = kinds.map((kind): KindBlocks | undefined => {
+            const named = cells?.blocks?.get(kind.key);
+            if (named !== undefined) return named;
+            const read = reads.get(kind.key);
+            const rows = cells?.held.get(kind.key);
+            return read?.type === "rows" && rows !== undefined ? { blocks: [{ handle: read.value, held: rows }], compare: undefined } : undefined;
+        });
+        if (seam === undefined || from === undefined || to === undefined || held.every((one) => one === undefined)) {
+            return { pieces: [], compares: [], reads, drafts, failure: undefined };
+        }
+        const pieces: PlacedPiece[] = [];
+        const compares: (((a: string, b: string) => number) | undefined)[] = [];
+        const restReads: [string, ScheduleCellRead][] = [];
+        const restDrafts: [string, KindDrafts][] = [];
+        const failed: string[] = [];
+        let thrown: unknown;
+        kinds.forEach((kind, k) => {
+            const own = held[k];
+            const kindDrafts = drafts.get(kind.key);
+            if (own === undefined) {
+                const read = reads.get(kind.key);
+                if (read !== undefined) restReads.push([kind.key, read]);
+                if (kindDrafts !== undefined) restDrafts.push([kind.key, kindDrafts]);
+                return;
+            }
+            compares[k] = own.compare;
+            // The tracked read places it over no rows: the drafts of its events no block holds, after its blocks'.
+            restReads.push([kind.key, variant("rows", NO_CELL_ROWS)]);
+            const byBlock = own.blocks.map((): [string, Uint8Array][] => []);
+            const notHeld: [string, Uint8Array][] = [];
+            for (const [id, bytes] of kindDrafts ?? []) {
+                const b = own.blocks.findIndex((block) => block.held.has(id));
+                if (b < 0) notHeld.push([id, bytes]);
+                else byBlock[b]!.push([id, bytes]);
+            }
+            if (notHeld.length > 0) restDrafts.push([kind.key, new SortedMap(notHeld, compareString)]);
+            // A hidden kind is placed for none, as the seam leaves it out; its blocks stand as placed for when it shows.
+            if (hides(hidden, planHideId.events(kind.key))) return;
+            let done = this.done.get(kind.key);
+            if (done === undefined) this.done.set(kind.key, (done = new Map()));
+            own.blocks.forEach((block, b) => {
+                const blockDrafts = byBlock[b]!.length === 0 ? NO_KIND_DRAFTS : new SortedMap(byBlock[b]!, compareString);
+                const was = done.get(block.handle);
+                if (was !== undefined && Object.is(was.seam, seam) && was.from === from && was.to === to && kindDraftsEqual(was.drafts, blockDrafts)) {
+                    pieces.push({ kind: k, placed: was.placed });
+                    return;
+                }
+                try {
+                    blockPlacedProbe?.(kind.key, block.handle);
+                    const placed = placeBlock(seam, from, to, kinds, kind.key, block.handle, blockDrafts);
+                    if (placed === undefined) throw new Error(`Plan: the seam held back the events of a block of ${kind.key}'s rows, which are read`);
+                    done.set(block.handle, { seam, from, to, drafts: blockDrafts, placed });
+                    pieces.push({ kind: k, placed });
+                } catch (error) {
+                    if (failed.length === 0) thrown = error;
+                    if (!failed.some((slot) => stringEqual(slot, kind.key))) failed.push(kind.key);
+                }
+            });
+        });
+        // A block whose rows the reader let go of is placed for none again.
+        for (const done of this.done.values()) for (const handle of [...done.keys()]) if (!cellRowsHeld(handle)) done.delete(handle);
+        const nextReads = new SortedMap(restReads, compareString);
+        if (!readsEqual(nextReads, this.reads)) this.reads = nextReads;
+        const nextDrafts = new SortedMap(restDrafts, compareString);
+        if (!draftsEqual(nextDrafts, this.drafts)) this.drafts = nextDrafts;
+        return { pieces, compares, reads: this.reads, drafts: this.drafts, failure: failed.length === 0 ? undefined : new EventRowsFailure(thrown, failed) };
+    }
+
+    /**
+     * The events put together (see the module docs): the blocks' and the tracked read's, row by row — the same object
+     * while what they are put together from is.
+     *
+     * @param rest - What the tracked read placed
+     * @param blocks - What the blocks placed
+     * @param kinds - The event kinds
+     * @returns The events placed
+     */
+    merge(rest: PlanEventPlacedValue, blocks: PlacedBlocks, kinds: PlanEventKinds): PlanEventPlacedValue {
+        const { pieces, compares } = blocks;
+        if (pieces.length === 0) return rest;
+        const last = this.last;
+        if (last !== undefined && Object.is(last.rest, rest) && last.pieces.length === pieces.length
+            && last.pieces.every((piece, i) => piece.kind === pieces[i]!.kind && Object.is(piece.placed, pieces[i]!.placed))) return last.placed;
+        const order = new Map(kinds.map((kind, k) => [kind.key, k] as const));
+        const lists = new Map<string, { readonly from: readonly PlacedListValue[]; readonly list: PlacedListValue }>();
+        // A row's events from what placed them: one placing's list as it is, and what more than one placed put together
+        // once — the same list while they hold.
+        const listOf = (id: string, parts: RowParts["parts"], restList: PlacedListValue | undefined): PlacedListValue => {
+            if (parts.length === 0) return restList ?? [];
+            if (parts.length === 1 && (restList === undefined || restList.length === 0)) return parts[0]!.list;
+            const from = [...parts.map((part) => part.list), ...(restList === undefined ? [] : [restList])];
+            const was = this.lists.get(id);
+            const made = was !== undefined && was.from.length === from.length && was.from.every((list, i) => Object.is(list, from[i]))
+                ? was : { from, list: mergedList(parts, restList, order, compares) };
+            lists.set(id, made);
+            return made.list;
+        };
+        const on = new SortedMap<string, ByDrawValue>([], compareString);
+        for (const [landing, restDraws] of rest.on) {
+            const rows = new Map<string, Map<string, RowParts>>();
+            const row = (draw: string, key: string): RowParts => {
+                let byKey = rows.get(draw);
+                if (byKey === undefined) rows.set(draw, (byKey = new Map()));
+                let one = byKey.get(key);
+                if (one === undefined) byKey.set(key, (one = { parts: [], rest: undefined }));
+                return one;
+            };
+            for (const piece of pieces) {
+                for (const [draw, byKey] of piece.placed.on.get(landing) ?? []) for (const [key, list] of byKey) row(draw, key).parts.push({ kind: piece.kind, list });
+            }
+            for (const [draw, byKey] of restDraws) for (const [key, list] of byKey) row(draw, key).rest = list;
+            const draws = new SortedMap<string, ByKeyValue>([], compareString);
+            for (const [draw, byKey] of rows) {
+                const filed = new SortedMap<string, PlacedListValue>([], compareString);
+                for (const [key, one] of byKey) filed.set(key, listOf(`on\u0000${landing}\u0000${draw}\u0000${key}`, one.parts, one.rest));
+                draws.set(draw, filed);
+            }
+            on.set(landing, draws);
+        }
+        const lost = new SortedMap<string, PlacedListValue>([], compareString);
+        for (const [slot, restList] of rest.lost) {
+            const k = order.get(slot);
+            const parts: RowParts["parts"] = [];
+            for (const piece of pieces) {
+                if (piece.kind !== k) continue;
+                const list = piece.placed.lost.get(slot);
+                if (list !== undefined && list.length > 0) parts.push({ kind: piece.kind, list });
+            }
+            lost.set(slot, listOf(`lost\u0000${slot}`, parts, parts.length > 0 && restList.length === 0 ? undefined : restList));
+        }
+        const placed: PlanEventPlacedValue = { on, lost };
+        this.lists = lists;
+        this.last = { pieces, rest, placed };
+        return placed;
+    }
+}
+
 /** The range the canvas reads its event kinds' events over. */
 export interface PlanEventRange {
     /** Its start: the scale's window less the periods laid out before it. */
@@ -457,22 +763,32 @@ export function usePlanEventPlaced(
     const range = eventReadRange(scale);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
-    const reads = cells?.reads ?? NO_READS;
     const shading = cells?.shading ?? NO_SHADING;
     const seamDrafts = cells?.drafts ?? drafts;
     const period = scale?.resolution;
-    // One read: the events of the range, filed — `undefined` while a kind is in flight. One that fails names the kinds
-    // whose own events it could not read, each read alone in it (#1398).
+    // The kinds the reader holds rows of, a block at a time (#1793): each block placed once, outside the tracked read.
+    const [placer] = useState(() => new BlockPlacer());
+    const blocks = useMemo(() => placer.place(seam, from, to, kinds, cells, seamDrafts, hidden), [placer, seam, from, to, kinds, cells, seamDrafts, hidden]);
+    const { reads, drafts: restDrafts } = blocks;
+    // The tracked read: every other kind's events of the range, and the drafts no block holds, filed — `undefined` while a
+    // kind is in flight. One that fails names the kinds whose own events it could not read, each read alone in it (#1398).
     const read = useCallback((): PlanEventPlacedValue | undefined => {
         if (seam === undefined || from === undefined || to === undefined) return undefined;
         try {
-            const placed = seam.placed(new Date(from), new Date(to), seamDrafts, [...hidden], reads);
+            const placed = seam.placed(new Date(from), new Date(to), restDrafts, [...hidden], reads);
             return placed.type === "some" ? placed.value : undefined;
         } catch (thrown) {
-            throw new EventRowsFailure(thrown, failedKinds(kinds, new Date(from), new Date(to), seamDrafts, hidden, reads));
+            throw new EventRowsFailure(thrown, failedKinds(kinds, new Date(from), new Date(to), restDrafts, hidden, reads));
         }
-    }, [seam, from, to, hidden, seamDrafts, reads, kinds]);
-    const { result } = useTrackedEvaluation(read);
+    }, [seam, from, to, hidden, restDrafts, reads, kinds]);
+    const { result: tracked } = useTrackedEvaluation(read);
+    // The events placed: the blocks' and the tracked read's put together. A block whose placing threw fails the read,
+    // naming its kind; the tracked read in flight or failed, so is this.
+    const result = useMemo((): TrackedResult<PlanEventPlacedValue | undefined> => {
+        if (blocks.failure !== undefined) return { ok: false, error: blocks.failure };
+        if (!tracked.ok || tracked.value === undefined) return tracked;
+        return { ok: true, value: placer.merge(tracked.value, blocks, kinds) };
+    }, [tracked, blocks, placer, kinds]);
     // The last events read, held while a read is in flight or failed: kept by identity while a new read holds the same,
     // for the same period.
     const held = useRef<{

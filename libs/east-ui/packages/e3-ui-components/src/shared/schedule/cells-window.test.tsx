@@ -14,7 +14,9 @@
  * when; how often it
  * asks the kind's read; how what it hands on stands to what is asked (the one
  * rule, `../view-read.ts`); what a failed read names; and what Saves landed,
- * laid over rows read before them and let go once they are read since. The
+ * laid over rows read before them and let go once they are read since; and
+ * the rows as one block, for a host placing a kind a block at a time (#1793),
+ * held as read, never with what a Save landed laid over them. The
  * builders' DOM tests carry the same through e3
  * (`calendar/calendar-records.dom.test.tsx`,
  * `plan/frame/plan-builder-editing.dom.test.tsx`).
@@ -225,6 +227,29 @@ describe("its rows are kept while its record, and the range, hold — and stand 
         jobs.flight = true;
         rerender(asked(jobs, { range: NEXT, period: undefined }));
         expect([result.current.view, titles(result.current.reads.get("job"))]).toEqual(["rereading", [["J1", BROCHURES]]]);
+    });
+});
+
+describe("its rows as one block, for a host placing a kind a block at a time (#1793)", () => {
+    test("one block, under the handle of them all: its rows as they were read — never with what a Save landed laid over them — its events ordered as its record orders its keys", () => {
+        const jobs = record([["J1", BROCHURES], ["J2", CATALOGUE]]);
+        const { result, rerender } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: asked(jobs) });
+        const handed = result.current.reads.get("job");
+        if (handed?.type !== "rows") throw new Error("expected the job's rows handed on by their handle");
+        const blocks = () => result.current.blocks?.get("job");
+        expect(blocks()?.blocks.map((block) => block.handle)).toEqual([handed.value]);
+        expect([...blocks()!.blocks[0]!.held.ids()]).toEqual(["J1", "J2"]);
+        expect(blocks()!.compare("J1", "J2")).toBeLessThan(0);
+        // A Save deleted the catalogue, the record at r2, its window's read there on its way: the rows a gesture reads are as
+        // the Save left them, and the block's as they were read — so a draft is told from the rows the cells hold.
+        const landed: ScheduleLanded = new Map([["job", {
+            rows: new Map([["J2", { draft: new Uint8Array([9]), row: undefined, value: undefined }]]), from: new Set(["r1"]),
+        }]]);
+        jobs.revision = "r2";
+        jobs.rows = new Map([["J1", BROCHURES]]);
+        jobs.flight = true;
+        rerender(asked(jobs, { landed }));
+        expect([result.current.held.get("job")!.has("J2"), blocks()!.blocks[0]!.held.has("J2")]).toEqual([false, true]);
     });
 });
 

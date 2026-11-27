@@ -13,7 +13,9 @@
  * kind; it lands on the resources of its own cases of the row's `on` field,
  * and a template whose values hold another case makes none. Handed the rows a
  * reader holds of the record, by one handle (#1771), each reads its own case's
- * from that one set, a draft laid over them as over its window. Under the editing
+ * from that one set, a draft laid over them as over its window — drawing what
+ * it draws over its own case's rows alone, and holding a row of another case
+ * only where a draft names it (#1793). Under the editing
  * every builder shares (`useScheduleEditing`), the kinds are the record's one
  * session: a gesture over a run and a setup is one step, and Save sends the
  * record one request.
@@ -147,6 +149,26 @@ describe("the kinds of one record's cases (#1769)", () => {
         }
         // Let go of, the rows are no seam's to read: a read of them names its handle.
         expect(() => run.planItems(...OCT_5, NO_DRAFTS, variant("rows", handle))).toThrow(handle);
+    });
+
+    test("handed every case's rows, each draws what it draws over its own case's alone — walking none of the others' — and a draft turning a row of another case into its own draws in its key's place (#1793)", async () => {
+        const [setup, run, shift] = await builtKinds();
+        const stored = await h.read(steps);
+        const rows = [...stored].map(([key, row]) => ({ key, row }));
+        const caseOf = (tag: string) => rows.filter((one) => keyTextEqual(some(one.row.kind.type), some(tag)));
+        const handles = [rows, caseOf("setup"), caseOf("run"), caseOf("shift")].map((held) => holdCellRows(() => held));
+        try {
+            const [all, setups, runs, shifts] = handles.map((handle): KindRead => variant("rows", handle));
+            expect([itemsOf(setup, NO_DRAFTS, all!), itemsOf(run, NO_DRAFTS, all!), itemsOf(shift, NO_DRAFTS, all!)])
+                .toEqual([itemsOf(setup, NO_DRAFTS, setups!), itemsOf(run, NO_DRAFTS, runs!), itemsOf(shift, NO_DRAFTS, shifts!)]);
+            // The setup turned into a run: over every case's rows the run draws it where its key stands, before the brochure
+            // run — the drafts naming it, it is held as a row of the run's — and the setup draws it no more.
+            const k1 = stored.get("k1")!;
+            const turned = draftsOf([["k1", stepDraft(variant("value", { ...k1, kind: variant("run", { title: "Proof run", sheets: 200 }) }))]]);
+            expect([itemsOf(run, turned, all!), itemsOf(setup, turned, all!)]).toEqual([[["k1", "Proof run"], ["k2", "Brochure run"]], []]);
+        } finally {
+            releaseCellRows(handles);
+        }
     });
 
     test("a template whose values hold another case makes no event, and a kind takes no resource of another case's", async () => {

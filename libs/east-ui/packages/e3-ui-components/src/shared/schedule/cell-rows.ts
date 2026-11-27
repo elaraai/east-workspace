@@ -46,6 +46,13 @@ export function holdCellRows(make: () => readonly unknown[]): string {
 }
 
 /**
+ * The handle of no rows (#1793): what a kind's seams are handed to draw the drafts of its events that none of the blocks
+ * a reader holds of it holds, beside them — held for as long as the page is, and let go of by no reader, which made it
+ * not.
+ */
+export const NO_CELL_ROWS = holdCellRows(() => []);
+
+/**
  * Lets go of rows held: a seam is never handed these handles again.
  *
  * @param handles - The handles
@@ -66,6 +73,17 @@ export function heldCellRows(handle: string): readonly unknown[] | undefined {
     if (entry === undefined) return undefined;
     entry.rows ??= entry.make();
     return entry.rows;
+}
+
+/**
+ * Whether rows are held under a handle (#1793), made or not: what a host keeping what it made of a handle's rows lets go
+ * of it by, without making them.
+ *
+ * @param handle - The handle
+ * @returns Whether its rows are held
+ */
+export function cellRowsHeld(handle: string): boolean {
+    return held.has(handle);
 }
 
 /**
