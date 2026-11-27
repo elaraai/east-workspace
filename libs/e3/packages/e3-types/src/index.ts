@@ -255,6 +255,16 @@ export {
   type WorkspaceBundle,
 } from './bundle.js';
 
+// Part of a workspace, as a sync selects and describes it
+export {
+  SyncRecordUseType,
+  type SyncRecordUse,
+  SyncSelectionType,
+  type SyncSelection,
+  SyncDescriptionType,
+  type SyncDescription,
+} from './sync.js';
+
 // Execution status
 export {
   StopReasonType,
