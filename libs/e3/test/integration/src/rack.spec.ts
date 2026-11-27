@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DictType, East, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, printFor, variant,
 } from '@elaraai/east';
-import { FileSystem } from '@elaraai/east-node-std';
+import { Console, FileSystem } from '@elaraai/east-node-std';
 import e3 from '@elaraai/e3';
 import { LocalStorage, hostEnvironmentPlatform, packageImport, packageRead, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
@@ -261,10 +261,13 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
 });
 
-it('runs a chain with --rack on a rack that hosts runs, in one lease, its logs here, and a second run takes every task from the cache', async () => {
+it('runs a chain with --rack on a rack that hosts runs, in one lease, what each task printed there its log here, and a second run takes every task from the cache', async () => {
   const f = await enrolled({ rackRuns: true });
   const a = e3.input('a', IntegerType, variant('value', 1n));
-  const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+  const add = East.function([IntegerType], IntegerType, ($, x) => {
+    $(Console.log(East.str`adding one to ${x}`));
+    return x.add(1n);
+  });
   const first = e3.task('step_a', [a], add);
   const second = e3.task('step_b', [first.output], add);
   const zip = join(f.home, 'chain.zip');
@@ -281,8 +284,13 @@ it('runs a chain with --rack on a rack that hosts runs, in one lease, its logs h
 
   const output = ok(await f.cli('dataflow', 'run', '.', 'chain', '--rack'));
   assert.match(output, /3 tasks granted a rack's run/);
+  for (const name of ['step_a', 'step_b', 'step_c']) assert.match(output, new RegExp(`\\[DONE\\] ${name} `));
   assert.equal(claims.length, 1, 'one lease for the run');
-  for (const name of ['step_a', 'step_b', 'step_c']) assert.match(ok(await f.cli('task', 'logs', '.', `chain.${name}`)), /e3: on its rack: ran \d+ ms/);
+  for (const [name, x] of [['step_a', 1], ['step_b', 2], ['step_c', 3]] as const) {
+    const logs = ok(await f.cli('task', 'logs', '.', `chain.${name}`));
+    assert.match(logs, new RegExp(`adding one to ${x}\\n`), `what ${name} printed on its rack`);
+    assert.match(logs, /e3: on its rack: ran \d+ ms/);
+  }
   assert.equal(ok(await f.cli('dataset', 'get', '.', 'chain.step_c')).trim(), '4');
 
   const again = ok(await f.cli('dataflow', 'run', '.', 'chain', '--rack'));
