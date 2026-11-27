@@ -511,6 +511,8 @@ export const queryMessages: QueryMessages = {
     descriptionGenerated: () => "Generated from the steps · edit to write your own",
     descriptionCount: ({ count, max }) => `${count}/${max} · shown under the name in the library`,
     restoreGenerated: () => "Use generated",
+    tagsLabel: () => "Tags",
+    tagsHelp: () => "A word or two each, to find the query by.",
     saveConfirm: () => "Save",
     cancel: () => "Cancel",
 
@@ -709,13 +711,7 @@ export const queryMessages: QueryMessages = {
     recentGroup: () => "Recent",
     startedOn: ({ name }) => `Started a new query on ${name}.`,
     openedFromLibrary: ({ name }) => `Opened “${name}” from the library.`,
-    openedFromQueryLibrary: ({ name }) => `Opened “${name}” from the query library.`,
     opened: ({ name }) => `Opened “${name}”.`,
-
-    dropToOpen: ({ name }) => `Drop to open “${name}”`,
-    dropSteps: ({ count, n }) => `${count} ${n === 1 ? "step" : "steps"}.`,
-    dropTargetName: () => "the query builder",
-    dropRefusedName: ({ reason }) => `the query builder (${reason})`,
 
     librarySearch: ({ count, n }) => `Search ${count} ${n === 1 ? "query" : "queries"}…`,
     librarySearchLabel: () => "Search queries",
@@ -727,6 +723,10 @@ export const queryMessages: QueryMessages = {
     dataSources: () => "Data sources",
     allQueries: () => "All queries",
     openInBuilder: () => "Open in builder →",
+    openNow: () => "Open",
+    newQueryMenu: () => "Start a new query on",
+    noQueriesMatch: () => "No queries match the filters",
+    changeFilters: () => "Change or clear the filters to see more queries.",
     libraryByline: ({ source, steps, gives, when, run }) => [
         source,
         steps === undefined ? "jq" : `${steps.count} ${steps.n === 1 ? "step" : "steps"}`,

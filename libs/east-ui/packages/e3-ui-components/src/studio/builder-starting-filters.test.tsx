@@ -18,7 +18,7 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, NullType, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { East, NullType, encodeBeast2For, none } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { Data, Record, Studio, StudioFiltersType, StudioKeyType, studioFiltersKey } from "@elaraai/e3-ui/internal";
@@ -27,7 +27,7 @@ import { act, settle } from "../e3-web-mount.test-utils.js";
 import { slotActions } from "../query/slots.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import {
-    components, PAGES, h, ASKED, withEntry, readRecord, commits, mountBuilder, tile, spanOf, placed, keyOn, press, type Key, type Entry,
+    components, PAGES, h, ASKED, withEntry, pageAt, readRecord, commits, mountBuilder, tile, spanOf, placed, keyOn, press, type Key,
 } from "./builder.test-utils.js";
 
 /** A page's reader's filters, as the UI store holds them. */
@@ -54,10 +54,7 @@ describe("<Studio.Builder> — the page's starting filters (#1673)", () => {
     ];
     const NORTH = { key: "f-north", source: "sales", where: condition(`.region == "North"`) };
     /** The Filtered page, live as v1 as it is drafted: its readers start on the North's sales. */
-    const FILTERED_PAGE: Entry = variant("page", {
-        draft: { title: "Filtered", cells, filters: [NORTH] },
-        live: some({ version: 1n, page: { title: "Filtered", cells, filters: [NORTH] } }),
-    });
+    const FILTERED_PAGE = pageAt(FILTERED, { title: "Filtered", cells, filters: [NORTH] }, { version: 1n, page: { title: "Filtered", cells, filters: [NORTH] } });
 
     /** A builder over the sales, its surface holding the Filtered page open. */
     const filteredBuilder = {
@@ -180,8 +177,8 @@ describe("<Studio.Builder> — the page's starting filters (#1673)", () => {
         await press("Save");
         await waitFor(async () => expect(await commits()).toEqual(["patch", "patch", ...at]));
         const stored = (await readRecord()).get(FILTERED)!;
-        if (stored.type !== "page") throw new Error("expected a page");
-        expect([stored.value.draft.filters, stored.value.draft.cells.map((c) => [c.key, c.span])]).toEqual([[], [["g-bars", 7n], ["g-count", 4n]]]);
+        if (stored.kind.type !== "page") throw new Error("expected a page");
+        expect([stored.draft.filters, stored.draft.cells.map((c) => [c.key, c.span])]).toEqual([[], [["g-bars", 7n], ["g-count", 4n]]]);
     });
 
     test("the preview starts a reader this browser holds no filters for on them, as drafted — the North's, a chip of the reader's to change", async () => {

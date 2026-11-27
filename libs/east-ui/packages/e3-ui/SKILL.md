@@ -127,23 +127,23 @@ Task → What do you need?
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
-    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)] })
+    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: Studio.value([{ key: { project, page }, draft: { title, cells, filters }, live?, tags? }, { key, template: { title, cells, filters } }]), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ pages_by_kind: index.on(["kind"]), pages_by_kind_project: index.on(["kind", "project"]), pages_by_kind_tag: index.on(["kind", "tags"]), pages_by_kind_title: index.on(["kind", "title"]) }), migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)] }) — an entry is a struct (`kind`: page or template, `project`, `title`, `tags`, `draft`, `live`), its project its key's and its title its layout's, as `Studio.value` and every write build it; each index is led by `kind`, so the pages and the templates list apart; the step carries a record an earlier release wrote, listed alone by a record first declared once a placement held content, and after `cell_content` by one that lists that step or still holds the form before it (`e3-ui:studio.examples.tsx:studioBuilder`)
     │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder and the page (range: a date field every row has, never an optional one)
     │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
     │   ├─ What a click on a visual does, and who follows it → Studio.visual.of(source, view, { click?: variant("select" | "filter" | "none", null) or variant("open", pageKey), follow?: { leader, from, to, empty: variant("all" | "prompt", null) } })
     │   ├─ Narrow one visual alone, or where readers start  → Studio.visual.of(source, view, { where: jq }) · a layout's filters: [{ key, source, where }], its starting filters
     │   ├─ Alerts: a condition on a visual's rows           → e3.record("alerts", Studio.Types.Alerts, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) }); alerts={Record.bind(alerts)} on the builder and the page · <Studio.AlertBell alerts onOpen? /> in the host's bar
     │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? alerts? env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
+    │   ├─ Pages, templates, and where new pages start      → <Studio.Library pages components project slice onOpen page? id? /> — Pages · Templates, a grid of cards its rail narrows: `slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(pages, { indexes }), scope: { kind: ["page"] }, … }, templates: { …, scope: { kind: ["template"] } } }) }}`; `pages={Record.bind(pages)}` writes a new page and is never read whole (`e3-ui:studio.examples.tsx:studioLibrary`)
     │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? alerts? /> (onOpen: a click, or an alert, that opens a page)
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
-    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
-    │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, savedAt }])
+    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), indexes: (index) => ({ queries_by_source: index.on(["sources"]), queries_by_tag: index.on(["tags"]), queries_by_name: index.on(["name"]), queries_by_saved_at: index.on(["saved_at"]) }), migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)] }) — a query holds the names of the data sources it reads (`sources`, written by a save) and its `tags`; an index led by either files it once under each, and the step carries a record written before a query held them (`e3-ui:query.examples.tsx:queryBuilder`)
+    │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, tags?, savedAt }])
     │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? onOpen? id? />
-    │   ├─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen query? id? />
-    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen`
+    │   ├─ The saved queries, and where new ones start    → <Query.Library datasets slice onOpen query? id? /> — a grid of cards its rail narrows: `slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(queries, { indexes }), … } }) }}`; it writes nothing, so it takes no `Record.bind` (`e3-ui:query.examples.tsx:queryLibrary`)
+    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen` — each on a `ui()` of its own: the library pages the saved queries, the builder reads them whole
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -481,7 +481,9 @@ end are `Option<DateTime>` when it can wait in the backlog. A
 - **The Studio.** `Studio.component(key, { name, category, icon, span?, … },
   fn)` declares a self-contained component written like a `ui()` body; the
   pages live in one `Studio.Types.Pages` record with a patch mutation.
-  `<Studio.Builder>` and `<Studio.Library>` take `Record.bind(pages)`;
+  `<Studio.Builder>` takes `Record.bind(pages)` and reads it whole;
+  `<Studio.Library>` takes it to write a new page, and pages the record
+  through its `slice` — so the two are `ui()`s of their own;
   `<Studio.Page>` takes `Data.bind(pages).read()`. Each takes the components
   as one `$.let([...])` list in palette order; the surface's manifest is the
   union of their reads. The open page is the host's: a builder shows the
@@ -523,9 +525,9 @@ end are `Option<DateTime>` when it can wait in the backlog. A
   A visual whose filter reads `$now` ("in the last 7
   days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
   readers only what their pages bind must admit their platform-free calls over
-  those datasets. A text block draws. A pages record written before a placement
-  held content is carried by listing `Studio.migrations.cellContent` as a rows
-  step; a later kind of content ships a step of its own.
+  those datasets. A text block draws. A pages record an earlier release wrote
+  is carried by its `Studio.migrations` steps, as the tree's line says; a later
+  form of an entry ships a step of its own.
   `e3-ui:studio.examples.tsx:studioContent` holds all of it.
   Given `alerts={Record.bind(alerts)}` (a `Studio.Types.Alerts` record whose
   one mutation is a patch), each data visual's header carries a bell that sets
@@ -543,8 +545,8 @@ end are `Option<DateTime>` when it can wait in the backlog. A
 - **Queries.** One `Query.Types.Saved` record with a patch mutation holds the
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
-  checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
-  `<Query.Library>` lists them. Its steps say, beside the rest, a date in the
+  checks it, runs it on e3 (split over a large dataset's pieces) and saves it, tagged;
+  `<Query.Library>` lists them, a card each. Its steps say, beside the rest, a date in the
   last N hours, days or weeks, a group by several fields, and a ratio total
   (one field added up over another), each of which splits. A query may read
   `.now`, the minute it is asked: the root's last field — unless a data source

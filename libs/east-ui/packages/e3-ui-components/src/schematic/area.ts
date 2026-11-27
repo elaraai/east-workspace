@@ -122,6 +122,7 @@ import {
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
 import type { SchematicValue } from "./data.js";
+import { entryRow } from "../shared/records/entry-row.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { RowMaking, type StoredRows } from "./made-rows.js";
 
@@ -463,13 +464,6 @@ export interface SchematicAreaRead {
     readonly matched: ReadonlySet<string> | undefined;
     /** What its rows were read from: the same parts, the same rows. */
     readonly from: readonly unknown[];
-}
-
-/** An entry's row: its joined row, or the whole row its index carries (D29). */
-function rowOf(entry: RecordSliceEntry): unknown {
-    if (entry.row?.type === "some") return entry.row.value;
-    if (entry.value?.type === "some") return entry.value.value;
-    return undefined;
 }
 
 /** No rows. */
@@ -1218,12 +1212,12 @@ export class SchematicAreaReader {
     }
 }
 
-/** The rows some cells' entries hold, by their keys' text (#1549): each row once. */
+/** The rows some cells' entries hold, by their keys' text (#1549): each row once — its joined row, or the one its index carries (D29). */
 function rowsOfEntries(entries: readonly (readonly RecordSliceEntry[])[], keys: KindKeys): Map<string, unknown> {
     const rows = new Map<string, unknown>();
     for (const cell of entries) {
         for (const entry of cell) {
-            const row = rowOf(entry);
+            const row = entryRow(entry);
             if (row !== undefined) rows.set(keys.textOf(entry.key), row);
         }
     }

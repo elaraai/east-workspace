@@ -46,7 +46,8 @@ import type { SchematicValue } from "./data.js";
 import type { SortDrafts } from "./drafted.js";
 import type { SchematicDropCard } from "./drop.js";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
-import { entryRow, type KindRows } from "./kind-rows.js";
+import { entryRow } from "../shared/records/entry-row.js";
+import type { KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;

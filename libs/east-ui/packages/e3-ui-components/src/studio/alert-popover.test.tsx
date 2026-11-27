@@ -22,8 +22,8 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import {
-    ArrayType, East, FloatType, NullType, SortedMap, StringType, StructType, compareFor, decodeBeast2, decodeBeast2For, encodeBeast2For, none, printJq, some,
-    variant, type ValueTypeOf,
+    ArrayType, East, FloatType, NullType, StringType, StructType, decodeBeast2, decodeBeast2For, encodeBeast2For, none, printJq, some,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
@@ -48,9 +48,9 @@ const REGIONS = v.of("orders", v.column({ x: v.group("region"), values: [v.sum("
 const CELLS = [cell("c-regions", REGIONS)];
 
 /** The tiles' page, live as it is drafted. */
-const PAGES: ValueTypeOf<typeof StudioPagesType> = new SortedMap([
-    [PAGE, variant("page", { draft: { title: "Orders", cells: CELLS, filters: [] }, live: some({ version: 1n, page: { title: "Orders", cells: CELLS, filters: [] } }) })],
-], compareFor(Studio.Types.Key));
+const PAGES: ValueTypeOf<typeof StudioPagesType> = Studio.value([
+    { key: PAGE, draft: { title: "Orders", cells: CELLS, filters: [] }, live: { version: 1n, page: { title: "Orders", cells: CELLS, filters: [] } } },
+]);
 
 /** Where the surface notes the page an alert opened from the bar asks for. */
 const ASKED = "alerts-test.asked";

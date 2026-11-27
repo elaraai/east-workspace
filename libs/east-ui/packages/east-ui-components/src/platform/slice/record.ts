@@ -18,7 +18,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
-import { getStore, trackKey } from "../state-runtime.js";
+import { decodeStored, getStore, trackKey } from "../state-runtime.js";
 import type { UIStoreInterface } from "../state-store.js";
 import { getRegisteredPlatformImplementations, registerPlatformImplementation } from "../registry.js";
 import { PagedScan } from "../../collections/paged-scan.js";
@@ -47,6 +47,8 @@ const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 /** The store's state as a frozen East value (#1621): what `read` hands a page's East code, which cannot change it in place. */
 const decodeFrozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
+/** A narrowing's type, as East prints it: what one kept under another type is told from. */
+const STATE_TYPE = printType(RecordSliceStateType);
 /** East's own `Is` over a narrowing state: two frozen states compare by value. */
 const sameState = isFor(RecordSliceStateType);
 const sameConfig = equalFor(RecordSliceConfigType);
@@ -160,7 +162,8 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
         // The store keeps the buffer it holds until other bytes are written: the same buffer holds the same state.
         if (!Object.is(bytes, lastBytes)) {
             lastBytes = bytes;
-            const next = bytes === undefined ? seed : decodeFrozenState(bytes);
+            // A narrowing kept under another type — an earlier release's — is nothing kept (#1758): the binding's start.
+            const next = bytes === undefined ? seed : decodeStored(key, bytes, STATE_TYPE, decodeFrozenState) ?? seed;
             // Bytes that hold the state already read answer that state, so what reads it is not made again.
             if (!sameState(next, lastState)) lastState = next;
         }
@@ -170,7 +173,10 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
     const controller = new RecordSliceController(batched(source), config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined, indexKeysOf(types[0]!));
-    if (!store.has(key)) {
+    // The first binding seeds its start under a key that keeps nothing: one that holds no narrowing, or one an earlier
+    // release kept under another type (#1758), which the seed is written over.
+    const held = store.read(key);
+    if (held === undefined || decodeStored(key, held, STATE_TYPE, decodeFrozenState) === undefined) {
         controller.write(initial);
         let seeded = seeds.get(store);
         if (seeded === undefined) { seeded = new Map(); seeds.set(store, seeded); }

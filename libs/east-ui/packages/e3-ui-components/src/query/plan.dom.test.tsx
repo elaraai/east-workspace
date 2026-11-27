@@ -68,7 +68,7 @@ import {
 } from "./query.test-utils.js";
 import { runFailure } from "./results.js";
 import { planRun, useQueryRun } from "./run.js";
-import { QUERY_HEADER_ID } from "./session.js";
+import { newHeader } from "./session.js";
 import { parseSteps } from "./steps/parse.js";
 
 /** The fixture's default query (`Query Editor Spec.md` §4.7), over the orders: within one piece. */
@@ -654,7 +654,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         const parsed = parseSteps(".order_history", HISTORY_ROOT.type);
         if ("error" in parsed) throw new Error(parsed.error.message);
         const plan = planRun({
-            view: "jq", header: { id: QUERY_HEADER_ID, name: "Order ids", description: none, source: "order_history", jq: none },
+            view: "jq", header: newHeader("Order ids", "order_history"),
             query: parsed.query, checked: undefined, jqText: program, jqChecked: checkJq(program, HISTORY_ROOT.type, { root: true }),
         }, HISTORY_ROOT);
         await act(async () => { result.current.run(plan); });

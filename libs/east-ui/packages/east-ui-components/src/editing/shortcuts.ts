@@ -6,8 +6,9 @@
 /**
  * The history shortcuts (#988) — one reading of a key press for every
  * editable collection, so Undo and Redo take the same keys on the Sheet, the
- * Plan and the SnapGrid — and what a builder does with a key it acts on
- * ({@link takeKey}, #1398): it goes no further than the builder.
+ * Plan and the SnapGrid — what a builder does with a key it acts on
+ * ({@link takeKey}, #1398): it goes no further than the builder — and the key
+ * no handler acts on, an input method's ({@link composingKey}, #1758).
  *
  * @packageDocumentation
  */
@@ -78,4 +79,30 @@ export interface TakenKey {
 export function takeKey(e: TakenKey): void {
     e.preventDefault();
     e.stopPropagation();
+}
+
+/** A key press as {@link composingKey} reads it: a DOM keyboard event, or React's, which holds one. */
+export interface ComposedKeyPress {
+    /** Whether an input method is composing as the key is pressed; React's event holds it on its DOM event. */
+    readonly isComposing?: boolean | undefined;
+    /** The key's code: 229 for a key an input method takes. */
+    readonly keyCode: number;
+    /** The DOM event a React event holds. */
+    readonly nativeEvent?: { readonly isComposing: boolean; readonly keyCode: number } | undefined;
+}
+
+/**
+ * Whether a key press is an input method's, never a handler's (#1758): one
+ * pressed while it composes — a Japanese or a Chinese conversion — or the one
+ * that ends its composition. Safari ends the composition first and then sends
+ * that key, an Enter or an Esc, as not composing and as key 229, so a handler
+ * that asked only whether a composition was under way took the Enter that
+ * confirmed a conversion for its own: a name was saved half typed.
+ *
+ * @param e - The key press
+ * @returns Whether an input method takes it
+ */
+export function composingKey(e: ComposedKeyPress): boolean {
+    const native = e.nativeEvent ?? e;
+    return native.isComposing === true || native.keyCode === 229;
 }

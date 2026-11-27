@@ -178,8 +178,11 @@ export interface StudioBuilderOptions {
  * The builder fills its parent's height and draws no border around itself.
  * Its host says which page it shows and is told when its palette asks for
  * another, so a `<Studio.Library>` opens a page in it through the host: the
- * library's `onOpen` and the builder's `page` are the host's to join, on one
- * surface or across routes.
+ * library's `onOpen` and the builder's `page` are the host's to join across
+ * its pages. The library is a surface of its own: it pages the pages record,
+ * and a surface that pages a record never loads it whole, which the builder
+ * reads — so on one `ui()` with the library the builder has nothing to read,
+ * and says so in its place, naming the record (#1779).
  *
  * @param options - The bound record, the listed components, the project, the page it shows and the preview's words ({@link StudioBuilderOptions})
  * @returns An East expression of type `UIComponentType`
@@ -192,7 +195,7 @@ export interface StudioBuilderOptions {
  * import { Record, Studio, ui } from "@elaraai/e3-ui";
  *
  * // The builder, for operators: it reads the pages and writes their patch.
- * // The surface holds the open page, which a page library beside it shares.
+ * // The surface holds the open page, which a page library — a surface of its own — asks it to change.
  * export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);

@@ -36,8 +36,8 @@
  *   footer.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
- * slots' autocomplete hanging inside the builder; Save… names and describes it
- * in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
+ * slots' autocomplete hanging inside the builder; Save… names, describes and tags
+ * it in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
  * anywhere in the builder, and opening a saved query run it (#938, `run.ts`),
  * each run planned as one call or as a split call over a dataset larger than
  * one piece (#941, `plan.ts`): the results show what came back and how it was
@@ -55,7 +55,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, checkJq, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { SortedSet, StringType, checkJq, compareFor, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, EmptyStateView, NARROW_FRAME, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, useContainerWidth, usePersistedState,
@@ -66,7 +66,6 @@ import { LoadingLine, keptRead } from "@elaraai/east-ui-components/internal";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
-import { QueryDropTarget } from "./drops.js";
 import {
     useQueryCall, useQueryCollection, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
 } from "./hooks.js";
@@ -87,7 +86,7 @@ import { QueryResults, ResultStrips, pickedView, resultFooter, resultToolbarItem
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
 import {
-    entriesQuery, queryEntries, queryProgram, rootRefusal, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
+    entriesQuery, noTags, queryEntries, queryProgram, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
 } from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
 import { queryToolbarItems, type QueryView } from "./toolbar.js";
@@ -103,6 +102,7 @@ type QueryBuilderValue = ValueTypeOf<typeof QueryBuilderComponent.schema>;
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(QueryBuilderPayloadType);
 const nameEqual = equalFor(StringType);
+const nameCompare = compareFor(StringType);
 
 /** The query's views, in the switch's order. */
 const QUERY_VIEWS = ["visual", "jq"] as const;
@@ -214,7 +214,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     }
     return (
         <QueryBuilderView session={session} entries={session.entries} record={record} root={root} open={open}
-            writeOpen={writeOpen} arrival={arrival} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} views={views} resultViews={resultViews} />
+            writeOpen={writeOpen} arrival={arrival} words={words} storageKey={storageKey} recentKey={keys.recent} views={views} resultViews={resultViews} />
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -240,8 +240,6 @@ interface QueryBuilderViewProps {
     readonly storageKey: string;
     /** This viewer's recent runs' storage key. */
     readonly recentKey: string;
-    /** The builder's id: its drop target's, and the query library's it takes cards from. */
-    readonly id: string | undefined;
     /** The query's views this builder offers. */
     readonly views: readonly QueryView[];
     /** The result's views this builder offers. */
@@ -249,7 +247,7 @@ interface QueryBuilderViewProps {
 }
 
 /** The builder over a query it can edit: the toolbar, the pane, the results and the status line. */
-function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, arrival, words, storageKey, recentKey, id, views, resultViews }: QueryBuilderViewProps) {
+function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, arrival, words, storageKey, recentKey, views, resultViews }: QueryBuilderViewProps) {
     const ps = usePartStyles(words);
     const { styles } = ps;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
@@ -294,14 +292,16 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const planOptions = useQueryPlanOptions();
     const seams = useMemo(() => ({ call, split, explain, collection, status, options: planOptions }), [call, split, explain, collection, status, planOptions]);
     // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
-    // run sends the counting program, which is not the query — its name and what it read.
+    // run sends the counting program, which is not the query — its name and what it read. A run holds no tags: they
+    // are a saved query's, given as it is saved.
     const { recent, remember } = useRecentQueries(recentKey);
     const onRan = useCallback((result: QueryResult, plan: RunPlan) => {
         const own = checkJq(plan.canonical, root.type, { root: true }).program;
         if (own === null) return;
+        const read = result.inputs.map(input => ({ name: input.name, path: input.path }));
         remember({
-            name: plan.name, description: plan.description, program: own,
-            root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
+            name: plan.name, description: plan.description, tags: noTags(), program: own,
+            root: read, sources: queryEast().sources(read), saved_at: new Date(),
         });
     }, [remember, root]);
     const { state: lastRunState, run: start } = useQueryRun(root, seams, onRan);
@@ -323,18 +323,6 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         const source = header.jq.type === "none" ? query.source : run.root[0]?.name ?? root.entries[0]?.name ?? "";
         arrive(newQuery(source, run), m.openedFromLibrary({ name: run.name }));
     }, [arrive, root, m]);
-    // A query library's card dropped on the builder opens its query; one whose data sources aren't bound here is refused, with why.
-    const dropRefusal = useCallback((name: string): string | undefined => {
-        const query = record.get(name);
-        return query === undefined ? m.queryGone({ name }) : rootRefusal(query, root, words);
-    }, [record, root, words, m]);
-    const dropSteps = useCallback((name: string): number | undefined => {
-        const query = record.get(name);
-        if (query === undefined) return undefined;
-        const { header, query: steps } = entriesQuery(savedEntries(query, root.type));
-        return header.jq.type === "some" ? undefined : steps.steps.length;
-    }, [record, root]);
-    const onDrop = useCallback((name: string) => arrive(variant("saved", name), m.openedFromQueryLibrary({ name })), [arrive, m]);
     // A fresh run of the steps counts their shape lines: fresh while the steps print as the program it ran.
     const steps = useMemo(() => {
         const { header, query } = entriesQuery(entries);
@@ -445,14 +433,16 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             if (card.getAttribute("data-step-id") === focus.entry) card.scrollIntoView?.({ block: "nearest" });
         }
     }, [focus, element]);
+    // ⌘/Ctrl ⏎ runs, anywhere in the builder — a field too. It is taken as the key comes down to its target, ahead of
+    // a field that takes every ⏎ for its own: the save popover's tags box, which would add the tag typed. A field that
+    // leaves a key already taken, as that one does, then does nothing with it.
+    const onRunKey = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+        if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter" || event.defaultPrevented) return;
+        event.preventDefault();
+        onRun();
+    }, [onRun]);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented) return;
-        // ⌘/Ctrl ⏎ runs, anywhere in the builder — a field too.
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            onRun();
-            return;
-        }
         // ⌘/Ctrl / opens the Datasets tab, the pane expanded.
         if ((event.metaKey || event.ctrlKey) && event.key === "/") {
             event.preventDefault();
@@ -466,7 +456,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         if (action === undefined) return;
         event.preventDefault();
         onAction(action);
-    }, [onRun, onAction, setPane]);
+    }, [onAction, setPane]);
 
     // ── Saving ──────────────────────────────────────────────────────────
     const taken = useMemo(() => {
@@ -478,14 +468,21 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     }, [record, base]);
     const generated = useMemo(() => (editor.checked === undefined ? "" : describeQuery(editor.query, editor.checked, words)),
         [editor.query, editor.checked, words]);
+    // The tags the saved queries hold, in East's order: what the save popover suggests as a tag is typed.
+    const knownTags = useMemo(() => {
+        const known = new SortedSet<string>([], nameCompare);
+        for (const query of record.values()) for (const tag of query.tags) known.add(tag);
+        return [...known];
+    }, [record]);
     const { current, gesture } = state;
-    const onSave = useCallback(async (name: string, description: option<string>): Promise<string | undefined> => {
-        // The jq as typed first, then the name and the description: one gesture each, on the drafts as they stand.
+    const onSave = useCallback(async (name: string, description: option<string>, tags: SavedQuery["tags"]): Promise<string | undefined> => {
+        // The jq as typed first, then the name, the description and the tags: one gesture each, on the drafts as they stand.
         leaveJq();
         const now = current();
         if (now === undefined) return undefined;
         const { header, query } = entriesQuery(now);
-        gesture(queryEntries({ ...header, name, description }, query.steps), "typed", m.nameGesture());
+        // The tags as a save keeps them, so the query holds what its record will.
+        gesture(queryEntries({ ...header, name, description, tags: queryEast().tags(tags) }, query.steps), "typed", m.nameGesture());
         // Nothing to save closes the popover; drafts that cannot be saved say why, and keep it open.
         if (session.pending > 0 && !session.canApply) return refusalOf(session, editingWords);
         await session.apply();
@@ -497,12 +494,12 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const trigger = useMemo(() => <Button size="sm" variant="outline" data-query-save-open="">{m.saveAs()}</Button>, [m]);
     const phoneTrigger = useMemo(() => <Button size="md" variant="outline" css={styles.phoneSave} data-query-save-open="">{m.saveAs()}</Button>, [m, styles]);
     const savePopover = (
-        <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger}
+        <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger} tags={editor.header.tags} knownTags={knownTags}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
     );
     // Save… folded into the toolbar's ⋯ chip (#1229): the popover hangs from the chip.
     const saveFrom = (anchor: ReactNode) => (
-        <QuerySavePopover open={naming} onOpenChange={setNaming} anchor={anchor}
+        <QuerySavePopover open={naming} onOpenChange={setNaming} anchor={anchor} tags={editor.header.tags} knownTags={knownTags}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
     );
 
@@ -559,6 +556,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                 ? <QueryPhoneView editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} elsewhere={openedNotice} save={save}
                     description={editor.header.description.type === "some" ? editor.header.description.value : generated} running={run.status === "running"} onRun={onRunFromView} drafted={session.pending > 0} onOpenLibrary={() => setTab("library")}
                     saveButton={<QuerySavePopover phone pending={session.pending} open={naming} onOpenChange={setNaming} trigger={phoneTrigger}
+                        tags={editor.header.tags} knownTags={knownTags}
                         name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />} />
                 : <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
             : (
@@ -649,25 +647,23 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     }, [phone, popover, editor.quick, m]);
     return (
         <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
-            data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDown={onKeyDown}>
-            <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
-                <BuilderFrame
-                    ref={widthRef}
-                    storageKey={`${storageKey}.frame`}
-                    toolbar={toolbar}
-                    banners={<>
-                        {/* The session's: a query saved elsewhere under these edits, which its Discard takes; a Save refused. */}
-                        <SessionBanners session={session} words={editingWords} onAction={onAction} />
-                        {!phone && <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />}
-                    </>}
-                    start={queryPane}
-                    phoneViews
-                    footer={phone ? <>{run.status === "running" && <LoadingLine value={{ kind: "loading", text: m.readingShort(), short: m.readingShort() }} shown form="short" />}{liveBand}</> : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
-                >
-                    <QueryResults state={run} stale={stale} view={(phone ? phoneView : view) ?? resultViews[0]!} words={words} storageKey={storageKey} controls={controls} phone={phone}
-                        strips={phoneStrips} />
-                </BuilderFrame>
-            </QueryDropTarget>
+            data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDownCapture={onRunKey} onKeyDown={onKeyDown}>
+            <BuilderFrame
+                ref={widthRef}
+                storageKey={`${storageKey}.frame`}
+                toolbar={toolbar}
+                banners={<>
+                    {/* The session's: a query saved elsewhere under these edits, which its Discard takes; a Save refused. */}
+                    <SessionBanners session={session} words={editingWords} onAction={onAction} />
+                    {!phone && <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />}
+                </>}
+                start={queryPane}
+                phoneViews
+                footer={phone ? <>{run.status === "running" && <LoadingLine value={{ kind: "loading", text: m.readingShort(), short: m.readingShort() }} shown form="short" />}{liveBand}</> : <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
+            >
+                <QueryResults state={run} stale={stale} view={(phone ? phoneView : view) ?? resultViews[0]!} words={words} storageKey={storageKey} controls={controls} phone={phone}
+                    strips={phoneStrips} />
+            </BuilderFrame>
             {shownPopover !== undefined && element !== null && (
                 <SlotAutocomplete key={shownPopover.generation} popover={shownPopover} bounds={element}
                     view={phone ? element.querySelector<HTMLElement>('[data-frame-slot="overlay"]') : undefined} backLabel={m.backToStep()}

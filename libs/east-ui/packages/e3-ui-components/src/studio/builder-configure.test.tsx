@@ -22,7 +22,7 @@ const { offers, openSlot, pick } = slotActions(act, settle);
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, NullType, none, some, variant } from "@elaraai/east";
+import { East, NullType, some } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
@@ -31,7 +31,7 @@ import { slotActions } from "../query/slots.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import {
     components, PAGES, h, ASKED, withEntry, readRecord, commits, tile, palette, cardOf, inspector, openTabName, openTab, groupHeads, spanOf,
-    rowsDrawn, textIn, placed, select, press, dragOnto, dropCard, type Key, type Entry,
+    rowsDrawn, textIn, placed, select, press, dragOnto, dropCard, pageAt, type Key,
 } from "./builder.test-utils.js";
 
 describe("<Studio.Builder> — the Configure tab (#1672)", () => {
@@ -39,13 +39,10 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
     const bars = Studio.visual.of("sales", Studio.visual.bar({ x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue")] }));
     const note = Studio.visual.text("Figures are to last night.", "About these numbers");
     /** The Board, never published: a note over the sales as bars, the KPI rail beside them. */
-    const BOARD_PAGE: Entry = variant("page", {
-        draft: {
-            title: "Board",
-            cells: [placed("b-note", "r1", 12n, note), placed("b-sales", "r2", 8n, bars), placed("b-kpi", "r2", 4n, Studio.visual.component("kpi_rail"))],
-            filters: [],
-        },
-        live: none,
+    const BOARD_PAGE = pageAt(BOARD, {
+        title: "Board",
+        cells: [placed("b-note", "r1", 12n, note), placed("b-sales", "r2", 8n, bars), placed("b-kpi", "r2", 4n, Studio.visual.component("kpi_rail"))],
+        filters: [],
     });
 
     /** A builder that lists two sources — the revenue by day first, then the sales — its surface holding the Board open. */
@@ -76,8 +73,8 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
     /** The Board's placements as the record holds them. */
     async function boardCells() {
         const stored = (await readRecord()).get(BOARD)!;
-        if (stored.type !== "page") throw new Error("expected a page");
-        return stored.value.draft.cells;
+        if (stored.kind.type !== "page") throw new Error("expected a page");
+        return stored.draft.cells;
     }
     /** A visual's menu, on its tile. */
     const visualMenu = (c: HTMLElement, key: string) => within(tile(c, key)).getByRole("button", { name: "Visual menu" });

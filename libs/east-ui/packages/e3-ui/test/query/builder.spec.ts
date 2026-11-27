@@ -16,8 +16,9 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, JqType, NullType, OptionType, PatchType, SortedMap,
-    StringType, StructType, ConflictError, applyFor, checkJq, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    ArrayType, AsyncFunctionType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, JqType, NullType, OptionType, PatchType, SetType, SortedMap,
+    SortedSet, StringType, StructType, ConflictError, applyFor, checkJq, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, printType, some, toEastTypeValue,
+    variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -60,11 +61,18 @@ function saved(...queries: SavedQuery[]): Saved {
 /** The root a page binds: orders and customers. */
 const ROOT = StructType({ orders: OrdersType, customers: CustomersType });
 
-/** A saved query over the root, checked, reading what it reads. */
+/** The names of the data sources a saved query reads, as every write gives them. */
+const sourcesOf = East.compile(QueryInternal.sources, []);
+const names = equalFor(SetType(StringType));
+
+/** A saved query over the root, checked, reading what it reads, with no tags. */
 function savedQuery(name: string, program: string, root: { name: string; path: TreePath }[], description = none as ValueTypeOf<OptionType<typeof StringType>>): SavedQuery {
     const checked = checkJq(program, ROOT, { root: true });
     if (checked.program === null) assert.fail(`${program} does not check: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
-    return { name, description, program: checked.program, root, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)) };
+    return {
+        name, description, tags: new SortedSet([], compareFor(StringType)), program: checked.program, root, sources: sourcesOf(root),
+        saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
+    };
 }
 
 const BIG_ORDERS = savedQuery("Big orders", ".orders | map(select(.total >= 1000))", [{ name: "orders", path: ORDERS }]);
@@ -232,10 +240,12 @@ describe("<Query.Builder> (#935)", () => {
         assert.ok(paths(manifest.paths, [CUSTOMERS, [variant("field", "records"), variant("field", "queries")]]), "the value source, and the record");
     });
 
-    test("M4: Query.Types never depends on the data sources — a saved query is its name, description, program as written, root and time, and holds no types", () => {
+    test("M4: Query.Types never depends on the data sources — a saved query is its name, description, tags, program as written, root, its sources' names and time, and holds no types", () => {
         assert.ok(isTypeEqual(Query.Types.Saved, DictType(StringType, Query.Types.SavedQuery)));
-        assert.deepEqual(Object.keys(Query.Types.SavedQuery.fields), ["name", "description", "program", "root", "saved_at"]);
+        assert.deepEqual(Object.keys(Query.Types.SavedQuery.fields), ["name", "description", "tags", "program", "root", "sources", "saved_at"]);
         assert.ok(isTypeEqual(Query.Types.SavedQuery.fields.program, JqType), "the program is a jq tree, as written");
+        assert.ok(isTypeEqual(Query.Types.SavedQuery.fields.tags, SetType(StringType)) && isTypeEqual(Query.Types.SavedQuery.fields.sources, SetType(StringType)),
+            "its tags and its sources' names are sets of text, which a record's index is led by (#1758)");
         assert.equal(printType(Query.Types.RootEntry), printType(StructType({ name: StringType, path: TreePathType })));
         assert.ok(isTypeEqual(QueryInternal.Types.Handle, QueriesHandleType));
     });
@@ -280,6 +290,35 @@ describe("QueryInternal.save (#935)", () => {
         const taken = saved(BIG_ORDERS, ORDER_COUNT);
         assert.throws(() => applySaved(taken, save(saved(BIG_ORDERS), none, ORDER_COUNT)), ConflictError, "a name another write took first");
         assert.throws(() => applySaved(taken, save(began, some("Big orders"), { ...later, name: "Order count" })), ConflictError, "a rename onto it");
+    });
+});
+
+describe("QueryInternal.sources (#1758)", () => {
+    test("a saved query's sources are the names of its root, each once, whatever the order it reads them in", () => {
+        assert.ok(names(sourcesOf([{ name: "orders", path: ORDERS }, { name: "customers", path: CUSTOMERS }]), new SortedSet(["customers", "orders"], compareFor(StringType))));
+        assert.ok(names(sourcesOf([{ name: "orders", path: ORDERS }, { name: "orders", path: CUSTOMERS }]), new SortedSet(["orders"], compareFor(StringType))), "a name held once");
+        assert.ok(names(sourcesOf([]), new SortedSet([], compareFor(StringType))), "a query that reads no data source — one over `.now` alone — has none");
+    });
+
+    test("a save writes the tags and the sources it is given: a tag added is an update of the entry, and nothing else of it moves", () => {
+        const save = East.compile(QueryInternal.save, []);
+        const record = saved(BIG_ORDERS, ORDER_COUNT);
+        const tagged = { ...BIG_ORDERS, tags: new SortedSet(["sales", "weekly"], compareFor(StringType)) };
+        const patch = save(record, some("Big orders"), tagged);
+        if (patch.type !== "patch") assert.fail(`expected a patch by key, got ${patch.type}`);
+        assert.deepEqual([...patch.value.entries()].map(([key, op]) => [key, op.type]), [["Big orders", "update"]]);
+        assert.ok(records(applySaved(record, patch), saved(tagged, ORDER_COUNT)));
+    });
+});
+
+describe("QueryInternal.tags (#1758)", () => {
+    const tagsOf = East.compile(QueryInternal.tags, []);
+    const texts = (...values: string[]) => new SortedSet(values, compareFor(StringType));
+
+    test("a tag is kept without the spaces around it, once, and one that is empty is not kept", () => {
+        assert.ok(names(tagsOf(texts(" weekly", "weekly ", "sales", "", "   ")), texts("sales", "weekly")));
+        assert.ok(names(tagsOf(texts("two words")), texts("two words")), "the spaces inside a tag are its own");
+        assert.ok(names(tagsOf(texts()), texts()));
     });
 });
 

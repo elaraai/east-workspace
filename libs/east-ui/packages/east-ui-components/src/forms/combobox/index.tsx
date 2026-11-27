@@ -12,6 +12,7 @@ import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/
 import { Combobox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useValueSync } from "../../hooks/useValueSync";
+import { commitTypedText } from "../../primitives/typed-text.js";
 import { closedText, useListClosesOnFocusOutside } from "./close-on-focus-outside.js";
 
 // Pre-define equality function at module level
@@ -85,7 +86,8 @@ export interface EastChakraComboboxProps {
  * keyboard dismissed — moves the focus nowhere, and closes nothing, on any
  * device. A host may put text in the input itself (`text`): the input is
  * Zag's controlled value, which Zag tells no one of, so it reaches the host as
- * no typing.
+ * no typing. What is typed is committed at once (`commitTypedText`), so Zag's
+ * write of the input's text never lands over a later key (east-workspace#1779).
  */
 export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, keyed, openOnClick, text }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
@@ -132,7 +134,8 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
     }, [isMultiple, onChangeFn, onChangeMultipleFn]);
 
     const handleInputValueChange = useCallback((details: { inputValue: string }) => {
-        setInputValue(details.inputValue);
+        // At once: Zag writes the input from this text after the render, and a later key must not land before it.
+        commitTypedText(() => setInputValue(details.inputValue));
         if (onInputValueChangeFn) {
             queueMicrotask(() => onInputValueChangeFn(details.inputValue));
         }

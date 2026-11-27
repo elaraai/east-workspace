@@ -20,16 +20,17 @@ import {
     StudioCellChangeType,
     StudioCellType,
     StudioChangeType,
+    StudioEntryKindType,
     StudioEntryType,
     StudioKeyType,
     StudioLiveType,
-    StudioPageEntryType,
     StudioPageFilterType,
     StudioPageType,
     StudioPages,
     StudioPagesType,
     StudioStatusType,
 } from "./pages.js";
+import { studioPagesValue } from "./value.js";
 import { StudioPage, StudioVersionType } from "./page.js";
 import { StudioBuilder } from "./builder.js";
 import { StudioLibrary } from "./library.js";
@@ -97,10 +98,10 @@ export {
     StudioCellChangeType,
     StudioCellType,
     StudioChangeType,
+    StudioEntryKindType,
     StudioEntryType,
     StudioKeyType,
     StudioLiveType,
-    StudioPageEntryType,
     StudioPageFilterChangesType,
     StudioPageFilterType,
     StudioPageType,
@@ -109,8 +110,10 @@ export {
     StudioStatusType,
     saveCells,
     saveFilters,
+    studioEntry,
     type StudioPagesHandle,
 } from "./pages.js";
+export { studioPagesValue, type StudioPageInput, type StudioTemplateInput } from "./value.js";
 export {
     StudioAxisValueType,
     StudioBetterType,
@@ -172,7 +175,7 @@ export {
     StudioPickType, StudioClickedType, StudioSelectionsType, studioSelectionsKey,
 } from "./filter.js";
 export { StudioFormatChoiceType, choiceFormat, editedFormatChoice, formatChoice, isCurrencyCode, type StudioFormatChoice } from "./format.js";
-export { StudioMigrations, cellContent, type StudioMigrationsNamespace } from "./migrations.js";
+export { StudioEntryV1Type, StudioEntryV2Type, StudioMigrations, cellContent, entryFields, type StudioMigrationsNamespace } from "./migrations.js";
 export {
     StudioPage,
     StudioPageComponent,
@@ -206,11 +209,7 @@ export {
     StudioLibrary,
     StudioLibraryComponent,
     StudioLibraryPayloadType,
-    StudioLibraryPageType,
-    StudioLibraryTemplateType,
-    libraryProjects,
-    libraryPages,
-    libraryTemplates,
+    StudioPagesWriteType,
     layoutSummary,
     nameWriteRefusal,
     type StudioLibraryOptions,
@@ -280,10 +279,10 @@ export interface StudioTypes {
     Pages: typeof StudioPagesType;
     /** A page's key ({@link StudioKeyType}). */
     Key: typeof StudioKeyType;
-    /** One entry of the pages record: a page or a template ({@link StudioEntryType}). */
+    /** One entry of the pages record: a page or a template, with its project, its title, its tags, its layout and its published version ({@link StudioEntryType}). */
     Entry: typeof StudioEntryType;
-    /** A page: its draft and its live version ({@link StudioPageEntryType}). */
-    PageEntry: typeof StudioPageEntryType;
+    /** What an entry is: a page or a template ({@link StudioEntryKindType}). */
+    EntryKind: typeof StudioEntryKindType;
     /** A published version of a page ({@link StudioLiveType}). */
     Live: typeof StudioLiveType;
     /** A page's layout: its title, its placements and its starting filters ({@link StudioPageType}). */
@@ -342,11 +341,18 @@ export interface StudioNamespace {
     source: typeof createSource;
     /** Builds a placement's content and a visual's parts, each with its defaults, for a pages record's seeds ({@link StudioVisuals}). */
     visual: typeof StudioVisuals;
-    /** The pages record's migration steps: `migration.rows("cell_content", Studio.migrations.cellContent)` ({@link StudioMigrations}). */
+    /** The pages record's value: every page and template a solution ships in it, each built as every write builds an entry ({@link studioPagesValue}). */
+    value: typeof studioPagesValue;
+    /**
+     * The pages record's migration steps ({@link StudioMigrations}). A record lists the ones it has not applied:
+     * `migration.rows("entry_fields", Studio.migrations.entryFields)` alone where it was first declared once a placement held
+     * content, and after `migration.rows("cell_content", Studio.migrations.cellContent)` where it lists that step or still
+     * holds the form before it.
+     */
     migrations: typeof StudioMigrations;
     /** `<Studio.Builder>` — the builder: the open page's canvas, the palette and the inspector beside it, and the publish preview. */
     Builder: typeof StudioBuilder;
-    /** `<Studio.Library>` — a project's templates and pages, and where new pages start. */
+    /** `<Studio.Library>` — the pages and templates as cards, in a grid its rail narrows, and where new pages start. */
     Library: typeof StudioLibrary;
     /** `<Studio.Page>` — one page with no chrome, its live or draft layout on the snap grid. */
     Page: typeof StudioPage;
@@ -362,7 +368,7 @@ const types: StudioTypes = {
     Pages: StudioPagesType,
     Key: StudioKeyType,
     Entry: StudioEntryType,
-    PageEntry: StudioPageEntryType,
+    EntryKind: StudioEntryKindType,
     Live: StudioLiveType,
     Page: StudioPageType,
     Cell: StudioCellType,
@@ -392,8 +398,9 @@ const types: StudioTypes = {
 /**
  * The Studio — components developers publish as code (`Studio.component`),
  * the sources a surface lists (`Studio.source`), the pages record operators
- * build (`Studio.Types.Pages`, its seeds built with `Studio.visual`, its
- * migrations `Studio.migrations`), the alerts record it may declare
+ * build (`Studio.Types.Pages`, the entries it ships `Studio.value`, their
+ * content built with `Studio.visual`, its migrations `Studio.migrations`), the
+ * alerts record it may declare
  * (`Studio.Types.Alerts`, #1674), and the components a solution mounts: the
  * builder (`<Studio.Builder>`), the page library (`<Studio.Library>`), one
  * page (`<Studio.Page>`) and the bell for its bar (`<Studio.AlertBell>`).
@@ -402,6 +409,7 @@ export const Studio: StudioNamespace = {
     component: StudioComponents.component,
     source: createSource,
     visual: StudioVisuals,
+    value: studioPagesValue,
     migrations: StudioMigrations,
     Builder: StudioBuilder,
     Library: StudioLibrary,
@@ -415,6 +423,8 @@ export const Studio: StudioNamespace = {
  * functions behind the builder and the page library.
  */
 export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> {
+    /** An entry of the pages record, built: its project its key's and its title its layout's — what every write builds one through. */
+    entry: typeof StudioPages.entry;
     /** Saves a page's placements — the builder canvas's Apply, one patch to the page's draft. */
     save: typeof StudioPages.save;
     /** Saves a page's starting filters — the builder's Apply of them, one patch to the page's draft. */
@@ -423,7 +433,7 @@ export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> 
     publish: typeof StudioPages.publish;
     /** Reverts a page: the patch that makes its live version's layout its draft. */
     revert: typeof StudioPages.revert;
-    /** Starts a page, from a template or blank: the patch that inserts it. */
+    /** Starts a page, from a template's layout or blank, with its tags: the patch that inserts it. */
     newPage: typeof StudioPages.newPage;
     /** Saves a page's draft as a template: the patch that inserts it. */
     saveTemplate: typeof StudioPages.saveTemplate;
@@ -460,11 +470,13 @@ export const StudioInternal: StudioInternalNamespace = {
     component: StudioComponents.component,
     source: createSource,
     visual: StudioVisuals,
+    value: studioPagesValue,
     migrations: StudioMigrations,
     Builder: StudioBuilder,
     Library: StudioLibrary,
     Page: StudioPage,
     AlertBell: StudioAlertBell,
+    entry: StudioPages.entry,
     save: StudioPages.save,
     saveFilters: StudioPages.saveFilters,
     publish: StudioPages.publish,

@@ -25,6 +25,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { defaultValue, none, some } from "@elaraai/east";
 import { Combobox } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
+import { underLoad } from "../../testing/typing.js";
 import { closedText, type ComboboxSelectionBehavior } from "./close-on-focus-outside.js";
 import { EastChakraCombobox, type ComboboxRootValue } from "./index.js";
 
@@ -67,7 +68,7 @@ const finger = { pointerType: "touch", button: 0 } as const;
 type Heard = ["text", string] | ["open", boolean] | ["picked", string[]];
 
 /**
- * A combobox over two woods — `root` setting what else it is, `behavior` its
+ * A combobox over two shapes — `root` setting what else it is, `behavior` its
  * renderer's `selectionBehavior` — beside a control outside it, its list
  * open: an item picked from it first if `pick` names one, then `typed` typed.
  * What its host hears, from the start.
@@ -76,7 +77,7 @@ async function mount(root: Partial<ComboboxRootValue>, typed: string, pick?: str
     const heard: Heard[] = [];
     const value: ComboboxRootValue = {
         ...defaultValue<typeof Combobox.Types.Root>(Combobox.Types.Root),
-        items: [{ value: "oak", label: "Oak", disabled: none }, { value: "ash", label: "Ash", disabled: none }],
+        items: [{ value: "circle", label: "Circle", disabled: none }, { value: "square", label: "Square", disabled: none }],
         onInputValueChange: some((text: string) => { heard.push(["text", text]); return null; }),
         onOpenChange: some((open: boolean) => { heard.push(["open", open]); return null; }),
         onChangeMultiple: some((picked: string[]) => { heard.push(["picked", picked]); return null; }),
@@ -120,8 +121,8 @@ const LEAVING: { name: string; root: Partial<ComboboxRootValue>; behavior?: Comb
     },
     {
         name: "text no item holds, custom values refused, is reverted — to the selected item's label (`replace`)",
-        root: { value: some("oak") }, typed: "zz", left: "Oak",
-        heard: [["text", "z"], ["open", true], ["text", "zz"], ["text", "Oak"], ["open", false]],
+        root: { value: some("circle") }, typed: "zz", left: "Circle",
+        heard: [["text", "z"], ["open", true], ["text", "zz"], ["text", "Circle"], ["open", false]],
     },
     {
         name: "text no item holds, custom values refused, is kept where the renderer keeps the box's text (`preserve`)",
@@ -135,8 +136,8 @@ const LEAVING: { name: string; root: Partial<ComboboxRootValue>; behavior?: Comb
     },
     {
         name: "a multiple's text no item holds is emptied (`clear`, a multiple's default), its pick kept",
-        root: { multiple: some(true) }, pick: "Oak", typed: "zz", left: "",
-        heard: [["open", true], ["picked", ["oak"]], ["text", "z"], ["text", "zz"], ["text", ""], ["open", false]],
+        root: { multiple: some(true) }, pick: "Circle", typed: "zz", left: "",
+        heard: [["open", true], ["picked", ["circle"]], ["text", "z"], ["text", "zz"], ["text", ""], ["open", false]],
     },
 ];
 
@@ -176,14 +177,14 @@ const JOURNEYS: { name: string; root: Partial<ComboboxRootValue>; typed: string;
     },
     {
         name: "the focus moved inside — onto the trigger, the clear trigger, the list, an item and the box — closes nothing; moved outside, it closes the list",
-        root: { value: some("oak") }, typed: "a",
+        root: { value: some("circle") }, typed: "a",
         steps: [
             { what: "onto the trigger", run: focusOnto(part("trigger")), open: true, left: "a", heard: A },
             { what: "onto the clear trigger", run: focusOnto(part("clear-trigger")), open: true, left: "a", heard: A },
             { what: "onto the list", run: focusOnto(part("content")), open: true, left: "a", heard: A },
-            { what: "onto an item", run: focusOnto(() => screen.getByText("Ash").closest<HTMLElement>('[data-part="item"]')!), open: true, left: "a", heard: A },
+            { what: "onto an item", run: focusOnto(() => screen.getByText("Square").closest<HTMLElement>('[data-part="item"]')!), open: true, left: "a", heard: A },
             { what: "onto the box", run: focusOnto(theBox), open: true, left: "a", heard: A },
-            { what: "outside", run: focusOnto(elsewhere), open: false, left: "Oak", heard: [...A, ["text", "Oak"], ["open", false]] },
+            { what: "outside", run: focusOnto(elsewhere), open: false, left: "Circle", heard: [...A, ["text", "Circle"], ["open", false]] },
         ],
     },
     {
@@ -324,18 +325,35 @@ for (const { device, touch } of [{ device: "on a desktop, where Zag closes the l
     });
 }
 
+describe("typing (east-workspace#1779)", () => {
+    test("keys typed faster than React's later work — as a loaded machine sends them — all land: typed `keys`, the box holds them, and its host is told each text in turn", async () => {
+        const heard: string[] = [];
+        const value: ComboboxRootValue = {
+            ...defaultValue<typeof Combobox.Types.Root>(Combobox.Types.Root),
+            items: [{ value: "circle", label: "Circle", disabled: none }, { value: "square", label: "Square", disabled: none }],
+            allowCustomValue: some(true),
+            onInputValueChange: some((text: string) => { heard.push(text); return null; }),
+        };
+        render(<ChakraProvider value={system}><EastChakraCombobox value={value} selectionBehavior="preserve" /></ChakraProvider>);
+        const box = theBox();
+        await underLoad(box, () => userEvent.type(box, "keys"));
+        expect(box.value).toBe("keys");
+        await waitFor(() => expect(heard).toEqual(["k", "ke", "key", "keys"]));
+    });
+});
+
 describe("closedText — the box's text after an outside close, as Zag's revertInputValue leaves it (#1228)", () => {
     test("text that is the selection's own — where even `clear` would empty it — or where custom values are kept, stays", () => {
-        expect(closedText("Oak", "Oak", "clear", false)).toBe("Oak");
+        expect(closedText("Circle", "Circle", "clear", false)).toBe("Circle");
         expect(closedText("", "", "clear", false)).toBe("");
-        expect(closedText("zz", "Oak", "replace", true)).toBe("zz");
+        expect(closedText("zz", "Circle", "replace", true)).toBe("zz");
         expect(closedText("zz", "", "clear", true)).toBe("zz");
     });
 
     test("custom text refused: replace puts back the selection's labels (or empties the box with none), preserve keeps it, clear empties it", () => {
-        expect(closedText("zz", "Oak, Ash", "replace", false)).toBe("Oak, Ash");
+        expect(closedText("zz", "Circle, Square", "replace", false)).toBe("Circle, Square");
         expect(closedText("zz", "", "replace", false)).toBe("");
-        expect(closedText("zz", "Oak", "preserve", false)).toBe("zz");
-        expect(closedText("zz", "Oak", "clear", false)).toBe("");
+        expect(closedText("zz", "Circle", "preserve", false)).toBe("zz");
+        expect(closedText("zz", "Circle", "clear", false)).toBe("");
     });
 });

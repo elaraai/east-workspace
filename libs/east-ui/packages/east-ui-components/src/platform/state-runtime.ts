@@ -17,6 +17,7 @@ import {
     NullType,
     BooleanType,
     fromEastTypeValue,
+    printType,
     type EastTypeValue,
     encodeBeast2For,
     decodeBeast2For,
@@ -102,6 +103,44 @@ const editingRequests = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>()
 
 const stateHandleCache = new Map<string, Record<string, unknown>>();
 
+/** The values a read found kept under another type than the one it asked, each with the types asked of it: said once for each. */
+const unreadable = new WeakMap<Uint8Array, Set<string>>();
+
+/**
+ * What the store keeps under a key, read as a type — or nothing, where it does
+ * not read as that type (#1758).
+ *
+ * A store outlives a release: a persistent one across sessions, a page left
+ * open across a deploy. A key can then hold a value written under the type an
+ * earlier release gave it — a saved query before it held its sources, a
+ * narrowing whose choices could be a window — which beast2 refuses to read as
+ * another. That is nothing kept: its reader takes what it starts from, as over
+ * a key that holds nothing, until a value is written. It is said once for each
+ * value and type, naming the key, so two readers sharing a key by mistake are
+ * not silent; and such a value is not decoded again. A reader of another type
+ * still reads it: what marks a value is the type it did not read as.
+ *
+ * @typeParam T - What the bytes decode to
+ * @param key - The key the bytes are kept under: what is said names it
+ * @param bytes - What the store keeps under the key
+ * @param type - The type asked, as East prints it
+ * @param decode - The type's decoder
+ * @returns The value; `undefined` where the bytes do not read as the type
+ */
+export function decodeStored<T>(key: string, bytes: Uint8Array, type: string, decode: (bytes: Uint8Array) => T): T | undefined {
+    const refused = unreadable.get(bytes);
+    if (refused?.has(type) === true) return undefined;
+    try {
+        return decode(bytes);
+    } catch (error) {
+        // The store keeps the buffer it holds until other bytes are written: said once, and not decoded again.
+        if (refused === undefined) unreadable.set(bytes, new Set([type]));
+        else refused.add(type);
+        console.warn(`[east-ui] what the store keeps under "${key}" does not read as the type asked of it, and is nothing kept`, error);
+        return undefined;
+    }
+}
+
 /**
  * Platform implementation for `State.bind` and its backing primitives.
  *
@@ -128,15 +167,21 @@ export const StateImpl: PlatformFunction[] = [
     }),
     // Primitive: read the key (registering the reactive dependency), falling back
     // to the captured default when the key is absent — e.g. after decode, where
-    // `bind` did not re-run to eager-init it.
+    // `bind` did not re-run to eager-init it — and when what the store keeps
+    // under it does not read as the state's type (#1758), which is nothing
+    // kept ({@link decodeStored}): the state reads its default until it is
+    // written.
     StateBindPrimitives.read.implement((type: EastTypeValue) => {
-        const decode = decodeBeast2For(type); // built once per type-resolution, not per read()
+        // Built once per type-resolution, not per read().
+        const decode = decodeBeast2For(type);
+        const name = printType(fromEastTypeValue(type));
         return (key: unknown, defaultValue: unknown) => {
             const k = key as string;
             trackKey(k);
             const raw = getStore().read(k);
             if (raw === undefined) return defaultValue;
-            return decode(raw);
+            const value = decodeStored(k, raw, name, decode);
+            return value === undefined ? defaultValue : value;
         };
     }),
     // Primitive: write the key.

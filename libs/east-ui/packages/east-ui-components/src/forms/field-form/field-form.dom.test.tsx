@@ -297,13 +297,17 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expectEdit(edits, "bench", equalFor(OptionType(StringType)), none);
     });
 
-    test("tags: the options suggested; a tag typed and Entered, a tag removed — a Set's values in East's order", async () => {
+    test("tags: the options suggested in the app's own list as words are typed; a tag typed and Entered, a tag removed — a Set's values in East's order", async () => {
         const { field, edits } = mount();
         const user = userEvent.setup();
-        expect([...field("finishes").querySelectorAll("datalist option")].map((o) => o.getAttribute("value"))).toEqual(["oiled", "waxed", "painted"]);
         const input = field("finishes").querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+        expect(field("finishes").querySelector("datalist")).toBeNull();
         await user.click(input);
-        await user.type(input, "painted{Enter}");
+        await user.type(input, "p");
+        // The options the field doesn't hold that the words match, in the list the box controls (east-workspace#1779).
+        const list = document.getElementById(input.getAttribute("aria-controls")!)!;
+        expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual(["painted"]);
+        await user.type(input, "ainted{Enter}");
         await settle();
         expectEdit(edits, "finishes", equalFor(SetType(StringType)), new SortedSet(["oiled", "painted"], STRINGS));
 

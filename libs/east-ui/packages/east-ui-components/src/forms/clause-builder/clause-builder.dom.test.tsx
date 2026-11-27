@@ -12,12 +12,13 @@
  *   ops, set ops) stack on their own full-width line instead of overflowing
  *   the inline grid (the Add-filter popover grew a horizontal scrollbar and
  *   the submit button collided with the date input).
- * - #194: the TagsInput's in-flight text counts — picking a `<datalist>`
- *   suggestion (or typing without Enter) only sets the input TEXT, never a
- *   tag, so Add stayed disabled with a value visibly in the control.
+ * - #194: the TagsInput's in-flight text counts — typing or pasting without
+ *   Enter only sets the input TEXT, never a tag, so Add stayed disabled with a
+ *   value visibly in the control. (A pick from its suggestions, the app's own
+ *   list since east-workspace#1779, is a tag at once.)
  */
 
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import * as React from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -27,6 +28,13 @@ import { ClauseBuilder, type ClauseFieldSpec, type ClauseKind, type ClauseOpSpec
 
 const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
 afterEach(cleanup);
+
+/** A set's tags input lists its hints under the box (east-workspace#1779), whose positioner observes sizes; jsdom has no ResizeObserver. */
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+// jsdom has no `CSS.escape`, and the list finds its highlighted item with it — every browser has one.
+(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
+beforeEach(() => { vi.stubGlobal("ResizeObserver", ResizeObserverStub); });
 
 const FIELDS: ClauseFieldSpec[] = [
     { id: "note", label: "Note", kind: "string", hints: ["rush order", "fragile"] },
@@ -90,7 +98,7 @@ describe("ClauseBuilder — in-flight TagsInput text counts toward the clause (#
         expect(add.disabled).toBe(true);
         expect(screen.getByText("Enter at least one value.")).toBeTruthy();
 
-        // A datalist suggestion pick lands the same way: input TEXT, no tag.
+        // Pasted lands as typed: input TEXT, no tag.
         await user.click(screen.getByPlaceholderText("a, b, c"));
         await user.paste("rush order");
         expect(add.disabled).toBe(false);

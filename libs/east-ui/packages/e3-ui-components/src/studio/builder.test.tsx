@@ -293,8 +293,8 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(spanOf(container, dropped)).toBe("6");
         await press("Save");
         const overview = (await readRecord()).get(OVERVIEW)!;
-        if (overview.type !== "page") throw new Error("expected a page");
-        const cell = overview.value.draft.cells.at(-1)!;
+        if (overview.kind.type !== "page") throw new Error("expected a page");
+        const cell = overview.draft.cells.at(-1)!;
         expect([cell.key, cell.content, cell.span]).toEqual([dropped, Studio.visual.component("orders_by_week"), 6n]);
     });
 
@@ -305,8 +305,8 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await press("Save");
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
-        if (overview.type !== "page") throw new Error("expected a page");
-        expect(overview.value.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
+        if (overview.kind.type !== "page") throw new Error("expected a page");
+        expect(overview.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
         expect(container.querySelector("[data-snap-grid-saved]")!.textContent).toMatch(/^Saved · \d\d:\d\d$/);
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     });
@@ -316,8 +316,8 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await keyOn(container, "c-trend", { key: "[" });
         // Another operator's save lands between this Save's read and its commit: the Overview's trend removed.
         const stored = (await readRecord()).get(OVERVIEW)!;
-        if (stored.type !== "page") throw new Error("expected a page");
-        const after: Entry = variant("page", { draft: { ...stored.value.draft, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
+        if (stored.kind.type !== "page") throw new Error("expected a page");
+        const after: Entry = { ...stored, draft: { ...stored.draft, cells: stored.draft.cells.slice(0, 1) } };
         await h.race(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), withEntry(OVERVIEW, after));
         // The commit is refused, and the canvas, reading the page back, carries its drafts over to it: the tile it moved,
         // the other save removed — a conflict, and Save waits for it.
@@ -326,8 +326,8 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
-        if (overview.type !== "page") throw new Error("expected a page");
-        expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
+        if (overview.kind.type !== "page") throw new Error("expected a page");
+        expect(overview.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
     });
 
     test("B12: two Saves at once, of different fields of one tile: the one that lands first reads its own back beside the other's and is done, never left waiting on it", async () => {
@@ -336,13 +336,13 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         // The other session's alignment of the same tile commits just after this Save, before this session has read its own back.
         await h.followed(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), (now) => {
             const stored = now.get(OVERVIEW)!;
-            if (stored.type !== "page") throw new Error("expected a page");
-            const cells = stored.value.draft.cells.map((cell) => (cell.key === "c-trend" ? { ...cell, align: variant("center", null) } : cell));
-            return withEntry(OVERVIEW, variant("page", { draft: { ...stored.value.draft, cells }, live: stored.value.live }))(now);
+            if (stored.kind.type !== "page") throw new Error("expected a page");
+            const cells = stored.draft.cells.map((cell) => (cell.key === "c-trend" ? { ...cell, align: variant("center", null) } : cell));
+            return withEntry(OVERVIEW, { ...stored, draft: { ...stored.draft, cells } })(now);
         });
         const overview = (await readRecord()).get(OVERVIEW)!;
-        if (overview.type !== "page") throw new Error("expected a page");
-        const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
+        if (overview.kind.type !== "page") throw new Error("expected a page");
+        const trend = overview.draft.cells.find((c) => c.key === "c-trend")!;
         expect([trend.span, trend.align.type]).toEqual([9n, "center"]);
         await waitFor(() => {
             expect(container.querySelector("[data-frame-slot=toolbar]")!.textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
@@ -523,8 +523,8 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         await press("Save");
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
-        if (overview.type !== "page") throw new Error("expected a page");
-        const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
+        if (overview.kind.type !== "page") throw new Error("expected a page");
+        const trend = overview.draft.cells.find((c) => c.key === "c-trend")!;
         expect([trend.span, trend.align.type]).toEqual([9n, "stretch"]);
     });
 
@@ -538,7 +538,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(within(palette(container)).getByText("ON CANVAS · ×1")).toBeTruthy();
         // Nothing saved yet: the record still places it twice.
         const double = (await readRecord()).get({ project: "ops", page: "d-double" })!;
-        if (double.type !== "page") throw new Error("expected a page");
-        expect(double.value.draft.cells).toHaveLength(2);
+        if (double.kind.type !== "page") throw new Error("expected a page");
+        expect(double.draft.cells).toHaveLength(2);
     });
 });

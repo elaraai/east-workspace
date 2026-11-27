@@ -147,20 +147,16 @@ export const palettePages = East.function(
     ($, pages, project) => {
         const listed = $.let([], ArrayType(PalettePageType));
         $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project), ($3) => {
-                $3.match(entry, {
-                    page: ($4, page) => {
-                        const live = $4.let(pageStatus(page).hasTag("live"));
-                        const meta = $4.let(page.live.match({
-                            some: (_$5, version) => live.ifElse(
-                                () => East.str`LIVE · V${East.print(version.version)}`,
-                                () => East.str`DRAFT · V${East.print(version.version)} LIVE`,
-                            ),
-                            none: (_$5) => East.value("DRAFT"),
-                        }));
-                        $4(listed.pushLast({ page: key.page, title: page.draft.title, meta, live }));
-                    },
-                });
+            $2.if(key.project.equal(project).and(() => entry.kind.hasTag("page")), ($3) => {
+                const live = $3.let(pageStatus(entry).hasTag("live"));
+                const meta = $3.let(entry.live.match({
+                    some: (_$4, version) => live.ifElse(
+                        () => East.str`LIVE · V${East.print(version.version)}`,
+                        () => East.str`DRAFT · V${East.print(version.version)} LIVE`,
+                    ),
+                    none: (_$4) => East.value("DRAFT"),
+                }));
+                $3(listed.pushLast({ page: key.page, title: entry.title, meta, live }));
             });
         });
         return listed;

@@ -4,34 +4,53 @@
  *
  * @vitest-environment jsdom
  *
- * `<Studio.Library>` rendered over the studio examples' pages record on e3
- * (#1376), its patch door e3's own and its pages the test's, committed as
- * another session's (#997): headerless, with one toolbar (D1); the pane of
- * projects and pages with its legend (D2); the Templates row, Blank grid
- * first (D3); the Pages row, "Open in builder →" and the dashed card (D4); a
- * new page, one commit, in the popover under the New page button, from the
- * toolbar and from a template's card, and a name taken refused in it, its
- * template picker's chevron and checks Font Awesome's (D5, #1263); the
- * search, Sort and Grid · List (D6). Opening is its host's (#1668): a page's
- * click tells the host, which holds the open page and gives it back to be
- * marked; the page library opens nothing itself and shares no store entry.
+ * `<Studio.Library>` (#997, #1762) rendered over the studio examples' pages
+ * record on e3 (#1376), its pages the test's, committed as another session's:
+ *
+ * - **The frame**: one `BuilderFrame` — its toolbar holding Pages · Templates,
+ *   the rail's fields of the view shown and New page, over the cards — with no
+ *   pane, and no search, Sort or layout switch of its own; nothing says Live
+ *   or Draft (L9).
+ * - **The cards**: a page a card, in the order e3 pages them — a wireframe of
+ *   its layout, its title, what it places, its tags, and its project and how
+ *   many components it places; the templates the same, under Templates.
+ * - **Opening** (L6): a press on a page's card, or ⏎ or Space on it, tells the
+ *   host its page and does nothing else; the page the host says is open is
+ *   marked.
+ * - **A new page** (L10, L12): from New page or a template's card, a name, the
+ *   project where the rail shown has chosen none, and tags; one commit, the
+ *   page the template's layout or a blank grid; then the host is told. A name
+ *   the project holds is refused by the commit, in the popover, as a name taken.
+ * - **A source scoped to another kind of entry** is refused in the library's
+ *   place, saying the scope to give it (east-workspace#1779).
+ * - **What it reads**: the record a window at a time through its indexes —
+ *   never whole — and again as it moves; with no row, and with a narrowing
+ *   that leaves none, it says so. A press works out no card again
+ *   (east-workspace#1779), and its name keys what it keeps.
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, NullType, SortedMap, StringType, compareFor, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
-import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import { Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
+import userEvent from "@testing-library/user-event";
+import { East, NullType, SortedSet, StringType, compareFor, decodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    Reactive, RecordSlicesChromeType, Slice, Stack, State, Text, UIComponentType, recordSlicesChrome, type RecordSliceBindType,
+} from "@elaraai/east-ui/internal";
+import { StateRuntime, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
-import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { studioEast } from "./studio-east.js";
 // The page library is an extension: its renderer registers as it loads.
 import "./library.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
+
+const sameEntry = equalFor(Studio.Types.Entry);
+const printText = printFor(StringType);
+const tagsOf = (...tags: string[]) => new SortedSet<string>(tags, compareFor(StringType));
 
 /** The listed components. */
 const components = [
@@ -41,9 +60,10 @@ const components = [
         East.function([], UIComponentType, (_$) => Text.Root("Trend"))),
 ];
 
-/** In ops, the Detail never published, the Overview live, the Weekly drafted past its live version, and two templates; a retail page. */
-const PAGES: Pages = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "a-detail" }, variant("page", {
+/** In ops, the Detail never published, the Overview live and tagged, the Weekly drafted past its live version, and two templates; a retail page. */
+const ENTRIES: Parameters<typeof Studio.value>[0] = [
+    {
+        key: { project: "ops", page: "a-detail" },
         draft: {
             title: "Detail",
             cells: [
@@ -51,52 +71,64 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-    [{ project: "ops", page: "b-overview" }, variant("page", {
+    },
+    {
+        key: { project: "ops", page: "b-overview" },
+        tags: ["operations", "weekly"],
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-kpi-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
                 { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
             filters: [],
         },
-        live: some({
+        live: {
             version: 2n,
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "c-kpi-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "c-kpi-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
                     { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
                 filters: [],
             },
-        }),
-    })],
-    [{ project: "ops", page: "c-weekly" }, variant("page", {
+        },
+    },
+    {
+        key: { project: "ops", page: "c-weekly" },
         draft: { title: "Weekly", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } }),
-    })],
-    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [], filters: [] })],
-    [{ project: "ops", page: "t-summary" }, variant("template", {
-        title: "Summary",
-        cells: [
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-        ],
-        filters: [],
-    })],
-    [{ project: "retail", page: "home" }, variant("page", {
+        live: { version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } },
+    },
+    { key: { project: "ops", page: "t-empty" }, template: { title: "Empty", cells: [], filters: [] } },
+    {
+        key: { project: "ops", page: "t-summary" },
+        template: {
+            title: "Summary",
+            cells: [
+                { key: "c-kpi-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+            ],
+            filters: [],
+        },
+    },
+    {
+        key: { project: "retail", page: "home" },
         draft: { title: "Home", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
-    })],
-], compareFor(StudioKeyType));
+        live: { version: 1n, page: { title: "Home", cells: [], filters: [] } },
+    },
+];
+const PAGES: Pages = Studio.value(ENTRIES);
 
-const h = e3Harness({ "studio/studio": ex }, { measure: false });
+/** The pages' titles, and the templates', in the order e3 pages them: each kind's in its keys' order. */
+const PAGE_TITLES = ["Detail", "Overview", "Weekly", "Home"];
+const TEMPLATE_TITLES = ["Empty", "Summary"];
+
+// The cards are read a window at a time into a measured view: the harness measures one.
+const h = e3Harness({ "studio/studio": ex }, { measure: true });
 
 /** The pages record's commits once the test's own pages were made: what a new page adds to. */
 let before: string[] = [];
@@ -106,44 +138,84 @@ beforeEach(async () => {
     before = await commits();
 });
 
+/** The indexes the examples' pages record declares: what the rail's sources page through. */
+const INDEXES = ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] as const;
+/** The rail's key: the mounted library's, and the one a test narrows through. */
+const RAIL = "library-test.rail";
+
+/** What an entry is. */
+type EntryKind = "page" | "template";
+/** What each source is scoped to, by what an entry is. */
+interface Kinds {
+    readonly rows: readonly EntryKind[];
+    readonly templates: readonly EntryKind[];
+}
+/** The pages, and the templates: each source scoped to its kind of entry. */
+const KINDS: Kinds = { rows: ["page"], templates: ["template"] };
+
+/** The rail: the pages and — unless asked otherwise — the templates, each scoped to its kind of entry, unless asked otherwise. */
+function rail(templates = true, kinds: Kinds = KINDS) {
+    const rows = {
+        source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: [...kinds.rows] }, search: ["title" as const, "project" as const, "tags" as const],
+        fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } },
+    };
+    return templates
+        ? Slice.bindRecords(RAIL, {
+            rows,
+            templates: {
+                source: Data.bindPaged(ex.studioPages, { indexes: [...INDEXES] }), label: "Templates", scope: { kind: [...kinds.templates] }, search: ["title" as const],
+                fields: { title: { label: "Name" } },
+            },
+        })
+        : Slice.bindRecords(RAIL, { rows });
+}
+
+/** The rail as a test writes it: the same sources under the library's key, its controls as the toolbar's chips use them. */
+const railChrome = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({ slice: rail() }))), getRegisteredPlatformImplementations());
+
+/**
+ * The pages' part of the mounted library's rail: what a test chooses a field's values through, as a chip does.
+ *
+ * @returns Its controls
+ */
+function pagesRail(): ValueTypeOf<RecordSliceBindType> {
+    return railChrome().slice.parts.find((part) => part.source === "rows")!.slice;
+}
+
 /** Where the surface holds the page open in its builder. */
 const OPEN = "library-test.open";
 
+/** How the library is mounted: given no open page, or no `templates` source, or a name, or sources scoped otherwise. */
+interface MountOptions {
+    readonly marked?: boolean;
+    readonly templates?: boolean;
+    readonly id?: string;
+    readonly kinds?: Kinds;
+}
+
 /**
- * The page library over the record, as a surface mounts it: the surface holds
- * the open page — the Detail to begin with — gives it to the page library, and
- * writes it when told of another, with a line saying which page is open.
+ * The page library over the record, as a surface mounts it: the record bound to write, its rows paged through the rail,
+ * and the open page the surface holds — the Detail to begin with — given to it, and written when told of another, with
+ * a line saying which page is open. Given no open page, it is told which page was asked for, and says so. Given a name,
+ * the library is named.
  */
-const library = {
-    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
-        const open = $.let(State.bind([StudioKeyType], OPEN, { project: "ops", page: "a-detail" }));
-        const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
-        const page = $.let(open.read());
-        return Stack.VStack([
-            Text.Root(East.str`open ${page.project}/${page.page}`),
-            Studio.Library({ pages: record, components: listed, project: "ops", page, onOpen }),
-        ]);
-    }))),
-};
-
-/** The page library given no open page: it is told which page was asked for, and says so. */
-const unmarked = {
-    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
-        const told = $.let(State.bind([StringType], "library-test.told", "nothing"));
-        const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(told.write(East.str`${key.project}/${key.page}`)); }));
-        return Stack.VStack([
-            Text.Root(East.str`told ${told.read()}`),
-            Studio.Library({ pages: record, components: listed, project: "ops", onOpen }),
-        ]);
-    }))),
-};
-
-/** Mount the page library under the page's drag layer, once what it reads has loaded. */
-const mountLibrary = () => h.mount(library, { storageKey: "studio-library" });
+function surface(options: MountOptions = {}) {
+    const named = options.id === undefined ? {} : { id: options.id };
+    return {
+        fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const listed = $.let(components);
+            const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+            const slice = $.let(rail(options.templates !== false, options.kinds));
+            const open = $.let(State.bind([StudioKeyType], OPEN, { project: "ops", page: "a-detail" }));
+            const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
+            const page = $.let(open.read());
+            const library = $.let(options.marked === false
+                ? Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, onOpen, ...named })
+                : Studio.Library({ pages: record, components: listed, project: "ops", slice: { slice }, page, onOpen, ...named }));
+            return Stack.VStack([Text.Root(East.str`open ${page.project}/${page.page}`), library]);
+        }))),
+    };
+}
 
 /** The page the surface holds as open. */
 function hostPage(): Key | undefined {
@@ -162,225 +234,289 @@ async function commits(): Promise<string[]> {
     return (await h.history(ex.studioPages)).commits.map((c) => c.mutation);
 }
 
-/** The pane beside the rows. */
-const pane = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-page-library-pane]")!;
-/** A row's gallery: the templates' or the pages'. */
-const gallery = (c: HTMLElement, row: "templates" | "pages") => c.querySelector<HTMLElement>(`[data-section="${row}"] [data-library]`)!;
-/** A gallery's card titles, in their order. */
-const titles = (g: HTMLElement) => [...g.querySelectorAll("[data-library-card]")].map((card) => card.getAttribute("data-library-card"));
-/** The pane's pages, by name, in their order. */
-const paneRows = (c: HTMLElement) => [...pane(c).querySelectorAll("[data-page-library-page]")].map((row) => row.getAttribute("data-page-library-page"));
+/** The cards, in order. */
+const cards = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-library-gallery] [data-library-card]")];
+/** The cards' titles, in order. */
+const titles = (container: HTMLElement) => cards(container).map((card) => card.querySelector("[data-library-title]")!.textContent);
+/** A card, by its title. */
+const cardOf = (container: HTMLElement, title: string) => cards(container).find((card) => card.querySelector("[data-library-title]")!.textContent === title)!;
+/** A part of a card — the Library's gallery card's — as it reads; `undefined` where the card draws none. */
+const partOf = (card: HTMLElement, part: string) => card.querySelector(`[data-library-${part}]`)?.textContent;
+/** A card's tags. */
+const tagsShownOn = (card: HTMLElement) => [...card.querySelectorAll('[data-library-dim="tags"] > *')].map((tag) => tag.textContent);
+/** The cards marked as the page open in the builder. */
+const marked = (container: HTMLElement) => cards(container).filter((card) => card.hasAttribute("data-placed")).map((card) => card.querySelector("[data-library-title]")!.textContent);
+/** The toolbar's words. */
+const toolbarSays = (container: HTMLElement) => slot(container, "toolbar").textContent ?? "";
+/** The New page popover. */
+const popover = () => within(screen.getByRole("dialog"));
+/** A field of the popover's form, by its label. */
+const fieldOf = (label: string) => popover().getByText(label).closest<HTMLElement>("[data-field]")!;
+/** The popover's project field's box, by its label; `null` while it has none. */
+const projectBox = () => popover().queryByText("Project")?.closest<HTMLElement>("[data-field]")!.querySelector<HTMLInputElement>("input") ?? null;
+/** The popover's tags box. */
+const tagsBox = () => fieldOf("Tags").querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+/** Whether the popover has closed. */
+const closed = () => waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-/** Opens a menu from the keyboard, then arrows down to an item and picks it — Zag's pointer handling needs a real pointer. */
-async function pickFromMenu(trigger: HTMLElement, name: string) {
-    await act(async () => { trigger.focus(); fireEvent.keyDown(trigger, { key: "ArrowDown" }); });
-    const menu = screen.getByRole("menu");
-    for (let step = 0; step < 20 && menu.querySelector("[data-highlighted]")?.textContent !== name; step++) {
-        await act(async () => { fireEvent.keyDown(menu, { key: "ArrowDown" }); });
-    }
-    await act(async () => { fireEvent.keyDown(menu, { key: "Enter" }); });
+/** A press on an element, and what it leads to settled. */
+async function press(el: Element) {
+    await act(async () => { fireEvent.click(el); });
     await settle();
 }
 
-describe("<Studio.Library> (#997)", () => {
-    test("D1: headerless, with one toolbar row — the search counting the pages and templates, Sort · Name, Grid · List, a rule and the primary action", async () => {
-        const { container } = await mountLibrary();
-        const root = container.querySelector<HTMLElement>("[data-studio-page-library]")!;
-        expect(root.firstElementChild!.getAttribute("data-slot")).toBe("toolbar");
-        expect(root.querySelectorAll("[data-toolbar]")).toHaveLength(1);
-        const items = [...root.firstElementChild!.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
-        expect(items).toEqual(["search", "sort", "layout", "rule", "new"]);
-        // Three pages; two templates and Blank grid.
-        expect(screen.getByRole("textbox", { name: "Search pages and templates" }).getAttribute("placeholder")).toBe("Search 3 pages and 3 templates…");
-        expect(screen.getByRole("button", { name: "Sort · Name" })).toBeTruthy();
-        expect(screen.getByRole("radiogroup", { name: "Layout" })).toBeTruthy();
-        expect(screen.getByRole("button", { name: "New page in ops" }).textContent).toBe("New page in ops");
-        // The galleries draw no toolbar of their own.
-        expect(gallery(container, "templates").querySelector("[data-toolbar]")).toBeNull();
-        expect(gallery(container, "pages").querySelector("[data-toolbar]")).toBeNull();
+/** Mounts the library, and waits for its first cards. */
+async function mount(options: MountOptions = {}) {
+    const mounted = await h.mount(surface(options), { storageKey: "studio-library" });
+    await vi.waitFor(() => expect(cards(mounted.container).length).toBeGreaterThan(0));
+    await settle();
+    return mounted;
+}
+
+/** Shows the templates, and waits for their cards. */
+async function showTemplates(container: HTMLElement) {
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "Templates" }));
+    await vi.waitFor(() => expect(titles(container)).toEqual(TEMPLATE_TITLES));
+}
+
+/** Names the page in the open popover, and presses Create page. */
+async function create(name: string) {
+    await act(async () => { fireEvent.change(popover().getByRole("textbox", { name: "Page name" }), { target: { value: name } }); });
+    await press(popover().getByRole("button", { name: "Create page" }));
+}
+
+describe("<Studio.Library> — its frame (#1762)", () => {
+    test("one BuilderFrame: the toolbar holding Pages · Templates, the pages' rail fields and New page, over the cards — with no pane, and no search, Sort or layout switch of its own; nothing says Live or Draft (L9)", async () => {
+        const { container } = await mount();
+        expect(container.querySelectorAll("[data-builder-frame]")).toHaveLength(1);
+        const toolbar = slot(container, "toolbar");
+        const views = within(toolbar).getByRole("radiogroup", { name: "Pages or templates" });
+        expect(within(views).getAllByRole("radio").map((radio) => [radio.textContent, radio.getAttribute("aria-checked")])).toEqual([["Pages", "true"], ["Templates", "false"]]);
+        expect([...toolbar.querySelectorAll("[data-record-slice-field]")].map((field) => field.textContent)).toEqual(["Name", "Project", "Tag"]);
+        expect(within(toolbar).getByRole("button", { name: "New page" })).toBeTruthy();
+        // What it keeps is under the library's own key, each view's apart, the payload given no name.
+        expect(slot(container, "main").querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.pages");
+        expect([container.querySelector('[data-frame-slot="start"]'), container.querySelector('[data-frame-slot="end"]')]).toEqual([null, null]);
+        expect([screen.queryByRole("textbox", { name: "Search pages and templates" }), screen.queryByRole("button", { name: "Sort · Name" }), screen.queryByRole("radiogroup", { name: "Layout" })])
+            .toEqual([null, null, null]);
+        expect(container.textContent).not.toMatch(/\b(Live|Draft)\b/);
+        // It has no recipe of its own: the frame, the grid, a card and New page are the shared ones'.
+        expect(system._config.theme?.slotRecipes?.["studioLibrary"]).toBeUndefined();
     });
 
-    test("D2: the pane — the projects, the shown one in the brand; the project's pages with their status dots and count, the open one marked; the legend", async () => {
-        const { container } = await mountLibrary();
-        const projects = [...pane(container).querySelectorAll<HTMLElement>("[data-page-library-project]")];
-        expect(projects.map((p) => p.textContent)).toEqual(["ops", "retail"]);
-        expect(projects[0]!.hasAttribute("data-active")).toBe(true);
-        expect(projects[0]!.querySelector("svg[data-icon=folder-open]")).not.toBeNull();
-        expect(projects[1]!.querySelector("svg[data-icon=folder]")).not.toBeNull();
-        expect(within(pane(container)).getByText("Pages").nextElementSibling!.textContent).toBe("3");
-        expect(paneRows(container)).toEqual(["a-detail", "b-overview", "c-weekly"]);
-        const row = (name: string) => pane(container).querySelector<HTMLElement>(`[data-page-library-page="${name}"]`)!;
-        expect(within(row("b-overview")).getByRole("img", { name: "Live" })).toBeTruthy();
-        expect(within(row("a-detail")).getByRole("img", { name: "Draft" })).toBeTruthy();
-        expect(within(row("c-weekly")).getByRole("img", { name: "Draft" })).toBeTruthy();
-        // The page its host says is open in the builder is marked, and only it.
-        expect(row("a-detail").getAttribute("aria-current")).toBe("page");
-        expect(pane(container).querySelectorAll("[aria-current=page]")).toHaveLength(1);
-        expect(container.querySelector("[data-page-library-legend]")!.textContent).toBe("LiveDraft");
+    test("a slice with no `templates` source has no Pages · Templates: its cards are the pages", async () => {
+        const { container } = await mount({ templates: false });
+        expect(within(slot(container, "toolbar")).queryByRole("radiogroup", { name: "Pages or templates" })).toBeNull();
+        expect(titles(container)).toEqual(PAGE_TITLES);
     });
 
-    test("D2: a project's click shows its pages; a page's click tells the host, which holds the open page — the page library marks the one it is given, and writes no entry of its own", async () => {
-        const { container } = await mountLibrary();
-        await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-page=\"b-overview\"]")!); });
-        await settle();
-        expect(hostPage()).toEqual({ project: "ops", page: "b-overview" });
-        expect(screen.getByText("open ops/b-overview")).toBeTruthy();
-        expect(pane(container).querySelector("[data-page-library-page=\"b-overview\"]")!.getAttribute("aria-current")).toBe("page");
-        expect(sharedEntry()).toBeUndefined();
-
-        await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-project=\"retail\"]")!); });
-        await settle();
-        expect(paneRows(container)).toEqual(["home"]);
-        expect(titles(gallery(container, "pages"))).toEqual(["home"]);
-        expect(screen.getByRole("button", { name: "New page in retail" })).toBeTruthy();
-        // The open page is another project's: none of these is marked.
-        expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
-    });
-
-    test("#1668: given no open page it marks none, and a page's click still tells its host — once a click", async () => {
-        const { container } = await h.mount(unmarked, { storageKey: "studio-library" });
-        expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
-        expect(screen.getByText("told nothing")).toBeTruthy();
-        await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-page=\"c-weekly\"]")!); });
-        await settle();
-        expect(screen.getByText("told ops/c-weekly")).toBeTruthy();
-        // Told, it opened nothing itself: no page is marked, and no entry is written for a builder to read.
-        expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
-        expect(sharedEntry()).toBeUndefined();
-    });
-
-    test("D3: Templates, clone to start a page — Blank grid first, then the project's templates; each with its wireframe, its title and what it places", async () => {
-        const { container } = await mountLibrary();
-        const templates = gallery(container, "templates");
-        expect(titles(templates)).toEqual(["", "t-empty", "t-summary"]);
-        const card = (name: string) => templates.querySelector<HTMLElement>(`[data-library-card="${name}"]`)!;
-        expect(card("").textContent).toBe("Blank grid12-col · empty");
-        expect(card("t-summary").textContent).toContain("KPI rail ×2 · Revenue trend");
-        // Its media is the layout's wireframe: the snap grid, a tile per placement.
-        expect(card("t-summary").querySelectorAll("[data-library-media] [data-snap-grid-variant=wireframe] [data-snap-grid-cell]")).toHaveLength(3);
-        expect(templates.querySelector("[data-library-add]")).toBeNull();
-        expect(container.querySelector('[data-section="templates"]')!.firstElementChild!.textContent).toBe("Templatesclone to start a page");
-    });
-
-    test("D4: Pages, N in the project — each with its wireframe, its title and status, how many components it places and Open in builder →; the dashed card last", async () => {
-        const { container } = await mountLibrary();
-        const pages = gallery(container, "pages");
-        expect(titles(pages)).toEqual(["a-detail", "b-overview", "c-weekly"]);
-        const card = (name: string) => pages.querySelector<HTMLElement>(`[data-library-card="${name}"]`)!;
-        expect(within(card("b-overview")).getByText("Overview")).toBeTruthy();
-        expect(card("b-overview").querySelector("[data-library-status]")!.textContent).toBe("Live");
-        expect(card("a-detail").querySelector("[data-library-status]")!.textContent).toBe("Draft");
-        expect(within(card("b-overview")).getByText("3 components")).toBeTruthy();
-        expect(within(card("a-detail")).getByText("1 component")).toBeTruthy();
-        expect(card("b-overview").querySelector("[data-library-action]")!.textContent).toBe("Open in builder →");
-        expect(card("b-overview").querySelectorAll("[data-library-media] [data-snap-grid-variant=wireframe] [data-snap-grid-cell]")).toHaveLength(3);
-        expect(pages.querySelector("[data-library-add]")!.textContent).toBe("New page from template");
-        expect(container.querySelector("[data-page-library-shown]")!.textContent).toBe("3 in ops");
-
-        await act(async () => { fireEvent.click(card("c-weekly")); });
-        await settle();
-        expect(hostPage()).toEqual({ project: "ops", page: "c-weekly" });
-        expect(screen.getByText("open ops/c-weekly")).toBeTruthy();
-    });
-
-    test("D6: the search narrows both rows by title; Sort Z–A reverses them; Grid · List lays the pages out", async () => {
-        const { container } = await mountLibrary();
-        await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Search pages and templates" }), { target: { value: "SUM" } }); });
-        await settle();
-        expect(titles(gallery(container, "templates"))).toEqual(["t-summary"]);
-        expect(titles(gallery(container, "pages"))).toEqual([]);
-        expect(container.querySelector("[data-page-library-shown]")!.textContent).toBe("0 of 3 in ops");
-        await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Search pages and templates" }), { target: { value: "" } }); });
-        await settle();
-        expect(titles(gallery(container, "pages"))).toEqual(["a-detail", "b-overview", "c-weekly"]);
-
-        await pickFromMenu(screen.getByRole("button", { name: "Sort · Name" }), "Name Z–A");
-        expect(titles(gallery(container, "templates"))).toEqual(["", "t-summary", "t-empty"]);
-        expect(titles(gallery(container, "pages"))).toEqual(["c-weekly", "b-overview", "a-detail"]);
-        expect(paneRows(container)).toEqual(["c-weekly", "b-overview", "a-detail"]);
-
-        const grid = () => gallery(container, "pages").querySelector<HTMLElement>("[data-layout]")!;
-        expect(grid().getAttribute("data-layout")).toBe("grid");
-        await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "List view" })); });
-        await settle();
-        expect(grid().getAttribute("data-layout")).toBe("list");
-        expect(screen.getByRole("radio", { name: "List view" }).getAttribute("aria-checked")).toBe("true");
+    test("named, it keeps what it keeps under its name, each view's apart: two libraries on a surface keep theirs apart", async () => {
+        const { container } = await mount({ id: "ops" });
+        expect(container.querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.ops.pages");
+        await showTemplates(container);
+        expect(container.querySelector("[data-library-gallery]")!.getAttribute("data-library")).toBe("studio.library.ops.templates");
     });
 });
 
-describe("<Studio.Library> — a new page (#997)", () => {
-    /** The New page popover. */
-    const popover = () => within(screen.getByRole("dialog"));
-    /** The New page button's popover trigger — what the popover hangs from. */
-    const hangsFrom = () => screen.getByRole("button", { name: "New page in ops" }).closest("[data-part=trigger]")!;
-    /** The template picker's trigger, showing the template the page starts from. */
-    const picked = () => document.querySelector("[data-page-library-template]")!.textContent;
+describe("<Studio.Library> — its cards (#1762)", () => {
+    test("a page a card, in the order e3 pages them: a wireframe of its layout, its title, what it places, its tags, and its project and how many components it places, with Open in builder", async () => {
+        const { container } = await mount();
+        expect(titles(container)).toEqual(PAGE_TITLES);
+        const overview = cardOf(container, "Overview");
+        expect([partOf(overview, "sublabel"), partOf(overview, "byline"), partOf(overview, "action")])
+            .toEqual(["KPI rail ×2 · Revenue trend", "ops · 3 components", "Open in builder →"]);
+        expect(tagsShownOn(overview)).toEqual(["operations", "weekly"]);
+        expect(overview.querySelectorAll("[data-library-media] [data-snap-grid-variant=wireframe] [data-snap-grid-cell]")).toHaveLength(3);
+        const detail = cardOf(container, "Detail");
+        expect([partOf(detail, "sublabel"), partOf(detail, "byline"), tagsShownOn(detail)]).toEqual(["Revenue trend", "ops · 1 component", []]);
+        // A layout that places nothing says so; a page of another project names it.
+        expect([partOf(cardOf(container, "Weekly"), "sublabel"), partOf(cardOf(container, "Home"), "byline")]).toEqual(["12-col · empty", "retail · 0 components"]);
+    });
 
-    test("D5: from the toolbar — a name and Blank grid — one commit inserting the page, empty and never published; the popover closes", async () => {
-        const { container } = await mountLibrary();
-        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New page in ops" })); });
+    test("under Templates, a template a card — its wireframe, its title, what it places — with Start a page; the rail is the templates'", async () => {
+        const { container } = await mount();
+        await showTemplates(container);
+        const summary = cardOf(container, "Summary");
+        expect([partOf(summary, "sublabel"), partOf(summary, "byline"), partOf(summary, "action")]).toEqual(["KPI rail ×2 · Revenue trend", "ops · 3 components", "Start a page →"]);
+        expect(summary.querySelectorAll("[data-library-media] [data-snap-grid-cell]")).toHaveLength(3);
+        expect([...slot(container, "toolbar").querySelectorAll("[data-record-slice-field]")].map((field) => field.textContent)).toEqual(["Name"]);
+        // No page's card is marked among the templates.
+        expect(marked(container)).toEqual([]);
+    });
+});
+
+describe("<Studio.Library> — opening a page (#1762 L6)", () => {
+    test("the page its host says is open is marked; a press on another page's card tells the host its page, and writes nothing itself", async () => {
+        const { container } = await mount();
+        expect(marked(container)).toEqual(["Detail"]);
+        expect(partOf(cardOf(container, "Detail"), "status")).toBe("Open");
+        await press(cardOf(container, "Overview"));
+        expect([hostPage(), screen.getByText(/^open /).textContent, marked(container)]).toEqual([{ project: "ops", page: "b-overview" }, "open ops/b-overview", ["Overview"]]);
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("⏎ and Space on a card, the keyboard on it, each tell the host its page; ⌘ or Ctrl ⏎ tells nothing", async () => {
+        const { container } = await mount();
+        const weekly = cardOf(container, "Weekly");
+        expect([weekly.getAttribute("role"), weekly.tabIndex]).toEqual(["button", 0]);
+        await act(async () => { weekly.focus(); fireEvent.keyDown(weekly, { key: "Enter", metaKey: true }); fireEvent.keyDown(weekly, { key: "Enter", ctrlKey: true }); });
         await settle();
-        expect(hangsFrom().getAttribute("data-state")).toBe("open");
-        expect(popover().getByText("New page ·").textContent).toBe("New page · ops");
-        expect(picked()).toBe("Blank grid");
-        // Help while the name is missing, and the commit waits for one.
-        expect(popover().getByText("Give the page a name to create it.")).toBeTruthy();
-        expect((popover().getByRole("button", { name: "Create page" }) as HTMLButtonElement).disabled).toBe(true);
-        await act(async () => { fireEvent.change(popover().getByRole("textbox", { name: "Page name" }), { target: { value: "Q3 review" } }); });
-        expect(popover().queryByText("Give the page a name to create it.")).toBeNull();
-        await act(async () => { fireEvent.click(popover().getByRole("button", { name: "Create page" })); });
+        expect(hostPage()).toEqual({ project: "ops", page: "a-detail" });
+        await act(async () => { fireEvent.keyDown(weekly, { key: "Enter" }); });
         await settle();
-        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect(hostPage()).toEqual({ project: "ops", page: "c-weekly" });
+        await act(async () => { fireEvent.keyDown(cardOf(container, "Home"), { key: " " }); });
+        await settle();
+        expect([hostPage(), marked(container)]).toEqual([{ project: "retail", page: "home" }, ["Home"]]);
+    });
+
+    test("#1668: given no open page it marks none, and a card's press still tells its host", async () => {
+        const { container } = await mount({ marked: false });
+        expect(marked(container)).toEqual([]);
+        await press(cardOf(container, "Weekly"));
+        expect([hostPage(), marked(container), sharedEntry()]).toEqual([{ project: "ops", page: "c-weekly" }, [], undefined]);
+    });
+});
+
+describe("<Studio.Library> — a new page (#1762 L10, L12)", () => {
+    test("from New page: a blank grid, the project offered, and tags — one commit inserting the page, its tags kept, never published; the popover closes, and the host is told the new page", async () => {
+        const { container } = await mount();
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "New page" }));
+        expect(screen.getByRole("button", { name: "New page" }).closest("[data-part=trigger]")!.getAttribute("data-state")).toBe("open");
+        expect(popover().getByText("Starts as a blank grid.")).toBeTruthy();
+        expect(projectBox()!.value).toBe("ops");
+        await act(async () => { fireEvent.change(projectBox()!, { target: { value: "retail" } }); });
+        const user = userEvent.setup();
+        await user.click(tagsBox());
+        await user.type(tagsBox(), "floor {Enter}");
+        await settle();
+        await create("Q3 review");
+        await closed();
         expect(await commits()).toEqual(["patch", ...before]);
-        expect((await readRecord()).get({ project: "ops", page: "Q3 review" })).toEqual(
-            variant("page", { draft: { title: "Q3 review", cells: [], filters: [] }, live: none }),
-        );
-        expect(paneRows(container)).toContain("Q3 review");
+        const key: Key = { project: "retail", page: "Q3 review" };
+        const expected: Entry = {
+            kind: variant("page", null), project: "retail", title: "Q3 review", tags: tagsOf("floor"),
+            draft: { title: "Q3 review", cells: [], filters: [] }, live: none,
+        };
+        expect(sameEntry((await readRecord()).get(key)!, expected)).toBe(true);
+        expect([hostPage(), screen.getByText(/^open /).textContent]).toEqual([key, "open retail/Q3 review"]);
+        await vi.waitFor(() => expect(titles(container)).toContain("Q3 review"));
     });
 
-    test("D5: a template's card opens it under the New page button, starting from that template; the page's draft is the template's placements", async () => {
-        const { container } = await mountLibrary();
-        await act(async () => { fireEvent.click(gallery(container, "templates").querySelector("[data-library-card=\"t-summary\"]")!); });
-        await settle();
-        expect(hangsFrom().getAttribute("data-state")).toBe("open");
-        expect(picked()).toBe("Summary");
-        await act(async () => { fireEvent.change(popover().getByRole("textbox", { name: "Page name" }), { target: { value: "Board" } }); });
-        await act(async () => { fireEvent.click(popover().getByRole("button", { name: "Create page" })); });
-        await settle();
+    test("from a template's card: New page opens, starting from it — the page's draft its placements — and the host is told the new page", async () => {
+        const { container } = await mount();
+        await showTemplates(container);
+        await press(cardOf(container, "Summary"));
+        expect(screen.getByRole("button", { name: "New page" }).closest("[data-part=trigger]")!.getAttribute("data-state")).toBe("open");
+        expect(popover().getByText("Starts from Summary.")).toBeTruthy();
+        await create("Board");
+        await closed();
         const page = (await readRecord()).get({ project: "ops", page: "Board" })!;
-        if (page.type !== "page") throw new Error("expected a page");
-        expect(page.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi-1", "c-kpi-2", "c-trend"]);
-        expect(page.value.live).toEqual(none);
+        expect([page.kind.type, page.draft.cells.map((c) => c.key), page.live.type]).toEqual(["page", ["c-kpi-1", "c-kpi-2", "c-trend"], "none"]);
+        expect(hostPage()).toEqual({ project: "ops", page: "Board" });
     });
 
-    test("D5: the dashed card opens it from Blank grid; a name the project holds is the field's error, and nothing is written", async () => {
-        const { container } = await mountLibrary();
-        await act(async () => { fireEvent.click(gallery(container, "pages").querySelector("[data-library-add]")!); });
-        await settle();
-        expect(hangsFrom().getAttribute("data-state")).toBe("open");
-        expect(picked()).toBe("Blank grid");
-        const name = popover().getByRole("textbox", { name: "Page name" });
-        await act(async () => { fireEvent.change(name, { target: { value: "t-summary" } }); });
-        expect(popover().getByText("t-summary is already a page or a template here.")).toBeTruthy();
-        expect(name.getAttribute("aria-invalid")).toBe("true");
-        expect((popover().getByRole("button", { name: "Create page" }) as HTMLButtonElement).disabled).toBe(true);
-        await act(async () => { fireEvent.click(popover().getByRole("button", { name: "Cancel" })); });
-        await settle();
-        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    test("a name the project holds — a page's or a template's — is refused by the commit, in the popover, which stays open, as a name taken; a page with no project is refused before it is written", async () => {
+        const { container } = await mount();
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "New page" }));
+        await create("a-detail");
+        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("a-detail is already a page or a template here."));
+        await create("t-summary");
+        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("t-summary is already a page or a template here."));
+        await act(async () => { fireEvent.change(projectBox()!, { target: { value: "  " } }); });
+        await create("Somewhere");
+        await vi.waitFor(() => expect(popover().getByRole("alert").textContent).toBe("Give the page a project to create it."));
         expect(await commits()).toEqual(before);
+        expect(hostPage()).toEqual({ project: "ops", page: "a-detail" });
     });
 
-    test("D5: the template picker offers Blank grid and the project's templates; its chevron and the picked one's check are Font Awesome's (#1263)", async () => {
-        await mountLibrary();
-        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New page in ops" })); });
-        await settle();
-        await act(async () => { fireEvent.click(document.querySelector("[data-page-library-template]")!); });
-        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Blank grid", "Empty", "Summary"]);
-        const control = document.querySelector("[data-page-library-template]")!.closest<HTMLElement>('[data-scope="select"][data-part="control"]')!;
-        expect(markOf(control.querySelector('[data-part="indicator"]'))).toBe("fas chevron-down");
-        const checks = screen.getAllByRole("option").map((o) => o.querySelector<HTMLElement>('[data-part="item-indicator"]')!);
-        expect(checks.map((check) => [markOf(check), check.hidden])).toEqual([["fas check", false], ["fas check", true], ["fas check", true]]);
-        // No icon of Chakra's own is left in the picker.
-        expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
+    test("L12: the rail narrowed to one project, New page names it, asks for no project, and makes the page there; the rail narrows the cards and their count", async () => {
+        const { container } = await mount();
+        await act(async () => { pagesRail().choose("project", [printText("retail")]); });
+        await vi.waitFor(() => expect(titles(container)).toEqual(["Home"]));
+        expect(toolbarSays(container)).toContain("1 of 4 pages");
+        await press(within(slot(container, "toolbar")).getByRole("button", { name: "New page in retail" }));
+        expect(popover().getByText("New page ·").textContent).toBe("New page · retail");
+        expect(projectBox()).toBeNull();
+        await create("Shop floor");
+        await closed();
+        expect((await readRecord()).get({ project: "retail", page: "Shop floor" })?.kind.type).toBe("page");
+        expect(hostPage()).toEqual({ project: "retail", page: "Shop floor" });
+    });
+
+    test("L12, east-workspace#1779: over the templates New page follows the rail shown, never the pages' — the pages narrowed to one project, it names none, and from a template's card asks for the project, offering the template's own", async () => {
+        const { container } = await mount();
+        await act(async () => { pagesRail().choose("project", [printText("retail")]); });
+        await vi.waitFor(() => expect(titles(container)).toEqual(["Home"]));
+        await showTemplates(container);
+        const toolbar = within(slot(container, "toolbar"));
+        expect(toolbar.queryByRole("button", { name: "New page in retail" })).toBeNull();
+        expect(toolbar.getByRole("button", { name: "New page" })).toBeTruthy();
+        await press(cardOf(container, "Summary"));
+        expect(projectBox()!.value).toBe("ops");
+        await create("Board");
+        await closed();
+        expect((await readRecord()).get({ project: "ops", page: "Board" })?.kind.type).toBe("page");
+        expect(hostPage()).toEqual({ project: "ops", page: "Board" });
+    });
+});
+
+describe("<Studio.Library> — a source scoped to another kind of entry (east-workspace#1779)", () => {
+    test("a Templates view whose source lists the pages is refused in the library's place: no frame and no card, and the scope to give it", async () => {
+        const { container } = await h.mount(surface({ kinds: { rows: ["page"], templates: ["page"] } }), { storageKey: "studio-library" });
+        await vi.waitFor(() => expect(container.textContent).toContain("The Templates view's source isn't scoped to the templates"));
+        expect(container.textContent).toContain("Scope the slice's templates source to them, with scope: { kind: [\"template\"] }.");
+        expect([container.querySelector("[data-builder-frame]"), cards(container)]).toEqual([null, []]);
+    });
+
+    test("a Pages view whose source lists both kinds is refused the same way, naming its own scope", async () => {
+        const { container } = await h.mount(surface({ kinds: { rows: ["page", "template"], templates: ["template"] } }), { storageKey: "studio-library" });
+        await vi.waitFor(() => expect(container.textContent).toContain("The Pages view's source isn't scoped to the pages"));
+        expect(container.textContent).toContain("Scope the slice's rows source to them, with scope: { kind: [\"page\"] }.");
+        expect([container.querySelector("[data-builder-frame]"), cards(container)]).toEqual([null, []]);
+    });
+});
+
+describe("<Studio.Library> — what it reads (#1762)", () => {
+    test("opening the library and a page from it never reads the record whole, and writes nothing: its cards are e3's pages", async () => {
+        const { container } = await mount();
+        await press(cardOf(container, "Overview"));
+        expect(h.requests("read").filter((request) => request.record === ex.studioPages.name)).toEqual([]);
+        expect(h.requests("mutate")).toEqual([]);
+    });
+
+    test("a press works out no card again: what a layout places is worked out once an entry, the open mark alone moving (east-workspace#1779)", async () => {
+        const { container } = await mount();
+        const summary = vi.spyOn(studioEast(), "layoutSummary");
+        try {
+            await press(cardOf(container, "Overview"));
+            await press(cardOf(container, "Weekly"));
+            expect(marked(container)).toEqual(["Weekly"]);
+            expect(summary).not.toHaveBeenCalled();
+        } finally {
+            summary.mockRestore();
+        }
+    });
+
+    test("a page made meanwhile — in another session — shows as the record moves", async () => {
+        const { container } = await mount();
+        const next = Studio.value([...ENTRIES, { key: { project: "ops", page: "d-later" }, draft: { title: "Later", cells: [], filters: [] } }]);
+        await act(async () => { await h.patch(ex.studioPages, next); });
+        await vi.waitFor(() => expect(titles(container)).toEqual(["Detail", "Overview", "Weekly", "Later", "Home"]));
+    });
+
+    test("with no page it says so, and what to do; a narrowing that leaves none says so, and its Clear filters brings every card back", async () => {
+        const { container } = await mount();
+        await act(async () => { pagesRail().choose("tags", [printText("nothing-tagged-so")]); });
+        await vi.waitFor(() => expect(container.querySelector("[data-library-empty]")).not.toBeNull());
+        const empty = container.querySelector<HTMLElement>("[data-library-empty]")!;
+        expect(empty.textContent).toContain("No pages match the filters");
+        await press(within(empty).getByRole("button", { name: /Clear filters/ }));
+        await vi.waitFor(() => expect(titles(container)).toEqual(PAGE_TITLES));
+
+        const templatesOnly = Studio.value([{ key: { project: "ops", page: "t-empty" }, template: { title: "Empty", cells: [], filters: [] } }]);
+        await act(async () => { await h.patch(ex.studioPages, templatesOnly); });
+        await vi.waitFor(() => expect(container.querySelector("[data-library-empty]")?.textContent).toContain("No pages yet"));
+        expect(container.querySelector("[data-library-empty]")!.textContent).toContain("Start one with New page.");
     });
 });

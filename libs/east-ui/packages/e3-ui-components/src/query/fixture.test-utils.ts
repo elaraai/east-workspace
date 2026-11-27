@@ -23,7 +23,8 @@ import {
 import { Query } from "@elaraai/e3-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
-import type { SavedQuery } from "./session.js";
+import { queryEast } from "./query-east.js";
+import { noTags, type SavedQuery } from "./session.js";
 
 /** The saved queries record. */
 export type Saved = ValueTypeOf<typeof Query.Types.Saved>;
@@ -50,13 +51,14 @@ export const ROOT: QueryRoot = queryRoot([
     { name: "customers", path: CUSTOMERS, type: toEastTypeValue(CustomersType) },
 ]);
 
-/** A saved query over a root — the orders' and the customers' unless given — checked as a save there checks it. */
+/** A saved query over a root — the orders' and the customers' unless given — checked as a save there checks it: untagged, its sources as a save gives them. */
 export function savedQuery(name: string, program: string, description = none as ValueTypeOf<OptionType<typeof StringType>>, root: QueryRoot = ROOT): SavedQuery {
     const checked = checkJq(program, root.type, { root: true });
     if (checked.program === null) throw new Error(`${program}: ${checked.diagnostics.map(d => d.message).join("; ")}`);
+    const reads = root.entries.filter(e => checked.reads.includes(e.name)).map(e => ({ name: e.name, path: e.path }));
     return {
-        name, description, program: checked.program, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
-        root: root.entries.filter(e => checked.reads.includes(e.name)).map(e => ({ name: e.name, path: e.path })),
+        name, description, tags: noTags(), program: checked.program, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
+        root: reads, sources: queryEast().sources(reads),
     };
 }
 

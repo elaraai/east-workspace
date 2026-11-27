@@ -8,14 +8,22 @@
  * the patch every operator action writes it with, and the change list.
  *
  * The Studio exports types; the solution declares its storage like any record,
- * with one write, a patch:
+ * with one write, a patch, the indexes a page lists its entries by, and the
+ * step that carries a record an earlier release wrote:
  *
  * ```ts
  * export const pages = e3.record("pages", Studio.Types.Pages, {
- *     initial: new Map(),
+ *     initial: Studio.value([]),
  *     mutations: (mutation) => ({
  *         patch: mutation.patch(),
  *     }),
+ *     indexes: (index) => ({
+ *         pages_by_kind: index.on(["kind"]),
+ *         pages_by_kind_project: index.on(["kind", "project"]),
+ *         pages_by_kind_tag: index.on(["kind", "tags"]),
+ *         pages_by_kind_title: index.on(["kind", "title"]),
+ *     }),
+ *     migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
  * });
  * ```
  *
@@ -26,12 +34,29 @@
  * names the page, and nothing is overwritten. The type never depends on the
  * components, so a deploy that adds, changes or removes one runs no migration.
  *
+ * An entry is a struct (#1759): what it is — a page or a template — its
+ * project, its title and its tags as fields of its own, beside its layout and
+ * its published version, so a page lists the entries in columns and narrows
+ * them by an index. Each index is led by `kind`, so the pages and the
+ * templates are read apart; the one on `kind` alone is how an entry is found
+ * among its kind's by its key.
+ *
+ * An entry's project is its key's and its title its layout's. Every write that
+ * builds an entry whole builds it through {@link studioEntry} — a new page, a
+ * template saved, a publish, a revert, and `Studio.value` for the entries a
+ * solution ships — and a Save changes its placements or its starting filters
+ * alone. A writer of the solution's own — a seed written by hand, a reducer —
+ * keeps the two as they are: where one leaves them apart, a Save reaches
+ * neither, and the next publish or revert puts them back.
+ *
  * A placement holds its content (#1669): a component's key, a visual an
  * operator builds, or a text block. A page holds its starting filters too
  * (#1673): the filters every reader of it starts with, which its builder sets
- * over its canvas and saves with it. A record whose placements hold a
- * component's key alone, as they did before, is carried by one migration,
- * `Studio.migrations.cellContent`.
+ * over its canvas and saves with it. A record an earlier release wrote is
+ * carried by the steps of `Studio.migrations`: `entryFields`, for entries that
+ * held no fields of their own — listed alone, as above, by a record that never
+ * listed a step, and after `cellContent` by one that listed that step, for
+ * placements that held a component's key alone (`studio/migrations.ts`).
  *
  * @packageDocumentation
  */
@@ -60,6 +85,7 @@ import {
 import { Editing, SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { Record, RecordOutcomeType } from "../bind/record.js";
+import { keptTags } from "../utils/tags.js";
 import { StudioContentType, contentChange } from "./content.js";
 import { StudioKeyType } from "./key.js";
 
@@ -160,22 +186,26 @@ export const StudioLiveType = StructType({
 export type StudioLiveType = typeof StudioLiveType;
 
 /**
- * A page: the layout the builder edits, and the version the site shows.
+ * What an entry of the pages record is.
  *
- * @property draft - The layout as last saved
- * @property live - The published version; `none` until the first publish
+ * @property page - A page: drafted in the builder, and published
+ * @property template - A layout saved from a page, which new pages start from
  */
-export const StudioPageEntryType = StructType({
-    draft: StudioPageType,
-    live: OptionType(StudioLiveType),
+export const StudioEntryKindType = VariantType({
+    page: NullType,
+    template: NullType,
 });
 
-/** Type representing a page. */
-export type StudioPageEntryType = typeof StudioPageEntryType;
+/** Type representing what an entry of the pages record is. */
+export type StudioEntryKindType = typeof StudioEntryKindType;
 
-const StudioEntryTypeImpl = VariantType({
-    page: StudioPageEntryType,
-    template: StudioPageType,
+const StudioEntryTypeImpl = StructType({
+    kind: StudioEntryKindType,
+    project: StringType,
+    title: StringType,
+    tags: SetType(StringType),
+    draft: StudioPageType,
+    live: OptionType(StudioLiveType),
 });
 type StudioEntryTypeImpl = typeof StudioEntryTypeImpl;
 
@@ -192,10 +222,15 @@ type StudioEntryTypeImpl = typeof StudioEntryTypeImpl;
 export interface StudioEntryType extends StudioEntryTypeImpl {}
 
 /**
- * One entry of the pages record.
+ * One entry of the pages record: a page or a template, with the fields a page
+ * lists and narrows the entries by (#1759).
  *
- * @property page - A page, drafted and published
- * @property template - A layout saved from a page, which new pages start from
+ * @property kind - What it is: a page or a template
+ * @property project - Its project: its key's
+ * @property title - Its title: its layout's
+ * @property tags - What a person tagged it, each a word or two to find it by
+ * @property draft - A page's layout as last saved; a template's layout
+ * @property live - A page's published version, `none` until its first publish; a template has none
  */
 export const StudioEntryType: StudioEntryType = StudioEntryTypeImpl;
 
@@ -217,7 +252,9 @@ export interface StudioPagesType extends StudioPagesTypeImpl {}
 /**
  * The pages record's type — every page and template, by key. A solution
  * declares its record with it: `e3.record("pages", Studio.Types.Pages, {
- * initial: new Map(), mutations: … })`, its one mutation a patch.
+ * initial: Studio.value([…]), mutations: …, indexes: …, migrations: … })`, its
+ * one mutation a patch, its indexes each led by `kind`, and the step that
+ * carries a record an earlier release wrote — the module docs spell it out.
  */
 export const StudioPagesType: StudioPagesType = StudioPagesTypeImpl;
 
@@ -363,6 +400,48 @@ export const StudioStatusType = VariantType({
 export type StudioStatusType = typeof StudioStatusType;
 
 // ============================================================================
+// An entry, built
+// ============================================================================
+
+/**
+ * An entry of the pages record, built: its project is its key's and its title
+ * its layout's.
+ *
+ * @remarks
+ * Every write that builds an entry whole builds it through this — a new page,
+ * a template saved, a publish, a revert, and the entries a solution ships
+ * (`Studio.value`) — so its project and its title are what its key and its
+ * layout say, and the record's indexes on them list it where it is. A Save
+ * changes an entry's placements or its starting filters alone
+ * ({@link withDraft}).
+ *
+ * A template has no published version: one built with one is refused, naming
+ * it, so no reader meets a template that says it is published.
+ */
+export const studioEntry = East.function(
+    [StudioKeyType, StudioEntryKindType, StudioPageType, OptionType(StudioLiveType), SetType(StringType)],
+    StudioEntryType,
+    ($, key, kind, draft, live, tags) => {
+        $.if(kind.hasTag("template").and(() => live.hasTag("some")), ($2) => {
+            $2.error(East.str`${East.print(key)} is a template, and a template has no published version`);
+        });
+        return { kind, project: key.project, title: draft.title, tags, draft, live };
+    },
+);
+
+/**
+ * An entry with its layout replaced: its title follows it, and nothing else
+ * changes. What a Save's two sides are built by — the entry as its rows were
+ * read and as they are drafted — so its patch reaches the placements or the
+ * starting filters it changes, and nothing else of the entry.
+ */
+const withDraft = East.function(
+    [StudioEntryType, StudioPageType],
+    StudioEntryType,
+    (_$, entry, draft) => ({ kind: entry.kind, project: entry.project, title: draft.title, tags: entry.tags, draft, live: entry.live }),
+);
+
+// ============================================================================
 // The writes — each one patch through the record's patch mutation
 // ============================================================================
 
@@ -371,8 +450,11 @@ export type StudioStatusType = typeof StudioStatusType;
  * version it replaces, or 1 the first time.
  *
  * @remarks
- * The patch changes the page's live version alone, and carries it as it was:
- * a publish drafted before another one landed is a conflict naming the page.
+ * The entry is built whole ({@link studioEntry}). The patch changes the page's
+ * live version alone, and carries it as it was: a publish drafted before
+ * another one landed is a conflict naming the page. Where a writer of the
+ * solution's own left the entry's project or its title apart from its key and
+ * its layout, the patch puts them back too.
  */
 export const publishPage = East.function(
     [StudioPagesType, StudioKeyType],
@@ -382,18 +464,18 @@ export const publishPage = East.function(
             some: (_$, found) => found,
             none: ($2) => $2.error(East.str`No page ${East.print(key)}`),
         }), StudioEntryType);
-        const page = $.let(entry.match({
-            page: (_$, found) => found,
-            template: ($2) => $2.error(East.str`${East.print(key)} is a template, not a page`),
-        }), StudioPageEntryType);
-        const version = $.let(page.live.match({
+        $.if(entry.kind.hasTag("template"), ($2) => {
+            $2.error(East.str`${East.print(key)} is a template, not a page`);
+        });
+        const version = $.let(entry.live.match({
             some: (_$, live) => live.version.add(1n),
             none: (_$) => East.value(1n),
         }));
         const before = $.let(new Map(), StudioPagesType);
         $(before.insert(key, entry));
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("page", { draft: page.draft, live: some({ version, page: page.draft }) })));
+        const published = $.const(studioEntry);
+        $(after.insert(key, published(key, entry.kind, entry.draft, some({ version, page: entry.draft }), entry.tags)));
         return East.diff(before, after);
     },
 );
@@ -413,59 +495,55 @@ export const revertPage = East.function(
             some: (_$, found) => found,
             none: ($2) => $2.error(East.str`No page ${East.print(key)}`),
         }), StudioEntryType);
-        const page = $.let(entry.match({
-            page: (_$, found) => found,
-            template: ($2) => $2.error(East.str`${East.print(key)} is a template, not a page`),
-        }), StudioPageEntryType);
-        const live = $.let(page.live.match({
+        $.if(entry.kind.hasTag("template"), ($2) => {
+            $2.error(East.str`${East.print(key)} is a template, not a page`);
+        });
+        const live = $.let(entry.live.match({
             some: (_$, found) => found,
             none: ($2) => $2.error(East.str`${East.print(key)} has no published version to revert to`),
         }), StudioLiveType);
         const before = $.let(new Map(), StudioPagesType);
         $(before.insert(key, entry));
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("page", { draft: live.page, live: page.live })));
+        const reverted = $.const(studioEntry);
+        $(after.insert(key, reverted(key, entry.kind, live.page, entry.live, entry.tags)));
         return East.diff(before, after);
     },
 );
 
 /**
- * Starts a page: its draft is a template's cells and starting filters under
- * the title given, or none at all (the blank grid), and it has no live
- * version.
+ * Starts a page: its draft is a layout's cells and starting filters — a
+ * template's, as the page library read it — under the title given, or none at
+ * all (the blank grid), with the tags given, kept as every record's tags are,
+ * and no live version.
  *
  * @remarks
- * The patch inserts the page, so a key another write took first is a conflict
- * naming it.
+ * It reads nothing of the record: the page library reads it a window at a
+ * time (#1762). The patch inserts the page, so a key another write took first
+ * — a page's or a template's of the project — is a conflict naming it, which
+ * is how a name the project holds is refused.
  */
 export const newPage = East.function(
-    [StudioPagesType, StudioKeyType, StringType, OptionType(StudioKeyType)],
+    [StudioKeyType, StringType, OptionType(StudioPageType), SetType(StringType)],
     StudioPagesPatchType,
-    ($, pages, key, title, template) => {
-        $.if(pages.has(key), ($2) => {
-            $2.error(East.str`${East.print(key)} already exists`);
-        });
+    ($, key, title, template, tags) => {
         const from = $.let(template.match({
-            some: (_$, at) => pages.tryGet(at).match({
-                some: (_$2, found) => found.match({
-                    template: (_$3, layout) => layout,
-                    page: ($3) => $3.error(East.str`${East.print(at)} is a page, not a template`),
-                }),
-                none: ($2) => $2.error(East.str`No template ${East.print(at)}`),
-            }),
+            some: (_$, layout) => layout,
             none: (_$) => East.value({ title, cells: [], filters: [] }, StudioPageType),
         }), StudioPageType);
         const before = $.let(new Map(), StudioPagesType);
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("page", { draft: { title, cells: from.cells, filters: from.filters }, live: none })));
+        const entry = $.const(studioEntry);
+        const kept = $.const(keptTags);
+        $(after.insert(key, entry(key, variant("page", null), { title, cells: from.cells, filters: from.filters }, none, kept(tags))));
         return East.diff(before, after);
     },
 );
 
 /**
  * Saves a page's draft as a template, under a key of its own and the title
- * given — its placements and its starting filters; the page library lists it
- * in its Templates row.
+ * given — its placements and its starting filters, with no tags; the page
+ * library lists it in its Templates row.
  *
  * @remarks
  * The patch inserts the template, so a key another write took first is a
@@ -479,42 +557,37 @@ export const saveTemplate = East.function(
             $2.error(East.str`${East.print(key)} already exists`);
         });
         const page = $.let(pages.tryGet(from).match({
-            some: (_$, found) => found.match({
-                page: (_$2, entry) => entry,
+            some: (_$, found) => found.kind.match({
+                page: (_$2) => found.draft,
                 template: ($2) => $2.error(East.str`${East.print(from)} is a template, not a page`),
             }),
             none: ($2) => $2.error(East.str`No page ${East.print(from)}`),
-        }), StudioPageEntryType);
+        }), StudioPageType);
         const before = $.let(new Map(), StudioPagesType);
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("template", { title, cells: page.draft.cells, filters: page.draft.filters })));
+        const entry = $.const(studioEntry);
+        $(after.insert(key, entry(key, variant("template", null), { title, cells: page.cells, filters: page.filters }, none, new Set())));
         return East.diff(before, after);
     },
 );
 
 /** The cells of an entry: a page's draft's, or a template's. */
-const draftCellsOf = East.function([StudioEntryType], ArrayType(StudioCellType), (_$, entry) => entry.match({
-    page: (_$2, page) => page.draft.cells,
-    template: (_$2, layout) => layout.cells,
-}));
+const draftCellsOf = East.function([StudioEntryType], ArrayType(StudioCellType), (_$, entry) => entry.draft.cells);
 
 /** An entry with its cells replaced, and nothing else changed. */
-const withDraftCells = East.function([StudioEntryType, ArrayType(StudioCellType)], StudioEntryType, (_$, entry, cells) => entry.match({
-    page: (_$2, page) => East.value(variant("page", { draft: { title: page.draft.title, cells, filters: page.draft.filters }, live: page.live }), StudioEntryType),
-    template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells, filters: layout.filters }), StudioEntryType),
-}));
+const withDraftCells = East.function([StudioEntryType, ArrayType(StudioCellType)], StudioEntryType, ($, entry, cells) => {
+    const replaced = $.const(withDraft);
+    return replaced(entry, { title: entry.draft.title, cells, filters: entry.draft.filters });
+});
 
 /** The starting filters of an entry: a page's draft's, or a template's. */
-const draftFiltersOf = East.function([StudioEntryType], ArrayType(StudioPageFilterType), (_$, entry) => entry.match({
-    page: (_$2, page) => page.draft.filters,
-    template: (_$2, layout) => layout.filters,
-}));
+const draftFiltersOf = East.function([StudioEntryType], ArrayType(StudioPageFilterType), (_$, entry) => entry.draft.filters);
 
 /** An entry with its starting filters replaced, and nothing else changed. */
-const withDraftFilters = East.function([StudioEntryType, ArrayType(StudioPageFilterType)], StudioEntryType, (_$, entry, filters) => entry.match({
-    page: (_$2, page) => East.value(variant("page", { draft: { title: page.draft.title, cells: page.draft.cells, filters }, live: page.live }), StudioEntryType),
-    template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells: layout.cells, filters }), StudioEntryType),
-}));
+const withDraftFilters = East.function([StudioEntryType, ArrayType(StudioPageFilterType)], StudioEntryType, ($, entry, filters) => {
+    const replaced = $.const(withDraft);
+    return replaced(entry, { title: entry.draft.title, cells: entry.draft.cells, filters });
+});
 
 /**
  * Saves a page's placements: the builder canvas's Apply, which commits its
@@ -741,7 +814,7 @@ export const pageChanges = East.function(
  * layout, and draft otherwise.
  */
 export const pageStatus = East.function(
-    [StudioPageEntryType],
+    [StudioEntryType],
     StudioStatusType,
     (_$, page) => page.live.match({
         some: (_$2, live) => East.equal(live.page, page.draft).ifElse(
@@ -754,6 +827,8 @@ export const pageStatus = East.function(
 
 /** What the page functions are, on the internal `Studio` namespace — the builder's and the page library's, not a solution's. */
 export interface StudioPagesNamespace {
+    /** An entry of the pages record, built from its key, what it is, its layout, its published version and its tags ({@link studioEntry}). */
+    entry: typeof studioEntry;
     /** Saves a page's placements — the builder canvas's Apply ({@link saveCells}). */
     save: typeof saveCells;
     /** Saves a page's starting filters — the builder's Apply of them ({@link saveFilters}). */
@@ -762,7 +837,7 @@ export interface StudioPagesNamespace {
     publish: typeof publishPage;
     /** Reverts a page to its live version ({@link revertPage}). */
     revert: typeof revertPage;
-    /** Starts a page, from a template or blank ({@link newPage}). */
+    /** Starts a page, from a template's layout or blank, with its tags ({@link newPage}). */
     newPage: typeof newPage;
     /** Saves a page's draft as a template ({@link saveTemplate}). */
     saveTemplate: typeof saveTemplate;
@@ -774,6 +849,7 @@ export interface StudioPagesNamespace {
 
 /** The page half of the internal `Studio` namespace. */
 export const StudioPages: StudioPagesNamespace = {
+    entry: studioEntry,
     save: saveCells,
     saveFilters,
     publish: publishPage,

@@ -69,18 +69,24 @@ export function escapeTakenWithin(event: Event, within: Element | null): boolean
 /**
  * Closes a view that lies over another on an Esc from anywhere while it shows,
  * ahead of the one under it, which stays: heard first and taken. A layer open over
- * it keeps its own.
+ * it keeps its own, and so does a control in the view that takes the key itself
+ * and says so ({@link escapeTakenWithin}: a tags box putting back what is typed
+ * in it, east-workspace#1779), where the view is given.
  *
  * @param open - Whether the view shows
  * @param onClose - Closes it
+ * @param view - The view itself, where a control in it may take an Esc
  */
-export function useTopViewEscape(open: boolean, onClose: () => void): void {
+export function useTopViewEscape(open: boolean, onClose: () => void, view?: () => Element | null): void {
     const close = useRef(onClose);
     close.current = onClose;
+    const viewOf = useRef(view);
+    viewOf.current = view;
     useEffect(() => {
         if (!open) return undefined;
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== "Escape" || layerOpen()) return;
+            if (escapeTakenWithin(event, viewOf.current?.() ?? null)) return;
             event.preventDefault();
             event.stopPropagation();
             close.current();

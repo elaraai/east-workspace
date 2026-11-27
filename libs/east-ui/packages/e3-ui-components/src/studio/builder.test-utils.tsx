@@ -17,7 +17,7 @@
 import { beforeEach } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import {
-    East, NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf,
+    East, NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, none, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
@@ -32,6 +32,8 @@ export type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 export type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
 /** One placement of a page. */
 export type Cell = ValueTypeOf<typeof Studio.Types.Cell>;
+/** A layout: its title, its placements and its starting filters. */
+export type Layout = ValueTypeOf<typeof Studio.Types.Page>;
 
 /** The pages record the builder reads and saves, the studio examples': its name in the words a card, a tile and the inspector name what a component reads in. */
 export const RECORD_NAMED = "Studio pages";
@@ -69,8 +71,9 @@ export const REGIONAL: Key = { project: "ops", page: "f-regional" };
  * Regional (live as v3; its draft resizes the trend and adds the bars).
  * Another project's page.
  */
-export const PAGES: Pages = new SortedMap<Key, Entry>([
-    [OVERVIEW, variant("page", {
+export const PAGES: Pages = Studio.value([
+    {
+        key: OVERVIEW,
         draft: {
             title: "Overview",
             cells: [
@@ -79,17 +82,19 @@ export const PAGES: Pages = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-    [{ project: "ops", page: "b-weekly" }, variant("page", {
+    },
+    {
+        key: { project: "ops", page: "b-weekly" },
         draft: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] },
-        live: some({ version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] } }),
-    })],
-    [{ project: "ops", page: "c-monthly" }, variant("page", {
+        live: { version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] } },
+    },
+    {
+        key: { project: "ops", page: "c-monthly" },
         draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] },
-        live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] } }),
-    })],
-    [{ project: "ops", page: "d-double" }, variant("page", {
+        live: { version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }], filters: [] } },
+    },
+    {
+        key: { project: "ops", page: "d-double" },
         draft: {
             title: "Double",
             cells: [
@@ -98,14 +103,17 @@ export const PAGES: Pages = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-    [{ project: "ops", page: "e-starter" }, variant("template", {
-        title: "Starter",
-        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") }],
-        filters: [],
-    })],
-    [REGIONAL, variant("page", {
+    },
+    {
+        key: { project: "ops", page: "e-starter" },
+        template: {
+            title: "Starter",
+            cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") }],
+            filters: [],
+        },
+    },
+    {
+        key: REGIONAL,
         draft: {
             title: "Regional",
             cells: [
@@ -115,7 +123,7 @@ export const PAGES: Pages = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: some({
+        live: {
             version: 3n,
             page: {
                 title: "Regional",
@@ -125,13 +133,14 @@ export const PAGES: Pages = new SortedMap<Key, Entry>([
                 ],
                 filters: [],
             },
-        }),
-    })],
-    [{ project: "retail", page: "home" }, variant("page", {
+        },
+    },
+    {
+        key: { project: "retail", page: "home" },
         draft: { title: "Home", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
-    })],
-], keys);
+        live: { version: 1n, page: { title: "Home", cells: [], filters: [] } },
+    },
+]);
 
 export const h = e3Harness({ "studio/studio": ex }, { measure: false });
 
@@ -202,6 +211,13 @@ export const twoBuilders = {
 
 /** Mount the builder over the record, under the page's drag layer, once what it reads has loaded. */
 export const mountBuilder = () => h.mount(builder, { storageKey: "studio-builder" });
+
+/** A page under a key, as the record holds one a solution ships (`Studio.value`): its draft, and its published version where it has one. */
+export const pageAt = (key: Key, draft: Layout, live?: { version: bigint; page: Layout }): Entry =>
+    Studio.value([live === undefined ? { key, draft } : { key, draft, live }]).get(key)!;
+
+/** A template under a key, as the record holds one a solution ships. */
+export const templateAt = (key: Key, template: Layout): Entry => Studio.value([{ key, template }]).get(key)!;
 
 /** The pages as another session's write leaves them: one entry set, the others as they stand. */
 export const withEntry = (key: Key, entry: Entry) => (now: Pages): Pages => new SortedMap([...now].filter(([k]) => keys(k, key) !== 0).concat([[key, entry]]), keys);

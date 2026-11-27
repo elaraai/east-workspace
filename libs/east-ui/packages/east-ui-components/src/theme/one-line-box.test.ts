@@ -66,7 +66,6 @@ import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
-import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
 import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
@@ -369,10 +368,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Sheet strip's chip: mono's own 13px line, its capitals at the chip's middle (east-workspace#1748)", at(sheet, "stripChip"), "15px"],
         ["the Query builder's status line", at(queryBuilderSlotRecipe.base, "status"), "19px"],
         ["the Query results' footer", at(queryResultsSlotRecipe.base, "footer"), "17px"],
-        ["a Query library's row", at(queryLibrarySlotRecipe.base, "paneRow"), "20px"],
         ["a phone Query's Table · Tree", at(queryPhoneSlotRecipe.base, "segItem"), "16px"],
         ["a phone Query's Run", at(queryPhoneSlotRecipe.base, "run"), "18px"],
-        ["a Studio library's row", at(studioLibrarySlotRecipe.base, "paneRow"), "20px"],
     ];
 
     test.each(lines)("%s: its words on a whole line of its room's parity, or its box's own height", (_part, styles, line) => {

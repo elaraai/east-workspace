@@ -28,9 +28,7 @@ import {
     fieldMeasures,
     inspectorSelection,
     kindOfView,
-    libraryPages,
-    libraryProjects,
-    libraryTemplates,
+    layoutSummary,
     mostUsedSource,
     nameWriteRefusal,
     paletteCards,
@@ -89,12 +87,8 @@ export interface StudioEast {
     publishSummary: Compiled<typeof publishSummary>;
     /** What refused a publish. */
     publishRefusal: Compiled<typeof publishRefusal>;
-    /** The projects the record holds. */
-    libraryProjects: Compiled<typeof libraryProjects>;
-    /** A project's pages, as the page library draws them. */
-    libraryPages: Compiled<typeof libraryPages>;
-    /** A project's templates, as the page library draws them. */
-    libraryTemplates: Compiled<typeof libraryTemplates>;
+    /** What a layout places, as a page library's card says it — "KPI rail ×2 · Revenue trend". */
+    layoutSummary: Compiled<typeof layoutSummary>;
     /** What refused a write under a new name. */
     nameWriteRefusal: Compiled<typeof nameWriteRefusal>;
     /** The changes from one layout of a page to another. */
@@ -166,12 +160,8 @@ function compileStudio(): StudioEast {
         publishSummary: East.compile(publishSummary, []),
         /** What refused a publish. */
         publishRefusal: East.compile(publishRefusal, []),
-        /** The projects the record holds. */
-        libraryProjects: East.compile(libraryProjects, []),
-        /** A project's pages, as the page library draws them. */
-        libraryPages: East.compile(libraryPages, []),
-        /** A project's templates, as the page library draws them. */
-        libraryTemplates: East.compile(libraryTemplates, []),
+        /** What a layout places, as a page library's card says it — "KPI rail ×2 · Revenue trend". */
+        layoutSummary: East.compile(layoutSummary, []),
         /** What refused a write under a new name. */
         nameWriteRefusal: East.compile(nameWriteRefusal, []),
         /** The changes from one layout of a page to another. */

@@ -17,7 +17,9 @@
  * one commit, and one another publish overtook is refused in the preview's
  * words (E6, #998). The builder's Apply of a page's starting filters,
  * `Studio.saveFilters`, is one commit on them, and a Save of the placements
- * beside it, drafted over the same read, lands too (#1673).
+ * beside it, drafted over the same read, lands too (#1673). Every write
+ * leaves an entry its fields — what it is, its project, its title, its tags —
+ * as its key and its layout say (#1759).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -26,7 +28,7 @@ import { dirname, join } from "node:path";
 
 import {
     AsyncFunctionType, East, FunctionType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor,
-    encodeBeast2For, none, parseJq, some, variant, type JqNode, type ValueTypeOf,
+    encodeBeast2For, equalFor, none, parseJq, some, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import type { RecordPlan } from "@elaraai/e3-types";
@@ -40,15 +42,20 @@ import { Editing, Reactive, Text, UIComponentType } from "@elaraai/east-ui/inter
 import { Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
 import { Studio, StudioKeyType, StudioPagesType, nameWriteRefusal, publishRefusal } from "@elaraai/e3-ui/internal";
 
+import { assertEntry, pageEntry, tagged, templateEntry } from "./entries.js";
+
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
+type Page = ValueTypeOf<typeof Studio.Types.Page>;
 
 const keys = compareFor(StudioKeyType);
+const sameEntry = equalFor(Studio.Types.Entry);
+const sameLayout = equalFor(Studio.Types.Page);
 const diffPages = diffFor(StudioPagesType);
 const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
 const pagesPath = [variant("field", "records"), variant("field", "pages")];
-/** The pages record as the page library and the builder's Save as template hold it: its read, and its patch awaited. */
+/** The pages record as the builder's Save as template holds it, and the page library: its read — which the page library never makes — and its patch awaited. */
 const WriterType = StructType({
     read: FunctionType([], StudioPagesType),
     commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(StudioPagesType)], RecordOutcomeType) }),
@@ -70,21 +77,19 @@ const revenueTrendFn = East.function([], UIComponentType, (_$) => Text.Root("Rev
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" }, kpiRailFn);
 const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n }, revenueTrendFn);
 
+/** The Overview's layout: a KPI rail over a trend. */
+const OVERVIEW: Page = {
+    title: "Overview",
+    cells: [
+        { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+        { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+    ],
+    filters: [],
+};
+
 /** The pages record, holding the Overview — never published — and its one write. */
 const pages = e3.record("pages", StudioPagesType, {
-    initial: new SortedMap<Key, Entry>([
-        [OVERVIEW_KEY, variant("page", {
-            draft: {
-                title: "Overview",
-                cells: [
-                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-                ],
-                filters: [],
-            },
-            live: none,
-        })],
-    ], keys),
+    initial: Studio.value([{ key: OVERVIEW_KEY, tags: ["weekly"], draft: OVERVIEW }]),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -124,12 +129,9 @@ describe("the pages record in e3 (#992)", () => {
 
     it("R1: a save is one commit on the page, with its actor, its time and its delta", async () => {
         const before = (await current()).get(OVERVIEW_KEY)!;
-        if (before.type !== "page") assert.fail("expected a page");
+        if (before.kind.type !== "page") assert.fail("expected a page");
         // The canvas's Apply: the page alone, before and after its draft's cells changed.
-        const after: Entry = variant("page", {
-            draft: { ...before.value.draft, cells: [{ ...before.value.draft.cells[0]!, span: 8n }, before.value.draft.cells[1]!] },
-            live: before.value.live,
-        });
+        const after: Entry = { ...before, draft: { ...before.draft, cells: [{ ...before.draft.cells[0]!, span: 8n }, before.draft.cells[1]!] } };
         const saved = await commit(diffPages(new SortedMap([[OVERVIEW_KEY, before]], keys), new SortedMap([[OVERVIEW_KEY, after]], keys)), "ana");
         assert.equal(saved.kind, "committed");
 
@@ -141,48 +143,41 @@ describe("the pages record in e3 (#992)", () => {
         assert.ok(Math.abs(head.at.getTime() - Date.now()) < 60_000, "committed just now");
         if (head.delta.type !== "some") assert.fail("the save's commit carries its delta");
         assert.deepEqual(await summarizeDelta(storage, repo, head.delta.value), [{ target: "primary", insert: 0, update: 1, delete: 0, add: 0 }]);
-        assert.deepEqual((await current()).get(OVERVIEW_KEY), after);
+        assert.ok(sameEntry((await current()).get(OVERVIEW_KEY)!, after));
     });
 
     it("R2: a save drafted before another landed is a conflict, and the other stands", async () => {
         const before = (await current()).get(OVERVIEW_KEY)!;
-        if (before.type !== "page") assert.fail("expected a page");
-        const first: Entry = variant("page", {
-            draft: { ...before.value.draft, cells: [before.value.draft.cells[0]!, { ...before.value.draft.cells[1]!, span: 6n }] },
-            live: before.value.live,
-        });
-        const second: Entry = variant("page", {
-            draft: { ...before.value.draft, cells: [before.value.draft.cells[0]!, { ...before.value.draft.cells[1]!, span: 10n }] },
-            live: before.value.live,
-        });
+        if (before.kind.type !== "page") assert.fail("expected a page");
+        const first: Entry = { ...before, draft: { ...before.draft, cells: [before.draft.cells[0]!, { ...before.draft.cells[1]!, span: 6n }] } };
+        const second: Entry = { ...before, draft: { ...before.draft, cells: [before.draft.cells[0]!, { ...before.draft.cells[1]!, span: 10n }] } };
         assert.equal((await commit(diffPages(new SortedMap([[OVERVIEW_KEY, before]], keys), new SortedMap([[OVERVIEW_KEY, first]], keys)), "ana")).kind, "committed");
         const stale = await commit(diffPages(new SortedMap([[OVERVIEW_KEY, before]], keys), new SortedMap([[OVERVIEW_KEY, second]], keys)), "ben");
         if (stale.kind !== "conflict") assert.fail(`expected a conflict, got ${stale.kind}`);
 
-        assert.deepEqual((await current()).get(OVERVIEW_KEY), first, "the first save stands");
+        assert.ok(sameEntry((await current()).get(OVERVIEW_KEY)!, first), "the first save stands");
         assert.deepEqual((await recordHistory(storage, repo, "main", "pages")).map((entry) => entry.commit.actor)[0], "ana", "the refused save made no commit");
     });
 
     it("R3: a publish and a revert are one commit each, exact, and the version counts up from 1", async () => {
         assert.equal((await commit(publish(await current(), OVERVIEW_KEY), "ana")).kind, "committed");
         const published = (await current()).get(OVERVIEW_KEY)!;
-        if (published.type !== "page" || published.value.live.type !== "some") assert.fail("expected a published page");
-        assert.equal(published.value.live.value.version, 1n);
-        assert.deepEqual(published.value.live.value.page, published.value.draft);
+        if (published.kind.type !== "page" || published.live.type !== "some") assert.fail("expected a published page");
+        assert.equal(published.live.value.version, 1n);
+        assert.ok(sameLayout(published.live.value.page, published.draft));
+        // A publish writes the published version alone: the page's fields are as its seed gave them.
+        assertEntry(published, pageEntry(OVERVIEW_KEY, OVERVIEW, some({ version: 1n, page: OVERVIEW }), tagged("weekly")), "the published page");
 
         // A save, then a revert back to version 1's layout.
-        const edited: Entry = variant("page", {
-            draft: { ...published.value.draft, cells: published.value.draft.cells.slice(1) },
-            live: published.value.live,
-        });
+        const edited: Entry = { ...published, draft: { ...published.draft, cells: published.draft.cells.slice(1) } };
         assert.equal((await commit(diffPages(new SortedMap([[OVERVIEW_KEY, published]], keys), new SortedMap([[OVERVIEW_KEY, edited]], keys)), "ana")).kind, "committed");
         assert.equal((await commit(revert(await current(), OVERVIEW_KEY), "ben")).kind, "committed");
-        assert.deepEqual((await current()).get(OVERVIEW_KEY), published, "the draft is version 1's layout again");
+        assert.ok(sameEntry((await current()).get(OVERVIEW_KEY)!, published), "the draft is version 1's layout again");
 
         assert.equal((await commit(publish(await current(), OVERVIEW_KEY), "ben")).kind, "committed");
         const again = (await current()).get(OVERVIEW_KEY)!;
-        if (again.type !== "page" || again.value.live.type !== "some") assert.fail("expected a published page");
-        assert.equal(again.value.live.value.version, 2n);
+        if (again.kind.type !== "page" || again.live.type !== "some") assert.fail("expected a published page");
+        assert.equal(again.live.value.version, 2n);
 
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => entry.commit.actor), ["ben", "ben", "ana", "ana", history.at(-1)!.commit.actor], "one commit each");
@@ -194,8 +189,8 @@ describe("the pages record in e3 (#992)", () => {
             (handle: unknown, key: Key, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
         const read = await current();
         const overview = read.get(OVERVIEW_KEY)!;
-        if (overview.type !== "page") assert.fail("expected a page");
-        const cells = overview.value.draft.cells;
+        if (overview.kind.type !== "page") assert.fail("expected a page");
+        const cells = overview.draft.cells;
         // The bound record over the repository, as the builder holds it: its
         // read is what the canvas read, and its patch door commits through e3,
         // as the ui task's would.
@@ -225,8 +220,9 @@ describe("the pages record in e3 (#992)", () => {
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => [entry.commit.mutation, entry.commit.actor]).slice(0, 1), [["patch", "ana"]]);
         const saved = (await current()).get(OVERVIEW_KEY)!;
-        if (saved.type !== "page") assert.fail("expected a page");
-        assert.deepEqual(saved.value.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+        assert.deepEqual(saved.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+        // The Save's patch reaches the placements alone: the page's fields are as they were.
+        assert.ok(sameEntry(saved, { ...overview, draft: saved.draft }), "what it is, its project, its title, its tags and its published version as they were");
 
         // A canvas still holding the cells it read before that save resizes
         // the trend to 10: its Apply reaches e3, which refuses it, and the
@@ -238,8 +234,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal(stale.type, "conflict");
         assert.deepEqual((stale.value as { message: string }[]).map((issue) => issue.message), ["The entry changed since this edit began"]);
         const after = (await current()).get(OVERVIEW_KEY)!;
-        if (after.type !== "page") assert.fail("expected a page");
-        assert.deepEqual(after.value.draft.cells.map((c) => c.span), [12n, 6n]);
+        assert.deepEqual(after.draft.cells.map((c) => c.span), [12n, 6n]);
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused save made no commit");
     });
 
@@ -259,7 +254,7 @@ describe("the pages record in e3 (#992)", () => {
         // What the builder last read, and its handle over the repository, as B12's.
         let read = await current();
         const overview = read.get(OVERVIEW_KEY)!;
-        if (overview.type !== "page") assert.fail("expected a page");
+        if (overview.kind.type !== "page") assert.fail("expected a page");
         const handle = {
             read: () => read,
             history: () => none,
@@ -276,7 +271,7 @@ describe("the pages record in e3 (#992)", () => {
                 },
             },
         };
-        const cells = overview.value.draft.cells;
+        const cells = overview.draft.cells;
         // One Save, as a history over both sessions sends it: each session's own request, both over the one read —
         // the placements' patch lands on the record the filters' changed.
         const filtered = await saveFilters(handle, OVERVIEW_KEY, {
@@ -289,9 +284,10 @@ describe("the pages record in e3 (#992)", () => {
         });
         assert.deepEqual([filtered.type, resized.type], ["applied", "applied"]);
         const saved = (await current()).get(OVERVIEW_KEY)!;
-        if (saved.type !== "page") assert.fail("expected a page");
-        assert.deepEqual(saved.value.draft.filters, [nsw]);
-        assert.deepEqual(saved.value.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+        assert.deepEqual(saved.draft.filters, [nsw]);
+        assert.deepEqual(saved.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+        // Neither patch reaches a field the other writes, so both land over the one read (#1759).
+        assert.ok(sameEntry(saved, { ...overview, draft: saved.draft }), "what it is, its project, its title, its tags and its published version as they were");
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.slice(0, 2).map((entry) => entry.commit.mutation), ["patch", "patch"], "one commit each");
 
@@ -320,8 +316,7 @@ describe("the pages record in e3 (#992)", () => {
         if (refused.type !== "conflict") assert.fail(`expected a conflict, got ${refused.type}`);
         assert.deepEqual(refused.value.map((issue) => issue.message), ["The entry changed since this edit began"]);
         const after = (await current()).get(OVERVIEW_KEY)!;
-        if (after.type !== "page") assert.fail("expected a page");
-        assert.deepEqual(after.value.draft.filters, [toSA]);
+        assert.deepEqual(after.draft.filters, [toSA]);
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length + 1, "the refused save made no commit");
     });
 
@@ -329,31 +324,27 @@ describe("the pages record in e3 (#992)", () => {
         const templateKey: Key = { project: "ops", page: "tpl-overview" };
         const detailKey: Key = { project: "ops", page: "detail" };
         assert.equal((await commit(saveTemplate(await current(), OVERVIEW_KEY, templateKey, "Overview layout"), "ana")).kind, "committed");
-        assert.equal((await commit(newPage(await current(), detailKey, "Detail", some(templateKey)), "ana")).kind, "committed");
+        assert.equal((await commit(newPage(detailKey, "Detail", some((await current()).get(templateKey)!.draft), tagged()), "ana")).kind, "committed");
 
         const now = await current();
-        const template = now.get(templateKey)!;
-        const detail = now.get(detailKey)!;
-        if (template.type !== "template" || detail.type !== "page") assert.fail("expected a template and a page");
-        assert.deepEqual(detail.value, { draft: { title: "Detail", cells: template.value.cells, filters: template.value.filters }, live: none });
+        // Each holds its key's project and its layout's title, and neither the tags of the page it came from: the entry whole.
+        assertEntry(now.get(templateKey), templateEntry(templateKey, { title: "Overview layout", cells: OVERVIEW.cells, filters: [] }), "the template");
+        assertEntry(now.get(detailKey), pageEntry(detailKey, { title: "Detail", cells: OVERVIEW.cells, filters: [] }), "the page from it");
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, 3, "the deploy's commit and one each");
     });
 
     it("D5, D7 (#997): Save as template and a new page from it are one commit each, as the builder and the page library write them; a name another write took first is refused in their popovers' words", async () => {
-        // The builder's Save as template and the page library's Create, over
-        // what the screen read: one patch commit, and what refused it.
+        // The builder's Save as template, over what the screen read, and the page
+        // library's Create, over the template's layout its card read: one patch
+        // commit, and what refused it.
         const saveAs = East.compileAsync(East.asyncFunction([WriterType, StringType], OptionType(StringType), ($, record, name) => {
             const outcome = $.let(record.commit.patch("", Studio.saveTemplate(record.read(), OVERVIEW_KEY, { project: "ops", page: name }, name)));
             return nameWriteRefusal(outcome, name);
         }), []) as unknown as (handle: unknown, name: string) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
-        const create = East.compileAsync(East.asyncFunction([WriterType, StringType, OptionType(StringType)], OptionType(StringType), ($, record, name, template) => {
-            const from = $.let(template.match({
-                some: (_$2, found) => East.value(some({ project: "ops", page: found }), OptionType(StudioKeyType)),
-                none: (_$2) => East.value(none, OptionType(StudioKeyType)),
-            }), OptionType(StudioKeyType));
-            const outcome = $.let(record.commit.patch("", Studio.newPage(record.read(), { project: "ops", page: name }, name, from)));
+        const create = East.compileAsync(East.asyncFunction([WriterType, StringType, OptionType(Studio.Types.Page)], OptionType(StringType), ($, record, name, template) => {
+            const outcome = $.let(record.commit.patch("", Studio.newPage({ project: "ops", page: name }, name, template, new Set())));
             return nameWriteRefusal(outcome, name);
-        }), []) as unknown as (handle: unknown, name: string, template: ValueTypeOf<OptionType<typeof StringType>>) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
+        }), []) as unknown as (handle: unknown, name: string, template: ValueTypeOf<OptionType<typeof Studio.Types.Page>>) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
         // The record over the repository, its read what the screen last read.
         let read = await current();
         const handle = {
@@ -375,15 +366,14 @@ describe("the pages record in e3 (#992)", () => {
         assert.deepEqual(await saveAs(handle, "Overview template"), none, "D7: saved");
         const stale = read;
         read = await current();
-        assert.deepEqual(await create(handle, "Q3 review", some("Overview template")), none, "D5: made");
+        assert.deepEqual(await create(handle, "Q3 review", some(read.get({ project: "ops", page: "Overview template" })!.draft)), none, "D5: made");
         const now = await current();
-        const template = now.get({ project: "ops", page: "Overview template" })!;
-        const overview = now.get(OVERVIEW_KEY)!;
-        if (template.type !== "template" || overview.type !== "page") assert.fail("expected a template and a page");
-        assert.deepEqual(template.value, { title: "Overview template", cells: overview.value.draft.cells, filters: overview.value.draft.filters }, "the page as last saved");
-        assert.deepEqual(now.get({ project: "ops", page: "Q3 review" }), variant("page", {
-            draft: { title: "Q3 review", cells: overview.value.draft.cells, filters: overview.value.draft.filters }, live: none,
-        }));
+        const reviewKey: Key = { project: "ops", page: "Q3 review" };
+        const review = now.get(reviewKey)!;
+        // The template is the page as last saved, and the page from it a page never published: each entry whole.
+        assertEntry(now.get({ project: "ops", page: "Overview template" }),
+            templateEntry({ project: "ops", page: "Overview template" }, { title: "Overview template", cells: OVERVIEW.cells, filters: [] }), "the template");
+        assertEntry(review, pageEntry(reviewKey, { title: "Q3 review", cells: OVERVIEW.cells, filters: [] }), "the page from it");
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => entry.commit.mutation).slice(0, 2), ["patch", "patch"], "one commit each");
 
@@ -392,7 +382,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.deepEqual(await saveAs(handle, "Overview template"), some("Another write took the name Overview template first — choose another"));
         assert.deepEqual(await create(handle, "Q3 review", none), some("Another write took the name Q3 review first — choose another"));
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused writes made no commit");
-        assert.deepEqual((await current()).get({ project: "ops", page: "Q3 review" }), now.get({ project: "ops", page: "Q3 review" }), "the first write stands");
+        assert.ok(sameEntry((await current()).get({ project: "ops", page: "Q3 review" })!, review), "the first write stands");
     });
 
     it("E6 (#998): the preview's Publish is one commit — the draft live as the next version — and one another publish overtook is refused in the preview's words", async () => {
@@ -422,16 +412,16 @@ describe("the pages record in e3 (#992)", () => {
 
         assert.deepEqual(await publishNow(handle), none, "published");
         const overview = (await current()).get(OVERVIEW_KEY)!;
-        if (overview.type !== "page" || overview.value.live.type !== "some") assert.fail("expected a published page");
-        assert.equal(overview.value.live.value.version, 1n);
-        assert.deepEqual(overview.value.live.value.page, overview.value.draft, "the draft is the live version");
+        if (overview.kind.type !== "page" || overview.live.type !== "some") assert.fail("expected a published page");
+        assert.equal(overview.live.value.version, 1n);
+        assert.ok(sameLayout(overview.live.value.page, overview.draft), "the draft is the live version");
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual([history[0]!.commit.mutation, history[0]!.commit.actor], ["patch", "ana"], "one commit");
 
         // A preview still holding the record as it read it before that publish landed.
         assert.deepEqual(await publishNow(handle), some("Another write changed this page first — review it and publish again"));
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused publish made no commit");
-        assert.deepEqual((await current()).get(OVERVIEW_KEY), overview, "the first publish stands");
+        assert.ok(sameEntry((await current()).get(OVERVIEW_KEY)!, overview), "the first publish stands");
     });
 
     it("R7: a redeploy that adds a component keeps the record as it is — no migration runs", async () => {

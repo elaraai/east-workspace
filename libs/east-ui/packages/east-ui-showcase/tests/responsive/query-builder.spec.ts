@@ -17,7 +17,10 @@
  * Run's keys, then Copy jq to its icon, then Copy jq and Save… into the ⋯
  * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
- * opens the 320px save popover with the name and the description. The history
+ * opens the 320px save popover with the name, the description and the tags
+ * (#1758): the tags suggested in the app's own list, never the browser's, and
+ * Esc in them a level at a time — a tag typed put back, then the popover
+ * closed; on a phone the Save view the same (east-workspace#1779). The history
  * item's Save shows the drafts it saves until the record reads back, never the
  * query as it was before them. Two steps added and the first of them removed
  * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
@@ -245,16 +248,109 @@ test.describe("Query builder (#940)", () => {
         })).toBe(true);
     });
 
-    test("Save… opens the 320px save popover, with the query's name and its description", async ({ page }) => {
+    test("Save… opens the 320px save popover, with the query's name, its description and its tags", async ({ page }) => {
         const builder = await openBuilder(page);
         await builder.locator("[data-query-save-open]").click();
         const dialog = page.getByRole("dialog");
         await expect(dialog).toBeVisible();
         await expect.poll(() => dialog.evaluate((d) => ({
             w: Math.round(d.getBoundingClientRect().width),
-            fields: [...d.querySelectorAll("input, textarea")].map((e) => e.getAttribute("aria-label")),
+            // Each field a person fills, by what names it: its own label, else the label it is labelled by — the tags' box
+            // by its field's, whose own `for` reaches only the hidden input that carries the tags.
+            fields: [...d.querySelectorAll("input:not([hidden]), textarea")]
+                .map((field) => field.getAttribute("aria-label") ?? document.getElementById(field.getAttribute("aria-labelledby") ?? "")?.textContent ?? null),
             name: (d.querySelector("input") as HTMLInputElement).value,
-        }))).toEqual({ w: 320, fields: ["Query name", "What the query answers, in one sentence"], name: "Top shipped orders, 2026" });
+            // The open query's tags (#1758), each a chip in their field, which is as wide as the name's.
+            tags: [...d.querySelectorAll("[data-query-tags] [data-scope=tags-input][data-part=item-text]")].map((chip) => chip.textContent),
+            tagsAsWide: Math.round(d.querySelector("[data-query-tags] [data-scope=tags-input][data-part=control]")!.getBoundingClientRect().width)
+                === Math.round(d.querySelector("input")!.getBoundingClientRect().width),
+        }))).toEqual({
+            w: 320, fields: ["Query name", "What the query answers, in one sentence", "Tags"], name: "Top shipped orders, 2026",
+            tags: ["sales", "weekly"], tagsAsWide: true,
+        });
+    });
+
+    test("the description holds its whole sentence: as tall as its text, never under its three rows, nothing hidden in it, never resized by hand; Use generated keeps it the generated one (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.getByRole("textbox", { name: "What the query answers, in one sentence" });
+        // What the box hides of its text, how tall it stands, whether it holds the generated sentence, and its resize.
+        const fit = () => box.evaluate((el) => {
+            const area = el as HTMLTextAreaElement;
+            return { hidden: area.scrollHeight - area.clientHeight, tall: Math.round(area.getBoundingClientRect().height), generated: area.hasAttribute("data-generated"), resize: getComputedStyle(area).resize };
+        });
+        // The open query's generated sentence: all of it shows — the box once stood at a one-line field's height, its
+        // last line hidden.
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.generated, now.resize]; }).toEqual([0, true, "none"]);
+        const generated = (await fit()).tall;
+        // A line of the author's: the box its three rows, which the generated sentence fills or passes.
+        await box.fill("Shipped orders.");
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.generated]; }).toEqual([0, false]);
+        const rows = (await fit()).tall;
+        expect(generated).toBeGreaterThanOrEqual(rows);
+        // Four lines of the author's: taller than its rows, all of it showing.
+        await box.fill("Shipped orders.\nTheir totals.\nTheir customers.\nTheir regions.");
+        await expect.poll(async () => { const now = await fit(); return [now.hidden, now.tall > rows]; }).toEqual([0, true]);
+        // Use generated: the generated sentence back — still the generated one, never the author's — as tall as before.
+        await dialog.getByRole("button", { name: "Use generated" }).click();
+        await expect.poll(fit).toEqual({ hidden: 0, tall: generated, generated: true, resize: "none" });
+    });
+
+    test("a tag typed and not Entered, then Save pressed once: nothing under the press moves while it is held, and the query is saved with the tag (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=input]");
+        await box.click();
+        await box.pressSequentially("monthly");
+        await settled(page);
+        const save = dialog.getByRole("button", { name: "Save", exact: true });
+        const at = (await save.boundingBox())!;
+        const tall = (await dialog.boundingBox())!.height;
+        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+        await page.mouse.down();
+        await settled(page);
+        // Held: the field as it was, the tag still typed — so the popover keeps its height, and the Save its place.
+        expect([await box.inputValue(), (await dialog.boundingBox())!.height]).toEqual(["monthly", tall]);
+        await page.mouse.up();
+        await expect(dialog).toHaveCount(0);
+        // Saved at the first press, with the tag: opened again, the popover holds it among the query's own.
+        await builder.locator("[data-query-save-open]").click();
+        await expect.poll(() => page.getByRole("dialog").locator("[data-query-tags] [data-scope=tags-input][data-part=item-text]").allTextContents())
+            .toEqual(["monthly", "sales", "weekly"]);
+    });
+
+    test("Tags suggests in the app's own list, never the browser's: what is typed opens it with the other queries' tags, a press takes one at once; Esc puts a typed tag back, the popover staying, and again cancels (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=input]");
+        const tags = () => dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=item-text]").allTextContents();
+        // The suggestions the box's list offers: none while it is shut.
+        const offered = () => box.evaluate((el) => {
+            const list = document.getElementById(el.getAttribute("aria-controls") ?? "");
+            return list === null || el.getAttribute("aria-expanded") !== "true" ? [] : [...list.querySelectorAll("[role=option]")].map((option) => option.textContent);
+        });
+        expect(await box.evaluate((el) => [el.getAttribute("list"), el.getAttribute("role"), document.querySelectorAll("datalist").length])).toEqual([null, "combobox", 0]);
+        await box.click();
+        await box.pressSequentially("s");
+        // The tags the other saved queries hold and this one doesn't, those the words start first.
+        await expect.poll(offered).toEqual(["costing", "regions"]);
+        await page.getByRole("option", { name: "regions" }).click();
+        await expect.poll(tags).toEqual(["regions", "sales", "weekly"]);
+        await expect.poll(async () => [await box.inputValue(), await offered()]).toEqual(["", []]);
+        // A tag typed and not Entered: Esc puts it back and the popover stays; Esc again cancels it.
+        await box.pressSequentially("draft");
+        await page.keyboard.press("Escape");
+        await expect.poll(() => box.inputValue()).toBe("");
+        await expect(dialog).toBeVisible();
+        expect(await tags()).toEqual(["regions", "sales", "weekly"]);
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
     });
 
     test("the history item's Save: every state the steps pass through, from its click until the record reads back, is the drafts it saves — never the query as it was before them", async ({ page }) => {
@@ -412,9 +508,21 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         await view.locator("[data-query-save-open]").click(); await settled(page);
         const save = frame.locator("[data-frame-view]");
         await expect(save.getByText("Description", { exact: true })).toBeVisible();
+        await expect(save.getByText("Tags", { exact: true })).toBeVisible();
         const halves = await save.locator("[data-part], button").filter({ hasText: /^(Cancel|Save)$/ }).evaluateAll((els) => els.map((b) => Math.round(b.getBoundingClientRect().width)));
         expect(halves[0]).toBe(halves[1]);
+        // Its description holds its whole sentence, nothing hidden in it (east-workspace#1779).
+        const description = save.getByRole("textbox", { name: "What the query answers, in one sentence" });
+        await expect.poll(() => description.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0);
         await nothingFloats(page);
+        // A tag typed and not Entered: the first Esc puts it back, the Save view staying; the next leaves the Query view
+        // under it (east-workspace#1779).
+        const tagBox = save.locator("[data-scope=tags-input][data-part=input]");
+        await tagBox.click();
+        await tagBox.pressSequentially("draft");
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect.poll(() => tagBox.inputValue()).toBe("");
+        await expect(save).toBeVisible();
         await page.keyboard.press("Escape"); await settled(page);
         await expect(view).toBeVisible();
         // jq: nothing scrolls sideways; a wrapped line's number stands on its first row.
