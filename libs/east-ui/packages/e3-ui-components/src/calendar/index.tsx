@@ -203,7 +203,9 @@ function noticeWords(notice: ScheduleCellNotice, format: Pick<Formatters, "numbe
     const kind = notice.name.toLocaleLowerCase(format.locale);
     const title = notice.events === undefined ? `${notice.name} events in view: not counted`
         : `${format.number(notice.events)} ${kind} ${notice.events === 1 ? "event" : "events"} in view`;
-    const period = notice.resolution === undefined ? undefined : PERIOD_NAMES[notice.resolution];
+    // The finest of the timeline's periods a tile its summary shades it by divides: the smallest tile the timeline names.
+    const tile = notice.shades.find((one) => PERIOD_NAMES[one] !== undefined);
+    const period = tile === undefined ? undefined : PERIOD_NAMES[tile];
     const hint = period === undefined ? "Too many to draw here: narrow the filters, or choose a shorter period."
         : `Too many to draw here: narrow the filters, or open the timeline at ${period} to see where they fall.`;
     return { title, hint };

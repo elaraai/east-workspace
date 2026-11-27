@@ -45,7 +45,10 @@
  * items touch it, or its values folded as the series folds them. Where it keeps
  * them at no period that divides the bucket, the rows are hatched, and the
  * reader names the collection among its notices, with how many items there are
- * and the finest period its totals are kept at, which the canvas's banner says.
+ * and the periods its totals are kept at, beside the resolution it read at:
+ * the canvas's columns take the finest coarser period one of them divides
+ * (#1799, `shared/schedule/fallback-period.ts`), and where it offers none, the
+ * frame's one line says so.
  *
  * # What it hands on
  *
@@ -104,8 +107,12 @@ export interface PlanNestedNotice {
     readonly place: readonly string[];
     /** How many of its items the cells wanted hold. */
     readonly items: number;
-    /** The finest period the index keeps each row's totals at, which shades its rows at a resolution it divides; `undefined` when it keeps them at none. */
-    readonly resolution: RecordTile | undefined;
+    /**
+     * The periods the index keeps each row's totals at, the finest first: its rows shade at a resolution one of them
+     * divides, which the canvas's columns take in its place where they offer one (`shared/schedule/fallback-period.ts`).
+     * None where it keeps them at none.
+     */
+    readonly shades: readonly RecordTile[];
 }
 
 /** What the reader hands the canvas (see the module docs). */
@@ -118,6 +125,12 @@ export interface PlanNestedLead {
     readonly parents: PlanParentSubtotals;
     /** The collections past the cap that no totals shade at this resolution. */
     readonly notices: readonly PlanNestedNotice[];
+    /**
+     * The canvas's resolution the read was made at (#1799): what its notices say no totals shade — the canvas acts on
+     * them only at that resolution, since what stands while a read is in flight is the last resolution's. Where there are
+     * none, the resolution of a read that drew the same before.
+     */
+    readonly resolution: PlanResolution | undefined;
     /** Moves each time the cells, the shading or the subtotals do: the canvas reads its windows again then. */
     readonly version: number;
     /** Whether a read is in flight: what stands was read before it. */
@@ -473,6 +486,7 @@ interface Read {
     readonly shading: PlanNestedShadingValue;
     readonly parents: PlanParentSubtotals;
     readonly notices: readonly PlanNestedNotice[];
+    readonly resolution: PlanResolution | undefined;
 }
 
 /** The tiles held of a run: their span, and their entries. */
@@ -519,12 +533,16 @@ function sameParents(a: PlanParentSubtotals, b: PlanParentSubtotals): boolean {
 /** Whether two places are one: the same names, in order. */
 const samePlace = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((name, i) => stringEqual(name, b[i]!));
 
-/** Whether two reads draw the same. */
+/**
+ * Whether two reads draw the same — their notices at the same resolution too, which the canvas acts on only at theirs
+ * (#1799). Two with none are the same at any: a new read for a new resolution alone would read every window again.
+ */
 function sameRead(a: Read, b: Read): boolean {
     return blobEqual(a.cells, b.cells) && shadingEqual(a.shading, b.shading) && sameParents(a.parents, b.parents)
-        && a.notices.length === b.notices.length && a.notices.every((n, i) => {
+        && a.notices.length === b.notices.length && (a.notices.length === 0 || a.resolution === b.resolution) && a.notices.every((n, i) => {
             const m = b.notices[i]!;
-            return n.items === m.items && n.resolution === m.resolution && samePlace(n.place, m.place);
+            return n.items === m.items && n.shades.length === m.shades.length && n.shades.every((tile, t) => tile === m.shades[t])
+                && samePlace(n.place, m.place);
         });
 }
 
@@ -758,7 +776,7 @@ class NestedCellsReader {
             this.held.found.delete(part.text);
             read.delete(part.text);
         }
-        return this.drawn(args, wanted, spans, capped, items, summary, TILES.find((tile) => kept.has(tile)));
+        return this.drawn(args, wanted, spans, capped, items, summary, TILES.filter((tile) => kept.has(tile)));
     }
 
     /**
@@ -870,10 +888,11 @@ class NestedCellsReader {
 
     /**
      * What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched —
-     * `summary` the period their totals were read at, `finest` the finest the index keeps them at, which a notice names.
+     * `summary` the period their totals were read at, `kept` the periods the index keeps them at, the finest first, which
+     * a notice names.
      */
     private drawn(args: PlanNestedArgs, cells: readonly Cell[], held: ReadonlyMap<string, Span>, capped: ReadonlySet<string>,
-        items: ReadonlyMap<string, number>, summary: RecordTile | undefined, finest: RecordTile | undefined): Read {
+        items: ReadonlyMap<string, number>, summary: RecordTile | undefined, kept: readonly RecordTile[]): Read {
         const binding = indexedBindingOf(args.seam.source)!;
         const lit = literals(binding);
         // Each drafted row's Save, previewed (#1437), put into what is held: an entry's insert or update where a held run's
@@ -941,7 +960,7 @@ class NestedCellsReader {
             for (const use of args.seam.uses) {
                 const place = lit.place(use.place);
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
-                notices.push({ place: use.place, items: items.get(place) ?? 0, resolution: finest });
+                notices.push({ place: use.place, items: items.get(place) ?? 0, shades: kept });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
                 for (const row of shown) {
                     if (row.id.type === "entry" && stringEqual(row.id.value.series, use.series)) rows.set(printPathText(row.id.value.path), hatchOf(buckets));
@@ -957,7 +976,7 @@ class NestedCellsReader {
             }
         }
         this.shadedRows = shadedRows;
-        return { cells: bytes, shading: shading as unknown as PlanNestedShadingValue, parents, notices };
+        return { cells: bytes, shading: shading as unknown as PlanNestedShadingValue, parents, notices, resolution: args.resolution };
     }
 }
 

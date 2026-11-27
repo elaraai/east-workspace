@@ -209,23 +209,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The line under it. */
     libraryNarrowedHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
 
-    // ── Too many events to draw (#1039) ────────────────────────────────────
-    /** The notice's title: a kind with more events in view than it draws, and no summary to shade them at this
-     *  resolution — `12,480 print job events in view`; `kind` its name as running text writes it. */
-    tooManyEvents: (p: { kind: string; n: number; count: string }) => string;
-    /** The notice's title for a kind whose count is no number of its events, a day index's (#1039) — `Print job events in
-     *  view: not counted`; `kind` its name as running text writes it. */
-    tooManyEventsNotCounted: (p: { kind: string }) => string;
-    /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
-     *  see where they fall`; `undefined`, it has none. */
-    tooManyEventsHint: (p: { resolution: string | undefined }) => string;
-    /** The line under it for a kind whose events land a step beneath its resources, its counts kept by those resources
-     *  alone (#1541, U1), so the rows beneath them are hatched — `Counts are kept for presses only, not for tasks: zoom in
-     *  to see their events.`; `resources` and `rows` the two series' names as running text writes them. */
-    countsKeptBy: (p: { resources: string; rows: string }) => string;
-    /** The notice's title over the rows' own collections (#1739): more of their items in view than are drawn, and no totals
-     *  to shade them at this resolution — `12,480 items in view`. The line under it is {@link PlanMessages.tooManyEventsHint}'s. */
-    tooManyItems: (p: { n: number; count: string }) => string;
+    // ── Too many to show (#1039, #1739, #1799) ─────────────────────────────
+    /**
+     * The one line over what the Plan can show at no period it offers — where a coarser one shows it, its columns take that
+     * one themselves, and nothing is said: the event kinds with more events in view than it draws, and no totals to shade
+     * them at any period (`kinds`, their names as running text writes them), and the rows' own collections the same
+     * (`items`) — `Too many print jobs and items to show at once: pick a shorter range or narrow the filters.`
+     */
+    tooManyToShow: (p: { kinds: readonly string[]; items: boolean }) => string;
 
     // ── Too many links to draw (#1541, U10) ────────────────────────────────
     /** The notice's title: a link kind holding more links than are read — `10,001 flow links`; `kind` its name as running
@@ -327,10 +318,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
     /**
      * What a row's facts, or the window's, leave out (#1039), as one line: the kinds they count none of, too many of
-     * their events in view, none of them read — `Print jobs not counted: too many to draw at this resolution` — and the
-     * kinds whose events they count but whose hours they do not, none of them read — `Print job hours not counted: too
-     * many to draw at this resolution`; both, `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are
-     * the kinds' names.
+     * their events in view, none of them read — `Print jobs not counted: too many in view` — and the kinds whose events
+     * they count but whose hours they do not, none of them read — `Print job hours not counted: too many in view`; both,
+     * `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are the kinds' names.
      */
     inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
@@ -742,13 +732,8 @@ export const planMessages: PlanMessages = {
     libraryNarrowed: ({ tab, name }) => `No ${narrowedNoun(tab, name)} match the filters`,
     libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
 
-    tooManyEvents: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "event", "events")} in view`,
-    tooManyEventsNotCounted: ({ kind }) => `${kind.charAt(0).toUpperCase()}${kind.slice(1)} events in view: not counted`,
-    tooManyEventsHint: ({ resolution }) => (resolution === undefined
-        ? "Too many to draw at this resolution: narrow the filters, or zoom in."
-        : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
-    countsKeptBy: ({ resources, rows }) => `Counts are kept for ${resources} only, not for ${rows}: zoom in to see their events.`,
-    tooManyItems: ({ n, count }) => `${count} ${plural(n, "item", "items")} in view`,
+    tooManyToShow: ({ kinds, items }) =>
+        `Too many ${joined([...kinds.map(pluralName), ...(items ? ["items"] : [])], "and")} to show at once: pick a shorter range or narrow the filters.`,
     tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
     tooManyLinksHint: () => "Too many to draw: none of them is shown.",
     toolsLabel: () => "Tools",
@@ -815,7 +800,7 @@ export const planMessages: PlanMessages = {
         events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
     inspectorNotCounted: ({ kinds, hours }) =>
-        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many to draw at this resolution`,
+        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many in view`,
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),

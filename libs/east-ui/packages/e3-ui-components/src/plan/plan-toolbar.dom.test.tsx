@@ -43,6 +43,7 @@ import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { usePlanToolbarItems } from "./shell/Toolbar.js";
 import type { PlanChrome } from "./root/chrome.js";
+import { NOTHING_OVER } from "./root/fallback.js";
 import type { PlanEventItemValue, PlanOverlaps } from "./frame/counts.js";
 import { scheduleEventKey, scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { PlanEntryRef } from "./use-plan-editing.js";
@@ -216,7 +217,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         // How the frame shows the source being read (#1398): the toolbar never reads it.
         cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, cells: undefined, linksOver: [], itemsOver: [], tools: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, linksOver: [], over: NOTHING_OVER, tools: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // Whether a command writes now: the toolbar's items write nothing of their own.
         writable: true,
         // The inspector's reads: the toolbar takes none.

@@ -488,35 +488,15 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             </Box>,
         );
     }
-    // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
-    // hatched, and this — how many there are, or that they are not counted where its count is no number of them (a day
-    // index's), and the resolution its summary shades at; or, for a kind landing beneath its resources whose counts are
-    // kept by those resources alone (#1541, U1), that the rows beneath them have none of their own.
-    for (const notice of chrome?.cells?.notices ?? []) {
-        const kind = notice.name.toLocaleLowerCase(words.locale);
-        const kept = notice.keptBy;
-        const named = (slot: string) => (landings.find((one) => stringEqual(one.key, slot))?.name ?? slot).toLocaleLowerCase(words.locale);
+    // What the Plan can show at no period it offers (#1039, #1739, #1799): the event kinds with more events in view than it
+    // draws and the rows' own collections with more items, that no summary shades at any period — their rows hatched, and
+    // one plain line naming them all. Where a coarser period shows them, the columns take it themselves and nothing is
+    // said (`../root/fallback.ts`).
+    const over = chrome?.over;
+    if (over !== undefined && (over.kinds.length > 0 || over.items.length > 0)) {
         bannerNodes.push(
-            <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
-                <BannerView status="info"
-                    title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
-                        : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
-                    description={kept !== undefined ? m.countsKeptBy({ resources: named(kept.resources), rows: named(kept.rows) })
-                        : m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
-            </Box>,
-        );
-    }
-    // The rows' own collections holding more items in view than are drawn, where their index keeps no totals that shade
-    // them at this resolution (#1739): their rows hatched, and this — how many items there are, and the resolution their
-    // totals shade at, which is the index's, the same for each of them.
-    const itemsOver = chrome?.itemsOver ?? [];
-    if (itemsOver.length > 0) {
-        const inView = itemsOver.reduce((n, notice) => n + notice.items, 0);
-        const shadesAt = itemsOver[0]!.resolution;
-        bannerNodes.push(
-            <Box key="items" data-plan-banner="items">
-                <BannerView status="info" title={m.tooManyItems({ n: inView, count: words.number(inView) })}
-                    description={m.tooManyEventsHint({ resolution: shadesAt === undefined ? undefined : m.resolutionName({ resolution: shadesAt }).toLocaleLowerCase(words.locale) })} />
+            <Box key="over" data-plan-banner="over">
+                <BannerView status="info" title={m.tooManyToShow({ kinds: over.kinds.map((notice) => lowerWord(notice.name)), items: over.items.length > 0 })} />
             </Box>,
         );
     }

@@ -975,18 +975,20 @@ describe("a gesture drafts its row whole (#1438)", () => {
     });
 });
 
-// ── Past the cap: the totals that shade a zoom, and the notice where none does (#1739) ──
+// ── Past the cap: the totals that shade a zoom, and the columns' own period where the zoom's they do not (#1739, #1799) ──
 
 /** The periods the machines' totals were searched at since a request: each search of a row's totals, by its period's literal. */
 const totalsSearched = (since: number) => [...new Set(h.requests().slice(since).filter((request) => request.kind === "find" && through(IN_TIME)(request))
     .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])))
     .filter((from) => from[3] === ".totals").map((from) => from[4]!))];
 
-/** The notice over the rows' own collections past the cap that no totals shade; `null` with none. */
-const itemsNotice = (c: HTMLElement) => slot(c, "banners")?.querySelector<HTMLElement>('[data-plan-banner="items"]') ?? null;
+/** Any banner the frame draws: none, while the columns show what the rows hold. */
+const anyBanner = (c: HTMLElement) => slot(c, "banners")?.querySelector("[data-plan-banner]") ?? null;
+/** The period the columns take, as the toolbar's segment shows it pressed. */
+const periodShown = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
 
-describe("past the cap, the rows shade where their totals divide the zoom, and the notice says so where none does (#1739)", () => {
-    test("totals kept a month at a time shade no day and no week — the rows hatched, the notice counting the jobs in view and naming the month — then shade the month from its own totals, and the quarter from its months'", async () => {
+describe("past the cap, the rows shade where their totals divide the zoom, and the columns take a period they divide where the zoom's they do not (#1739, #1799)", () => {
+    test("totals kept a month at a time shade no day: the columns take months by themselves, nothing said, each machine's months shaded from their own totals; the quarter from its months'; days pressed are tried again, and come back to months", async () => {
         onTestFinished(emulateWindowScroll());
         // 10,500 jobs of an hour on the first machine, across the fortnight in view, beside its own.
         const start = await readMachines();
@@ -1001,39 +1003,34 @@ describe("past the cap, the rows shade where their totals divide the zoom, and t
         await settle();
         const row = (key: string) => slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", key)))!;
         const cells = (key: string) => [...row(key).querySelectorAll<HTMLElement>("[data-cell]")];
-        // At the day, and at the week: a month divides neither. No job is read or drawn, on any machine in view — the cap
-        // is the collection's — every bucket is hatched, no totals are asked for, and the notice counts the jobs in view
-        // and names the month, the resolution their totals shade at.
-        for (const resolution of ["day", "week"] as const) {
-            if (resolution === "week") await zoomTo(container, "week");
-            await waitFor(() => expect(itemsNotice(container)).not.toBeNull(), { timeout: 10_000 });
-            const said = itemsNotice(container)!.textContent ?? "";
-            expect(Number(/([\d,]+) items in view/.exec(said)?.[1]?.replace(/,/g, ""))).toBeGreaterThanOrEqual(10_500);
-            expect(said).toContain("switch to month to see where they fall");
-            for (const key of ["M-10001", "M-10002"]) {
-                expect(row(key).querySelectorAll("[data-run]")).toHaveLength(0);
-                expect(cells(key).length).toBeGreaterThan(0);
-                expect(cells(key).filter((cell) => !cell.hasAttribute("data-nodata"))).toEqual([]);
-            }
-            expect(totalsSearched(0)).toEqual([]);
-        }
-        // At the month, the period the totals are kept at: each machine's months read, and shaded — no hatch, no notice.
-        const atMonth = h.requests().length;
-        await zoomTo(container, "month");
-        await waitFor(() => expect(itemsNotice(container)).toBeNull(), { timeout: 10_000 });
+        // The fortnight gives days, which a month divides not: no job is read or drawn, on any machine in view — the cap
+        // is the collection's — and the columns take months by themselves, the period the totals are kept at, each
+        // machine's months read and shaded: no hatch, and nothing said.
+        await waitFor(() => expect(periodShown(container)).toBe("MONTH"), { timeout: 10_000 });
         await waitFor(() => expect(cells("M-10001").some((cell) => !cell.hasAttribute("data-nodata"))).toBe(true), { timeout: 10_000 });
-        expect(totalsSearched(atMonth)).toEqual([".month"]);
-        expect(row("M-10001").querySelectorAll("[data-run]")).toHaveLength(0);
-        expect(cells("M-10001").filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        expect(totalsSearched(0)).toEqual([".month"]);
+        expect(anyBanner(container)).toBeNull();
+        for (const key of ["M-10001", "M-10002"]) {
+            expect(row(key).querySelectorAll("[data-run]")).toHaveLength(0);
+            expect(cells(key).length).toBeGreaterThan(0);
+            expect(cells(key).filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        }
         // At the quarter, which the index keeps no totals at: its months again — the coarsest it keeps that divide a
         // quarter — added up into each, and no other period asked for.
         const atQuarter = h.requests().length;
         await zoomTo(container, "quarter");
         await settle();
-        expect(itemsNotice(container)).toBeNull();
+        expect(periodShown(container)).toBe("QUARTER");
+        expect(anyBanner(container)).toBeNull();
         expect(totalsSearched(atQuarter).filter((period) => period !== ".month")).toEqual([]);
         expect(row("M-10001").querySelectorAll("[data-run]")).toHaveLength(0);
         expect(cells("M-10001").length).toBeGreaterThan(0);
+        expect(cells("M-10001").filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        // Days pressed are tried again: the batch is in view at days too, so the columns come back to months, with
+        // nothing said.
+        await zoomTo(container, "day");
+        await waitFor(() => expect(periodShown(container)).toBe("MONTH"), { timeout: 10_000 });
+        expect(anyBanner(container)).toBeNull();
         expect(cells("M-10001").filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
     });
 });

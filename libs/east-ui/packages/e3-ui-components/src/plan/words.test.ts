@@ -50,10 +50,19 @@ describe("a derived number (#810)", () => {
 describe("what the inspector does not count (#1039)", () => {
     test("one line: the kinds it counts none of, and the kinds whose hours it does not count — never two lines", () => {
         const line = (kinds: readonly string[], hours: readonly string[]) => PLAN_WORDS.m.inspectorNotCounted({ kinds, hours });
-        expect(line(["Print job"], [])).toBe("Print jobs not counted: too many to draw at this resolution");
-        expect(line([], ["Print job"])).toBe("Print job hours not counted: too many to draw at this resolution");
-        expect(line(["Print job"], ["Press check"])).toBe("Print jobs and Press check hours not counted: too many to draw at this resolution");
-        expect(line(["Print job", "Delivery"], ["Press check"])).toBe("Print jobs, Deliveries and Press check hours not counted: too many to draw at this resolution");
+        expect(line(["Print job"], [])).toBe("Print jobs not counted: too many in view");
+        expect(line([], ["Print job"])).toBe("Print job hours not counted: too many in view");
+        expect(line(["Print job"], ["Press check"])).toBe("Print jobs and Press check hours not counted: too many in view");
+        expect(line(["Print job", "Delivery"], ["Press check"])).toBe("Print jobs, Deliveries and Press check hours not counted: too many in view");
+    });
+});
+
+describe("what the Plan can show at no period (#1799)", () => {
+    test("one plain line naming every kind and the rows' items together — no period, no count, nothing of how the Plan draws", () => {
+        const line = (kinds: readonly string[], items: boolean) => PLAN_WORDS.m.tooManyToShow({ kinds, items });
+        expect(line(["print job"], false)).toBe("Too many print jobs to show at once: pick a shorter range or narrow the filters.");
+        expect(line(["print job", "delivery"], true)).toBe("Too many print jobs, deliveries and items to show at once: pick a shorter range or narrow the filters.");
+        expect(line([], true)).toBe("Too many items to show at once: pick a shorter range or narrow the filters.");
     });
 });
 

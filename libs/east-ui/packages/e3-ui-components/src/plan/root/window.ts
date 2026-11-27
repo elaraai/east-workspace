@@ -36,6 +36,17 @@
  * resized — down to the squeeze floor ({@link PlanWindowHold.periodFor},
  * {@link PlanWindowHold.layOut}).
  *
+ * The range and the width say nothing of how much the range holds. Past what a
+ * view may draw, the period they give may show nothing of what is in view
+ * where a coarser one, which a summary shades, does (#1799,
+ * `shared/schedule/fallback-period.ts`): the canvas then has its hold fall
+ * back to that one ({@link PlanWindowHold.fallBack}), the range as it is. A
+ * fallback only ever goes coarser, and it stands while the range moves along
+ * — a pan, a step, the now rung, a brush dragged along — so the columns never
+ * go finer and back as a viewer moves through such a time. A range of another
+ * length — a brush resized or drawn anew, a zoom — is picked again on the
+ * plot, and so is a period pressed ({@link PlanWindowHold.pickAgain}).
+ *
  * @packageDocumentation
  */
 
@@ -43,7 +54,8 @@ import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { getSomeorUndefined, useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceDomain, recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { columnPeriod, periodColumns, squeezedPeriod } from "../../shared/time/period.js";
-import { MAX_BUCKETS } from "../../shared/time/scale.js";
+import { MAX_BUCKETS, resolutionInterval } from "../../shared/time/scale.js";
+import { coarserThan } from "../../shared/time/zoom.js";
 import { axisPeriods, resolveScale, type PlanAxisValue } from "../axis.js";
 import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
@@ -73,16 +85,17 @@ export interface PlanWindowPart {
  * sources holding it as its render does.
  *
  * It holds the period the window's columns take too (#1740), worked out at the
- * last change of range on the plot as the canvas laid it out, so the render,
- * the effects and a gesture read one period.
+ * last change of range on the plot as the canvas laid it out — or the coarser
+ * one the canvas fell back to there (#1799) — so the render, the effects and a
+ * gesture read one period.
  */
 export interface PlanWindowHold {
     /** The window last shown, `[from, to)` on the axis's domain; `undefined` before any. */
     last: readonly [number, number] | undefined;
     /** The sources whose ranges never hold the window, by name: the `rows` source (`PLAN_ROW_SOURCES`). */
     rows: readonly string[];
-    /** How many times a gesture has moved the canvas's own window, or a change of the plot's width its columns' period:
-     *  what its render reads the hold by. */
+    /** How many times a gesture has moved the canvas's own window, or a change of the plot's width or a fallback its
+     *  columns' period: what its render reads the hold by. */
     readonly version: number;
     /** The span of what the canvas's series shown read through its rows' nested series index (#1438), `[from, to)`: what a zoom
      *  to a table cell's period keeps the canvas's own window inside; `undefined` where none is known. */
@@ -104,15 +117,20 @@ export interface PlanWindowHold {
      * keeps the period — a pane opened or shut, a browser resized, asks nothing
      * of the time — and picks it again only where its columns would fall under
      * the squeeze floor. It tells the render where the period moved. A plot of
-     * no width, a pane hidden, is not laid out, and changes nothing.
+     * no width, a pane hidden, is not laid out, and changes nothing. Nor does
+     * the plot's width undo a fallback: only a period as coarse takes its place.
      *
      * @param plot - The plot's width, in px
      */
     layOut(plot: number): void;
     /**
      * The period a window's columns take (#1740): the one picked at the last
-     * change of range, while the range and the periods offered are the same;
-     * else picked now, on the plot as it is, and kept.
+     * change of range — or fallen back to there — while the range and the
+     * periods offered are the same; else picked now, on the plot as it is, and
+     * kept. A fallback stands for a range that is the last moved along, unless
+     * the plot gives it a coarser period still (#1799): one as long — a brush
+     * dragged along — or one of as many whole columns of the period fallen
+     * back to as the last touches — a pan, a step, the now rung.
      *
      * @param from - The window's start, in ms
      * @param to - Its end, exclusive
@@ -121,12 +139,48 @@ export interface PlanWindowHold {
      */
     periodFor(from: number, to: number, offered: readonly PlanResolution[]): PlanResolution | undefined;
     /**
+     * Falls back to a coarser period for the range as it is (#1799): the one
+     * its columns take shows nothing of what is in view, and this one does
+     * (`shared/schedule/fallback-period.ts`). It tells the render. Only ever
+     * coarser: a period no coarser than the one in use, or one the axis does
+     * not offer, changes nothing — nor does any before a range is shown.
+     *
+     * @param period - The period to take
+     */
+    fallBack(period: PlanResolution): void;
+    /**
+     * Picks the period again on the plot as it is, for the range as it is: a
+     * period pressed is tried again where the canvas had fallen back from it
+     * (#1799). It tells the render where the period moved; with no fallback
+     * standing it changes nothing.
+     */
+    pickAgain(): void;
+    /**
      * Listens for a move of the canvas's own window, or of its columns' period.
      *
      * @param listener - Called after each move
      * @returns Stop listening
      */
     subscribe(listener: () => void): () => void;
+}
+
+/**
+ * Whether a range is another moved along (#1799): as long as it — a brush
+ * dragged along — or whole columns of a period, as many as the other touches —
+ * a pan, a step or the now rung at that period, which shift the columns drawn.
+ * A range of another length is a viewer's change of it.
+ *
+ * @param period - The period the other's columns take
+ * @param was - The other range, `[from, to)` in ms
+ * @param from - The range's start, in ms
+ * @param to - Its end, exclusive
+ * @returns Whether it is the other moved along
+ */
+function movedAlong(period: PlanResolution, was: { readonly from: number; readonly to: number }, from: number, to: number): boolean {
+    if (to - from === was.to - was.from) return true;
+    const interval = resolutionInterval(period);
+    return interval.floor(new Date(from)).getTime() === from && interval.floor(new Date(to)).getTime() === to
+        && periodColumns(period, from, to) === periodColumns(period, was.from, was.to);
 }
 
 /**
@@ -141,8 +195,9 @@ export function createPlanWindowHold(initial?: readonly [number, number]): PlanW
     let version = 0;
     let plot = PLAN_UNLAID_PLOT;
     let laidOut = false;
-    // The period picked at the last change of range, and the range and the periods it was picked for.
-    let kept: { from: number; to: number; offered: readonly PlanResolution[]; period: PlanResolution } | undefined;
+    // The period picked at the last change of range, and the range and the periods it was picked for; `fell` where the
+    // canvas fell back to it from the finer one the plot gives the range (#1799).
+    let kept: { from: number; to: number; offered: readonly PlanResolution[]; period: PlanResolution; fell: boolean } | undefined;
     const tell = () => {
         version += 1;
         for (const listener of [...listeners]) listener();
@@ -164,20 +219,36 @@ export function createPlanWindowHold(initial?: readonly [number, number]): PlanW
             plot = width;
             laidOut = true;
             if (kept === undefined) return;
-            const period = first
+            const picked = first
                 ? columnPeriod(kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS.floor) ?? kept.period
                 : squeezedPeriod(kept.period, kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS);
-            if (period === kept.period) return;
-            kept = { ...kept, period };
+            // The plot's width never undoes a fallback: what is in view is no fewer for it.
+            if (picked === kept.period || (kept.fell && coarserThan(kept.period, picked))) return;
+            kept = { ...kept, period: picked, fell: false };
             tell();
         },
         periodFor(from, to, offered) {
-            if (kept !== undefined && kept.from === from && kept.to === to
-                && kept.offered.length === offered.length && kept.offered.every((period, i) => period === offered[i])) return kept.period;
-            const period = columnPeriod(from, to, plot, offered, PLAN_COLUMN_WIDTHS.floor);
-            if (period === undefined) return undefined;
-            kept = { from, to, offered, period };
-            return period;
+            const was = kept !== undefined && kept.offered.length === offered.length && kept.offered.every((period, i) => period === offered[i])
+                ? kept : undefined;
+            if (was !== undefined && was.from === from && was.to === to) return was.period;
+            const picked = columnPeriod(from, to, plot, offered, PLAN_COLUMN_WIDTHS.floor);
+            if (picked === undefined) return undefined;
+            // A fallback stands for the range it was made at moved along, unless the plot gives that a coarser period still.
+            const stands = was !== undefined && was.fell && !coarserThan(picked, was.period) && movedAlong(was.period, was, from, to);
+            kept = { from, to, offered, period: stands ? was.period : picked, fell: stands };
+            return kept.period;
+        },
+        fallBack(period) {
+            if (kept === undefined || !coarserThan(period, kept.period) || !kept.offered.includes(period)) return;
+            kept = { ...kept, period, fell: true };
+            tell();
+        },
+        pickAgain() {
+            if (kept === undefined || !kept.fell) return;
+            const picked = columnPeriod(kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS.floor) ?? kept.period;
+            const moved = picked !== kept.period;
+            kept = { ...kept, period: picked, fell: false };
+            if (moved) tell();
         },
         subscribe(listener) {
             listeners.add(listener);

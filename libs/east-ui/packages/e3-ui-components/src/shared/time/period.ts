@@ -10,6 +10,11 @@
  * floor on the plot as it is laid out. A wider plot draws finer columns for
  * the same range, and a narrower one coarser.
  *
+ * The range and the width say nothing of how much the range holds: a canvas
+ * whose reader shows nothing of it at the period they give may take a coarser
+ * one in its place (#1799, `../schedule/fallback-period.ts`), which is its
+ * own to keep. This module picks by the range and the width alone.
+ *
  * A column's width is counted in whole pixels, as a column's room is laid out,
  * so a column a fraction under the floor that lays out at it holds it.
  *

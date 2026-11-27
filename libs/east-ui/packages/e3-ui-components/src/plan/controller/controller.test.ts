@@ -30,6 +30,8 @@ import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
 import { createPlanWindowHold } from "../root/window.js";
+import type { PlanResolution } from "../scale.js";
+import { columnPeriod } from "../../shared/time/period.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 import { createPlanController, reconciledUi, type PlanController, type PlanUiBindValue, type PlanUiStateValue } from "./index.js";
 import { blocksSource, oneBlock, rowId, rowIdEqual, rowItem, rowKey } from "../plan.test-utils.js";
@@ -206,17 +208,68 @@ describe("actions run their own effects (#815)", () => {
 });
 
 describe("the window a canvas holds itself (#1344)", () => {
-    /** A controller over a canvas whose slice's one source is its rows' — whose range holds no window — with its hold. */
-    async function overRows(key: string) {
+    /**
+     * A controller over a canvas whose slice's one source is its rows' — whose range holds no window — with its hold; the
+     * root's other fields as given.
+     */
+    async function overRows(key: string, opts: Partial<Record<string, unknown>> = {}) {
         const s = await windowSlice(key, "rows");
         const hold = createPlanWindowHold();
         let moved = 0;
         hold.subscribe(() => { moved += 1; });
         const c = createPlanController({ grain: "resource", collapsed: [], windowHold: hold });
-        const v = root(ROWS, { slice: s.chrome });
+        const v = root(ROWS, { slice: s.chrome, ...opts });
         c.setValue(v, v);
         return { s, hold, c, moved: () => moved };
     }
+
+    /** Days, weeks and months, finest first, as a canvas asks its hold for them; and an axis offering them, now in August. */
+    const OFFERED: readonly PlanResolution[] = ["day", "week", "month"];
+    const MONTHS_OFFERED = variant("time", {
+        window: some({ min: W27, max: W39 }), resolution: variant("week", null),
+        resolutions: [variant("day", null), variant("week", null), variant("month", null)],
+        now: some(new Date("2026-08-12T09:00:00Z")), format: none,
+    });
+
+    test("a fallback to a coarser period stands as the window moves along — a pan, a pan of the window's own length, the now rung — and a period pressed tries its own again, also where its preset is the range held (#1799)", async () => {
+        const { hold, c, moved } = await overRows("c1799-fallback", { axis: MONTHS_OFFERED });
+        /** The period the canvas's next render reads for the window the hold shows. */
+        const period = () => hold.periodFor(hold.last![0], hold.last![1], OFFERED);
+        // The canvas's first render: the twelve weeks are weeks on the plot. Its readers show nothing of them at weeks,
+        // where a month's summary shades them: it falls back to months, the range as it is, and the render is told.
+        expect(hold.periodFor(W27.getTime(), W39.getTime(), OFFERED)).toBe("week");
+        hold.fallBack("month");
+        expect(moved()).toBe(1);
+        // `]`: the months on by one, whole — the columns stay months, where the plot alone gives the range weeks.
+        const july = Date.UTC(2026, 6, 1);
+        const november = Date.UTC(2026, 10, 1);
+        c.dispatch({ t: "key", key: "]" });
+        expect(hold.last).toEqual([july, november]);
+        expect(columnPeriod(july, november, PLAN_UNLAID_PLOT, OFFERED, PLAN_COLUMN_WIDTHS.floor)).toBe("week");
+        expect(period()).toBe("month");
+        // A pan of the window's own length, as a step is: four months on, and months still.
+        c.dispatch({ t: "pan", buckets: 4 });
+        expect(hold.last).toEqual([november, Date.UTC(2027, 2, 1)]);
+        expect(period()).toBe("month");
+        // The now rung: as many months, the 12th of August's a third of the way in — months still.
+        c.dispatch({ t: "key", key: "n" });
+        expect(hold.last).toEqual([july, november]);
+        expect(period()).toBe("month");
+        // Weeks pressed: tried again — their preset from the window's start, the columns weeks.
+        c.dispatch({ t: "resolution.set", resolution: "week" });
+        expect(hold.last).toEqual([july, W27.getTime() + PRESET * WEEK]);
+        expect(period()).toBe("week");
+        // Fallen back there too, weeks pressed again: their preset is the range held, which is written no more — and the
+        // weeks are tried again all the same, the render told once.
+        hold.fallBack("month");
+        expect(period()).toBe("month");
+        const held = hold.last;
+        const told = moved();
+        c.dispatch({ t: "resolution.set", resolution: "week" });
+        expect(hold.last).toBe(held);
+        expect(moved()).toBe(told + 1);
+        expect(period()).toBe("week");
+    });
 
     test("no source holding the window, the keys and the brush move the canvas's own — its hold, which tells its render — and write nothing into the rows", async () => {
         const { s, hold, c, moved } = await overRows("c1344-hold");

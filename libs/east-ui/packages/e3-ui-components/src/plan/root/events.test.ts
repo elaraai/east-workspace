@@ -285,6 +285,19 @@ describe("the event kinds' events over the range the canvas draws (#1192)", () =
         expect(result.current.placed).toEqual(first);
         expect([result.current.version, result.current.period]).toEqual([2, "week"]);
     });
+
+    test("the cells handed on say the columns' period they were read for — the scale's of the read, whatever the events placed say — and none before the reader hands any (#1799)", () => {
+        /** The same four weeks by the week. */
+        const weeks = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "week" }) as PlanScale;
+        const cells = { reads: new SortedMap([], compareString), shading: new SortedMap([], compareString), notices: [] } as unknown as ScheduleCellsRead;
+        const events: PlanEventRows = { seam: seamOf(() => none), landings: LANDINGS, paged: false };
+        const { result, rerender } = renderHook(({ columns }) => usePlanEventPlaced(events, columns, undefined, undefined, cells), { initialProps: { columns: scale } });
+        // No events have answered — they are of no period — and the cells are the days' all the same.
+        expect([result.current.period, result.current.cellsPeriod]).toEqual([undefined, "day"]);
+        // The columns turn to weeks: the cells read beside them are the weeks', though the events placed stand for none.
+        rerender({ columns: weeks });
+        expect([result.current.period, result.current.cellsPeriod]).toEqual([undefined, "week"]);
+    });
 });
 
 describe("the events placed, handed to the frame (#1771)", () => {
@@ -381,7 +394,7 @@ describe("the root's rows, the events joined in (#1541)", () => {
     const leadAt = (
         version: number, placed: PlanEventPlacedValue = NOTHING_PLACED, shading: PlanEventLead["shading"] = new SortedMap([], compareString),
         period: PlanEventLead["period"] = "day",
-    ): PlanEventLead => ({ placed, shading, cells: undefined, version, error: undefined, period });
+    ): PlanEventLead => ({ placed, shading, cells: undefined, version, error: undefined, period, cellsPeriod: period });
     /** The canvas's source the hook hands it. */
     const sourceOf = (root: PlanRootValue) => (root.rows as unknown as { value: PlanPagedSourceValue }).value;
     /** What `place` was asked: how many rows, the events placed, and whether every row was at hand. */

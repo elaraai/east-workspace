@@ -32,10 +32,9 @@
  * - A Save reads the cells in view again at the revision it committed.
  * - A link's end the cells do not hold is read by its key, so the link finds
  *   its row; a backlog job a draft schedules draws where it is dropped.
- * - Past the budget, with no summary that shades the day, the rows are
- *   hatched and the banner names how many events there are and the
- *   resolution that shades them; at that resolution, each press's share of
- *   each month booked draws, from the summary.
+ * - Past the budget, with no summary that shades the day, the columns take
+ *   the month by themselves, the range as it is, and nothing is said (#1799):
+ *   each press's share of each month booked draws, from the summary.
  * - A press selected while no read holds its cells — before its first read
  *   lands, or scrolled out of the blocks read — shows its figures in the
  *   inspector as placeholders, never 0, until one does.
@@ -367,6 +366,10 @@ async function drawnByWindow(gestures: (c: HTMLElement) => Promise<void>): Promi
 
 /** The footer's count of the events in the window. */
 const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="events"]')?.textContent ?? null;
+/** The period the columns take, as the toolbar's segment shows it pressed. */
+const periodShown = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
+/** Any banner the frame draws: none, while the columns show what the rows hold. */
+const anyBanner = (c: HTMLElement) => slot(c, "banners")?.querySelector("[data-plan-banner]") ?? null;
 /** The footer's count of the changes waiting on Save. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
 /** The inspector's gesture button. */
@@ -921,7 +924,7 @@ describe("a kind hidden in the Series tab (#1039)", () => {
 // ============================================================================
 
 describe("past the budget (#1039)", () => {
-    test("with no summary that shades the day, the rows are hatched and the banner names how many events there are and the resolution that shades them; at a month, each press's share booked, from the summary", async () => {
+    test("with no summary that shades the day, the columns take the month by themselves — the fortnight as it is, nothing said — and each press's share booked shades from the summary (#1799)", async () => {
         // Another planner books 10,001 hour-long proofs on the first fifty presses over the fortnight, each press's an hour
         // apart: more than the Plan draws.
         const jobs = new Map(await readJobs());
@@ -935,25 +938,20 @@ describe("past the budget (#1039)", () => {
         await h.patch(ex.planWindowJobs, jobs);
         const { container: c } = await h.mount(seriesPlan);
         await settle();
-        // Counted past the budget: no entry of a cell read, and no summary that divides a day.
-        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`]);
-        expect(askedOf(SUMMARY)).toEqual([]);
-        const banner = slot(c, "banners")!.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]');
-        expect(banner?.textContent).toContain("10,014 print job events in view");
-        expect(banner?.textContent).toContain("switch to month to see where they fall");
-        const press1001 = () => c.querySelector(rowAt(pressRow("P-1001")))!;
-        expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
-        expect(press1001().querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
-        // At a month: the summary's cells, two requests, and each press's share of each month booked.
-        await zoomTo(c, "month");
+        // Counted past the budget at the fortnight's days, which a month's summary shades none of: no entry of a cell read,
+        // and the columns take the month — the summary's cells, two requests, and no banner.
         await waitFor(() => expect(askedOf(SUMMARY).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
         await settle();
-        expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
+        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`]);
+        expect(periodShown(c)).toBe("MONTH");
+        expect(anyBanner(c)).toBeNull();
         // Press 1001 in October: 201 proofs, the brochure run's eight hours, the night catalogue's eight and the ticket
         // books' two — 219 of October's 744 hours.
+        const press1001 = () => c.querySelector(rowAt(pressRow("P-1001")))!;
         const october = [...press1001().querySelectorAll<HTMLElement>("[data-cell]")].find((cell) => named(cell)?.startsWith("Oct"));
         expect(named(october ?? null)).toMatch(/29% booked/);
         expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
+        expect(press1001().querySelectorAll("[data-nodata]")).toHaveLength(0);
     });
 });
 
@@ -967,7 +965,7 @@ describe("a series and a summary index led by a field (#1432)", () => {
     const STOCK_JOBS = pathText(ex.planStockJobs.path as TreePath);
     const withins = () => h.requests().filter((request) => request.dataset === STOCK_JOBS && request.kind === "within");
 
-    test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget, at a month, the summary it leads shades", async () => {
+    test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget the columns take the month by themselves, and the summary it leads shades", async () => {
         const { container: c } = await h.mount(stockPlan);
         await settle();
         // The coated jobs' cells, through the index the stock leads: their searches, then their entries — nothing asked of them after.
@@ -987,11 +985,12 @@ describe("a series and a summary index led by a field (#1432)", () => {
         }
         await h.patch(ex.planStockJobs, jobs);
         await settle();
-        await zoomTo(c, "month");
-        // At a month, the coated jobs' totals, from the summary the stock leads: each press's share of each month booked.
+        // At the month the columns take, the coated jobs' totals, from the summary the stock leads: each press's share of
+        // each month booked — and nothing said.
         await waitFor(() => expect(askedOf(BY_STOCK_TOTALS).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
         await settle();
-        expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
+        expect(periodShown(c)).toBe("MONTH");
+        expect(anyBanner(c)).toBeNull();
         const october = [...c.querySelector(rowAt(pressRow("P-1001")))!.querySelectorAll<HTMLElement>("[data-cell]")]
             .find((cell) => named(cell)?.startsWith("Oct"));
         expect(named(october ?? null)).toMatch(/% booked/);

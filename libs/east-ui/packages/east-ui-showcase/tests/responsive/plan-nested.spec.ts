@@ -18,7 +18,8 @@
  * - past the cap, the rows shading the works' jobs are the height of the rows
  *   they stand in for, and shade from the totals e3 keeps for the period
  *   their columns are — a week's at a week, a month's at a month — hatched at
- *   neither and under no notice (#1739);
+ *   neither, the columns keeping that period, and under no banner (#1739,
+ *   #1799);
  * - at 1440, the horizon counts an item once in each period it draws
  *   (#1739): by the quarter, each bar the jobs and alarms touching its
  *   quarter — fewer than its months' added up, a job that crosses a month's
@@ -481,10 +482,10 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         }
         await settled(page);
         expect(await inView(entry, narrow)).toEqual(before);
-        // …from the totals the index keeps a week: no cell hatched and no notice over them, the crowded week booked whole
-        // and the week before it not at all.
+        // …from the totals the index keeps a week: no cell hatched and no banner over them, the crowded week booked whole
+        // and the week before it not at all — its cell a week's, so the columns kept their period.
         const hatched = entry.locator("[data-cell][data-nodata]");
-        const notice = entry.locator("[data-plan-banner='items']");
+        const notice = entry.locator("[data-plan-banner]");
         await expect(hatched).toHaveCount(0);
         await expect(notice).toHaveCount(0);
         await expect(kind(WORKS).locator(cellAt(CROWDED_WEEK))).toHaveAttribute("aria-label", /\b100% booked/);

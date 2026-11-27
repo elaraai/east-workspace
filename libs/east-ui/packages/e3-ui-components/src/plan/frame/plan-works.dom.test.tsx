@@ -266,7 +266,7 @@ describe("the works on a Plan (#1438)", () => {
         expect(periodsRead.has(".quarter")).toBe(true);
     });
 
-    test("past 10,000 jobs in view the works shade from their totals at the zoom's own period — the week's at a week's zoom, the month's at a month's — and no notice is drawn (#1739)", async () => {
+    test("past 10,000 jobs in view the works shade from their totals at the zoom's own period — the week's at a week's zoom, the month's at a month's — the columns stay at it, and nothing is said (#1739, #1799)", async () => {
         // 10,500 jobs of an hour on the first works, across the first weeks in view, beside its own.
         const start = (await h.read(ex.planWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Works>>;
         const first = start.get("W-10001")!;
@@ -282,7 +282,10 @@ describe("the works on a Plan (#1438)", () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
         const cells = () => [...(worksRow(container, "W-10001")?.querySelectorAll<HTMLElement>("[data-cell]") ?? [])];
-        const notice = () => slot(container, "banners")?.querySelector('[data-plan-banner="items"]') ?? null;
+        /** Any banner the frame draws: none, while the zoom's own period shades what is in view. */
+        const notice = () => slot(container, "banners")?.querySelector("[data-plan-banner]") ?? null;
+        /** The period the columns take, as the toolbar's segment shows it pressed: the zoom's own, its totals kept at it. */
+        const periodShown = () => slot(container, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
         // At the week, a period the index keeps each works' totals at: read at the week, never the month, each week
         // shaded by the share of it booked — the first, seventeen jobs to the hour, whole — and no job drawn.
         await waitFor(() => expect(cells().length).toBeGreaterThan(0), { timeout: 10_000 });
@@ -291,6 +294,7 @@ describe("the works on a Plan (#1438)", () => {
         expect(cells().filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
         expect(cells().some((cell) => /100% booked/.test(cell.getAttribute("aria-label") ?? ""))).toBe(true);
         expect(notice()).toBeNull();
+        expect(periodShown()).toBe("WEEK");
         // At the month: the month's own totals, never its weeks' — a week lies in no one month.
         const atMonth = h.requests().length;
         await zoomTo(container, "month");
@@ -300,6 +304,7 @@ describe("the works on a Plan (#1438)", () => {
         expect(cells().length).toBeGreaterThan(0);
         expect(cells().filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
         expect(notice()).toBeNull();
+        expect(periodShown()).toBe("MONTH");
     });
 
     test("a period pressed keeps the window's start and sets its preset from it: out to the year, as many years from the one 28 September is in as fill the plot at the preset width; back to the week, as many weeks from the same start (#1438, #1740, ruled 23 Nov 2026)", async () => {

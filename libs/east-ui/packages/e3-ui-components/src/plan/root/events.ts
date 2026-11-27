@@ -163,6 +163,12 @@ export interface PlanEventLead {
     /** The columns' period the events were placed for (#1740); `undefined` until the first read answers, and on an axis
      *  of no periods. */
     period: PlanResolution | undefined;
+    /**
+     * The columns' period the cells were read for (#1799): what their notices say a kind shows nothing of — the canvas
+     * acts on them only at that period, since the canvas's own render, the one after a fallback, still holds the lead the
+     * reader handed it before; `undefined` before the reader hands any on, and on an axis of no periods.
+     */
+    cellsPeriod: PlanResolution | undefined;
 }
 
 /**
@@ -529,7 +535,9 @@ export function usePlanEventPlaced(
     const placing = useMemo((): PlanEventPlacing | undefined => (landed === undefined || from === undefined || to === undefined ? undefined
         : { placed: landed, from: new Date(from), to: new Date(to), drafts, cells, hidden }), [landed, from, to, drafts, cells, hidden]);
     useLayoutEffect(() => { if (placing !== undefined) placings?.set(placing); }, [placings, placing]);
-    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error, period: now.period }), [now, cells, error]);
+    // The cells are the reader's of this render, read for the scale's period as it is: their notices are that period's.
+    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error, period: now.period, cellsPeriod: period }),
+        [now, cells, error, period]);
 }
 
 /**
@@ -538,7 +546,7 @@ export function usePlanEventPlaced(
  * @returns The events to stand in
  */
 export function initialEventLead(): PlanEventLead {
-    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined, period: undefined };
+    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined, period: undefined, cellsPeriod: undefined };
 }
 
 /** Props of {@link PlanEventsReader}. */

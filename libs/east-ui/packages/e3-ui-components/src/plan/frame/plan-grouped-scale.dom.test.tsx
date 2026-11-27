@@ -44,8 +44,8 @@
  * - Zoomed out past the jobs' series tile (#1541, U1), each task beneath a
  *   press counts its own jobs, from a summary led by the task. With none, a
  *   task row draws its own jobs while the range holds few, and past the cap is
- *   hatched, the banner saying the counts are kept for presses only: never its
- *   press's count.
+ *   hatched, one plain line saying there are too many to show (#1799): never
+ *   its press's count.
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
@@ -905,7 +905,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
         }
     }, 1_800_000);
 
-    test("zoomed out past the jobs' series tile, each task beneath a press counts its own jobs from the summary led by the task; with none, it draws its own jobs, and past the cap is hatched, the banner saying the counts are kept for presses only — never its press's count (#1541, U1)", async () => {
+    test("zoomed out past the jobs' series tile, each task beneath a press counts its own jobs from the summary led by the task; with none, it draws its own jobs, and past the cap is hatched, one plain line saying there are too many to show — never its press's count (#1541, U1, #1799)", async () => {
         const restore = emulateWindowScroll();
         const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
         try {
@@ -943,7 +943,8 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(findsOf(SUMMARY, from)).toEqual([]);
             drawn.unmount();
 
-            // Past the cap: every task row hatched, none given its press's count, and the banner says why.
+            // Past the cap: every task row hatched, none given its press's count — no period shows a task's own, so the
+            // columns stay at the month — and one plain line says so, in a planner's words.
             await h.patch(scaleJobs, busyJobs());
             from = h.requests().length;
             const hatched = await atMonth(byPress, "plan-by-press-past-the-cap");
@@ -951,9 +952,22 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             const bare = taskRows(hatched.container);
             for (const row of bare) expect([row.task, row.hatched, row.counted, row.marks]).toEqual([row.task, true, 0, 0]);
-            const banner = slot(hatched.container, "banners")?.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]');
-            expect(banner?.textContent).toContain("Counts are kept for presses only, not for tasks: zoom in to see their events.");
+            /** The banners drawn, each by its kind and its words: the one line, where no period shows what is in view. */
+            const lines = () => [...slot(hatched.container, "banners")?.querySelectorAll<HTMLElement>("[data-plan-banner]") ?? []]
+                .map((banner) => [banner.getAttribute("data-plan-banner"), banner.textContent]);
+            /** The period the columns take, as the toolbar's segment shows it pressed. */
+            const periodShown = () => slot(hatched.container, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent;
+            const tooMany = [["over", "Too many jobs to show at once: pick a shorter range or narrow the filters."]];
+            expect(lines()).toEqual(tooMany);
+            expect(periodShown()).toBe("MONTH");
             expect(findsOf(SUMMARY, from)).toEqual([]);
+            // Weeks pressed: no period shows a task's own there either, so none is taken for nothing — the columns are weeks,
+            // and the same line says so once the jobs are read at them.
+            await zoomTo(hatched.container, "week");
+            await waitFor(() => expect(lines()).toEqual(tooMany), { timeout: 600_000 });
+            await settle();
+            expect(periodShown()).toBe("WEEK");
+            for (const row of taskRows(hatched.container)) expect([row.task, row.hatched]).toEqual([row.task, true]);
 
             // Nothing failed to read on the way.
             const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));

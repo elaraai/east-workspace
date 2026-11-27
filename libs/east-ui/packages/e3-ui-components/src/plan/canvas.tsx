@@ -43,7 +43,10 @@
  * The canvas's rows never follow the dates: the `rows` source holds no window,
  * so the dates on screen never decide which rows are listed, and a slice with
  * no source holding the window leaves the canvas its own, which the same
- * gestures move.
+ * gestures move. The period the window's columns take follows its range and
+ * the plot's width — and where a reader shows nothing of what is in view at
+ * that period, the canvas takes the finest coarser one that does, itself
+ * (#1799, `root/fallback.ts`).
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
@@ -163,8 +166,9 @@ import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import {
     PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows,
-    type PlanNestedLead, type PlanNestedNotice, type PlanNestedSpanRead, type SPAN_READING,
+    type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING,
 } from "./root/nested.js";
+import { usePlanFallback } from "./root/fallback.js";
 import { usePlanKeptRoot } from "./root/kept.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
@@ -257,8 +261,6 @@ const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
 const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 /** No index of an event kind's source: a kind with none. */
 const NO_INDEXES: readonly never[] = [];
-/** No collection of the rows' own holds more items in view than are drawn, unshaded. */
-const NO_ITEMS_OVER: readonly PlanNestedNotice[] = [];
 /** No period a table cell zooms to: a Plan with no slice, which shows the one its range takes alone. */
 const NO_ZOOMS: readonly PlanResolution[] = [];
 
@@ -2190,7 +2192,11 @@ export function usePlanCanvas({
             session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting}
             onSpan={setNestedSpan} />
         : null;
-    const boundsReader = kinds.length > 0 && eventRange !== undefined
+    // Where the columns' period shows nothing of what a reader holds in view — an event kind's events past the cap, the
+    // items of the rows' own collections — the canvas takes the finest coarser period that shows it, itself, and says
+    // nothing (#1799, `root/fallback.ts`). What no period the axis offers shows is left for the frame's one line.
+    const over = usePlanFallback(scale, offered, lead, nestedSeam !== undefined ? nestedLead : undefined, windowHold);
+    const boundsReader =kinds.length > 0 && eventRange !== undefined
         ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBreaches={setBreaches} />
         : null;
     const provide = (children: ReactNode): ReactNode => {
@@ -2681,8 +2687,7 @@ export function usePlanCanvas({
             cells: lead.cells,
             placings: events !== undefined ? placings : undefined,
             linksOver: linksOverCap,
-            // The same array while the reader's notices hold, so the frame's banners are made again only as they move.
-            itemsOver: nestedSeam !== undefined && nestedLead !== undefined ? nestedLead.notices : NO_ITEMS_OVER,
+            over,
             tools: toolsChrome,
             footer: data.footer,
             id: getSomeorUndefined(data.id),

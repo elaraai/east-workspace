@@ -38,7 +38,10 @@
  * pressed. A zoom to a table cell's period (#1438) sets as many of it about
  * the middle the cell names instead, inside the data. Either is written as
  * every window is, and the sources holding the window read the range it lands
- * on.
+ * on. Where the canvas had fallen back from the period its range takes to a
+ * coarser one (#1799, `root/window.ts`), a period pressed is tried again: the
+ * hold picks it on the plot anew, whether the preset's range is a new one or
+ * the one held.
  *
  * @packageDocumentation
  */
@@ -147,6 +150,9 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                     // Inside the data, and over the window shown too where it lies outside it.
                     : presetAround(eff.about, period, plot, PLAN_COLUMN_WIDTHS,
                         span === undefined ? undefined : [Math.min(span[0], from[0]), Math.max(span[1], from[1])]);
+                // A period pressed is tried again where the canvas had fallen back from it — also where the preset's
+                // range is the one held, which is written no more.
+                hold?.pickAgain();
                 if (held === undefined || held[0] !== preset[0] || held[1] !== preset[1]) writePlanWindow(parts, preset[0], preset[1], hold);
                 break;
             }
