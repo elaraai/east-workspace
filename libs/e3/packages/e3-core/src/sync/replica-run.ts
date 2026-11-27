@@ -129,7 +129,8 @@ export interface ReplicaRun {
    * @returns The answer
    */
   ask(ask: ReplicaRunAsk): Promise<ReplicaRunAnswer>;
-  /** Cancels the run: every ask still waiting answers `unknown`. */
+  /** Cancels the run: every ask still waiting answers `unknown`, and it
+   *  resolves once the run has ended, so nothing of it is written after. */
   cancel(): Promise<void>;
 }
 
@@ -214,10 +215,11 @@ class LogFollower {
 class Run implements ReplicaRun {
   private granted = false;
   private cancelled = false;
-  private ended = false;
   private ws = '';
   private store: StorageBackend;
   private handle: ExecutionHandle | undefined;
+  /** Settles once the run has ended */
+  private ending: Promise<void> = Promise.resolve();
   private runStartedAt = 0;
   private forced: (name: string) => boolean = () => false;
   private readonly orchestrator = new LocalOrchestrator(new InMemoryStateStore());
@@ -265,8 +267,7 @@ class Run implements ReplicaRun {
       onStdout: (name) => { this.signal(name); },
       onStderr: (name) => { this.signal(name); },
     });
-    void this.orchestrator.wait(this.handle).catch(() => undefined).finally(() => {
-      this.ended = true;
+    this.ending = this.orchestrator.wait(this.handle).then(() => undefined, () => undefined).finally(() => {
       for (const name of this.settled.keys()) this.settle(name);
     });
   }
@@ -299,7 +300,9 @@ class Run implements ReplicaRun {
   async cancel(): Promise<void> {
     this.cancelled = true;
     for (const name of this.settled.keys()) this.settle(name);
-    if (this.handle !== undefined) await this.orchestrator.cancel(this.handle).catch(() => undefined);
+    if (this.handle === undefined) return;
+    await this.orchestrator.cancel(this.handle).catch(() => undefined);
+    await this.ending;
   }
 
   /** The answer to an ask whose task the run has settled, and the execution
