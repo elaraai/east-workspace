@@ -229,8 +229,13 @@ test("a Set field's search takes one value: it says so, and a second pick replac
     await user.click(await screen.findByRole("option", { name: /^First aid/ }));
     await waitFor(() => expect(f.slice.read().where.get("skills")).toEqual(variant("values", ['"First aid"'])));
     await waitFor(() => expect(input.value).toBe("First aid"));
-    // The box typed over, the first value still chosen: the next pick stands alone.
-    await user.type(input, "Fo", { initialSelectionStart: 0, initialSelectionEnd: input.value.length });
+    // The box typed over, the first value still chosen: the next pick stands alone. Its text is selected as a person
+    // selects it, once the click that opens its list has settled: Zag puts the caret at the box's end a frame after the
+    // list opens (`setInitialFocus`), which a selection made in that frame does not survive — on a busy runner the
+    // frame came between the selection and the first key, and the keys were added to the end.
+    await user.click(input);
+    await act(async () => { await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); }); });
+    await user.type(input, "Fo", { skipClick: true, initialSelectionStart: 0, initialSelectionEnd: input.value.length });
     const second = await screen.findByRole("option", { name: /^Forklift/ });
     expect(input.value).toBe("Fo");
     expect(f.slice.read().where.get("skills")).toEqual(variant("values", ['"First aid"']));
