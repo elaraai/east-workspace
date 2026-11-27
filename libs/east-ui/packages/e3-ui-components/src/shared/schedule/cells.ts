@@ -83,6 +83,25 @@
  * read wants, and a resource whose block the view has left is no resource
  * whose cells the read holds.
  *
+ * # A read on its way
+ *
+ * A series read's entries are asked a batch at a time, by the one rule every
+ * reader of a schedule's events asks by (`asked-batches.ts`, #1797): while the
+ * next read's searches are still counted, every batch on its way is asked again
+ * as it was — what that read wants is not known until they are — and once they
+ * are, each batch a read still wants a cell of, the cells no batch holds going
+ * in one more. A view that moves on before its read lands — a step, a change of
+ * period — so never has that read given up while the next is counted: given
+ * up, as a request nothing reads is, it was asked again whole once the next
+ * read's searches were. Each cell's entries are kept from when their batch
+ * lands until a read takes them in; a batch the counted read wants no cell of
+ * is given up. Cells named apart may still be read from the same runs: a series
+ * in time order searches a tile at a time, so a change of period names every
+ * cell anew over the runs a read on its way asks. Such a run is read through
+ * that read, as it was, by the record slice source while it is on its way, and
+ * from it by the paging runtime once it has landed
+ * (`platform/paged/batches.ts`).
+ *
  * # A view of no row
  *
  * The rows in view may be reported as none ({@link ScheduleCellSpan.runs}
@@ -311,6 +330,7 @@ import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
 import { coarserThan } from "../time/zoom.js";
 import { sameView, viewState, type ReadView, type ViewState } from "../view-read.js";
+import { scheduleBatchesAsked } from "./asked-batches.js";
 import { holdCellRows, releaseCellRows } from "./cell-rows.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import { scheduleSpansKept } from "./kept-spans.js";
@@ -1567,6 +1587,30 @@ function keptSpans(was: SpansHeld | undefined, taken: ReadonlyMap<string, Span>)
     return new Map(scheduleSpansKept([...was.kept, ...was.spans].filter(([key]) => !taken.has(key)), (span) => span.entries.length));
 }
 
+/**
+ * A cell a series read asks the entries of (#1797), under a name that is the same for the same searches read to read: its
+ * group's, what they were made from, its level and its tiles' bounds — what tells a batch on its way that a later read
+ * still wants.
+ */
+interface NamedCell {
+    readonly name: string;
+    readonly cell: RecordSliceCell;
+}
+
+/**
+ * The entries a series read has asked of one index and not yet taken in (#1797), at the revision they were asked at: the
+ * batches of cells on their way, each asked again as it was until it lands, and each cell's entries once its batch has
+ * landed, by the cell's name, until a read takes them in.
+ */
+interface EntriesAsked {
+    readonly revision: string;
+    readonly batches: NamedCell[][];
+    readonly landed: Map<string, readonly RecordSliceEntry[]>;
+}
+
+/** No cell's entries: what a read that asks none reads. */
+const NO_ENTRIES: ReadonlyMap<string, readonly RecordSliceEntry[]> = new Map();
+
 /** One group's run of one level a series read wants (#1433): the span of it held, and a cell for each part of it not held. */
 interface SeriesWant {
     /** The span's name among a kind's: the group's, and the level's. */
@@ -1577,8 +1621,8 @@ interface SeriesWant {
     readonly to: number;
     /** The span of it held, at the revision counted; `undefined` for none. */
     readonly held: Span | undefined;
-    /** A cell for each part of it not held. */
-    readonly cells: readonly RecordSliceCell[];
+    /** A cell for each part of it not held, each by its name. */
+    readonly cells: readonly NamedCell[];
     readonly group: SeriesGroup;
     /** The group's place among those counted. */
     readonly at: number;
@@ -1650,6 +1694,11 @@ class CellsReader {
      * the cases of one record read over the same blocks hold one set (#1771) — then by the index.
      */
     private readonly spans = new Map<string, Map<string, SpansByIndex>>();
+    /**
+     * The entries the series reads have asked and not yet taken in (#1797; see the module docs, "A read on its way"), by
+     * the spans the kinds read through one source over the same slots share, then by the index.
+     */
+    private readonly entriesAsked = new WeakMap<SpansByIndex, Map<string, EntriesAsked>>();
     private readonly codecs = new WeakMap<object, KindCodec>();
     /** How a series index in time order orders the keys it files by (#1710), by a kind's cells' type and the field: made once each. */
     private readonly orders = new WeakMap<object, Map<string, KeyOrder>>();
@@ -1955,7 +2004,7 @@ class CellsReader {
         // Each group's run of each level: the span of it held — the last read's, or one kept of a view's past (#1797) —
         // and a cell for each part of it not held.
         const wanted: SeriesWant[] = [];
-        const missing: RecordSliceCell[] = [];
+        const missing: NamedCell[] = [];
         groups.forEach((group, g) => {
             // What its searches are made from: its keys, and what its narrowing chooses of the index's leading fields.
             const leading = series.fields.map((field) => {
@@ -1972,9 +2021,11 @@ class CellsReader {
                 const parts: [number, number][] = held === undefined ? [[from, to]] : [];
                 if (held !== undefined && from < held.from) parts.push([from, held.from]);
                 if (held !== undefined && held.to < to) parts.push([held.to, to]);
-                const cells = parts.map(([a, b]) => ({
-                    id: `${group.id}@${run.level}@${a}`,
-                    queries: groupQueries(series, group, { level: run.level, from: new Date(a), to: new Date(b) }),
+                // Named by its searches — what they are made from, the level and the tiles — so a later read wanting the
+                // same searches knows a batch on its way holds them (#1797).
+                const cells = parts.map(([a, b]): NamedCell => ({
+                    name: `${identity}\u0000${run.level}\u0000${a}\u0000${b}`,
+                    cell: { id: `${group.id}@${run.level}@${a}`, queries: groupQueries(series, group, { level: run.level, from: new Date(a), to: new Date(b) }) },
                 }));
                 missing.push(...cells);
                 wanted.push({ key, identity, from, to, held, cells, group, at: g });
@@ -1987,10 +2038,15 @@ class CellsReader {
             for (const [tile, entries] of want.held.byTile) if (tile >= want.from && tile < want.to) counts[want.at] = counts[want.at]! + entries.length;
         }
         if (missing.length > 0) {
-            const found = recordSliceCellRuns(part, series.name, missing);
-            if (found.type !== "some") return READING;
+            const found = recordSliceCellRuns(part, series.name, missing.map((one) => one.cell));
+            if (found.type !== "some") {
+                // While these are counted, every batch of entries on its way is asked again (#1797): what this read wants is
+                // not known until they are, and unread, a batch's request is given up, and asked again whole once they land.
+                this.entriesOf(stored, part, series, revision.value, missing, false);
+                return READING;
+            }
             for (const want of wanted) {
-                for (const cell of want.cells) counts[want.at] = counts[want.at]! + Number(found.value.get(cell.id)?.total ?? 0n);
+                for (const one of want.cells) counts[want.at] = counts[want.at]! + Number(found.value.get(one.cell.id)?.total ?? 0n);
             }
         }
         return { revision: revision.value, wanted, counts };
@@ -1998,22 +2054,24 @@ class CellsReader {
 
     /**
      * A kind's series cells read, of the groups `taken` takes in (#1433,
-     * #1768): the entries of the parts not held, in one request — each cell
-     * counted already, so none is searched again — each kept under the tile it
-     * names, and the spans no group taken in wants kept while they fit (#1797,
-     * {@link keptSpans}). Through an index in time order the entries of each
-     * group's own keys are kept (#1710).
+     * #1768): the entries of the parts not held — each cell counted already,
+     * so none is searched again — asked a batch at a time
+     * ({@link CellsReader.entriesOf}, #1797): a batch on its way asked again as
+     * it was, the cells no batch holds in one request more. Each entry is kept
+     * under the tile it names, and the spans no group taken in wants kept while
+     * they fit (#1797, {@link keptSpans}). Through an index in time order the
+     * entries of each group's own keys are kept (#1710).
      *
      * @returns The groups taken in's entries a level, in order; {@link READING} while the entries are in flight
      */
     private seriesRead(stored: SpansByIndex, part: ScheduleCellPart, series: Index, counted: SeriesCounted, taken: readonly boolean[]): SeriesEntries | typeof READING {
         const reading = counted.wanted.filter((want) => taken[want.at] === true);
         const missing = reading.flatMap((want) => want.cells);
-        let read: ReadonlyMap<string, RecordSliceEntry[]> = new Map();
+        let read = NO_ENTRIES;
         if (missing.length > 0) {
-            const got = recordSliceCellEntries(part, series.name, missing);
-            if (got.type !== "some") return READING;
-            read = got.value;
+            const landed = this.entriesOf(stored, part, series, counted.revision, missing, true);
+            if (landed === undefined) return READING;
+            read = landed;
         }
         const spans = new Map<string, Span>();
         const entries = reading.map(({ key, identity, from, to, held, cells, group }) => {
@@ -2021,8 +2079,8 @@ class CellsReader {
             if (span === undefined) {
                 const byTile = new Map<number, RecordSliceEntry[]>();
                 if (held !== undefined) for (const [tile, list] of held.byTile) if (tile >= from && tile < to) byTile.set(tile, [...list]);
-                for (const cell of cells) {
-                    for (const entry of read.get(cell.id) ?? []) {
+                for (const { name } of cells) {
+                    for (const entry of read.get(name) ?? []) {
                         // Through an index in time order, a range holds the keys between the group's first and last too (#1710).
                         if (group.run !== undefined && !group.run.holds(entryKey(entry))) continue;
                         const tile = tileOf(entry);
@@ -2042,6 +2100,9 @@ class CellsReader {
         const last = stored.get(series.name);
         const was = last !== undefined && stringEqual(last.revision, counted.revision) ? last : undefined;
         stored.set(series.name, { revision: counted.revision, spans, kept: keptSpans(was, spans) });
+        // What landed is the spans' now (#1797): a cell this read took in is held there, and one it did not take in is asked
+        // again where a read wants it.
+        if (missing.length > 0) this.entriesAsked.get(stored)?.get(series.name)?.landed.clear();
         // The same group by group (#1793): a group's runs are wanted together, a level each.
         const groups: { literals: readonly string[]; entries: (readonly RecordSliceEntry[])[] }[] = [];
         reading.forEach((want, n) => {
@@ -2050,6 +2111,41 @@ class CellsReader {
             else groups.push({ literals: want.group.literals, entries: [entries[n]!] });
         });
         return { entries, groups, revision: counted.revision };
+    }
+
+    /**
+     * Some cells' entries of a series read, asked of one index a batch at a time (#1797; see the module docs, "A read on
+     * its way"): each batch on its way asked again as it was — every one while the cells are still counted, else each
+     * holding one of them — the cells no batch holds asked in one request more where `fresh`, and each cell's entries
+     * kept once its batch lands, until a read takes them in. Once they are counted, a batch holding none of them is given
+     * up; what was asked at another revision is let go.
+     *
+     * @param stored - The spans the kind reads through, which the cases of one record share
+     * @param part - The kind's source of the slice
+     * @param series - The index read
+     * @param revision - The revision the cells were counted at
+     * @param cells - The cells wanted
+     * @param fresh - Whether the cells are counted, so the cells no batch holds are asked; `false` while the read wanting
+     *   them is still counted, which asks again every batch on its way and nothing more
+     * @returns Each cell's entries landed, by its name, once every one of them has; `undefined` while any is on its way, or not yet asked
+     */
+    private entriesOf(stored: SpansByIndex, part: ScheduleCellPart, series: Index, revision: string, cells: readonly NamedCell[], fresh: boolean):
+        ReadonlyMap<string, readonly RecordSliceEntry[]> | undefined {
+        let byIndex = this.entriesAsked.get(stored);
+        if (byIndex === undefined) { byIndex = new Map(); this.entriesAsked.set(stored, byIndex); }
+        let asked = byIndex.get(series.name);
+        if (asked === undefined || !stringEqual(asked.revision, revision)) {
+            asked = { revision, batches: [], landed: new Map() };
+            byIndex.set(series.name, asked);
+        }
+        const { batches, landed } = asked;
+        const complete = scheduleBatchesAsked(cells, (one) => one.name, (one) => landed.has(one.name), batches, (batch) => {
+            const got = recordSliceCellEntries(part, series.name, batch.map((one) => one.cell));
+            if (got.type !== "some") return false;
+            for (const one of batch) landed.set(one.name, got.value.get(one.cell.id) ?? []);
+            return true;
+        }, fresh);
+        return complete ? landed : undefined;
     }
 
     /**

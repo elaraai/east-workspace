@@ -26,10 +26,10 @@ import type { PagedSelector, PagedSource, PagedRow, PagedRun, PagedPlacedSegment
 import { NO_INDEX, pagedRevisionKey, pagedWindowFamily, seekKeyIn, seekQueryText, pagedBatchKey, withinFamily, searchOf } from "./keys.js";
 import { isPermanentPageError, failureOf } from "./errors.js";
 import {
-    type RunSpans, type Snapshot, landSearch, heldSearch, PLACE_CONCURRENCY, MAX_WITHIN_KEYS, heldWithinOf, keepWithin, releaseWithin, readWithin,
+    type Snapshot, landSearch, heldSearch, PLACE_CONCURRENCY, MAX_WITHIN_KEYS, heldWithinOf, keepWithin, releaseWithin, readWithin,
     trimWithin,
 } from "./state.js";
-import { elementCount, runsAfter, joinWindows } from "./windows.js";
+import { elementCount, runsAfter, joinWindows, cutWindow, runSpansOf } from "./windows.js";
 import { PagedReads } from "./reads.js";
 
 /**
@@ -411,7 +411,11 @@ export class PagedBatches extends PagedReads {
      * again until every entry has landed, the parts joined in order. The window
      * is kept as a landed window is, bounded with them, and a window of the same
      * rows inside one of its runs is answered from it, as from a landed window
-     * that covers it (#1217).
+     * that covers it (#1217). A run a landed window of the same rows holds whole
+     * is taken from it, and only the rest go in the request — none, when every
+     * run is held, the answer then what is held (#1797): a read of rows a read
+     * before it brought under other searches, as a change of period's cells
+     * are, never asks e3 for them again.
      *
      * @param source - The rows read: a dataset's own, or one of a record's
      *   indexes, joined as its selector says
@@ -432,12 +436,30 @@ export class PagedBatches extends PagedReads {
             this.touchWindow(batchKey);
             return some(batch.window);
         }
-        if (this.due(batch)) this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs);
+        if (this.due(batch)) {
+            const family = pagedWindowFamily(workspace, path, revision, selector);
+            const held = this.runsFromCovering(source.type, family, runs, batch);
+            if (runs.length > 0 && held.every((part) => part !== undefined)) {
+                // Every run is held already: the answer is what is held, kept on the batch's channel for its reader.
+                batch.status = "loaded";
+                batch.window = joinWindows(source.type, held);
+                batch.runSpans = runSpansOf(family, runs);
+                delete batch.error;
+                delete batch.failedAtMs;
+                delete batch.permanent;
+                this.touchWindow(batchKey);
+                return some(batch.window);
+            }
+            this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs, held);
+        }
         return this.answer(batch, batch.window);
     }
 
-    /** Launch a runs read, asking again for the entries each answer's bounds
-     *  did not reach. */
+    /**
+     * Launch a runs read of the runs no landed window holds, asking again for
+     * the entries each answer's bounds did not reach, and land it whole: each
+     * run held taken in its place among them (#1797).
+     */
     protected launchRunsBatch(
         workspace: string,
         path: TreePath,
@@ -446,16 +468,18 @@ export class PagedBatches extends PagedReads {
         source: PagedSource,
         batchKey: string,
         runs: readonly PagedRun[],
+        held: readonly unknown[],
     ): void {
         const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         const { selector } = source;
         const decode = decodeBeast2For(source.type);
+        const asked = runs.filter((_run, i) => held[i] === undefined);
         void (async () => {
             const parts: unknown[] = [];
             try {
                 if (api === null) throw new Error("no PagedApi installed");
-                for (let rest: PagedRun[] = [...runs]; rest.length > 0;) {
+                for (let rest: PagedRun[] = [...asked]; rest.length > 0;) {
                     const chunk = rest.slice(0, DATASET_BATCH_MAX);
                     const answer = await api.getRuns(workspace, path, {
                         runs: chunk, hash: revision,
@@ -476,11 +500,25 @@ export class PagedBatches extends PagedReads {
                 return;
             }
             if (!this.pinnedTo(snapshot, revision)) return;
-            const window = joinWindows(source.type, parts);
+            const fetched = joinWindows(source.type, parts);
+            let window = fetched;
+            if (asked.length < runs.length) {
+                // Each run in its place: the cut a landed window held, or its part of what was asked.
+                const pieces: unknown[] = [];
+                let at = 0;
+                for (const [i, [, count]] of runs.entries()) {
+                    const own = held[i];
+                    if (own !== undefined) {
+                        pieces.push(own);
+                        continue;
+                    }
+                    pieces.push(cutWindow(source.type, fetched, at, count));
+                    at += count;
+                }
+                window = joinWindows(source.type, pieces);
+            }
             // Where each run's entries sit, so a read inside one is answered from them.
-            let at = 0;
-            const spans = runs.map(([row, count]) => { const span = { row, count, at }; at += count; return span; });
-            const runSpans: RunSpans = { family: pagedWindowFamily(workspace, path, revision, selector), runs: spans };
+            const runSpans = runSpansOf(pagedWindowFamily(workspace, path, revision, selector), runs);
             if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.window = window; e.runSpans = runSpans; delete e.error; })) return;
             this.touchWindow(batchKey);
             // A window across a narrowing's runs is a window: its readers hear with the burst it lands in, once a frame (CL9).

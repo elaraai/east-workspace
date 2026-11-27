@@ -19,6 +19,8 @@
  * - A scroll to machines further down reads the cells of the blocks its rows
  *   meet and of the next the way it went; back to the machines it left it
  *   reads nothing, their cells kept (#1797).
+ * - A read of the cells on its way is never given up while the next view's
+ *   searches are counted, and no read of their entries is asked twice (#1797).
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -335,6 +337,36 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await scrollStopped();
         await settle();
         expect(askedOf(IN_TIME).slice(left)).toEqual([]);
+    });
+
+    test("a read of the cells on its way is never given up while the next view is counted, nor asked again (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const entriesOf = (request: E3Request) => through(IN_TIME)(request) && request.kind === "runs";
+        // The page opening, the entries of the first block's cells held on their way.
+        const entries = h.e3.hold(entriesOf);
+        const { container } = await h.mount(nestedPlan);
+        await entries.holding;
+        await settle();
+        // Down a few machines, still in the first block: the view went on, so the next block down is wanted beside it, its
+        // searches held as they are counted. The read on its way is still wanted, and asked again as it was — never given up.
+        const counts = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
+        act(() => { window.scrollTo({ top: 5 * PLAN_GEOMETRY.default.row }); });
+        await scrollStopped();
+        await counts.holding;
+        await settle();
+        const givenUp = () => h.requests().filter((request) => entriesOf(request) && request.signal.aborted);
+        expect(givenUp()).toEqual([]);
+        expect(entries.held).toBe(1);
+        // Counted, and landed: the read on its way lands once, the next block's beside it — no read of their entries asked twice.
+        await act(async () => { counts.release(); });
+        await settle();
+        await act(async () => { entries.release(); });
+        await settle();
+        expect(givenUp()).toEqual([]);
+        const asked = h.requests().filter(entriesOf).map((request) => new TextDecoder().decode(request.body));
+        expect(asked).toHaveLength(2);
+        expect(new Set(asked).size).toBe(2);
+        await waitFor(() => expect(drawnRow(container, "presses", "M-10001").length).toBeGreaterThan(0), { timeout: 10_000 });
     });
 
     test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {

@@ -25,8 +25,16 @@
  * hold them, so the bands roll up from them as over rows read whole.
  *
  * Every search it does not hold goes in one request, which counts each one's
- * entries first; the entries it does not hold go in one more. What it holds is
- * kept at the record's revision: a pan or a scroll within what it holds reads
+ * entries first; the entries it does not hold go in one more. A request on its
+ * way is asked again as it was — every one while the next read's searches are
+ * still counted, what that read wants not known until they are; once they are,
+ * each the read still wants a part of — so a view that moves on before it lands
+ * never has it given up and asked once more; one the counted read wants no
+ * part of is given up (#1797, the one rule every reader of a schedule's events
+ * asks by, `shared/schedule/asked-batches.ts`). A run a landed request holds
+ * whole is read from it by a read of other parts over its rows, and one it
+ * holds a part of is asked of e3 whole (`platform/paged/batches.ts`). What it
+ * holds is kept at the record's revision: a pan or a scroll within what it holds reads
  * nothing, and a commit reads what is wanted again, the last standing in until
  * it lands. Of the runs a view has left it keeps the most recently wanted
  * while they fit — the one rule every reader of a schedule's events keeps them
@@ -79,6 +87,7 @@ import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexe
 import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
+import { scheduleBatchesAsked } from "../../shared/schedule/asked-batches.js";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket, type ScheduleCellTravel } from "../../shared/schedule/cells.js";
 import { scheduleSpansKept } from "../../shared/schedule/kept-spans.js";
 import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
@@ -650,8 +659,10 @@ class NestedCellsReader {
      * latest read wants last, and before them those it wants no more, kept
      * while they fit, the least recently wanted first (#1797); each part's
      * bounds counted and its entries once read; and the batches of searches and
-     * of reads in flight, each asked again until it lands, so a part is asked
-     * in one batch however the wanted runs move meanwhile.
+     * of reads in flight, each asked again until it lands — every read while the
+     * next view's searches are counted — so a part is asked in one batch
+     * however the wanted runs move meanwhile, and a batch no counted view wants
+     * is given up (#1797).
      */
     private held: {
         revision: string; spans: Map<string, Span>; found: Map<string, Range>; read: Map<string, readonly Entry[]>;
@@ -734,7 +745,12 @@ class NestedCellsReader {
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
         const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf, way);
         const firstParts = this.partsOf(first, lit);
-        if (!this.counted(binding, index, firstParts)) return waitingOn(firstParts.map((part) => part.cell));
+        if (!this.counted(binding, index, firstParts)) {
+            // While these are counted, every read on its way is asked again (#1797): what this view wants is not known
+            // until they are, and unread, a read's request is given up, and asked again whole once the count lands.
+            this.entries(binding, index, firstParts, false);
+            return waitingOn(firstParts.map((part) => part.cell));
+        }
         const items = new Map<string, number>();
         for (const cell of first) {
             if (cell.kind !== "items" && cell.kind !== "subtree") continue;
@@ -743,7 +759,10 @@ class NestedCellsReader {
         const capped = new Set([...items].filter(([, n]) => n > SCHEDULE_EVENT_CAP).map(([place]) => place));
         const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf, way);
         const parts = capped.size === 0 ? firstParts : this.partsOf(wanted, lit);
-        if (!this.counted(binding, index, parts)) return waitingOn(parts.map((part) => part.cell));
+        if (!this.counted(binding, index, parts)) {
+            this.entries(binding, index, parts, false);
+            return waitingOn(parts.map((part) => part.cell));
+        }
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.
         const read = this.held.read;
         if (!this.entries(binding, index, parts)) return waitingOn(parts.filter((part) => !read.has(part.text)).map((part) => part.cell));
@@ -802,15 +821,16 @@ class NestedCellsReader {
     }
 
     /**
-     * Every part counted: each batch in flight holding one asked again, and
-     * the parts in none counted in one more request.
+     * Every part counted, by the one rule every reader of a schedule's events
+     * asks by (`shared/schedule/asked-batches.ts`): each batch in flight holding
+     * one asked again, and the parts in none counted in one more request.
      *
      * @returns Whether every part is counted; `false` while a count is in flight
      */
     private counted(binding: IndexedBindingRead, index: string, parts: readonly Part[]): boolean {
         const held = this.held!;
         const found = held.found;
-        return this.asked(parts, (part) => found.has(part.text), held.counting, (batch) => {
+        return scheduleBatchesAsked(parts, (part) => part.text, (part) => found.has(part.text), held.counting, (batch) => {
             const answer = binding.batches.seekAll(index, batch.map((part) => part.query));
             if (answer.type !== "some") return false;
             batch.forEach((part, i) => found.set(part.text, answer.value[i]!));
@@ -819,21 +839,27 @@ class NestedCellsReader {
     }
 
     /**
-     * Every counted part's entries read: each batch in flight holding one
-     * asked again, and the parts in none read in one more request, their runs
-     * in the index's order.
+     * Every counted part's entries read, by the same rule: each batch in flight
+     * holding one asked again, and the parts in none read in one more request,
+     * their runs in the index's order — or, while some of the parts are still
+     * counted (`fresh` false, #1797), every batch on its way asked again and
+     * nothing more.
      *
-     * @returns Whether every part's entries are read; `false` while a read is in flight
+     * @param fresh - Whether the parts no batch holds are read; `false` while some of the parts are still counted
+     * @returns Whether every part's entries are read; `false` while a read is in flight, or the parts are still counted
      */
-    private entries(binding: IndexedBindingRead, index: string, parts: readonly Part[]): boolean {
+    private entries(binding: IndexedBindingRead, index: string, parts: readonly Part[], fresh = true): boolean {
         const held = this.held!;
         const { found, read } = held;
+        // Those counted: a part counted holding no entry is read already. While the rest are counted, these alone are asked of.
         const counted = parts.filter((part) => {
-            if (found.get(part.text)!.count > 0n) return true;
+            const range = found.get(part.text);
+            if (range === undefined) return false;
+            if (range.count > 0n) return true;
             read.set(part.text, []);
             return false;
         }).sort((a, b) => Number(found.get(a.text)!.row - found.get(b.text)!.row));
-        return this.asked(counted, (part) => read.has(part.text), held.reading, (batch) => {
+        return scheduleBatchesAsked(counted, (part) => part.text, (part) => read.has(part.text), held.reading, (batch) => {
             const runs = binding.batches.runsAll(index, batch.map((part) => found.get(part.text)!));
             if (runs.type !== "some") return false;
             let at = 0;
@@ -844,36 +870,7 @@ class NestedCellsReader {
                 at += n;
             }
             return true;
-        });
-    }
-
-    /**
-     * Some parts asked of e3 in batches: each batch in flight holding a part
-     * not yet answered asked again, the parts in none asked in a batch of their
-     * own, and the batches that land let go.
-     *
-     * @param parts - The parts wanted
-     * @param answered - Whether a part is answered
-     * @param inFlight - The batches in flight, which this keeps
-     * @param ask - Asks a batch: whether it landed, its answers kept
-     * @returns Whether every part is answered
-     */
-    private asked(parts: readonly Part[], answered: (part: Part) => boolean, inFlight: Part[][], ask: (batch: readonly Part[]) => boolean): boolean {
-        const missing = new Set(parts.filter((part) => !answered(part)).map((part) => part.text));
-        if (missing.size === 0) return true;
-        let complete = true;
-        const asking = new Set<string>();
-        for (const batch of [...inFlight]) {
-            if (!batch.some((part) => missing.has(part.text))) continue;
-            if (ask(batch)) inFlight.splice(inFlight.indexOf(batch), 1);
-            else { complete = false; for (const part of batch) asking.add(part.text); }
-        }
-        const fresh = parts.filter((part) => missing.has(part.text) && !answered(part) && !asking.has(part.text));
-        if (fresh.length > 0 && !ask(fresh)) {
-            inFlight.push(fresh);
-            complete = false;
-        }
-        return complete;
+        }, fresh);
     }
 
     /** How many entries a run holds over its tiles: those held of them, and its parts' counted. */

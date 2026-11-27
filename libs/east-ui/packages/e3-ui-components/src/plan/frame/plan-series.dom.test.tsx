@@ -28,7 +28,8 @@
  *   down reads their blocks' cells and the next block's, the way it went
  *   (#1797); back up to the presses it left it reads nothing, their cells
  *   kept — the most recently wanted, while they fit: past that the least
- *   recently wanted are read again.
+ *   recently wanted are read again, taken from the read that brought them
+ *   while the paging holds it, e3 asked nothing.
  * - A Save reads the cells in view again at the revision it committed.
  * - A link's end the cells do not hold is read by its key, so the link finds
  *   its row; a backlog job a draft schedules draws where it is dropped.
@@ -59,6 +60,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import { PrintPress, type PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { setPagedRuntimeProbe } from "../../platform/paged-runtime.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
@@ -515,7 +517,11 @@ describe("the jobs read a cell at a time (#1039)", () => {
         }
     });
 
-    test("what a view has left is kept while it fits: past that the least recently wanted — a block's week of jobs — is read again, in one request, and what was left after it is not (#1797)", async () => {
+    test("what a view has left is kept while it fits: past that the least recently wanted — a block's week of jobs — is read again, taken from the read that brought it, and what was left after it is not (#1797)", async () => {
+        // The runs each read of runs takes from the landed reads that hold them, which e3 is not asked for (#1797).
+        let taken = 0;
+        setPagedRuntimeProbe({ took: (runs) => { taken += runs; } });
+        onTestFinished(() => setPagedRuntimeProbe(undefined));
         // Another planner books 5,100 hour-long proofs on twenty presses of the first block, from Press 1031, and as many on
         // twenty of the third, from Press 1101: either block's jobs are fewer than the Plan draws, and the two together
         // more than a reader keeps of what its view has left. None of those presses is among the rows the views below show.
@@ -554,20 +560,23 @@ describe("the jobs read a cell at a time (#1039)", () => {
             // Back up to Press 1141: its two blocks' cells were kept, and are read no more — the block before them, the next
             // the way the view now goes and never read, is counted, and holds no job.
             const back = askedOf(SERIES).length;
+            const takenBack = taken;
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(bar(container, "W-0007", "P-1150")).not.toBeNull(), { timeout: 20_000 });
             await settle();
             expect(askedOf(SERIES, back)).toEqual([`find ${LEVELS * BLOCK}`]);
-            // Back to the top: the first block's week of jobs, let go, is read again — its counts are held, so in one
-            // request, and of the week alone: the month's cell, as long left and small enough to keep, was kept, and the
-            // report it holds draws beside the week's jobs. That the read is no more the one the Plan opened on — the week
-            // and the month together — is why it is seen at all: a read asked again as it was, the paging answers
-            // from what it last read, and asks e3 nothing.
+            expect(taken).toBe(takenBack);
+            // Back to the top: the first block's week of jobs, let go, is read again — its counts are held, and its runs
+            // the read the Plan opened on holds whole, the week's beside the month's, which the paging still holds: they
+            // are taken from it, and e3 is asked nothing (#1797). The month's cell, as long left and small enough to keep,
+            // was kept, and the report it holds draws beside the week's jobs.
             const top = askedOf(SERIES).length;
+            const takenTop = taken;
             act(() => { window.scrollTo({ top: 0 }); });
             await waitFor(() => expect(bar(container, "W-0001", "P-1001")).not.toBeNull(), { timeout: 20_000 });
             await settle();
-            expect(askedOf(SERIES, top)).toEqual(["runs"]);
+            expect(askedOf(SERIES, top)).toEqual([]);
+            expect(taken).toBeGreaterThan(takenTop);
             expect(named(bar(container, "L-0001", "P-1001"))).toMatch(/^Annual report, Oct 5, 2026/);
         } finally {
             restore();

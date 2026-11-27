@@ -1675,6 +1675,31 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
         assert.ok(equalFor(ArrayType(StringType))(window.value as string[], [written[0]!, written[1]!, written[3]!, written[4]!, written[5]!]));
     });
 
+    test("a run a landed read of the same rows holds is taken from it and only the rest asked; every run held, nothing is: rows a read brought are never asked again under other runs (#1797)", async () => {
+        const { runtime, source } = await queued();
+        // A view's read of two runs lands, as a reader of a series index reads its cells.
+        runtime.runsAll(source, [[1, 2], [6, 3]]);
+        await h.settle();
+        assert.equal(runtime.runsAll(source, [[1, 2], [6, 3]]).type, "some");
+        // The next view's read holds one of those runs and one more: a change of period's cells, over the same rows and more.
+        assert.equal(runtime.runsAll(source, [[1, 2], [10, 2]]).type, "none", "in flight: the run no landed read holds is asked");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[1, 2], [6, 3]], [[10, 2]]],
+            "only the run no landed read holds");
+        const next = runtime.runsAll(source, [[1, 2], [10, 2]]);
+        assert.ok(next.type === "some");
+        // The same entries as another runtime's pages of those runs, each run in its place.
+        const other = (await queued()).queue;
+        const page = (offset: bigint, limit: bigint) => h.ready(() => other.page(offset, limit));
+        assert.ok(queueEqual(next.value as ValueTypeOf<typeof QueueWindow>, [...await page(1n, 2n), ...await page(10n, 2n)]));
+        // Runs inside runs landed reads hold, one of each read: answered at once, kept on its own channel, nothing asked.
+        const held = runtime.runsAll(source, [[7, 1], [11, 1]]);
+        assert.ok(held.type === "some", "answered at once");
+        assert.ok(queueEqual(held.value as ValueTypeOf<typeof QueueWindow>, [...await page(7n, 1n), ...await page(11n, 1n)]));
+        assert.equal(runtime.runsAll(source, [[7, 1], [11, 1]]).value, held.value, "kept on its own channel");
+        assert.equal(reads("runs", "records.work_orders").length, 2, "nothing asked");
+    });
+
     test("a failed read of rows or of runs throws its reason, and a read after the gap asks again", async () => {
         const { runtime, source } = await keyed(new TestPagedRuntime());
         const recover = h.e3.fail((request) => (request.kind === "rows" || request.kind === "runs") && request.dataset === "inputs.preview_counts", DOWN);

@@ -17,7 +17,7 @@ import { SortedMap, compareFor, fromEastTypeValue, decodeBeast2For, none, parseF
 import type { DatasetPage, DatasetFindQuery, DatasetFindResult } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 
-import type { PagedSelector, PagedRow } from "./api.js";
+import type { PagedSelector, PagedRow, PagedRun } from "./api.js";
 import { pagedWindowFamily, pagedTotalKey } from "./keys.js";
 import { isPermanentPageError, failureOf } from "./errors.js";
 import { type PageEntry, type Snapshot, type HeldRows, MAX_HELD_ROWS } from "./state.js";
@@ -28,11 +28,15 @@ import { PagedChannels } from "./channels.js";
  * What a spec watches a paging runtime by (test use only), as the Calendar's
  * frame is watched by its render probe: each landed channel a read looks at as
  * it seeks one that answers it — a window covering the window it reads
- * (#1217), or one holding the key it reads the row of (#1351).
+ * (#1217), or one holding the key it reads the row of (#1351) — and the runs a
+ * read of runs takes from the landed reads that hold them, which e3 is never
+ * asked for (#1797).
  */
 export interface PagedRuntimeProbe {
     /** Called for each landed channel a read looks at. */
     readonly looked?: () => void;
+    /** Called with how many of a read's runs it takes from landed reads, for a read that takes any. */
+    readonly took?: (runs: number) => void;
 }
 
 /** The probe a spec installed; `undefined` outside tests. */
@@ -172,6 +176,51 @@ export class PagedReads extends PagedChannels {
             this.touchWindow(landed);
             return;
         }
+    }
+
+    /**
+     * Each run's entries a landed window of its family holds whole — a
+     * window's, or one run of a runs read's (#1217, #1351) — cut from it now,
+     * for a runs read to take in place of asking e3 for them (#1797): a read
+     * of the rows a read on its way asked under other searches, as a change
+     * of period's cells are, asks e3 only for what no landed window holds.
+     * Only the landed windows are looked at — at most
+     * {@link MAX_RETAINED_WINDOWS}, or past it what its readers hold — never
+     * every channel of the revision, and each window a run is cut from was
+     * read, through its cut.
+     *
+     * @param sourceType - The source's type
+     * @param family - The read's family
+     * @param runs - The runs: ascending, disjoint, each inside the source
+     * @param into - The read's own channel, never one a run is cut from
+     * @returns Each run's cut, in order; `undefined` for a run no landed window holds whole
+     */
+    protected runsFromCovering(sourceType: EastTypeValue, family: string, runs: readonly PagedRun[], into: PageEntry): unknown[] {
+        // The landed windows of the family, looked at once whatever the runs.
+        const covering: { key: string; entry: PageEntry }[] = [];
+        for (const landed of this.loadedWindows.keys()) {
+            pagedRuntimeProbe?.looked?.();
+            const entry = this.entries.get(landed);
+            if (entry === undefined || entry === into || entry.status !== "loaded" || entry.window === undefined) continue;
+            if ((entry.span ?? entry.runSpans)?.family !== family) continue;
+            covering.push({ key: landed, entry });
+        }
+        const read = new Set<string>();
+        const cuts = runs.map(([row, count]): unknown => {
+            for (const { key, entry } of covering) {
+                const from = coveringAt(entry, family, row, count);
+                if (from === undefined) continue;
+                const cut = cutWindow(sourceType, entry.window, from, count);
+                if (cut === undefined) return undefined;
+                read.add(key);
+                return cut;
+            }
+            return undefined;
+        });
+        // Each window cut from was read, through its cuts — touched once every cut is made, so none goes before it is.
+        for (const key of read) this.touchWindow(key);
+        if (read.size > 0) pagedRuntimeProbe?.took?.(cuts.filter((cut) => cut !== undefined).length);
+        return cuts;
     }
 
     /**
