@@ -20,10 +20,13 @@
  *   it.
  * - **The tags** (#1758), under the description: the shared typed form's tags
  *   field, a word or two each, the tags the other saved queries hold suggested
- *   as one is typed. ⏎ in it adds the tag typed.
+ *   as one is typed, in the app's own list under the field (east-workspace#1779).
+ *   ⏎ in it adds the tag typed, or the one chosen in its list.
  * - **Cancel** and **Save**. ⏎ saves from the name, and from the description
- *   unless Shift is held — Shift ⏎ is a new line; Esc cancels. ⌘ or Ctrl ⏎
- *   is the builder's, which runs the query on it, from any of its fields.
+ *   unless Shift is held — Shift ⏎ is a new line; Esc cancels, but for one in
+ *   the tags field with a tag typed and not Entered, which puts the tag back,
+ *   the popover staying (east-workspace#1779). ⌘ or Ctrl ⏎ is the builder's,
+ *   which runs the query on it, from any of its fields.
  *
  * Save hands its host the name, the description — `none` while it is the
  * generated sentence, or cleared; the text as edited and trimmed once it is the author's —

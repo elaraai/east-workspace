@@ -218,7 +218,8 @@ function HoldSide({ choose, weigh, release, view }: { choose: () => boolean; wei
  * stayed. It is heard here first and taken, and a layer open over it, a field's
  * list or a popover of its own, keeps its own — as does a control in its body
  * that takes Esc itself and says so (`data-escape-layer`: a Chooser laid in
- * it, #1673), which closes while the popover stays.
+ * it, #1673, which closes; a tags box holding words, which puts them back,
+ * east-workspace#1779), while the popover stays. A phone's view does the same.
  *
  * In a phone's frame (560px or narrower), a popover its toolbar opens is a
  * view over the whole builder instead, in the frame's overlay slot, as the
@@ -483,14 +484,17 @@ function useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, 
  * A toolbar's popover in a phone's frame (ruled 3 Nov 2026): a view over the
  * whole builder in the frame's overlay slot — ← back and its label at its
  * head, its body, its foot's actions at its end. Its trigger toggles it, as
- * the popover's does; ←, Esc and the foot's actions close it; the focus moves
- * in as it opens and back to its trigger, or its anchor's first control, as
- * it closes.
+ * the popover's does; ←, Esc and the foot's actions close it — but an Esc a
+ * control in it takes itself and says so, which is the control's; the focus
+ * moves in as it opens and back to its trigger, or its anchor's first control,
+ * as it closes.
  */
 function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, footLeft, footActions, initialFocusEl, children }: FramePhoneViewProps) {
     const styles = useSlotStyles("frameView");
     const viewRef = useRef<HTMLDivElement | null>(null);
-    useTopViewEscape(open, () => onOpenChange(false));
+    // Esc from anywhere closes it — but for one a control in it takes itself and says so: a tags box putting back what
+    // is typed (east-workspace#1779).
+    useTopViewEscape(open, () => onOpenChange(false), () => viewRef.current);
     const { holdRef, trigger } = useViewTrigger({ open, onOpenChange, toggle, anchored, initialFocusEl, viewRef });
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "Escape" || event.defaultPrevented) return;

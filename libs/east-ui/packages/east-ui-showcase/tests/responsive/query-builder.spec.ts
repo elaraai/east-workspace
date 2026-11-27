@@ -18,7 +18,9 @@
  * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
  * opens the 320px save popover with the name, the description and the tags
- * (#1758). The history
+ * (#1758): the tags suggested in the app's own list, never the browser's, and
+ * Esc in them a level at a time — a tag typed put back, then the popover
+ * closed; on a phone the Save view the same (east-workspace#1779). The history
  * item's Save shows the drafts it saves until the record reads back, never the
  * query as it was before them. Two steps added and the first of them removed
  * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
@@ -293,6 +295,36 @@ test.describe("Query builder (#940)", () => {
             .toEqual(["monthly", "sales", "weekly"]);
     });
 
+    test("Tags suggests in the app's own list, never the browser's: what is typed opens it with the other queries' tags, a press takes one at once; Esc puts a typed tag back, the popover staying, and again cancels (east-workspace#1779)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await builder.locator("[data-query-save-open]").click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const box = dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=input]");
+        const tags = () => dialog.locator("[data-query-tags] [data-scope=tags-input][data-part=item-text]").allTextContents();
+        // The suggestions the box's list offers: none while it is shut.
+        const offered = () => box.evaluate((el) => {
+            const list = document.getElementById(el.getAttribute("aria-controls") ?? "");
+            return list === null || el.getAttribute("aria-expanded") !== "true" ? [] : [...list.querySelectorAll("[role=option]")].map((option) => option.textContent);
+        });
+        expect(await box.evaluate((el) => [el.getAttribute("list"), el.getAttribute("role"), document.querySelectorAll("datalist").length])).toEqual([null, "combobox", 0]);
+        await box.click();
+        await box.pressSequentially("s");
+        // The tags the other saved queries hold and this one doesn't, those the words start first.
+        await expect.poll(offered).toEqual(["costing", "regions"]);
+        await page.getByRole("option", { name: "regions" }).click();
+        await expect.poll(tags).toEqual(["regions", "sales", "weekly"]);
+        await expect.poll(async () => [await box.inputValue(), await offered()]).toEqual(["", []]);
+        // A tag typed and not Entered: Esc puts it back and the popover stays; Esc again cancels it.
+        await box.pressSequentially("draft");
+        await page.keyboard.press("Escape");
+        await expect.poll(() => box.inputValue()).toBe("");
+        await expect(dialog).toBeVisible();
+        expect(await tags()).toEqual(["regions", "sales", "weekly"]);
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+    });
+
     test("the history item's Save: every state the steps pass through, from its click until the record reads back, is the drafts it saves — never the query as it was before them", async ({ page }) => {
         const builder = await openBuilder(page);
         const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")).join(" · "));
@@ -452,6 +484,14 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         const halves = await save.locator("[data-part], button").filter({ hasText: /^(Cancel|Save)$/ }).evaluateAll((els) => els.map((b) => Math.round(b.getBoundingClientRect().width)));
         expect(halves[0]).toBe(halves[1]);
         await nothingFloats(page);
+        // A tag typed and not Entered: the first Esc puts it back, the Save view staying; the next leaves the Query view
+        // under it (east-workspace#1779).
+        const tagBox = save.locator("[data-scope=tags-input][data-part=input]");
+        await tagBox.click();
+        await tagBox.pressSequentially("draft");
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect.poll(() => tagBox.inputValue()).toBe("");
+        await expect(save).toBeVisible();
         await page.keyboard.press("Escape"); await settled(page);
         await expect(view).toBeVisible();
         // jq: nothing scrolls sideways; a wrapped line's number stands on its first row.

@@ -14,12 +14,15 @@
  * has one opens edited. Save — the button, ⏎ in the name, ⏎ but not Shift ⏎
  * in the description — hands the host the name, the description, `none`
  * untouched or cleared and the text once edited, and the tags (#1758): the
- * open query's as it opens, the saved queries' suggested, a tag added by ⏎ in
- * their field, which saves nothing, and removed by its ×; one typed and not
- * Entered is saved by a single press on Save, the field as it was while the
- * press is held, so nothing moves under it (east-workspace#1779). It closes once the
+ * open query's as it opens, the saved queries' suggested as one is typed in
+ * the app's own list (east-workspace#1779), a tag added by ⏎ in their field,
+ * which saves nothing, and removed by its ×; one typed and not Entered is
+ * saved by a single press on Save, the field as it was while the press is
+ * held, so nothing moves under it (east-workspace#1779). It closes once the
  * host has saved, and shows what refused the save otherwise. While the save runs Save is loading
- * and both buttons are disabled; Esc cancels, and each opening starts over.
+ * and both buttons are disabled; Esc cancels — but with a tag typed and not
+ * Entered, the first Esc puts it back and the popover stays (east-workspace#1779)
+ * — and each opening starts over.
  * Hung from the ⋯ chip Save… folds into (#1229), it opens from the chip's
  * menu, beside the chip, and gives the focus back to the chip as it closes.
  */
@@ -36,6 +39,9 @@ import { QuerySavePopover, type QuerySavePopoverProps } from "./save-popover.js"
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+// jsdom has no `CSS.escape`, and the tags' list finds its highlighted item with it — every browser has one.
+(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
 (globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
     matches: false, media: query, onchange: null,
     addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
@@ -286,11 +292,15 @@ describe("the query's save popover (#936)", () => {
         expect(descriptionField(popover).compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(field.textContent).toContain("A word or two each, to find the query by.");
         expect(tagsShown(popover)).toEqual(["sales"]);
-        expect([...field.querySelectorAll("datalist option")].map((o) => o.getAttribute("value"))).toEqual(["monthly", "sales", "weekly"]);
 
         const user = userEvent.setup();
         await user.click(tagsInput(popover));
-        await user.type(tagsInput(popover), "weekly{Enter}");
+        await user.type(tagsInput(popover), "w");
+        // The tags the other saved queries hold and this one doesn't, as one is typed: the app's own list, never the
+        // browser's (east-workspace#1779).
+        const list = document.getElementById(tagsInput(popover).getAttribute("aria-controls")!)!;
+        expect([field.querySelector("datalist"), within(list).getAllByRole("option").map((option) => option.textContent)]).toEqual([null, ["weekly"]]);
+        await user.type(tagsInput(popover), "eekly{Enter}");
         await settle();
         expect(tagsShown(popover)).toEqual(["sales", "weekly"]);
         // ⏎ added the tag: the popover is open, and nothing was saved.
@@ -360,6 +370,25 @@ describe("the query's save popover (#936)", () => {
         ];
         await settle();
         expect([passed, screen.queryByRole("dialog") !== null, saved(onSave)]).toEqual([[true, true, true, true], true, []]);
+    });
+
+    test("#1758: Esc with a tag typed puts it back, the popover staying with what it holds — its list open or shut; Esc again cancels (east-workspace#1779)", async () => {
+        const { popover, onSave } = await mount();
+        const user = userEvent.setup();
+        await user.type(tagsInput(popover), "region{Enter}");
+        await user.type(tagsInput(popover), "draft");
+        await user.keyboard("{Escape}");
+        await settle();
+        expect([screen.queryByRole("dialog") !== null, tagsShown(popover), tagsInput(popover).value]).toEqual([true, ["region"], ""]);
+        // Typed again, its list open: one Esc shuts the list and puts the word back, the popover still open.
+        await user.type(tagsInput(popover), "w");
+        await waitFor(() => expect(screen.queryAllByRole("option").map((option) => option.textContent)).toEqual(["weekly"]));
+        await user.keyboard("{Escape}");
+        await settle();
+        expect([screen.queryByRole("dialog") !== null, screen.queryAllByRole("option"), tagsInput(popover).value]).toEqual([true, [], ""]);
+        await user.keyboard("{Escape}");
+        await closed();
+        expect(saved(onSave)).toEqual([]);
     });
 
     test("Esc cancels — nothing is saved — and each opening starts over from the open query's name, description and tags", async () => {
