@@ -194,6 +194,7 @@ async function executeLocal(
     onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log }) : undefined;
   if (rack !== undefined) console.log(`Rack: ${rack.describe(formatSize)}`);
   try {
+    let handedBack = 0;
     const handle = await orchestrator.start(storage, repoPath, ws, {
       runner: rack?.runner ?? new LocalTaskRunner(repoPath, options.budget),
       width: options.budget.cores + (rack?.rackSlots ?? 0),
@@ -209,6 +210,10 @@ async function executeLocal(
       },
       onTaskWaiting: (name, inputs) => {
         console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+      },
+      onTaskHandedBack: (name, reason) => {
+        handedBack++;
+        console.log(`  [BACK] ${name}: its runner handed it back (${reason})`);
       },
       onPartitionProgress: (task, progress) => {
         const line = partitionLine(task, progress);
@@ -227,6 +232,7 @@ async function executeLocal(
       failed: result.failed,
       skipped: result.skipped,
       waiting: result.waiting,
+      handedBack,
       duration: result.duration,
     });
     if (rack !== undefined) await printRackSummary(rack);
@@ -476,8 +482,11 @@ interface Summary {
   cached: number;
   failed: number;
   skipped: number;
-  /** Tasks left waiting on an input that is not set, and their dependents */
+  /** Tasks left waiting on an input that is not set, or handed back by their
+   *  runner, and their dependents */
   waiting: number;
+  /** Of them, the tasks their runner handed back, when the run says */
+  handedBack?: number;
   duration: number;
 }
 
@@ -499,7 +508,12 @@ function printSummary(summary: Summary): void {
   console.log(`  Duration: ${Math.round(summary.duration)}ms`);
   if (summary.waiting > 0) {
     console.log('');
-    console.log(`${summary.waiting} ${summary.waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set: set it, or seed the record, and run again.`);
+    const back = summary.handedBack ?? 0;
+    if (back > 0) {
+      console.log(`${back} ${back === 1 ? 'task was' : 'tasks were'} handed back by ${back === 1 ? 'its runner, which could not run it' : 'their runner, which could not run them'} where it runs: run again.`);
+    } else {
+      console.log(`${summary.waiting} ${summary.waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set: set it, or seed the record, and run again.`);
+    }
   }
 }
 

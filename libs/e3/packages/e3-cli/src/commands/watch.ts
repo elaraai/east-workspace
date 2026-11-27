@@ -229,6 +229,7 @@ export async function watchCommand(
           console.log(`Rack: ${rack.describe(formatSize)}`);
         }
       } else await rack?.refreshSlots();
+      let handedBack = 0;
       const handle = await orchestrator.start(storage, repoPath, workspace, {
         runner: rack?.runner ?? runner,
         width: budget.cores + (rack?.rackSlots ?? 0),
@@ -248,12 +249,18 @@ export async function watchCommand(
         onTaskWaiting: (name, inputs) => {
           console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
         },
+        onTaskHandedBack: (name, reason) => {
+          handedBack++;
+          console.log(`  [BACK] ${name}: its runner handed it back (${reason})`);
+        },
       });
 
       const result = await orchestrator.wait(handle);
 
       if (result.success) {
-        const waiting = result.waiting > 0 ? `, ${result.waiting} waiting on an input that is not set` : '';
+        const waiting = result.waiting === 0 ? ''
+          : handedBack > 0 ? `, ${result.waiting} waiting, ${handedBack} of them handed back by their runner`
+            : `, ${result.waiting} waiting on an input that is not set`;
         console.log(`[${timestamp()}] Dataflow complete (${result.executed} executed, ${result.cached} cached${waiting})`);
       } else {
         console.log(`[${timestamp()}] Dataflow failed (${result.failed} failed)`);

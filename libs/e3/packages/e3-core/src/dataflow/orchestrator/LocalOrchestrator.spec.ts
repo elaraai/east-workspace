@@ -20,7 +20,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ArrayType, DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
+  ArrayType, DictType, East, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, variant,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
@@ -439,17 +439,19 @@ describe('a runner that takes a split task whole', () => {
     assert.ok(rowsRef?.type === 'value');
     assert.deepEqual(runner.getCalls().filter((call) => call.taskHash === tasks.get('total')).map((call) => call.inputHashes), [[rowsRef.value.hash]]);
     const output = await storage.datasets.read('repo', 'ws', 'tasks/total/output');
-    assert.ok(output?.type === 'value' && output.value.hash === outputOf('total'), 'its output is the runner\'s');
+    assert.ok(output?.type === 'value' && equalFor(StringType)(output.value.hash, outputOf('total')), 'its output is the runner\'s');
     const events = await orchestrator.getEvents(handle, 0);
     assert.deepEqual(events.filter((event) => event.type === 'task_split'), [], 'no split was recorded');
     const final = await store.read('repo', 'ws', handle.id);
-    assert.deepEqual(final!.tasks.get('total')!.plan, none);
+    assert.equal(final!.tasks.get('total')!.plan.type, 'none');
     assert.equal(await storage.refs.executionPlanRead('repo', tasks.get('total')!, inputsHash([rowsRef.value.hash])), null, 'nor a plan pointer');
   });
 
-  it('is planned by the loop as before when the runner does not take it, or says no', async (t) => {
+  it('is planned by the loop as before when the runner does not take it, says no, or cannot say', async (t) => {
     const { storage, tasks } = await deploySplit(t);
-    for (const runner of [answering(tasks), Object.assign(answering(tasks), { takesWhole: () => false })]) {
+    const runners = [answering(tasks), Object.assign(answering(tasks), { takesWhole: () => false }),
+      Object.assign(answering(tasks), { takesWhole: () => Promise.reject(new Error('the hub is not reachable')) })];
+    for (const runner of runners) {
       const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
       const handle = await orchestrator.start(storage, 'repo', 'ws', { runner, force: true });
       await orchestrator.wait(handle);
@@ -459,20 +461,51 @@ describe('a runner that takes a split task whole', () => {
     }
   });
 
-  it('records the duration the runner measured, not the wait for its answer', async (t) => {
+  it('records the duration the runner measured, not the wait for its answer, in whole ms', async (t) => {
     const { storage, tasks } = await deploySplit(t);
     const runner = answering(tasks);
     runner.setResult(tasks.get('early')!, async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      return { state: 'success', cached: false, outputHash: outputOf('early'), durationMs: 1234 };
+      return { state: 'success', cached: false, outputHash: outputOf('early'), durationMs: 1234.6 };
     });
     const durations = new Map<string, number>();
     const store = new InMemoryStateStore();
     const orchestrator = new LocalOrchestrator(store);
     const handle = await orchestrator.start(storage, 'repo', 'ws', { runner, onTaskComplete: (done) => { durations.set(done.name, done.duration); } });
     await orchestrator.wait(handle);
-    assert.equal(durations.get('early'), 1234);
-    assert.deepEqual((await store.read('repo', 'ws', handle.id))!.tasks.get('early')!.duration, some(1234n));
+    assert.equal((await orchestrator.getStatus(handle)).state, 'completed', 'a measure of no whole ms fails nothing');
+    assert.equal(durations.get('early'), 1235);
+    assert.ok(equalFor(OptionType(IntegerType))((await store.read('repo', 'ws', handle.id))!.tasks.get('early')!.duration, some(1235n)));
+  });
+
+  it('is not asked of a split task a stage of which was begun here: the loop takes the stage up', async (t) => {
+    const { storage, tasks } = await deploySplit(t);
+    const total = tasks.get('total')!;
+    const rowsRef = await storage.datasets.read('repo', 'ws', 'inputs/rows');
+    assert.ok(rowsRef?.type === 'value');
+    const inHash = inputsHash([rowsRef.value.hash]);
+    // A run that planned `total` here, a unit of it handed back: its stage stays rooted
+    const before = answering(tasks);
+    let units = 0;
+    before.setUnitResult(total, () => (++units === 2
+      ? { state: 'error', cached: false, error: 'no room', handedBack: 'no-room' }
+      : { state: 'success', cached: false, outputHash: outputOf('unit') }));
+    const planner = new LocalOrchestrator(new InMemoryStateStore());
+    await planner.wait(await planner.start(storage, 'repo', 'ws', { runner: before }));
+    assert.notEqual(await storage.refs.executionPlanRead('repo', total, inHash), null, 'its stage was left rooted');
+
+    const runner = answering(tasks);
+    runner.setTakesWhole(total);
+    const asked: string[] = [];
+    const takesWhole = runner.takesWhole.bind(runner);
+    runner.takesWhole = (hash: string) => { asked.push(hash); return takesWhole(hash); };
+    const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner });
+    await orchestrator.wait(handle);
+    assert.equal((await orchestrator.getStatus(handle)).state, 'completed');
+    assert.deepEqual(asked, [], 'its runner was not asked');
+    assert.ok(runner.getUnitCalls().length > 0, 'the loop took the stage up, a unit at a time');
+    assert.equal(await storage.refs.executionPlanRead('repo', total, inHash), null, 'and unrooted its plan once it ended');
   });
 });
 
@@ -489,6 +522,7 @@ describe('a task its runner hands back', () => {
     const runner = answering(tasks);
     runner.setResult(tasks.get('first')!, { state: 'error', cached: false, error: 'no room on its rack', handedBack: 'no-room' });
     const waited: string[] = [];
+    const handedBack: [string, string][] = [];
     const ended: { name: string; state: string }[] = [];
     const store = new InMemoryStateStore();
     const orchestrator = new LocalOrchestrator(store);
@@ -496,6 +530,7 @@ describe('a task its runner hands back', () => {
     const handle = await orchestrator.start(storage, 'repo', 'ws', {
       runner, width: 1,
       onTaskWaiting: (name) => { waited.push(name); },
+      onTaskHandedBack: (name, reason) => { handedBack.push([name, reason]); },
       onTaskComplete: (done) => { ended.push({ name: done.name, state: done.state }); },
     });
     await orchestrator.wait(handle);
@@ -503,7 +538,8 @@ describe('a task its runner hands back', () => {
     assert.equal((await orchestrator.getStatus(handle)).state, 'completed');
     const final = (await store.read('repo', 'ws', handle.id))!;
     assert.deepEqual(['first', 'second', 'other'].map((name) => final.tasks.get(name)!.status), ['waiting', 'waiting', 'completed']);
-    assert.deepEqual(waited.sort(), ['first', 'second']);
+    assert.deepEqual(handedBack, [['first', 'no-room']], 'it is told of as handed back, with why');
+    assert.deepEqual(waited, ['second'], 'and its dependent as waiting on it');
     assert.deepEqual(ended, [{ name: 'other', state: 'success' }], 'nothing failed, nothing errored');
     assert.deepEqual(runner.getCalls().map((call) => call.taskHash), [tasks.get('first'), tasks.get('other')], '`second` never ran');
   });
@@ -523,11 +559,42 @@ describe('a task its runner hands back', () => {
     assert.equal((await orchestrator.getStatus(handle)).state, 'completed');
     const final = (await store.read('repo', 'ws', handle.id))!;
     assert.equal(final.tasks.get('total')!.status, 'waiting');
-    assert.deepEqual(final.tasks.get('total')!.plan, none);
+    assert.equal(final.tasks.get('total')!.plan.type, 'none');
     assert.equal(final.tasks.get('report')!.status, 'waiting');
     assert.equal(final.tasks.get('early')!.status, 'completed');
     assert.ok(runner.getUnitCalls().every((call) => call.unit.merge === null), 'no merge was planned');
     assert.equal(runner.getCalls().filter((call) => call.taskHash === tasks.get('report')).length, 0);
+    // Its execution is left interrupted, not errored, its stage rooted for the run that takes it up
+    const rowsRef = await storage.datasets.read('repo', 'ws', 'inputs/rows');
+    assert.ok(rowsRef?.type === 'value');
+    const inHash = inputsHash([rowsRef.value.hash]);
+    const recorded = await storage.refs.executionGetLatest('repo', tasks.get('total')!, inHash);
+    assert.ok(recorded?.type === 'interrupted' && recorded.value.reason.kind.type === 'host', `recorded ${recorded?.type}`);
+    assert.notEqual(await storage.refs.executionPlanRead('repo', tasks.get('total')!, inHash), null);
+  });
+
+  it('of a unit, beside a unit that failed of its own, fails its split task', async (t) => {
+    const { storage, tasks } = await deploySplit(t);
+    const runner = answering(tasks);
+    let units = 0;
+    runner.setUnitResult(tasks.get('total')!, async () => {
+      const unit = ++units;
+      if (unit === 1) {
+        // Ends after the one handed back, which stops the stage launching
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return { state: 'failed', cached: false, exitCode: 1, error: 'it exited 1' };
+      }
+      if (unit === 2) return { state: 'error', cached: false, error: 'no room', handedBack: 'no-room' };
+      return { state: 'success', cached: false, outputHash: outputOf('unit') };
+    });
+    const store = new InMemoryStateStore();
+    const orchestrator = new LocalOrchestrator(store);
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner, width: 4 });
+    await orchestrator.wait(handle).catch(() => undefined);
+    assert.equal((await orchestrator.getStatus(handle)).state, 'failed');
+    const final = (await store.read('repo', 'ws', handle.id))!;
+    assert.equal(final.tasks.get('total')!.status, 'failed');
+    assert.equal(final.tasks.get('report')!.status, 'skipped');
   });
 
   it('is told from a failure, which fails the run and skips its dependents as before', async (t) => {

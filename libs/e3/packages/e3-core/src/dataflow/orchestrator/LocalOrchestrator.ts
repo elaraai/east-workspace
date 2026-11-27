@@ -266,6 +266,14 @@ interface TaskOutcome {
 }
 
 /** A split task's execution, as the loop completes it. */
+/**
+ * How long a result's work took, in whole ms: as the host that ran it
+ * measured it (`TaskResult.durationMs`), or by the loop's own clock.
+ */
+function durationOf(result: { readonly durationMs?: number }, startTime: number): number {
+  return result.durationMs === undefined ? Date.now() - startTime : Math.max(0, Math.round(result.durationMs));
+}
+
 function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
   return {
     state: result.state,
@@ -275,7 +283,7 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
     exitCode: result.exitCode ?? undefined,
     error: result.error ?? undefined,
     cancelled: result.cancelled,
-    duration: Date.now() - startTime,
+    duration: durationOf(result, startTime),
     ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
     ...(result.timing !== undefined && { timing: result.timing }),
     ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
@@ -306,9 +314,6 @@ interface SplitRun {
   results: (ExecutionResult | undefined)[];
   /** The units whose runner threw. */
   thrown: ThrownUnit[];
-  /** Why a unit's runner could not run it where it runs, the first such
-   *  unit's (`TaskResult.handedBack`): the task is left waiting, not failed */
-  handedBack?: string;
 }
 
 /**
@@ -1057,12 +1062,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // its stages, which join the loop's, unless its runner takes it
           // whole (`TaskRunner.takesWhole`); any other task runs as one.
           const task = await this.readSplitTask(storage, repo, prepared.taskHash);
-          const whole = task !== null && options.runner?.takesWhole !== undefined
-            && await options.runner.takesWhole(prepared.taskHash, { taskName });
+          const whole = task !== null && await this.takenWhole(storage, repo, execution, taskName, prepared);
           if (task !== null && !whole) {
             this.launchSplit(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, task);
           } else {
-            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV);
+            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, whole);
           }
         }
 
@@ -1563,7 +1567,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
         if (ts) ts.plan = none;
         const { waiting } = stepTasksWaiting(state, taskName, []);
-        for (const each of waiting) options.onTaskWaiting?.(each.task, each.inputs);
+        options.onTaskHandedBack?.(taskName, result.handedBack);
+        for (const each of waiting) if (each.task !== taskName) options.onTaskWaiting?.(each.task, each.inputs);
       } else {
         execution.hasFailure = true;
 
@@ -1635,15 +1640,41 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /** Launches a task that runs as one execution, tracked under its name. */
+  /**
+   * Whether a split task's runner takes it whole (`TaskRunner.takesWhole`),
+   * asked once for its launch. Never one a stage of which was begun here, which
+   * the loop takes up again: a resumed run's, or one a run before left rooted.
+   * A runner that cannot say, or throws, does not.
+   */
+  private async takenWhole(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+  ): Promise<boolean> {
+    const runner = execution.options.runner;
+    if (runner?.takesWhole === undefined) return false;
+    if (execution.state.tasks.get(taskName)?.plan.type === 'some') return false;
+    const begun = await storage.refs.executionPlanRead(repo, prepared.taskHash, inputsHash(prepared.inputHashes)).catch(() => null);
+    if (begun !== null) return false;
+    try {
+      return await runner.takesWhole(prepared.taskHash, { taskName });
+    } catch {
+      return false;
+    }
+  }
+
   private launchTask(
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
     taskName: string,
     prepared: PrepareTaskResult,
-    launchMergedVV: VersionVector
+    launchMergedVV: VersionVector,
+    whole = false,
   ): void {
-    const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared)
+    const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared, whole)
       .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, result))
       .catch((err) => this.failTask(execution, taskName, err))
       .finally(() => {
@@ -1765,7 +1796,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place, scope);
         run.results[index] = result;
         run.split.unitSettled(index, result);
-        if (result.handedBack !== undefined) run.handedBack ??= result.handedBack;
         // A unit e3 stopped because the run was aborted is not a failure.
         if ((result.state !== 'success' || result.outputHash === null) && !result.cancelled) run.stopped = true;
       } catch (error) {
@@ -1827,9 +1857,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
       });
     }
-    const outcome = outcomeOf(result, run.startTime);
-    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV,
-      run.handedBack === undefined ? outcome : { ...outcome, handedBack: run.handedBack });
+    // A stage whose units were handed back, none failing of its own, ends the
+    // task handed back (`SplitTask.advance`)
+    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(result, run.startTime));
     execution.splits.delete(taskName);
   }
 
@@ -1935,7 +1965,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       state: result.state,
       outputHash: result.outputHash ?? null,
       exitCode: result.exitCode ?? null,
-      duration: Date.now() - startTime,
+      duration: durationOf(result, startTime),
       error: result.error ?? null,
       cancelled: result.cancelled ?? false,
       ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
@@ -1952,13 +1982,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     repo: string,
     execution: RunningExecution,
     taskName: string,
-    prepared: { taskHash: string; inputHashes: string[] }
+    prepared: { taskHash: string; inputHashes: string[] },
+    whole = false,
   ): Promise<TaskOutcome> {
     const { options } = execution;
     const startTime = Date.now();
 
     const execOptions: TaskExecuteOptions = {
       taskName,
+      // A split task its runner takes whole, which the loop asked it once
+      ...(whole && { whole: true }),
       // Scoped like the cache bypass in stepPrepareTask: a filtered run forces
       // only the target, so a launched dependency still honours its own cache.
       force: stepTaskForced(execution.state, taskName),
@@ -1990,7 +2023,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         exitCode: result.exitCode,
         error: result.error,
         cancelled: result.cancelled,
-        duration: result.durationMs ?? Date.now() - startTime,
+        duration: durationOf(result, startTime),
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
         ...(result.handedBack !== undefined && { handedBack: result.handedBack }),
@@ -2005,7 +2038,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         exitCode: result.exitCode ?? undefined,
         error: result.error ?? undefined,
         cancelled: result.cancelled,
-        duration: Date.now() - startTime,
+        duration: durationOf(result, startTime),
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
         ...(result.timing !== undefined && { timing: result.timing }),
         ...(result.handedBack !== undefined && { handedBack: result.handedBack }),

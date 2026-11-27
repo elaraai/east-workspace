@@ -303,6 +303,7 @@ export class LocalTaskRunner implements TaskRunner {
   ): Promise<TaskResult> {
     return toTaskResult(await taskExecute(storage, this.repo, taskHash, inputHashes, {
       force: options?.force,
+      ...(options?.whole !== undefined && { whole: options.whole }),
       verbose: options?.verbose,
       taskName: options?.taskName,
       signal: options?.signal,
@@ -479,8 +480,10 @@ export async function taskExecute(
           owner: options.owner === undefined ? await processOwner() : options.owner,
           ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
         });
+    // Whole as the loop decided it, asked once; else as the body says
     const body = options.body;
-    if (body?.takesWhole?.(taskHash, { taskName: options.taskName }) !== true) return planHere(ids);
+    const whole = options.whole ?? body?.takesWhole?.(taskHash, { taskName: options.taskName }) === true;
+    if (!whole || body === undefined) return planHere(ids);
     // The body runs it whole: its fallback plans it here, as above
     return body({ storage, repo, taskHash, task, inputHashes, ids, options, role: 'task' }, (attempt = ids) => {
       if (attempt.inHash !== ids.inHash) return Promise.reject(new Error('A local fallback cannot change its inputs hash'));

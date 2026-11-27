@@ -802,6 +802,11 @@ export class SplitTask {
       throw unit.error;
     }
     if (this.options.signal?.aborted || results.some((result) => result?.cancelled)) return this.cancel();
+    // Every unit that did not succeed was handed back by its runner
+    // (`TaskResult.handedBack`), and none failed of its own: the task is
+    // handed back, its stage kept for the run that takes it up again
+    const unfinished = results.filter((result): result is ExecutionResult => result !== undefined && (result.state !== 'success' || result.outputHash === null));
+    if (unfinished.length > 0 && unfinished.every((result) => result.handedBack !== undefined)) return this.handBack(unfinished[0]!.handedBack!);
     const failed = results.findIndex((result) => result !== undefined && (result.state !== 'success' || result.outputHash === null));
     if (failed >= 0) {
       const unit = results[failed]!;
@@ -925,6 +930,34 @@ export class SplitTask {
       unit: false,
       reason: { kind: variant('yielded', null), message: cause },
     }));
+  }
+
+  /**
+   * Leaves the task mid-stage for the units its runners handed back
+   * (`TaskResult.handedBack`), none failing of its own: no failure of the
+   * task's. Its execution is recorded `interrupted`, the reason the last line
+   * of its stderr log, and its plan stays rooted for the run that takes the
+   * stage up again.
+   *
+   * @param reason - Why the first such unit was handed back
+   * @returns The task's result, which hands the task back
+   */
+  private async handBack(reason: string): Promise<ExecutionResult> {
+    this.endScope();
+    const cause = `interrupted: a unit of it was handed back (${reason}), and a run takes the stage up again`;
+    await this.stoppedLine(cause);
+    await this.flushLog();
+    this.running = false;
+    await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, variant('interrupted', {
+      executionId: this.ids.executionId,
+      inputHashes: this.inputHashes,
+      startedAt: new Date(this.ids.startTime),
+      completedAt: new Date(),
+      pid: (this.owner ?? NO_OWNER).pid,
+      unit: false,
+      reason: { kind: variant('host', 'handed_back'), message: cause },
+    }));
+    return { ...this.ended('error', cause, null, false), handedBack: reason };
   }
 
   /** Appends why the task stopped, `e3: <cause>`, as the last line of its

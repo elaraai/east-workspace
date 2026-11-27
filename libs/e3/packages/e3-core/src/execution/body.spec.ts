@@ -318,6 +318,42 @@ describe('a task body that takes a split task whole', () => {
     assert.ok(calls.slice(1).every((call) => call.role === 'unit' && call.logicalTaskHash === hash));
   });
 
+  it('hands the task back when, planning it here, a unit of it is handed back: its stage kept', async () => {
+    const { hash, inputs } = await deployTotal();
+    let units = 0;
+    const body: TaskBodyExecutor = Object.assign((request: TaskBodyRequest, local: (ids?: ExecutionIds) => Promise<ExecutionResult>) => {
+      if (request.role === 'unit' && ++units === 2) {
+        return Promise.resolve<ExecutionResult>({ inputsHash: request.ids.inHash, executionId: request.ids.executionId, cached: false, state: 'error',
+          outputHash: null, exitCode: null, duration: 1, error: 'no room', cancelled: false, handedBack: 'no-room' });
+      }
+      return local();
+    }, { takesWhole: (taskHash: string) => taskHash === hash });
+    const runner = new LocalTaskRunner(repo, undefined, { body });
+    const result = await runner.execute(storage, hash, inputs, { taskName: 'total' });
+    assert.equal(result.state, 'error');
+    assert.equal(result.handedBack, 'no-room', 'the task is handed back, as the loop would leave it');
+    const inHash = inputsHash(inputs);
+    assert.equal((await storage.refs.executionGetLatest(repo, hash, inHash))?.type, 'interrupted', 'its execution is interrupted, not an error');
+    assert.notEqual(await storage.refs.executionPlanRead(repo, hash, inHash), null, 'and its plan stays rooted');
+  });
+
+  it('runs it whole as the loop decided it, the body not asked again', async () => {
+    const { hash, inputs, expected } = await deployTotal();
+    let asked = 0;
+    const calls: TaskBodyRequest[] = [];
+    const body: TaskBodyExecutor = Object.assign((request: TaskBodyRequest): Promise<ExecutionResult> => {
+      calls.push(request);
+      return Promise.resolve({ inputsHash: request.ids.inHash, executionId: request.ids.executionId, cached: false, state: 'success',
+        outputHash: expected, exitCode: 0, duration: 1, error: null, cancelled: false });
+    }, { takesWhole: () => ++asked === 1 });
+    const runner = new LocalTaskRunner(repo, undefined, { body });
+    assert.equal(runner.takesWhole(hash, { taskName: 'total' }), true, 'the loop asks once');
+    const result = await runner.execute(storage, hash, inputs, { taskName: 'total', whole: true });
+    assert.equal(result.state, 'success', result.error);
+    assert.equal(asked, 1, 'and the body is not asked again');
+    assert.deepEqual(calls.map((call) => call.role), ['task'], 'it ran whole, as the loop decided');
+  });
+
   it('is not asked of a runner with no body, which plans every split task', async () => {
     const { hash } = await deployTotal();
     assert.equal(new LocalTaskRunner(repo).takesWhole(hash, { taskName: 'total' }), false);

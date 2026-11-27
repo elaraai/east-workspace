@@ -32,6 +32,11 @@ export interface TaskExecuteOptions {
    *  Runtime-only: never hashed or part of the execution cache. Absent for
    *  executions outside a dataflow unless their caller supplies it. */
   taskName?: string;
+  /** Set by a dataflow's loop on a split task its runner takes whole
+   *  (`TaskRunner.takesWhole`), which the loop asked once for its launch: the
+   *  runner runs it whole without asking again. Absent, a runner that can
+   *  take one whole decides for itself. Runtime-only. */
+  whole?: boolean;
   /** AbortSignal for cancellation. A dataflow run another process took up —
    *  its store refused a write as that process's — aborts it with a
    *  `DataflowSupersededError` as its reason: a runner whose executions that
@@ -156,8 +161,9 @@ export interface TaskResult {
   timing?: string;
   /** How long the work took, in ms, as the host that ran it measured it: for
    *  work run before it was asked for, its own run's length, not the wait for
-   *  its answer. Absent, the caller's own clock around the call stands.
-   *  Runtime-only. */
+   *  its answer. The dataflow's loop records it, rounded to a whole number,
+   *  as the work's duration; absent, the loop's own clock around the call
+   *  stands. */
   durationMs?: number;
   /** Set when the runner could not run the work where it runs, for a reason
    *  that is not the work's own: the reason, for a log and a caller. `state`
@@ -471,9 +477,12 @@ export interface TaskRunner {
   /**
    * Whether this runner runs a split task as one execution of its own,
    * planned wherever it runs, in place of the dataflow's loop planning it and
-   * handing over its units: the loop then calls {@link execute} for it, plans
-   * nothing and records no plan. Asked of a split task only, after its cache
-   * probe missed, once for each launch. Absent, or `false`, the loop plans
+   * handing over its units: the loop then calls {@link execute} for it, with
+   * `whole` set, plans nothing and records no plan. Asked of a split task
+   * only, after its cache probe missed, once for each launch, and never of
+   * one a stage of which was begun here, which the loop takes up again.
+   * Answered from what the runner already knows: the loop waits on it before
+   * it launches anything else. Absent, `false`, or throwing, the loop plans
    * it.
    *
    * @param taskHash - Hash of the TaskObject

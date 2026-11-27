@@ -161,6 +161,13 @@ export interface OrchestratorStartOptions {
    */
   onTaskWaiting?: (taskName: string, inputs: string[]) => void;
   /**
+   * Called when a task's runner hands it back (`TaskResult.handedBack`): it
+   * could not run it where it runs, for a reason that is not the task's. The
+   * task waits, with no failure, and its dependents wait with it, each told
+   * of through {@link onTaskWaiting}; the run goes on without them.
+   */
+  onTaskHandedBack?: (taskName: string, reason: string) => void;
+  /**
    * Polled by the execution loop (before each launch and each wait).
    * Return true to checkpoint: the loop stops launching, resets in-flight
    * tasks to pending, persists the state (still 'running'), releases locks,
