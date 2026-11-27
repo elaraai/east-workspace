@@ -14,6 +14,7 @@
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { DictType, East, IntegerType, SortedMap, compareFor, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { SyncSelection } from '@elaraai/e3-types';
@@ -120,6 +121,22 @@ class Steered extends LocalTaskRunner {
   override execute(storage: StorageBackend, taskHash: string, inputHashes: string[], options?: TaskExecuteOptions): Promise<TaskResult> {
     const run = () => super.execute(storage, taskHash, inputHashes, options);
     return taskHash === this.taskHash ? this.instead(options, run) : run();
+  }
+}
+
+/** A local runner that holds each result until `count` executions have one, then gives them all at once. */
+class Together extends LocalTaskRunner {
+  private readonly held: Array<() => void> = [];
+  constructor(repo: string, private readonly count: number) {
+    super(repo);
+  }
+  override async execute(storage: StorageBackend, taskHash: string, inputHashes: string[], options?: TaskExecuteOptions): Promise<TaskResult> {
+    const result = await super.execute(storage, taskHash, inputHashes, options);
+    await new Promise<void>((resolve) => {
+      this.held.push(resolve);
+      if (this.held.length === this.count) for (const release of this.held) release();
+    });
+    return result;
   }
 }
 
@@ -233,6 +250,34 @@ describe('a replica\'s run', { concurrency: false }, () => {
     assert.deepEqual(await waiting, { kind: 'unknown' });
     for (let i = 0; i < 50 && !stopped; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(stopped, true, 'the runner saw its signal abort');
+  });
+
+  it('writes an object outputs that end at once share once, each answer waiting on that write', async (t) => {
+    const a = e3.input('a', IntegerType, variant('value', 1n));
+    const same = Array.from({ length: 4 }, (_, i) => e3.task(`same_${i}`, [a], add));
+    const r = await rig(t, e3.package('chain', '1.0.0', a, ...same));
+    // An origin whose writes are slow, as one through a hub is: each output
+    // ends while the first write is in flight
+    const written: string[] = [];
+    const slow: ReplicaRunOrigin = {
+      objects: originObjects(r.storage, r.origin, r.description),
+      have: (hashes) => r.storage.objects.touch(r.origin, hashes),
+      write: async (objects) => {
+        await delay(200);
+        for (const [hash, bytes] of objects) {
+          assert.equal(await r.storage.objects.write(r.origin, bytes), hash);
+          written.push(hash);
+        }
+      },
+    };
+    const run = replicaRunOpen({ storage: r.storage, repo: r.replica, runner: new Together(r.replica, same.length), origin: slow, width: same.length });
+    await run.grant({ description: r.description, force: false });
+    const output = r.expected.get('same_0')!.outputHash;
+    for (const answer of await Promise.all(same.map((task) => r.ask(run, task.name)))) {
+      assert.ok(answer.kind === 'done' && answer.state === 'success' && answer.outputHash === output, JSON.stringify(answer));
+    }
+    assert.deepEqual(written.filter((hash) => hash === output), [output], 'the output they share was written once');
+    assert.equal(new Set(written).size, written.length, 'as was every object');
   });
 
   it('answers a split task with the output a plain run makes, and gives the origin no plan', async (t) => {

@@ -230,6 +230,9 @@ class Run implements ReplicaRun {
   private readonly handedBack = new Map<string, string>();
   private readonly waiting = new Set<string>();
   private readonly sent = new Map<string, Promise<void>>();
+  /** Each object the run has written to its origin, or is writing: an
+   *  object is written once at a time, whichever outputs reach it */
+  private readonly writes = new Map<string, Promise<void>>();
   private readonly followers = new Map<string, Set<LogFollower>>();
 
   constructor(private readonly options: ReplicaRunOptions) {
@@ -382,13 +385,37 @@ class Run implements ReplicaRun {
     this.sent.set(name, sending);
   }
 
-  /** Hands the origin every object an output reaches that it lacks. */
+  /**
+   * Hands the origin every object an output reaches that it lacks. An object
+   * another output is writing, or wrote, is waited for, not sent again: an
+   * origin through a hub refuses a second write of an object whose first it
+   * has taken in while the second was in flight. One whose write failed is
+   * written by the next output that reaches it.
+   */
   private async sendOutput(root: string): Promise<void> {
-    const { repo, origin } = this.options;
-    const { readObject, readHead } = gcObjectReaders(this.store, repo);
+    const { readObject, readHead } = gcObjectReaders(this.store, this.options.repo);
     const reached = await markReachable(readObject, new Set([root]), { readHead });
     reached.add(root);
-    const hashes = [...reached];
+    // Taken, with no wait between, so that no two outputs take one object
+    const theirs = new Set<Promise<void>>();
+    const mine: string[] = [];
+    for (const hash of reached) {
+      const writing = this.writes.get(hash);
+      if (writing === undefined) mine.push(hash);
+      else theirs.add(writing);
+    }
+    const writing = this.sendObjects(mine);
+    for (const hash of mine) this.writes.set(hash, writing);
+    writing.catch(() => {
+      for (const hash of mine) if (this.writes.get(hash) === writing) this.writes.delete(hash);
+    });
+    await Promise.all([writing, ...theirs]);
+  }
+
+  /** Writes to the origin each of a list of objects it does not hold, in
+   *  writes of at most {@link WRITE_BYTES}. */
+  private async sendObjects(hashes: readonly string[]): Promise<void> {
+    const { repo, origin } = this.options;
     for (let from = 0; from < hashes.length; from += TOUCH_BATCH) {
       const batch = hashes.slice(from, from + TOUCH_BATCH);
       const held = await origin.have(batch);
