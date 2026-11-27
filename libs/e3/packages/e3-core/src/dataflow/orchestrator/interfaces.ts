@@ -206,6 +206,9 @@ export interface TaskCompletedCallback {
   exitCode?: number;
   /** Duration in milliseconds */
   duration: number;
+  /** The execution that settled it, when one did: the one it ran as, or the
+   *  one the cache served it from */
+  executionId?: string;
   /** Where its time went, as the host that ran it says it: a rack's phases
    *  (`TaskResult.timing`); absent for a task that ran here */
   timing?: string;

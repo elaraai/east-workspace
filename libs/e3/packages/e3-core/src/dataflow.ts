@@ -40,6 +40,7 @@ import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   DataflowError,
+  TaskNotFoundError,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 
@@ -597,6 +598,9 @@ export function dataflowGetDependentsToSkip(
  * @param repo - Repository path
  * @param ws - Workspace name
  * @param task - Task info from the graph
+ * @param overlay - Values to read inputs by, in place of their refs: keypath
+ *   to the dataset's object hash. What follows the value — an index read
+ *   from a record's state — is read as it is for a ref's.
  * @returns Each input's object, in order; `null` for one the task cannot read
  *   now
  */
@@ -604,7 +608,8 @@ export async function dataflowResolveInputHashes(
   storage: StorageBackend,
   repo: string,
   ws: string,
-  task: DataflowGraph['tasks'][0]
+  task: DataflowGraph['tasks'][0],
+  overlay?: ReadonlyMap<string, string>,
 ): Promise<Array<string | null>> {
   const hashes: Array<string | null> = [];
   // Which index each input reads is the task object's, read once and then
@@ -615,8 +620,12 @@ export async function dataflowResolveInputHashes(
   for (const [at, inputPathStr] of task.inputs.entries()) {
     let hash = held.get(inputPathStr);
     if (hash === undefined) {
-      const ref = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(inputPathStr));
-      hash = ref.refType === 'value' ? ref.hash : null;
+      const given = overlay?.get(inputPathStr);
+      if (given !== undefined) hash = given;
+      else {
+        const ref = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(inputPathStr));
+        hash = ref.refType === 'value' ? ref.hash : null;
+      }
       held.set(inputPathStr, hash);
     }
     if (hash === null) {
@@ -630,4 +639,139 @@ export async function dataflowResolveInputHashes(
   }
 
   return hashes;
+}
+
+// =============================================================================
+// Prediction
+// =============================================================================
+
+/**
+ * What a run will take from its execution cache, worked out before it starts
+ * ({@link dataflowPredict}).
+ */
+export interface DataflowPrediction {
+  /** Tasks the cache answers, with the output and the execution it answers
+   *  them with, in the graph's order */
+  readonly answered: ReadonlyMap<string, { readonly outputHash: string; readonly executionId: string }>;
+  /** Tasks the run will have to execute, in the graph's order */
+  readonly unanswered: readonly string[];
+  /** Tasks the run will leave waiting on an unassigned input, and their
+   *  dependents, in the graph's order */
+  readonly waiting: readonly string[];
+}
+
+/**
+ * Predicts, before a run starts, which of its tasks the execution cache
+ * answers, and with which output, and which it has to execute.
+ *
+ * @remarks
+ * Visits the run's tasks (the whole graph, or a filter's dependency closure)
+ * in dependency order, reading each task's inputs as the run will find them:
+ * the output of each task above it that the cache answers, and the refs
+ * otherwise. A task is decided as the run decides it:
+ *
+ * - **waiting** when an input is unassigned, or a task it depends on waits;
+ * - **unanswered** when the run forces it, a task it depends on is
+ *   unanswered, or the cache holds no success over its inputs;
+ * - **answered** when the cache holds one, and the run will take it: either
+ *   the task's output ref holds that success's output already, which the
+ *   loop serves from its own cache check, or the latest attempt over those
+ *   inputs is that success, which the runner's own probe serves
+ *   (`probeExecutionCache`). A success followed by an attempt that did not
+ *   succeed, with the output ref holding something else, is executed again.
+ *
+ * One difference with the run is allowed, and only in one direction: a task
+ * below an unanswered one is predicted unanswered, though if the task above
+ * recomputes the output it had, the run answers it from the cache. A task
+ * predicted answered is never executed by a run started with the same
+ * options over the same workspace.
+ *
+ * Reads refs and records; writes nothing.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param options - The run's force and filter, as a start is given them
+ * @returns The prediction
+ * @throws {TaskNotFoundError} When the filter, or a task forced, names no task
+ * @throws {DataflowError} When the run forces a task its filter's run set
+ *   leaves out
+ */
+export async function dataflowPredict(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  options: { readonly force?: boolean | readonly string[]; readonly filter?: string } = {},
+): Promise<DataflowPrediction> {
+  const graph = await dataflowGetGraph(storage, repo, ws);
+  const filter = options.filter ?? null;
+  if (filter !== null && !graph.tasks.some((task) => task.name === filter)) throw new TaskNotFoundError(filter);
+  const runSet = filter === null ? null : dataflowGetDependencyClosure(graph, filter);
+  const named = Array.isArray(options.force) ? options.force : null;
+  for (const name of named ?? []) {
+    if (!graph.tasks.some((task) => task.name === name)) throw new TaskNotFoundError(name);
+    if (runSet !== null && !runSet.has(name)) {
+      throw new DataflowError(`the run forces '${name}', which the filter '${filter}' leaves out: a filtered run runs '${filter}' and the tasks it depends on, and no other`);
+    }
+  }
+  // As a run forces: every task, or the filter's target alone under a
+  // filter; or the tasks named
+  const forced = (name: string): boolean => named !== null ? named.includes(name)
+    : options.force === true && (filter === null || name === filter);
+
+  const tasks = graph.tasks.filter((task) => runSet === null || runSet.has(task.name));
+  const byName = new Map(tasks.map((task) => [task.name, task]));
+  const outputOf = new Map(tasks.map((task) => [task.name, task.output]));
+  const decided = new Map<string, 'answered' | 'unanswered' | 'waiting'>();
+  const answered = new Map<string, { outputHash: string; executionId: string }>();
+  // Each decided task's output as the run will find it: an answered task's
+  // output, and for an unanswered one a stand-in, as the run makes it. A
+  // task's output is no record, so no index is read from a stand-in, and a
+  // task reading one is unanswered before any hash of its inputs is used.
+  const overlay = new Map<string, string>();
+  const MADE_IN_THE_RUN = '0'.repeat(64);
+
+  const decide = async (name: string): Promise<'answered' | 'unanswered' | 'waiting'> => {
+    const task = byName.get(name)!;
+    const above = task.dependsOn.filter((dep) => byName.has(dep)).map((dep) => decided.get(dep)!);
+    if (above.includes('waiting')) return 'waiting';
+    // An input no task of the run makes, unassigned: the task waits
+    const inputs = await dataflowResolveInputHashes(storage, repo, ws, task, overlay);
+    if (inputs.some((hash) => hash === null)) return 'waiting';
+    if (above.includes('unanswered') || forced(name)) return 'unanswered';
+    const inHash = inputsHash(inputs as string[]);
+    const cached = await executionGetOutput(storage, repo, task.hash, inHash);
+    if (cached === null) return 'unanswered';
+    // The loop takes it from its own check when the output ref holds it; the
+    // runner's probe otherwise, which serves only the latest attempt
+    const output = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(task.output));
+    if (output.refType !== 'value' || output.hash !== cached.outputHash) {
+      const latest = await storage.refs.executionGetLatest(repo, task.hash, inHash);
+      if (latest?.type !== 'success' || latest.value.executionId !== cached.executionId) return 'unanswered';
+    }
+    answered.set(name, cached);
+    overlay.set(outputOf.get(name)!, cached.outputHash);
+    return 'answered';
+  };
+
+  // Dependency order: a task once every task of the run it depends on is decided
+  let left = tasks.map((task) => task.name);
+  while (left.length > 0) {
+    const ready = left.filter((name) => byName.get(name)!.dependsOn.every((dep) => !byName.has(dep) || decided.has(dep)));
+    if (ready.length === 0) throw new DataflowError(`the graph has a cycle among ${left.map((name) => `'${name}'`).join(', ')}`);
+    for (const name of ready) {
+      const decision = await decide(name);
+      decided.set(name, decision);
+      if (decision === 'unanswered') overlay.set(outputOf.get(name)!, MADE_IN_THE_RUN);
+    }
+    const done = new Set(ready);
+    left = left.filter((name) => !done.has(name));
+  }
+
+  const inOrder = (kind: 'answered' | 'unanswered' | 'waiting'): string[] => tasks.map((task) => task.name).filter((name) => decided.get(name) === kind);
+  return {
+    answered: new Map(inOrder('answered').map((name) => [name, answered.get(name)!])),
+    unanswered: inOrder('unanswered'),
+    waiting: inOrder('waiting'),
+  };
 }
