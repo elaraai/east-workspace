@@ -425,13 +425,44 @@ export class RackSession {
     }
   }
 
+  /** Each run lease's listener for the answers to its asks (`RACK_RUNS`). */
+  private readonly answers = new Map<string, (seq: bigint, answerJson: string) => void>();
+
+  /**
+   * Registers the listener for a run lease's answers (`RACK_RUNS`): each
+   * answer its rack gives to an ask of this session's, as the hub tells it.
+   * @param leaseId - The run lease
+   * @param listener - Told each answer's ask and its JSON
+   * @returns Unregisters it
+   * @example
+   * const off = session.onAnswer(lease.leaseId, (seq, answerJson) => settle(seq, JSON.parse(answerJson)));
+   * try { await session.askRun(lease.leaseId, ask); } finally { off(); }
+   */
+  onAnswer(leaseId: string, listener: (seq: bigint, answerJson: string) => void): () => void {
+    this.answers.set(leaseId, listener);
+    return () => { if (this.answers.get(leaseId) === listener) this.answers.delete(leaseId); };
+  }
+
+  /**
+   * Asks a run lease of the session's for a task's result (`RACK_RUNS`): its
+   * answer comes to the lease's listener ({@link onAnswer}).
+   * @param leaseId - The run lease
+   * @param ask - The task, its identity, and the id its log is teed under
+   * @returns The ask's number in the lease
+   * @example
+   * const seq = await session.askRun(lease.leaseId, { taskName: 'train', taskHash, inputsHash, executionId: uuidv7() });
+   */
+  askRun(leaseId: string, ask: { taskName: string; taskHash: string; inputsHash: string; executionId: string }): Promise<bigint> {
+    return this.client.askRun(this.sessionId, leaseId, ask);
+  }
+
   /** Registers a live log tee; persistence remains the data server's job. */
   onLog(executionId: string, sink: (stream: 'stdout' | 'stderr', data: string) => void): () => void {
     const sinks = this.tee.get(executionId) ?? new Set(); sinks.add(sink); this.tee.set(executionId, sinks);
     return () => { sinks.delete(sink); if (sinks.size === 0) this.tee.delete(executionId); };
   }
 
-  private update(event: SessionEvent['event']): LeaseUpdate {
+  private update(event: Exclude<SessionEvent['event'], { type: 'answered' }>): LeaseUpdate {
     switch (event.type) {
       case 'claimed': return { kind: 'claimed', rackId: event.value.rackId, rackLabel: event.value.rackLabel,
         attempt: event.value.attempt.type === 'some' ? event.value.attempt.value : null };
@@ -454,6 +485,11 @@ export class RackSession {
         for (const event of response.events) {
           if (compareFor(IntegerType)(event.seq, after) <= 0) continue;
           after = event.seq;
+          // A run lease's answer goes to its run, and moves no lease
+          if (event.event.type === 'answered') {
+            this.answers.get(event.event.value.leaseId)?.(event.event.value.seq, event.event.value.answerJson);
+            continue;
+          }
           const update = this.update(event.event);
           const id = event.event.value.leaseId;
           const handles = this.handles.get(id);

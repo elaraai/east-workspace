@@ -1764,3 +1764,20 @@ Each wire changed under this rule, with the kind it is.
   output is not stored state, and a column from data reads and writes a
   field the app's record already holds, as it holds it, so no repository
   upgrade step ships with it.
+- **A rack runs a whole run for one lease (`rack-runs`)** — three wires, and
+  no stored form. A lease's event, which is JSON, gains a fourth mode of its
+  `runnerEvent`, `run`: the description of a selection as an object, what the
+  run forces, the tiers its tasks need and each task's verdict
+  (`RackRunEvent`, read leniently by `readRackRun`). A source grants such a
+  lease only to a rack whose report names `rack-runs` and boots every tier
+  named, so an agent from before it is never granted one, and its claim runs
+  no attempt, as a call's does. Rack protocol 3 gains three routes only such
+  a rack calls, each JSON: `/api/rack/run/asks` (the asks it has not
+  answered, held as a cancellation watch is), `/answers` and `/logs`; none of
+  protocol 3's BEAST2 structs changes, so the rack protocol keeps its
+  number. The hub control protocol goes from 7 to 8: a session asks a run
+  lease for a task's result (`/v1/sessions/:id/leases/:leaseId/asks`,
+  `RunAskType`), and a session's events gain a case, `answered`, which a
+  session of protocol 7 could not decode. A run's asks and answers are held
+  in the hub's memory and its task logs are teed to the asker, which writes
+  them, so no repository upgrade step ships with it.

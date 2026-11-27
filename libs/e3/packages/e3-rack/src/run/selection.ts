@@ -36,6 +36,9 @@ export interface RackRunSelectionOptions {
   /** Whether the run's processes are set to run with an environment, user
    *  or group of their own, which keeps every task here */
   readonly hostBound: boolean;
+  /** The tiers the rack that would take the run up boots: a task of another
+   *  is not selected. Absent, any tier is */
+  readonly tiers?: ReadonlySet<string>;
 }
 
 /** Whether a task's work is split over its inputs: no, when its object does not read. */
@@ -93,6 +96,7 @@ export async function rackRunSelection(storage: StorageBackend, repo: string, ws
       if (!task.dependsOn.every((dep) => prediction.answered.has(dep) || selected.has(dep))) continue;
       const verdict = await options.evaluator.evaluateTask(storage, repo, task.hash, name);
       if (!verdict.eligible || verdict.environment !== null) continue;
+      if (options.tiers !== undefined && !options.tiers.has(verdict.tier)) continue;
       if (options.evaluator.keepsMergesHere(name) && await isSplit(storage, repo, task.hash)) continue;
       selected.add(name);
       verdicts.set(name, verdict);

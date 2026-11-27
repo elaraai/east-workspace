@@ -20,6 +20,7 @@ import {
   ExecutionAttempt, processOwner, touchReachable, uuidv7,
   type ExecutionIds, type ExecutionResult, type ReplicaRun, type ReplicaRunAnswer, type TaskBodyExecutor, type TaskBodyRequest,
 } from '@elaraai/e3-core';
+import type { RackPlacementEvent } from '../protocol/placement.js';
 
 /** How {@link createRackRunBody} is made. */
 export interface RackRunBodyOptions {
@@ -31,6 +32,11 @@ export interface RackRunBodyOptions {
   readonly retryTaskFailuresLocally: boolean;
   /** The body for everything else: today's rack body, or none */
   readonly inner?: TaskBodyExecutor;
+  /** Told where each granted task ran: on the rack, or here, after its
+   *  rack's run gave it back, had no result, or was lost */
+  readonly onPlacement?: (event: RackPlacementEvent) => void;
+  /** The rack holding the run, and its lease, once one has taken it up */
+  readonly placedOn?: () => { readonly rackLabel: string; readonly leaseId: string } | undefined;
 }
 
 /** Why an error that is not the task's own is no verdict: a deadline's is. */
@@ -47,11 +53,11 @@ const TIMED_OUT = 'timed out:';
  * const runner = new LocalTaskRunner(repo, budget, { body });
  */
 export function createRackRunBody(options: RackRunBodyOptions): TaskBodyExecutor {
-  const { run, selected, inner } = options;
+  const { selected, inner } = options;
   const body = (request: TaskBodyRequest, local: (ids?: ExecutionIds) => Promise<ExecutionResult>): Promise<ExecutionResult> => {
     const name = request.options.taskName;
     if (request.role !== 'task' || name === undefined || !selected.has(name)) return inner === undefined ? local() : inner(request, local);
-    return fromTheRack(request, local, name, run, options.retryTaskFailuresLocally);
+    return fromTheRack(request, local, name, options);
   };
   // With no body it wraps, every unit runs through `local()`, under the
   // budget's guard, as a runner with no body runs it: it stops units
@@ -67,10 +73,14 @@ async function fromTheRack(
   request: TaskBodyRequest,
   local: (ids?: ExecutionIds) => Promise<ExecutionResult>,
   taskName: string,
-  run: ReplicaRun,
-  retryTaskFailuresLocally: boolean,
+  { run, retryTaskFailuresLocally, onPlacement, placedOn }: RackRunBodyOptions,
 ): Promise<ExecutionResult> {
   const { storage, repo, taskHash, inputHashes, ids, options } = request;
+  // Said as the rack's when it gave a verdict, and as here's when it ran here
+  const onTheRack = (): void => {
+    const where = placedOn?.();
+    if (where !== undefined) onPlacement?.({ kind: 'placed', taskName, role: 'task', where: 'rack', rackLabel: where.rackLabel, leaseId: where.leaseId });
+  };
   const attempt = new ExecutionAttempt(storage, repo, taskHash, inputHashes, ids, false);
   const startedAt = new Date(ids.startTime);
   const owner = await processOwner();
@@ -84,6 +94,7 @@ async function fromTheRack(
 
   /** The attempt ended here as interrupted, why in its log, and the task run here. */
   const runHere = async (code: string, cause: string): Promise<ExecutionResult> => {
+    onPlacement?.({ kind: 'placed', taskName, role: 'task', where: 'local', reason: `fallback:${code}` });
     await logs.stderr.push(`e3: ${cause}: running it here\n`);
     await attempt.flushLog();
     await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('interrupted', {
@@ -118,6 +129,7 @@ async function fromTheRack(
         }
         await logs.stderr.push(`e3: on its rack: ran ${durationMs} ms\n`);
         const result = await attempt.recordSuccess(answer.outputHash, answer.peakBytes, attempt.flushLog());
+        onTheRack();
         return { ...result, durationMs };
       }
       if (answer.state === 'failed') {
@@ -125,11 +137,13 @@ async function fromTheRack(
           return runHere('rack.failed', `it failed on its rack (exit code ${answer.exitCode ?? 'none'}), and the policy runs a failure again here`);
         }
         const result = await attempt.recordFailed(answer.exitCode ?? null, answer.error ?? null, answer.peakBytes);
+        onTheRack();
         return { ...result, durationMs };
       }
       // An error a deadline gave is the task's verdict; any other is its rack's
       if (!(answer.error ?? '').startsWith(TIMED_OUT)) return runHere('rack.error', `its rack run could not run it (${answer.error ?? 'no reason given'})`);
       const result = await attempt.recordError(answer.error ?? TIMED_OUT);
+      onTheRack();
       return { ...result, durationMs };
     }
   }

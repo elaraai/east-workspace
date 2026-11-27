@@ -109,7 +109,7 @@ import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackInlineRoom, RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackLeaseScope, readRackReason, readRackRetries,
+import { isFunctionLease, isLeaseEventV2, isRunLease, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackLeaseScope, readRackReason, readRackRetries,
   type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
@@ -254,6 +254,52 @@ export interface RackRouteOptions {
    * no answer names one.
    */
   splitScopes?: RackSplitScopes;
+  /**
+   * The asks of the source's run leases (`RACK_RUNS`), which their racks
+   * poll, answer and send logs for (`/api/rack/run/*`). Absent, the source
+   * leases no rack run, and those routes refuse.
+   */
+  runs?: RackRunRelay;
+}
+
+/** An ask of a run lease, as its rack is given it. */
+export interface RackRunAsk {
+  /** Its number in the lease, from 1 */
+  readonly seq: number;
+  /** The task's name */
+  readonly taskName: string;
+  /** Its task object's hash */
+  readonly taskHash: string;
+  /** The hash of the inputs its asker found it with */
+  readonly inputsHash: string;
+}
+
+/**
+ * Where a source keeps its run leases' asks (`RACK_RUNS`): what its sessions
+ * asked of each, what the lease's rack answered, and where a task's log goes.
+ */
+export interface RackRunRelay {
+  /**
+   * The asks after `after` the lease's rack has not answered, waiting up to
+   * `waitMs` for one; and whether the lease has ended.
+   */
+  asks(repo: string, leaseId: string, after: number, waitMs: number, signal: AbortSignal): Promise<{ asks: RackRunAsk[]; ended: boolean }>;
+  /** Takes the rack's answers, each a `ReplicaRunAnswer`: one already answered is dropped. */
+  answer(repo: string, leaseId: string, answers: readonly { readonly seq: number; readonly answer: unknown }[]): Promise<void>;
+  /** Hands an ask's task's log to its asker: false when the ask is not the lease's. */
+  logs(repo: string, leaseId: string, seq: number, chunks: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]): Promise<boolean>;
+}
+
+/** The most asks a rack is given at once. */
+const RUN_ASKS_AT_ONCE = 1024;
+
+/** A request of the run routes: its JSON, checked. */
+function runRequest(value: unknown): { repo: string; leaseId: string } & Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('not an object');
+  const { repo, leaseId } = value as Record<string, unknown>;
+  if (typeof repo !== 'string' || typeof leaseId !== 'string' || repo.length === 0 || leaseId.length === 0
+    || Buffer.byteLength(repo) > 1024 || Buffer.byteLength(leaseId) > 1024) throw new Error('no lease');
+  return value as { repo: string; leaseId: string } & Record<string, unknown>;
 }
 
 /**
@@ -469,6 +515,7 @@ export function createRackRoutes(
   app.use('/api/rack/complete', auth);
   app.use('/api/rack/storage', auth);
   app.use('/api/rack/logs', auth);
+  app.use('/api/rack/run/*', auth);
   // After the credential, so the rack that asked is known, and before the
   // body: an agent of another protocol is told so, never read. An enrolment
   // shows no credential, and its token is not consumed by a refusal.
@@ -480,9 +527,10 @@ export function createRackRoutes(
     return refuse(426, 'upgrade-required',
       `this source speaks rack protocol ${RACK_PROTOCOL}, and the request ${named === undefined ? 'names none' : `names ${named}`}: update the rack's agent`);
   };
-  for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'lease/watch', 'complete', 'storage', 'logs']) {
+  for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'lease/watch', 'complete', 'storage', 'logs', 'run/*']) {
     app.use(`/api/rack/${route}`, speaks);
   }
+  app.use('/api/rack/run/*', rackBodyLimit(2 * 1024 * 1024));
   app.use('/api/rack/lease/watch', rackBodyLimit(256 * 1024));
   for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'complete', 'storage', 'logs']) {
     app.use(`/api/rack/${route}`, rackBodyLimit(route === 'enroll' ? 64 * 1024 : 2 * 1024 * 1024));
@@ -681,8 +729,8 @@ export function createRackRoutes(
               && !(claimRack.approvedBootId.type === 'some' && equalString(claimRack.approvedBootId.value, bootId)))) return null;
           if (options?.canClaim !== undefined && !(await options.canClaim(claimRack, current, offer))) return null;
           // A task or unit lease's claim runs an attempt, which the cloud
-          // records: the rack cannot (#214)
-          const attempt = isFunctionLease(candidate.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
+          // records: the rack cannot (#214). A call's and a run's run none
+          const attempt = isFunctionLease(candidate.event) || isRunLease(candidate.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
           const claimKind = current.status === 'pending' ? 'initial' : 'reclaimed';
           const claimed = await leaseStore.claim(
             candidate.repo,
@@ -1116,6 +1164,15 @@ export function createRackRoutes(
       const ok = issued.has(hash) && await bridge.commitWrite(request.repo, lease.leaseId, rackId, hash, Number(size), version);
       committed.push({ hash, committed: ok });
     }
+    // A run lease writes every output of its run: what is held here already,
+    // or committed, leaves its targets, so its bound is what is in flight. So
+    // a second write of an object, declared before the first's commit, is
+    // refused its commit: a run writes each object once at a time
+    if (isRunLease(lease.event)) {
+      const done = [...targets.filter(({ target }) => target.type === 'held').map(({ hash }) => hash),
+        ...committed.filter(({ committed: ok }) => ok).map(({ hash }) => hash)];
+      if (done.length > 0) await leaseStore.releaseTargets(request.repo, lease.leaseId, rackId, done);
+    }
     return answer(RackStorageResponseType, { objects, output, env, targets, committed });
     });
   });
@@ -1158,6 +1215,81 @@ export function createRackRoutes(
       return unavailable(`Logs not stored: ${err instanceof Error ? err.message : String(err)}`);
     }
     return answer(BooleanType, true);
+    });
+  });
+
+  // The routes of a run lease (`RACK_RUNS`): its rack polls what its source
+  // asks of it, answers, and sends each task's log, for a lease it holds
+  const runs = options?.runs;
+  const heldRun = async (repo: string, leaseId: string, rackId: string): Promise<RackLeaseRecord | null> => {
+    const lease = await heldLease(repo, leaseId, rackId);
+    return lease !== null && isLeaseEventV2(lease.event) && isRunLease(lease.event) ? lease : null;
+  };
+
+  // POST /api/rack/run/asks — the asks not yet answered after a cursor, held
+  // while there are none, outside the lease's fence as a watch is, so the
+  // lease's reads and writes go on meanwhile. `cancelled` once the rack no
+  // longer holds the lease.
+  app.post('/api/rack/run/asks', async (c) => {
+    if (runs === undefined) return refuse(404, 'not-found', 'This source leases no rack runs');
+    const rackId = c.get('rackId');
+    let request: { repo: string; leaseId: string; after: number; waitMs: number };
+    try {
+      const body = runRequest(await c.req.json());
+      const { after, waitMs } = body;
+      if (typeof after !== 'number' || !Number.isSafeInteger(after) || after < 0) throw new Error('after');
+      if (waitMs !== undefined && (typeof waitMs !== 'number' || !Number.isFinite(waitMs) || waitMs < 0)) throw new Error('waitMs');
+      request = { repo: body.repo, leaseId: body.leaseId, after, waitMs: Math.min(watchWindowMs, (waitMs as number | undefined) ?? watchWindowMs) };
+    } catch { return invalid('Invalid run asks request'); }
+    if (await heldRun(request.repo, request.leaseId, rackId) === null) return c.json({ asks: [], cancelled: true });
+    const signal = options?.signal ? AbortSignal.any([c.req.raw.signal, options.signal]) : c.req.raw.signal;
+    const { asks, ended } = await runs.asks(request.repo, request.leaseId, request.after, request.waitMs, signal);
+    const held = !ended && await heldRun(request.repo, request.leaseId, rackId) !== null;
+    return c.json({ asks: asks.slice(0, RUN_ASKS_AT_ONCE), cancelled: !held });
+  });
+
+  // POST /api/rack/run/answers — the rack's answers to its source's asks
+  app.post('/api/rack/run/answers', async (c) => {
+    if (runs === undefined) return refuse(404, 'not-found', 'This source leases no rack runs');
+    const rackId = c.get('rackId');
+    let request: { repo: string; leaseId: string; answers: { seq: number; answer: unknown }[] };
+    try {
+      const body = runRequest(await c.req.json());
+      const { answers } = body;
+      if (!Array.isArray(answers) || answers.length > RUN_ASKS_AT_ONCE) throw new Error('answers');
+      for (const each of answers as unknown[]) {
+        const { seq, answer } = (each ?? {}) as Record<string, unknown>;
+        if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 1 || typeof answer !== 'object' || answer === null) throw new Error('answer');
+      }
+      request = { repo: body.repo, leaseId: body.leaseId, answers: answers as { seq: number; answer: unknown }[] };
+    } catch { return invalid('Invalid run answers'); }
+    return coordinator.run(request.repo, request.leaseId, async () => {
+      if (await heldRun(request.repo, request.leaseId, rackId) === null) return forbidden('No such run lease held by this rack');
+      await runs.answer(request.repo, request.leaseId, request.answers);
+      return c.json({ taken: true });
+    });
+  });
+
+  // POST /api/rack/run/logs — a task's log, as the rack's run writes it, for
+  // the ask that names the task
+  app.post('/api/rack/run/logs', async (c) => {
+    if (runs === undefined) return refuse(404, 'not-found', 'This source leases no rack runs');
+    const rackId = c.get('rackId');
+    let request: { repo: string; leaseId: string; seq: number; chunks: { stream: 'stdout' | 'stderr'; text: string }[] };
+    try {
+      const body = runRequest(await c.req.json());
+      const { seq, chunks } = body;
+      if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 1 || !Array.isArray(chunks)) throw new Error('logs');
+      for (const chunk of chunks as unknown[]) {
+        const { stream, text } = (chunk ?? {}) as Record<string, unknown>;
+        if ((stream !== 'stdout' && stream !== 'stderr') || typeof text !== 'string') throw new Error('chunk');
+      }
+      request = { repo: body.repo, leaseId: body.leaseId, seq, chunks: chunks as { stream: 'stdout' | 'stderr'; text: string }[] };
+    } catch { return invalid('Invalid run logs'); }
+    return coordinator.run(request.repo, request.leaseId, async () => {
+      if (await heldRun(request.repo, request.leaseId, rackId) === null) return forbidden('No such run lease held by this rack');
+      if (!await runs.logs(request.repo, request.leaseId, request.seq, request.chunks)) return forbidden(`Ask ${request.seq} is not one of lease ${request.leaseId}'s`);
+      return c.json({ taken: true });
     });
   });
 

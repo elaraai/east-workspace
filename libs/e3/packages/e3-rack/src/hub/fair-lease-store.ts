@@ -26,6 +26,7 @@ export class FairLeaseStore implements RackLeaseStore {
   get(repo: string, id: string) { return this.store.get(repo, id); }
   findByTask(repo: string, task: string, inputs: string) { return this.store.findByTask(repo, task, inputs); }
   recordTargets(repo: string, id: string, rack: string, hashes: readonly string[]) { return this.store.recordTargets(repo, id, rack, hashes); }
+  releaseTargets(repo: string, id: string, rack: string, hashes: readonly string[]) { return this.store.releaseTargets(repo, id, rack, hashes); }
   listRecentByRack(rack: string, limit: number) { return this.store.listRecentByRack(rack, limit); }
   extend(repo: string, id: string, rack: string, deadline: number) { return this.store.extend(repo, id, rack, deadline); }
   complete(repo: string, id: string, rack: string, result: RackLeaseResult) { return this.store.complete(repo, id, rack, result); }

@@ -21,6 +21,8 @@ export const E3_RACK_VERSION: string = E3_RELEASE;
  * rack holds; and ends a split scope a session's leases named, so the racks
  * that keep what its leases wrote are told to let it go (`scopes/end`). 7
  * configures the origins beside the advertised one over which a hub spreads
- * its data URLs (`HubConfigType`'s `dataOrigins`).
+ * its data URLs (`HubConfigType`'s `dataOrigins`). 8 leases a whole rack
+ * run: a session asks a run lease for a task's result (`leases/:id/asks`),
+ * and is told its answer as an event of its own (`answered`).
  */
-export const HUB_PROTOCOL = 7;
+export const HUB_PROTOCOL = 8;

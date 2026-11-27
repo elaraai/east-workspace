@@ -96,6 +96,14 @@ export class InMemoryRackLeaseStore implements RackLeaseStore {
     return Promise.resolve(true);
   }
 
+  releaseTargets(repo: string, id: string, rackId: string, hashes: readonly string[]): Promise<boolean> {
+    const record = this.held(repo, id, rackId);
+    if (record === null) return Promise.resolve(false);
+    const done = new Set(hashes);
+    record.targets = (record.targets ?? []).filter((hash) => !done.has(hash));
+    return Promise.resolve(true);
+  }
+
   extend(repo: string, id: string, rackId: string, deadline: number): Promise<boolean> {
     const record = this.held(repo, id, rackId);
     if (record === null) return Promise.resolve(false);

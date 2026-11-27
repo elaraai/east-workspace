@@ -190,6 +190,17 @@ export interface RackLeaseStore {
   recordTargets(repo: string, leaseId: string, rackId: string, hashes: readonly string[]): Promise<boolean>;
 
   /**
+   * Forget object hashes a lease was issued write targets for, once each is
+   * committed or held already, only by its claimant while it holds the lease:
+   * a run lease's, which writes every output of its run, so that what it may
+   * be issued bounds what it has in flight rather than all it writes.
+   *
+   * @returns Whether they were forgotten: false when the lease is not held by
+   *   the rack
+   */
+  releaseTargets(repo: string, leaseId: string, rackId: string, hashes: readonly string[]): Promise<boolean>;
+
+  /**
    * Recent leases claimed by a rack, newest first — the fleet-table
    * activity view ("what has this rack done"). A lease reclaimed by
    * ANOTHER rack after visibility expiry leaves this rack's list (the

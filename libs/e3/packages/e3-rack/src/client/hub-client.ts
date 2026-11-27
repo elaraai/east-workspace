@@ -8,7 +8,7 @@ import { hubSocketPath, rackHome } from '../paths.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
   FetchCostResultType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
-  RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
+  RemoveRackResultType, RunAskResultType, RunAskType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackSecurityPolicy } from '../protocol/registration.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
@@ -161,6 +161,25 @@ export class HubClient {
    */
   async endScope(id: string, scope: string): Promise<void> {
     await socketRequest(this.socketPath, 'POST', `${this.path(id)}/scopes/end`, { requestType: EndScopeType, body: { scope }, responseType: EmptyType });
+  }
+  /**
+   * Asks a run lease of the session's (`RACK_RUNS`) for a task's result, by
+   * the identity the session's run found it with: its rack is given the ask
+   * at its next poll, and its answer comes back as an `answered` event.
+   * @param id - The session
+   * @param leaseId - The run lease
+   * @param ask - The task, its identity, and the attempt its log is teed under
+   * @returns The ask's number in the lease
+   * @throws {RackHubError} When the lease is not a run lease of the session's,
+   *   or has ended
+   * @example
+   * ```ts
+   * const seq = await client.askRun(sessionId, leaseId, { taskName, taskHash, inputsHash, executionId });
+   * ```
+   */
+  async askRun(id: string, leaseId: string, ask: ValueTypeOf<typeof RunAskType>): Promise<bigint> {
+    return (await socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases/${encodeURIComponent(leaseId)}/asks`, {
+      requestType: RunAskType, body: ask, responseType: RunAskResultType })).seq;
   }
   /** Polls ordered updates and refreshes the session's liveness. */
   events(id: string, after: bigint, waitMs = 20000, signal?: AbortSignal): Promise<ValueTypeOf<typeof SessionPollResultType>> {

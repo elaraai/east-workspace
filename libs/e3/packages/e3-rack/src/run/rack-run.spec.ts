@@ -385,6 +385,19 @@ describe('a run a rack\'s run runs part of', { concurrency: false }, () => {
     assert.deepEqual([...taken.tasks].sort(), ['plain', 'report', 'total']);
   });
 
+  it('selects no task of a tier the rack that would take the run up does not boot, nor one below it', async () => {
+    const r = await rig(chain());
+    const evaluator = {
+      evaluateTask: (_storage: StorageBackend, _repo: string, _hash: string, name: string) => Promise.resolve({
+        eligible: true as const, tier: name === 'second' ? 'py' as const : 'node' as const, size: 'large' as const, timeoutMinutes: 60, memoryLimit: null, gpu: false,
+        environment: null,
+      }),
+      keepsMergesHere: () => false,
+    } as unknown as EligibilityEvaluator;
+    const selection = await rackRunSelection(r.storage, r.origin, 'dev', { evaluator, hostBound: false, tiers: new Set(['node']) });
+    assert.deepEqual([...selection.tasks].sort(), ['first', 'other']);
+  });
+
   it('says a body with nothing to wrap stops its units, as a runner with no body does, and one that wraps a body as that body says', () => {
     const run = { grant: () => Promise.resolve(), ask: () => Promise.resolve({ kind: 'unknown' as const }), cancel: () => Promise.resolve() };
     assert.equal(createRackRunBody({ run, selected: new Set(), retryTaskFailuresLocally: false }).stopsUnits, true);
