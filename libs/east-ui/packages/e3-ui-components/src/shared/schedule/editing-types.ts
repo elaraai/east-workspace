@@ -36,6 +36,8 @@ export type ScheduleEditingKind<I extends Item = Item> = Omit<ValueTypeOf<typeof
  * begins from one.
  */
 export interface ScheduleKindRows {
+    /** Whether the entries held are lean copies (from a series index with `value`, #1725) rather than full record rows. */
+    readonly copy?: boolean | undefined;
     /**
      * Whether they hold an event.
      *

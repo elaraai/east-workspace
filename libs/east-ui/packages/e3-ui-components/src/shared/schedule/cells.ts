@@ -560,12 +560,16 @@ export interface ScheduleCellPaged {
     narrowing(): string | undefined;
 }
 
-/** A row in view at an end of a run of them: its window, and its key's text. */
+/** A row in view at an end of a run of them: its window, its key's text, and — where a host disambiguates duplicate keys — its slot and group path. */
 export interface ScheduleCellEnd {
     /** Its window. */
     readonly w: number;
     /** Its key's text. */
     readonly key: string;
+    /** Its landing slot, when a host disambiguates duplicate keys across slots. */
+    readonly slot?: string | undefined;
+    /** The keys' texts of the rows it nests under, outermost first, when nested under groups. */
+    readonly under?: readonly string[] | undefined;
 }
 
 /** A run of the paged rows in view, in their windows' order: its first row and its last. */
@@ -619,6 +623,23 @@ export function scheduleCellSpanOf(rows: Iterable<ScheduleCellEnd>, narrowing: s
     return runs.length === 0 ? undefined : { runs, narrowing };
 }
 
+/** Whether two span ends name the same row in view (window, key, and optional slot / group path). */
+function sameEnd(x: ScheduleCellEnd, y: ScheduleCellEnd): boolean {
+    return x.w === y.w && stringEqual(x.key, y.key)
+        && (x.slot === undefined || y.slot === undefined ? x.slot === y.slot : stringEqual(x.slot, y.slot))
+        && (x.under === undefined || y.under === undefined ? x.under === y.under : sameUnder(x.under, y.under));
+}
+
+/** Whether a window resource entry matches a reported span end, disambiguating slot and group nesting when provided. */
+function sameKeyEnd(k: ScheduleCellKey, end: ScheduleCellEnd): boolean {
+    if (!stringEqual(k.key, end.key)) return false;
+    if (end.slot !== undefined && !stringEqual(k.slot, end.slot)) return false;
+    const under = k.under ?? NO_UNDER;
+    if (end.under !== undefined) return sameUnder(under, end.under);
+    // When `slot` is reported by a Plan host, omitting `under` denotes a top-level (ungrouped) row.
+    return end.slot === undefined || under.length === 0;
+}
+
 /**
  * Whether two spans are the same rows in view: the same runs, each the same
  * rows at its ends, under the same narrowing (#1344) — what a host reports
@@ -629,7 +650,6 @@ export function scheduleCellSpanOf(rows: Iterable<ScheduleCellEnd>, narrowing: s
  * @returns Whether they are the same rows in view
  */
 export function sameCellSpan(a: ScheduleCellSpan, b: ScheduleCellSpan): boolean {
-    const sameEnd = (x: ScheduleCellEnd, y: ScheduleCellEnd) => x.w === y.w && stringEqual(x.key, y.key);
     return a.runs.length === b.runs.length && a.runs.every((run, i) => sameEnd(run.first, b.runs[i]!.first) && sameEnd(run.last, b.runs[i]!.last))
         && sameNarrowing(a.narrowing, b.narrowing);
 }
@@ -1035,7 +1055,7 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
         if (end === undefined) return { w: 0, at: 0 };
         const keys = keysOf(end.w);
         if (keys === undefined) return undefined;
-        const at = keys.findIndex((k) => stringEqual(k.key, end.key));
+        const at = keys.findIndex((k) => sameKeyEnd(k, end));
         return at < 0 ? null : { w: end.w, at };
     };
     // Each window's blocks meeting the rows in view: what the cap holds (#1768). A window two runs meet in wants the
@@ -1095,13 +1115,36 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
     for (const { w, j, ahead } of places) {
         // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
         // window draws them — each with the rows beneath it a kind's `child` lands on (#1541, U1).
-        const runs: { slot: string; under: readonly string[]; keys: string[]; children: Map<string, readonly ScheduleCellChild[]> }[] = [];
+        const runs: {
+            slot: string; under: readonly string[]; keys: string[]; seenKeys: Set<string>;
+            children: Map<string, ScheduleCellChild[]>; seenChildren: Map<string, Set<string>>;
+        }[] = [];
         for (const k of keysOf(w)!.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
             const under = k.under ?? NO_UNDER;
             let run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
-            if (run === undefined) runs.push(run = { slot: k.slot, under, keys: [k.key], children: new Map() });
-            else run.keys.push(k.key);
-            if (k.children !== undefined) run.children.set(k.key, [...(run.children.get(k.key) ?? []), ...k.children]);
+            if (run === undefined) {
+                run = { slot: k.slot, under, keys: [k.key], seenKeys: new Set([k.key]), children: new Map(), seenChildren: new Map() };
+                runs.push(run);
+            } else if (!run.seenKeys.has(k.key)) {
+                run.seenKeys.add(k.key);
+                run.keys.push(k.key);
+            }
+            if (k.children !== undefined) {
+                let list = run.children.get(k.key);
+                let seenChild = run.seenChildren.get(k.key);
+                if (list === undefined) {
+                    list = [];
+                    seenChild = new Set();
+                    run.children.set(k.key, list);
+                    run.seenChildren.set(k.key, seenChild);
+                }
+                for (const child of k.children) {
+                    const childId = scheduleCellId(child.slot, child.key);
+                    if (seenChild!.has(childId)) continue;
+                    seenChild!.add(childId);
+                    list.push(child);
+                }
+            }
         }
         // A slot's first block of a place is named by the place; each further one, under another row, by which it is.
         const placed = new Map<string, number>();
@@ -1146,12 +1189,12 @@ export function scheduleCellTravel(paged: ScheduleCellPaged, was: ScheduleCellSp
     // `undefined` while it is in flight.
     const order = (x: ScheduleCellEnd, y: ScheduleCellEnd): number | null | undefined => {
         if (x.w !== y.w) return x.w - y.w;
-        if (stringEqual(x.key, y.key)) return 0;
+        if (sameEnd(x, y)) return 0;
         const keys = scheduleWindowKeys(paged, x.w);
         if (keys === undefined) return undefined;
         if (keys === SCHEDULE_WINDOW_FAILED) return null;
-        const at = keys.findIndex((k) => stringEqual(k.key, x.key));
-        const to = keys.findIndex((k) => stringEqual(k.key, y.key));
+        const at = keys.findIndex((k) => sameKeyEnd(k, x));
+        const to = keys.findIndex((k) => sameKeyEnd(k, y));
         return at < 0 || to < 0 ? null : at - to;
     };
     // The run of a span's a row stands in, by its place among them: none where it stands in none of them.
@@ -1338,8 +1381,9 @@ class CellRows implements ScheduleKindRows {
     /**
      * @param codec - The kind's codec
      * @param entries - Its entries, made when first read: the Array its seams read through `schedule_cell_rows`
+     * @param copy - Whether the entries hold index copies (`#1725`) rather than full record rows
      */
-    constructor(private readonly codec: KindCodec, private readonly entries: () => readonly CellEntry[]) {}
+    constructor(private readonly codec: KindCodec, private readonly entries: () => readonly CellEntry[], readonly copy = false) {}
 
     /** The rows by the event's key's text, filed once. */
     private filed(): Map<string, unknown> {
@@ -1417,9 +1461,14 @@ const NONE_LEFT: BlockLeft = { text: "", ids: new Set() };
  * @internal
  */
 export function scheduleBlockEntries(entries: readonly (readonly RecordSliceEntry[])[], left: ReadonlySet<string>,
-    compareKey: (a: unknown, b: unknown) => number, idOf: (key: unknown) => string): { readonly key: unknown; readonly row: unknown }[] {
+    compareKey: (a: unknown, b: unknown) => number, idOf: (key: unknown) => string, copy = false): { readonly key: unknown; readonly row: unknown }[] {
     const rows = new SortedMap<unknown, unknown>([], compareKey);
-    for (const level of entries) for (const entry of level) if (entry.row?.type === "some") rows.set(entry.key, entry.row.value);
+    for (const level of entries) {
+        for (const entry of level) {
+            const carried = copy ? entry.value : entry.row;
+            if (carried?.type === "some") rows.set(entry.key, carried.value);
+        }
+    }
     const out: { key: unknown; row: unknown }[] = [];
     for (const [key, row] of rows) if (left.size === 0 || !left.has(idOf(key))) out.push({ key, row });
     return out;
@@ -1434,10 +1483,11 @@ export function scheduleBlockEntries(entries: readonly (readonly RecordSliceEntr
  * @param groups - The groups the read took in, in its order: each its resources' literals and its entries a level
  * @param outside - The keys' texts of the rows the narrowing leaves out
  * @param idOf - A key's text
+ * @param copy - Whether the entries hold index copies (`#1725`) in `entry.value` rather than full rows in `entry.row`
  * @returns The keys' texts of the rows each group leaves, in the groups' order
  * @internal
  */
-export function scheduleBlocksLeft(groups: readonly SeriesGroupRead[], outside: ReadonlySet<string>, idOf: (key: unknown) => string): readonly ReadonlySet<string>[] {
+export function scheduleBlocksLeft(groups: readonly SeriesGroupRead[], outside: ReadonlySet<string>, idOf: (key: unknown) => string, copy = false): readonly ReadonlySet<string>[] {
     const seen = new Set<string>();
     let shared = false;
     for (const group of groups) {
@@ -1449,7 +1499,12 @@ export function scheduleBlocksLeft(groups: readonly SeriesGroupRead[], outside: 
     const left: ReadonlySet<string>[] = [];
     for (let g = groups.length - 1; g >= 0; g--) {
         const ids = new Set<string>();
-        for (const level of groups[g]!.entries) for (const entry of level) if (entry.row?.type === "some") ids.add(idOf(entry.key));
+        for (const level of groups[g]!.entries) {
+            for (const entry of level) {
+                const carried = copy ? entry.value : entry.row;
+                if (carried?.type === "some") ids.add(idOf(entry.key));
+            }
+        }
         const leaves = [...ids].filter((id) => outside.has(id) || claimed.has(id));
         for (const id of ids) claimed.add(id);
         left[g] = leaves.length === 0 ? NO_IDS : new Set(leaves);
@@ -1464,6 +1519,10 @@ class LaidRows implements ScheduleKindRows {
      * @param landed - What Saves landed of the kind, by the event's key's text
      */
     constructor(private readonly under: ScheduleKindRows, private readonly landed: ReadonlyMap<string, ScheduleLandedRow>) {}
+
+    get copy(): boolean | undefined {
+        return this.under.copy;
+    }
 
     has(id: string): boolean {
         const laid = this.landed.get(id);
@@ -1949,9 +2008,10 @@ class CellsReader {
      * answered of them — and made once for kinds made from the same: the cases of one record read over the same blocks.
      * `rows` gives them by key when they are first read, which a read made from the same never asks.
      */
-    private hold(slot: string, codec: KindCodec, from: readonly unknown[], rows: () => Iterable<readonly [unknown, unknown]>): Generation {
+    private hold(slot: string, codec: KindCodec, from: readonly unknown[], rows: () => Iterable<readonly [unknown, unknown]>, copy = false): Generation {
         const same = (made: Generation | undefined): made is Generation =>
-            made !== undefined && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
+            made !== undefined && (made.held.copy === true) === copy
+            && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
         const last = this.generations.get(slot);
         if (same(last)) return last;
         for (const other of this.generations.values()) {
@@ -1963,9 +2023,15 @@ class CellsReader {
         const rowsOf = (): readonly CellEntry[] => (entries ??= [...rows()].map(([key, row]) => ({ key, row })));
         const handle = holdCellRows(rowsOf);
         this.made.add(handle);
-        const made: Generation = { from, handle, held: new CellRows(codec, rowsOf) };
+        const made: Generation = { from, handle, held: new CellRows(codec, rowsOf, copy) };
         this.generations.set(slot, made);
         return made;
+    }
+
+    /** Drops any pending in-flight entry batches held for a kind's source/slots without allocating empty tracking maps. */
+    private clearEntriesAsked(kind: ScheduleCellKind, part: ScheduleCellPart): void {
+        const stored = this.spans.get(part.key)?.get(printSlots([...kind.takes]));
+        if (stored !== undefined) this.entriesAsked.delete(stored);
     }
 
     /**
@@ -2072,6 +2138,9 @@ class CellsReader {
             const landed = this.entriesOf(stored, part, series, counted.revision, missing, true);
             if (landed === undefined) return READING;
             read = landed;
+        } else {
+            // Everything wanted is already held: prune any abandoned batches and landed entries from earlier in-flight reads.
+            this.entriesAsked.get(stored)?.delete(series.name);
         }
         const spans = new Map<string, Span>();
         const entries = reading.map(({ key, identity, from, to, held, cells, group }) => {
@@ -2163,8 +2232,8 @@ class CellsReader {
      * @returns The blocks, in the read's order, the rows read by key last
      */
     private blocksOf(codec: KindCodec, spans: SpansByIndex, groups: readonly SeriesGroupRead[], outside: readonly unknown[],
-        beside: readonly CellEntry[], slot: string): readonly ScheduleBlockRows[] {
-        const left = this.leftOf(codec, spans, groups, outside);
+        beside: readonly CellEntry[], slot: string, copy = false): readonly ScheduleBlockRows[] {
+        const left = this.leftOf(codec, spans, groups, outside, copy);
         // The spans held now, a view's past among them: a block made of others is let go of.
         const held = new Set<readonly RecordSliceEntry[]>();
         for (const one of spans.values()) {
@@ -2174,15 +2243,15 @@ class CellsReader {
         const made = (this.blockGenerations.get(spans) ?? []).filter((block) => block.entries.every((entries) => held.has(entries)));
         const out: ScheduleBlockRows[] = groups.map((group, g) => {
             const leaves = left[g]!;
-            const found = made.find((block) => block.entries.length === group.entries.length
+            const found = made.find((block) => (block.held.copy === true) === copy && block.entries.length === group.entries.length
                 && block.entries.every((entries, n) => Object.is(entries, group.entries[n])) && stringEqual(block.left, leaves.text));
             if (found !== undefined) return found;
             // Made when a seam first reads them, or a gesture asks for a row.
             let rows: readonly CellEntry[] | undefined;
-            const rowsOf = (): readonly CellEntry[] => (rows ??= scheduleBlockEntries(group.entries, leaves.ids, codec.compareKey, codec.idOf));
+            const rowsOf = (): readonly CellEntry[] => (rows ??= scheduleBlockEntries(group.entries, leaves.ids, codec.compareKey, codec.idOf, copy));
             const handle = holdCellRows(rowsOf);
             this.made.add(handle);
-            const block: BlockGeneration = { entries: group.entries, left: leaves.text, handle, held: new CellRows(codec, rowsOf) };
+            const block: BlockGeneration = { entries: group.entries, left: leaves.text, handle, held: new CellRows(codec, rowsOf, copy) };
             made.push(block);
             return block;
         });
@@ -2194,14 +2263,15 @@ class CellsReader {
         // The rows read by their keys: made again only when they move, and once for the kinds that read the same.
         const from = beside.flatMap((entry) => [entry.key, entry.row]);
         const same = (made: Generation | undefined): made is Generation =>
-            made !== undefined && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
+            made !== undefined && (made.held.copy === true) === copy
+            && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
         let kept = this.besides.get(slot);
         if (!same(kept)) {
             kept = [...this.besides.values()].find(same);
             if (kept === undefined) {
                 const handle = holdCellRows(() => beside);
                 this.made.add(handle);
-                kept = { from, handle, held: new CellRows(codec, () => beside) };
+                kept = { from, handle, held: new CellRows(codec, () => beside, copy) };
             }
             this.besides.set(slot, kept);
         }
@@ -2217,16 +2287,17 @@ class CellsReader {
      * @param spans - The spans the kind reads through
      * @param groups - The groups the read took in, in its order
      * @param outside - The keys of the rows the narrowing leaves out
+     * @param copy - Whether the entries hold index copies (`#1725`) rather than full rows
      * @returns The rows each group leaves, in the groups' order
      */
-    private leftOf(codec: KindCodec, spans: SpansByIndex, groups: readonly SeriesGroupRead[], outside: readonly unknown[]): readonly BlockLeft[] {
+    private leftOf(codec: KindCodec, spans: SpansByIndex, groups: readonly SeriesGroupRead[], outside: readonly unknown[], copy = false): readonly BlockLeft[] {
         const from = groups.flatMap((group) => group.entries);
         const out = outside.map((key) => codec.idOf(key));
         const outsideText = out.join("\u0000");
         const last = this.leftBy.get(spans);
         if (last !== undefined && last.from.length === from.length && last.from.every((entries, n) => Object.is(entries, from[n]))
             && stringEqual(last.outside, outsideText)) return last.left;
-        const left = scheduleBlocksLeft(groups, new Set(out), codec.idOf).map((ids) => (ids.size === 0 ? NONE_LEFT : { text: [...ids].join("\u0000"), ids }));
+        const left = scheduleBlocksLeft(groups, new Set(out), codec.idOf, copy).map((ids) => (ids.size === 0 ? NONE_LEFT : { text: [...ids].join("\u0000"), ids }));
         this.leftBy.set(spans, { from, outside: outsideText, left });
         return left;
     }
@@ -2346,8 +2417,10 @@ class CellsReader {
                         // let go of every tile held: the rows a view shows next draw from them.
                         const blocks = blocksOfPaged();
                         if (blocks === READING) read = READING;
-                        else if (noRow && this.stood === undefined) read = { mode: "none" };
-                        else {
+                        else if (noRow && this.stood === undefined) {
+                            if (kind.part !== undefined) this.clearEntriesAsked(kind, kind.part);
+                            read = { mode: "none" };
+                        } else {
                             read = this.cellsKind(kind, kind.part!, kind.part!.read().where,
                                 blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
                                 resolution, drafts, totals, zoomShades === true);
@@ -2569,21 +2642,28 @@ class CellsReader {
         // Zoomed out past its series index's tile (#1706): a month's, a quarter's or a year's buckets hold more than a
         // week's events can draw, so its summary shades them, and none of its events is read.
         if (zoomShades && resolution !== undefined && tiled !== undefined && coarserThan(resolution, tiled.tile.type)) {
+            this.clearEntriesAsked(kind, part);
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
         }
         // No series index serves a group, or its narrowing: more than one batch, as many events as the summary is for.
         if (!served || tiled === undefined || searches > MAX_RECORD_SLICE_BATCH) {
+            this.clearEntriesAsked(kind, part);
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
         }
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
         const reading = [...plans.values()];
+        const copy = reading.some((plan) => plan.series.series.type === "some" && plan.series.series.value.copy === true);
         // The spans of the kinds read through its source over its slots (#1771): the cases of one record share them.
         const spansHeld = this.spansOf(kind, part);
         // Each index's cells counted, asked together: a count in flight of one never holds another's back.
         const counted = reading.map((plan) => this.seriesCounts(spansHeld, part, plan.series, plan.groups, plan.runs));
-        // The spans of an index no group is read through now are let go.
+        // The spans and pending entry batches of an index no group is read through now are let go.
         for (const name of [...spansHeld.keys()]) if (!plans.has(name)) spansHeld.delete(name);
+        const askedByIndex = this.entriesAsked.get(spansHeld);
+        if (askedByIndex !== undefined) {
+            for (const name of [...askedByIndex.keys()]) if (!plans.has(name)) askedByIndex.delete(name);
+        }
         if (counted.some((one) => one === READING)) return READING;
         const counts = counted as SeriesCounted[];
         // The cap holds the groups meeting the rows in view, through every index together; those read ahead are read too,
@@ -2591,6 +2671,7 @@ class CellsReader {
         const weighed = counts.flatMap((one, p) => reading[p]!.groups.map((group, g) => ({ ahead: aheads.has(group.id), count: one.counts[g]! })));
         const taken = scheduleCellsWithinCap(weighed);
         if (taken === undefined) {
+            this.entriesAsked.delete(spansHeld);
             const inView = weighed.reduce((sum, group) => (group.ahead ? sum : sum + group.count), 0);
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, inView, true);
         }
@@ -2620,7 +2701,10 @@ class CellsReader {
         if (fileAgain) {
             filedProbe?.();
             for (const entries of read.entries) {
-                for (const entry of entries) if (entry.row?.type === "some") cells.set(entry.key, entry.row.value);
+                for (const entry of entries) {
+                    const carried = copy ? entry.value : entry.row;
+                    if (carried?.type === "some") cells.set(entry.key, carried.value);
+                }
             }
             this.filed.set(spansHeld, { from: read.entries, rows: cells });
         }
@@ -2638,9 +2722,35 @@ class CellsReader {
         if (extra.length > 0) stored = recordSliceRows(part, extra.map((e) => e.key));
         // The rows asked of the narrowing: the cells', for the fields their searches leave, and the stored rows read by key.
         const asked: { key: unknown; row: unknown }[] = [];
+        const dropped = new Set<string>();
+        const outside: unknown[] = [];
         // What the narrowing chooses beside an index's leading fields: asked of every row read, where any index leaves some.
+        // For a copy-backed series index (#1725), `recordSliceWithin` requires full rows rather than lean copies, so fetch
+        // the cells' primary rows only when residual narrowing is active.
         const residual = [...plans.values()].some((plan) => residualOf(plan.series, where).length > 0);
-        if (residual) for (const [key, row] of cells) asked.push({ key, row });
+        const residualKeys: unknown[] = [];
+        if (residual) {
+            if (copy) {
+                const keys = [...cells.keys()];
+                const fetched = keys.length === 0 ? some([]) : recordSliceRows(part, keys);
+                if (fetched.type !== "some") return READING;
+                keys.forEach((key, idx) => {
+                    const row = fetched.value[idx];
+                    if (row?.type === "some") {
+                        asked.push({ key, row: row.value });
+                        residualKeys.push(key);
+                    } else {
+                        outside.push(key);
+                        dropped.add(codec.idOf(key));
+                    }
+                });
+            } else {
+                for (const [key, row] of cells) {
+                    asked.push({ key, row });
+                    residualKeys.push(key);
+                }
+            }
+        }
         const storedRows: { id: string; key: unknown; row: unknown }[] = [];
         if (stored.type === "some") {
             stored.value.forEach((row, i) => { if (row.type === "some") storedRows.push({ ...extra[i]!, row: row.value }); });
@@ -2654,33 +2764,30 @@ class CellsReader {
         }
         // What the narrowing does not hold draws nowhere, nor does a draft of it: the kind's rows are the cells' but
         // those of them the narrowing leaves out, with the rows read by key it holds beside them.
-        const dropped = new Set<string>();
-        const outside: unknown[] = [];
         const beside: { key: unknown; row: unknown }[] = [];
         let i = 0;
-        if (residual) {
-            for (const [key] of cells) {
-                if (within[i++]) continue;
-                outside.push(key);
-                dropped.add(codec.idOf(key));
-            }
+        for (const key of residualKeys) {
+            if (within[i++]) continue;
+            outside.push(key);
+            dropped.add(codec.idOf(key));
         }
         for (const { id, key, row } of storedRows) {
             const holds = narrowing.size === 0 || within[i++] === true;
-            if (holds) beside.push({ key, row });
-            else dropped.add(id);
+            // Under a copy-backed series index (#1725), cells carry CopyType — never mix full RowType rows into `beside`.
+            if (holds && !copy) beside.push({ key, row });
+            else if (!holds) dropped.add(id);
         }
         // Drafts of events whose rows are still in flight show as drafted until they land. The cells' events are copied
         // only where the kind's rows differ from them, and only once what the rows are made from has moved.
-        const made = this.hold(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], () => {
+        const made = this.hold(kind.key, codec, [...read.entries, ...outside, ...beside.map((s) => s.row), ...within], () => {
             if (outside.length === 0 && beside.length === 0) return cells;
             const rows = new SortedMap<unknown, unknown>(cells, codec.compareKey);
             for (const key of outside) rows.delete(key);
             for (const { key, row } of beside) rows.set(key, row);
             return rows;
-        });
+        }, copy);
         // The same rows block by block (#1793): what a host places a block at a time.
-        const byBlock = this.blocksOf(codec, spansHeld, (reads as SeriesEntries[]).flatMap((one) => one.groups), outside, beside, kind.key);
+        const byBlock = this.blocksOf(codec, spansHeld, (reads as SeriesEntries[]).flatMap((one) => one.groups), outside, beside, kind.key, copy);
         return {
             mode: "cells", handle: made.handle, held: made.held, blocks: byBlock, dropped, revision: read.revision, paged: true,
             unread: unread.size === 0 ? NO_RESOURCES : unread,
@@ -2778,13 +2885,18 @@ class CellsReader {
         // Its tiles over the range, one range a key (#1433): what a resource's totals are split by tile from.
         const run = summaryRun(tiling.tile.type, range.from, range.to);
         const cells: { cell: RecordSliceCell; block: ScheduleCellBlock; keys: string[] }[] = [];
+        const seenBySlot = new Map<string, Set<string>>();
         let searches = 0;
         for (const block of blocks) {
+            let seen = seenBySlot.get(block.slot);
+            if (seen === undefined) { seen = new Set(); seenBySlot.set(block.slot, seen); }
             const keys: string[] = [];
             const literals: string[] = [];
             for (const key of block.keys) {
+                if (seen.has(key)) continue;
                 const literal = this.literal(kind, block.slot, key);
                 if (literal === undefined) continue;
+                seen.add(key);
                 keys.push(key);
                 literals.push(literal);
             }
@@ -2873,7 +2985,8 @@ class CellsReader {
                 const count = Number(range.count);
                 const row = rows[q]!;
                 let byTile = held.byKey.get(row);
-                if (byTile === undefined || byTile === "hatch") { byTile = new Map(); held.byKey.set(row, byTile); }
+                if (byTile === "hatch") { at += count; return; }
+                if (byTile === undefined) { byTile = new Map(); held.byKey.set(row, byTile); }
                 for (const entry of entries.slice(at, at + count)) {
                     if (entry.value?.type !== "some") continue;
                     const t = entry.value.value as { count: bigint; ms: bigint };
@@ -2904,6 +3017,7 @@ class CellsReader {
         const chosen = where.get(child.field);
         const cells: { cell: RecordSliceCell; rows: string[] }[] = [];
         const nothing: string[] = [];
+        const seenRows = new Set<string>();
         let searches = 0;
         for (const block of blocks) {
             const queries: RecordSliceCell["queries"][number][] = [];
@@ -2914,6 +3028,8 @@ class CellsReader {
                 for (const beneath of block.children?.get(key) ?? []) {
                     if (!stringEqual(beneath.slot, child.slot)) continue;
                     const row = child.rowKey(key, beneath.key);
+                    if (seenRows.has(row)) continue;
+                    seenRows.add(row);
                     const literal = child.literal(beneath.key);
                     if (resource === undefined || literal === undefined || (chosen?.type === "values" && !chosen.value.some((value) => stringEqual(value, literal)))) {
                         nothing.push(row);

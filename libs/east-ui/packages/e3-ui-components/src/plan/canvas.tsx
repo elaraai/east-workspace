@@ -160,7 +160,7 @@ import {
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
 import { PlanBandCountsContext, PlanBandCountsReader, createBandCountsStore, createBandSpanStore, type PlanBandInView } from "./root/band-counts.js";
-import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
+import { landingTargetOf, readLandingOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
 import { scheduleCellId, type ScheduleCellSpan } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
@@ -1319,7 +1319,7 @@ export function usePlanCanvas({
     ) => {
         reportRange(range, isScrolling, center, shown);
         if (isScrolling) return;
-        const inView: { key: string; path: readonly string[] }[] = [];
+        const inView: { key: string; path: readonly string[]; slot?: string | undefined }[] = [];
         const rows: PlanRowValue[] = [];
         const bands: PlanBandInView[] = [];
         let notRead = false;
@@ -1329,7 +1329,8 @@ export function usePlanCanvas({
             if (item?.kind === "row") rows.push(item.row.row);
             // Each row by the resource its events are read by: a row beneath a resource, by the one it stands beneath.
             if (item?.kind === "row" && item.row.row.id.type === "entry") {
-                inView.push({ key: item.row.row.key, path: readPathOf(item.row.row, landings, (key) => indexRef.current?.byKey.get(key)) });
+                const hit = readLandingOf(item.row.row, landings, (key) => indexRef.current?.byKey.get(key));
+                inView.push({ key: item.row.row.key, path: hit?.path ?? [], ...(hit !== undefined && { slot: hit.slot }) });
             }
             else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
             // A run whose windows are on their way: the view waits for them.

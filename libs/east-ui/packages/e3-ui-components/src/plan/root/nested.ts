@@ -791,10 +791,8 @@ class NestedCellsReader {
             const staying = new Set(scheduleSpansKept(unwanted, (left) => left.entries.length).map(([prefix]) => prefix));
             for (const [prefix] of unwanted) if (!staying.has(prefix)) spans.delete(prefix);
         }
-        for (const part of parts) {
-            this.held.found.delete(part.text);
-            read.delete(part.text);
-        }
+        this.held.found.clear();
+        read.clear();
         return this.drawn(args, wanted, spans, capped, items, summary, TILES.filter((tile) => kept.has(tile)));
     }
 
@@ -1013,7 +1011,14 @@ export function usePlanNestedCells(args: PlanNestedArgs): PlanNestedCells {
         const waiting = pending.size === waited.current.size && [...pending].every((key) => waited.current.has(key)) ? waited.current : pending;
         waited.current = waiting;
         const was = last.current;
-        if (!result.ok || isWaiting(result.value)) {
+        if (!result.ok) {
+            if (was === undefined) return { lead: undefined, waiting };
+            if (!was.lead.reading) return { lead: was.lead, waiting };
+            const lead = { ...was.lead, reading: false };
+            last.current = { read: was.read, lead };
+            return { lead, waiting };
+        }
+        if (isWaiting(result.value)) {
             return { lead: was === undefined ? undefined : was.lead.reading ? was.lead : { ...was.lead, reading: true }, waiting };
         }
         const next = result.value;

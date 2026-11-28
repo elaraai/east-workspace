@@ -302,8 +302,8 @@ export function planBandSources(
 ): PlanBandPlan {
     const d = band.path.length;
     if (d === 0) return NO_PLAN;
-    // Each record beneath it, by its source: its kinds, and the steps its resources stand under.
-    const bySource = new Map<string, { part: PlanSourcePart | undefined; kinds: EventKind[]; standing: number }>();
+    // Each record beneath it, by its source: its kinds, and every nesting depth its resources stand under.
+    const bySource = new Map<string, { part: PlanSourcePart | undefined; kinds: EventKind[]; standings: Set<number> }>();
     for (const landing of landings) {
         if (!landing.within.some((key) => stringEqual(key, band.series))) continue;
         // A landing the viewer hides, or one nested in a series hidden, draws nothing, and is counted nowhere.
@@ -315,22 +315,30 @@ export function planBandSources(
             if (kind === undefined || standing < d) continue;
             let held = bySource.get(kind.source);
             if (held === undefined) {
-                held = { part: parts.find((p) => stringEqual(p.kind.key, slot))?.part, kinds: [], standing };
+                held = { part: parts.find((p) => stringEqual(p.kind.key, slot))?.part, kinds: [], standings: new Set() };
                 bySource.set(kind.source, held);
             }
+            held.standings.add(standing);
             if (!held.kinds.some((one) => stringEqual(one.key, kind.key))) held.kinds.push(kind);
         }
     }
     const sources: PlanBandSource[] = [];
     const uncounted: PlanBandUncounted[] = [];
-    for (const [source, { part, kinds: mine, standing }] of bySource) {
+    for (const [source, { part, kinds: mine, standings }] of bySource) {
         const shown = mine.filter((kind) => !hides(hidden, planHideId.events(kind.key)));
         // Every kind of it hidden: the viewer took it off the canvas, and it is counted nowhere.
         if (shown.length === 0) continue;
         const names = shown.map((kind) => kind.name);
         const indexes = part?.config.indexes ?? [];
         // The fields the Plan fills from the rows above its resources, outermost first: the first `d` name this row.
-        const fields = indexes.map((index) => standingFields(index, standing)).find((one) => one !== undefined)?.slice(0, d);
+        // When one source lands at multiple nesting depths beneath this band, every depth must resolve to the same `d` fields.
+        let fields: readonly string[] | undefined;
+        for (const standing of standings) {
+            const resolved = indexes.map((index) => standingFields(index, standing)).find((one) => one !== undefined)?.slice(0, d);
+            if (resolved === undefined || resolved.length < d) { fields = undefined; break; }
+            if (fields === undefined) fields = resolved;
+            else if (!fields.every((field, i) => stringEqual(field, resolved[i]!))) { fields = undefined; break; }
+        }
         const led = fields !== undefined && indexes.some((index) => totalsOf(index) !== undefined
             && fields.every((field) => index.fields.some((one) => stringEqual(one, field))));
         // Each of them with the key of the step of the row's path it names, as the field holds it.
@@ -604,13 +612,17 @@ export function PlanBandCountsReader({ kinds, landings, parts, scale, range, hid
         if (place === undefined) return NO_BANDS;
         const was = asked.current.get(place) ?? NO_BANDS;
         const fresh = shown.filter((band) => !was.some((one) => stringEqual(one.key, band.key)));
-        const kept = [...shown, ...was.filter((one) => !shown.some((band) => stringEqual(band.key, one.key)))].slice(0, Math.max(BAND_ROWS_KEPT, shown.length));
-        const list = fresh.length === 0 && kept.length === was.length ? was : kept;
+        const merged = [...shown, ...was.filter((one) => !shown.some((band) => stringEqual(band.key, one.key)))].slice(0, Math.max(BAND_ROWS_KEPT, shown.length));
+        const list = fresh.length === 0 && merged.length === was.length ? was : merged;
         asked.current.delete(place);
         asked.current.set(place, list);
-        while (asked.current.size > PERIODS_KEPT) asked.current.delete(asked.current.keys().next().value!);
+        while (asked.current.size > PERIODS_KEPT) {
+            const evicted = asked.current.keys().next().value!;
+            asked.current.delete(evicted);
+            kept.prune((at) => at.includes(`\u0000${evicted}\u0000`));
+        }
         return list;
-    }, [shown, place]);
+    }, [shown, place, kept]);
     // What each row counts: known as its row and the kinds are.
     const plans = useMemo(() => wanted.map((band) => planBandSources(band, heard.kinds, heard.landings, heard.parts, heard.hidden)), [wanted, heard]);
     const scaleHeard = heard.scale;

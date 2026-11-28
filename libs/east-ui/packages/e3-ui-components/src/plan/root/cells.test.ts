@@ -67,7 +67,10 @@ describe("where the canvas reports its rows in view (#1039)", () => {
             { key: "g0", path: [] }, { key: "p0", path: ["H-101", "P-1001"] }, { key: "p1", path: ["H-102", "P-1011"] },
         ];
         expect(cellSpanOf(items, origin, undefined)).toEqual({
-            runs: [{ first: { w: 6, key: "H-107" }, last: { w: 7, key: "H-108" } }, { first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1011" } }],
+            runs: [
+                { first: { w: 6, key: "H-107" }, last: { w: 7, key: "H-108" } },
+                { first: { w: 0, key: "P-1001", under: ["H-101"] }, last: { w: 1, key: "P-1011", under: ["H-102"] } },
+            ],
             narrowing: undefined,
         });
     });
@@ -94,7 +97,10 @@ describe("where the canvas reports its rows in view (#1039)", () => {
             { key: "p2", path: ["H-2", "P-21"] },
             { key: "h3", path: [] },
         ];
-        expect(cellSpanOf(items, origin, undefined)).toEqual(oneRun([0, "P-11"], [0, "P-21"], undefined));
+        expect(cellSpanOf(items, origin, undefined)).toEqual({
+            runs: [{ first: { w: 0, key: "P-11", under: ["H-1"] }, last: { w: 0, key: "P-21", under: ["H-2"] } }],
+            narrowing: undefined,
+        });
     });
 
     test("at rest over paged rows none of which stands for a resource — every group folded: a span of no row under the narrowing the windows are now, never the rows that stood, so no row's events are read while it lasts (#1795)", () => {
@@ -109,6 +115,18 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         expect(shownCellSpan(halls, true, standing, origin, "status: Ready")).toEqual({ runs: [], narrowing: "status: Ready" });
         // A row no paged window placed is no paged row: the Plan's own rows alone report none.
         expect(shownCellSpan([{ key: "stock", path: [] }], false, standing, origin, "status: Ready")).toBeUndefined();
+    });
+
+    test("cellSpanOf preserves slot and group under path when reported so duplicate keys across slots or groups stay distinct", () => {
+        const origin = new Map([["r1", { w: 0 }], ["r2", { w: 0 }]]);
+        const items = [
+            { key: "r1", path: ["H-1", "P-1"], slot: "presses" },
+            { key: "r2", path: ["H-2", "P-1"], slot: "presses" },
+        ];
+        expect(cellSpanOf(items, origin, undefined)).toEqual({
+            runs: [{ first: { w: 0, key: "P-1", slot: "presses", under: ["H-1"] }, last: { w: 0, key: "P-1", slot: "presses", under: ["H-2"] } }],
+            narrowing: undefined,
+        });
     });
 
     test("the store holds the span reported last, and tells its listeners only of one that moves — its rows, its runs or its narrowing", () => {

@@ -223,15 +223,34 @@ const NO_PATH: readonly string[] = [];
  * @param rowOf - A row by its key: what its parents are found by
  * @returns The path, the resource's key last; empty for a row that stands for no resource
  */
-export function readPathOf(row: PathRow, landings: readonly PlanLandingValue[], rowOf: (key: string) => PathRow | undefined): readonly string[] {
+/**
+ * A row's landing slot and path to the resource its events are read by ({@link readResourceOf}):
+ * the slot is the landing's key (or the parent landing's key for a `child` landing), and the path
+ * ends in the resource's key. `undefined` for a row with no landing row at or above it.
+ *
+ * @param row - The row: its id and its parent's key
+ * @param landings - The series the event kinds land on
+ * @param rowOf - A row by its key: what its parents are found by
+ * @returns Its resource slot and path; `undefined` when it stands for no resource
+ */
+export function readLandingOf(
+    row: PathRow, landings: readonly PlanLandingValue[], rowOf: (key: string) => PathRow | undefined,
+): { readonly slot: string; readonly path: readonly string[] } | undefined {
     for (let at: PathRow | undefined = row; at !== undefined && at.id.type === "entry";) {
         const { series, path } = at.id.value;
         // A landing's own series is its rows', whether or not a kind draws on them: every kind may land a step beneath.
         const landing = landings.find((l) => stringEqual(l.key, series) || l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
-        if (landing !== undefined) return landing.under.type === "some" ? path.slice(0, -1) : path;
+        if (landing !== undefined) {
+            const beneath = landing.under.type === "some";
+            return { slot: beneath ? landing.under.value : landing.key, path: beneath ? path.slice(0, -1) : path };
+        }
         at = at.parent.type === "some" ? rowOf(at.parent.value) : undefined;
     }
-    return NO_PATH;
+    return undefined;
+}
+
+export function readPathOf(row: PathRow, landings: readonly PlanLandingValue[], rowOf: (key: string) => PathRow | undefined): readonly string[] {
+    return readLandingOf(row, landings, rowOf)?.path ?? NO_PATH;
 }
 
 /**

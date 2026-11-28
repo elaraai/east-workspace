@@ -531,7 +531,9 @@ export function useScheduleEditing<I extends Item = Item>({
         if (("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true)) return ABSENT;
         const codec = codecs[indexOf(part.key)]!;
         // The row as the builder draws it now, where it draws one: what its person sees and acts on.
-        const drawn = standing?.current?.[part.key]?.row(change.id);
+        // Skip standing/cell rows when they hold lean copies (#1725) rather than full record rows.
+        const standingRows = cellRows?.current?.get(part.key)?.copy === true ? undefined : standing?.current?.[part.key];
+        const drawn = standingRows?.row(change.id);
         if (drawn !== undefined) return { draft: variant("value", codec.decodeRow(drawn)), wire: undefined, place: KEY_ORDER };
         // Where the builder's own reads hold it: in flight, absent, or its row.
         const held = part.read?.row(change.id);
@@ -871,7 +873,8 @@ export function useScheduleEditing<I extends Item = Item>({
                 return row === undefined ? none : some(row);
             }
             // Read a window at a time, and its session holds none of it: as its builder draws it now.
-            const drawn = standing?.current?.[part.key]?.row(id);
+            const cell = cellRows?.current?.get(part.key);
+            const drawn = cell?.copy === true ? undefined : standing?.current?.[part.key]?.row(id);
             if (drawn !== undefined) return some(codec.decodeRow(drawn));
             // Where the builder's own reads hold it: in flight, absent, or its row.
             const own = part.read?.row(id);
@@ -880,8 +883,8 @@ export function useScheduleEditing<I extends Item = Item>({
                 return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;
             }
             // Where its cells hold it, as the page unpacked it (#1771): no row packed and unpacked for it.
-            const cell = cellRows?.current?.get(part.key);
-            if (cell?.has(id) === true) return some(cell.value(id));
+            // Lean copies (#1725) are not full record rows, so fall through to read the row by key.
+            if (cell?.copy !== true && cell?.has(id) === true) return some(cell.value(id));
             // Not held: read by its key ({@link ScheduleEditing.rowsByKey}). A text no key prints as names no row the
             // record holds (#1549).
             return codec.keyOf(id) === undefined ? none : undefined;

@@ -66,7 +66,7 @@ test("Expand all stands too: a parent read later arrives open, what it declares 
     s.act({ t: "seed", declaredCollapsed: new Set(), parents: ["press-b1"] });
     s.act({ t: "event", e: { t: "groups.set", keys: ["hall-a"], collapsed: false } });
     expect(s.store.standing).toBe(false);
-    expect(s.folded("hall-a")).toEqual([false]);
+    expect(s.folded("hall-a", "press-b1")).toEqual([false, false]);
     // Its window lands again, open; and a hall that declares itself folded lands open.
     s.act({ t: "seed", declaredCollapsed: new Set(["hall-e"]), parents: ["press-b1", "hall-e"] });
     expect(s.folded("press-b1", "hall-e")).toEqual([false, false]);

@@ -218,9 +218,12 @@ export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMe
     let slotPx = ledger.slotPx;
     let seed = ledger.seed;
     // A declared pitch is the rate already: no window seeds it again (#1398, CL1).
-    if (ledger.measured.size === 0 && !ledger.declared) {
+    // A 0-height window (e.g. a single filtered-out group) leaves the ledger unrated
+    // so it never locks `slotPx` to `MIN_SLOT_PX` and cascade-fetches hundreds of windows.
+    const rest = measure.restPx ?? measure.px;
+    if (ledger.seed === undefined && !ledger.declared && rest > 0) {
         const elements = elementsIn(ledger, w);
-        const perElement = elements > 0 ? (measure.restPx ?? measure.px) / elements : DEFAULT_SLOT_PX;
+        const perElement = elements > 0 ? rest / elements : DEFAULT_SLOT_PX;
         slotPx = slotRate(perElement, ledger.total);
         seed = w;
     }
