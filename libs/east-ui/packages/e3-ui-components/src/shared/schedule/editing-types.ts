@@ -31,10 +31,11 @@ export type ScheduleEditingKind<I extends Item = Item> = Omit<ValueTypeOf<typeof
     readonly event: (id: string, drafts: ScheduleKindDraftsValue, from: Date, to: Date, held: option<option<Uint8Array>>) => option<ScheduleRead<I>>;
 };
 /**
- * The rows a builder's reads hold of one kind, by the event's key's text: each its row's bytes — read one at a time by a
- * gesture or an inspector, or every one in turn by a check over them all.
+ * The rows a builder's reads hold of one kind, by the event's key's text (#1771): each its row as the page unpacked it —
+ * what a check over them all reads — and its row's bytes, made only when asked for, by a gesture or an inspector that
+ * begins from one.
  */
-export interface ScheduleKindRows extends Iterable<readonly [string, { readonly row: Uint8Array }]> {
+export interface ScheduleKindRows {
     /**
      * Whether they hold an event.
      *
@@ -42,12 +43,31 @@ export interface ScheduleKindRows extends Iterable<readonly [string, { readonly 
      */
     has(id: string): boolean;
     /**
-     * An event's row.
+     * An event's row's bytes, made when first asked for: what a gesture or an inspector begins from.
      *
      * @param id - The event's key's text
      * @returns Its row's bytes; `undefined` for an event they do not hold
      */
     get(id: string): { readonly row: Uint8Array } | undefined;
+    /**
+     * An event's row, as the page unpacked it.
+     *
+     * @param id - The event's key's text
+     * @returns Its row; `undefined` for an event they do not hold
+     */
+    value(id: string): unknown;
+    /**
+     * The events they hold.
+     *
+     * @returns Their keys' texts
+     */
+    ids(): Iterable<string>;
+    /**
+     * Every event's row, as the page unpacked it: what a check over them all reads, packing none.
+     *
+     * @returns Each row, by its event's key's text
+     */
+    rows(): Iterable<readonly [string, unknown]>;
 }
 /**
  * The rows each kind a reader gives cells holds (#1039, #1599) — a kind read by its series index's cells, or its
@@ -231,6 +251,8 @@ export interface ScheduleLandedRow {
     readonly draft: Uint8Array;
     /** Its row as the Save left it, as a reader of the kind's cells holds a row; `undefined` for one the Save deleted. */
     readonly row: Uint8Array | undefined;
+    /** Its row as the Save left it, as the page holds it (#1771): what a check over the rows held reads; `undefined` for one the Save deleted. */
+    readonly value: unknown;
 }
 
 /**

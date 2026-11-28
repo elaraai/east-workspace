@@ -184,16 +184,20 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
         plan_works_by_site_status: index.on(["site", "status"]),
         // Every collection of a works in time: its jobs a span each, its alarms an instant each, its load and its crews'
         // hours at their instants, the works keeping their crews' sums, and its parts' jobs filed under every part above them.
-        plan_works_in_time: index.nested({
+        plan_works_in_time: index.nestedSeries({
             collections: {
-                jobs: index.nested.items({ from: "start", to: "end" }),
-                alarms: index.nested.items({ at: "at" }),
-                load: index.nested.values(),
-                crews: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
-                parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nested.recursive() }),
+                jobs: index.nestedSeries.items({ from: "start", to: "end" }),
+                alarms: index.nestedSeries.items({ at: "at" }),
+                load: index.nestedSeries.values(),
+                crews: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }),
+                parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }),
             },
             tile: "week",
-            summary: "month",
+            // Each works' totals a week and a month at a time: past 10,000 items in view its rows shade from the week's
+            // at a week's zoom, and from the month's at a month's, a quarter's and a year's.
+            summary: ["week", "month"],
+            // Every works' together a month, a quarter and a year at a time: the horizon's bars, read at the period they count by.
+            totals: ["month", "quarter", "year"],
         }),
     }),
     mutations: (mutation) => ({
@@ -218,7 +222,7 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
  */
 export const planNestedAll = example({
     keywords: [
-        "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nested", "nested series index",
+        "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nestedSeries", "nested series index",
         "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "picked", "hidden",
         "library", "Plan.library.series", "Series tab", "record", "Record.bind", "save door", "editing", "Save", "chart", "events", "marks",
         "cards", "chips", "buckets", "tiles", "#1438",
@@ -320,10 +324,10 @@ export const planConflictWorks = e3.record("plan_conflict_works", DictType(Strin
         // The works by name: the rail's order.
         plan_conflict_works_by_name: index.on(["name"]),
         // The crews' hours at their instants, the works keeping their crews' sums.
-        plan_conflict_works_in_time: index.nested({
-            collections: { crews: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }) },
+        plan_conflict_works_in_time: index.nestedSeries({
+            collections: { crews: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }) },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CellRefType, Chart, Editing, Text } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -1036,14 +1036,14 @@ describeEast("Plan", (test) => {
         $(Assert.equal(refLine.y, 100.0));
         $(Assert.equal(refLine.label.unwrap("some"), "TARGET"));
         const refBand = $.let(chart.layers.get(3n).unwrap("refBand"));
-        $(Assert.equal(refBand.from.unwrap("time"), W27));
-        $(Assert.equal(refBand.to.unwrap("time"), W28));
+        $(Assert.equal(refBand.x.unwrap("some").from.unwrap("time"), W27));
+        $(Assert.equal(refBand.x.unwrap("some").to.unwrap("time"), W28));
         const refDot = $.let(chart.layers.get(4n).unwrap("refDot"));
         $(Assert.equal(refDot.t.unwrap("time"), W28));
         $(Assert.equal(refDot.y, 20.0));
     });
 
-    test("stacked columns carry their series keys; spark is the default height", $ => {
+    test("stacked columns carry their names and their stack; spark is the default height", $ => {
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const series = $.const([
             { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
@@ -1061,11 +1061,179 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chart.expandedHeight.hasTag("none"), true));
         // No toggle unless declared (#824 — a Boolean, `false` by default).
         $(Assert.equal(chart.expandable, false));
-        $(Assert.equal(chart.layers.get(0n).unwrap("column").series.unwrap("some"), "H1"));
-        $(Assert.equal(chart.layers.get(1n).unwrap("column").series.unwrap("some"), "H2"));
-        $(Assert.equal(chart.layers.get(2n).unwrap("column").series.hasTag("none"), true));
+        // A column keeps its layer's name and its stack (#1753): the columns sharing one pile up.
+        $(Assert.equal(chart.layers.get(0n).unwrap("column").style.label.unwrap("some"), "H1"));
+        $(Assert.equal(chart.layers.get(0n).unwrap("column").style.stack.unwrap("some"), "out"));
+        $(Assert.equal(chart.layers.get(1n).unwrap("column").style.label.unwrap("some"), "H2"));
+        $(Assert.equal(chart.layers.get(1n).unwrap("column").style.stack.unwrap("some"), "out"));
+        // One given no key is unnamed, and one given no stack piles on none.
+        $(Assert.equal(chart.layers.get(2n).unwrap("column").style.label.hasTag("none"), true));
+        $(Assert.equal(chart.layers.get(2n).unwrap("column").style.stack.hasTag("none"), true));
         // A column is an amount: a bucket folds its points by their sum.
         $(Assert.equal(chart.layers.get(0n).unwrap("column").fold.hasTag("sum"), true));
+    });
+
+    test("a chart layer keeps how it draws — its own styling, which a Plan.layer channel overrides; a split names each series and keeps the colours chosen for them (#1753)", $ => {
+        const PressWeek = StructType({ week: DateTimeType, press: StringType, out: FloatType, planned: FloatType });
+        const weeks = $.const([
+            { week: W27, press: "P1", out: 10.0, planned: 12.0 }, { week: W27, press: "P2", out: 20.0, planned: 18.0 },
+            { week: W28, press: "P1", out: 12.0, planned: 14.0 }, { week: W28, press: "P2", out: 18.0, planned: 16.0 },
+        ], ArrayType(PressWeek));
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            // Every part of a line's styling, as Chart.Root takes it.
+            Chart.Line(weeks, { x: r => r.week, y: r => r.out }, {
+                key: "Output", color: "teal.solid", curve: "monotoneX", width: 2, dash: "6 4", dots: true,
+                opacity: 0.6, legend: false, tooltip: false, order: 2,
+            }),
+            // A wrap's channels win over the layer's own; what it leaves unsaid, the layer keeps.
+            Plan.layer(Chart.Area(weeks, { x: r => r.week, y: r => r.out }, { key: "Area", color: "teal.solid", fillOpacity: 0.3, curve: "step" }),
+                { label: "Planned", color: "orange.solid", stack: "out", order: 1 }),
+            // A split names each series by its value, and keeps the colour chosen for one.
+            Chart.Line(weeks, { x: r => r.week, y: r => r.out, by: r => r.press, colors: { P2: "purple.solid" } }),
+            // A wide split names each series by its column.
+            Chart.Column(weeks, { x: r => r.week, columns: { Printed: r => r.out, Planned: r => r.planned } }, { stack: "sheets" }),
+            Chart.Scatter(weeks, { x: r => r.week, y: r => r.out }, { size: 4 }),
+            Chart.Band(weeks, { x: r => r.week, low: r => r.out, high: r => r.planned }, { key: "Range", fillOpacity: 0.15 }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("line").style, {
+            label: some("Output"), color: some("teal.solid"), curve: some(variant("monotoneX", null)), width: some(2.0),
+            dash: some("6 4"), dots: true, fillOpacity: none, opacity: some(0.6), size: none, stack: none,
+            legend: false, tooltip: false, order: some(2.0),
+        }));
+        $(Assert.equal(layers.get(1n).unwrap("area").style, {
+            label: some("Planned"), color: some("orange.solid"), curve: some(variant("step", null)), width: none,
+            dash: none, dots: false, fillOpacity: some(0.3), opacity: none, size: none, stack: some("out"),
+            legend: true, tooltip: true, order: some(1.0),
+        }));
+        // P1 has no colour of its own: the canvas gives it the next series colour.
+        $(Assert.equal(layers.get(2n).unwrap("line").style.label, some("P1")));
+        $(Assert.equal(layers.get(2n).unwrap("line").style.color, none));
+        $(Assert.equal(layers.get(3n).unwrap("line").style.label, some("P2")));
+        $(Assert.equal(layers.get(3n).unwrap("line").style.color, some("purple.solid")));
+        $(Assert.equal(layers.get(4n).unwrap("column").style.label, some("Printed")));
+        $(Assert.equal(layers.get(5n).unwrap("column").style.label, some("Planned")));
+        $(Assert.equal(layers.get(5n).unwrap("column").style.stack, some("sheets")));
+        // A scatter keeps its dots' radius; a layer given no key is unnamed, drawn in its mark's own ink.
+        $(Assert.equal(layers.get(6n).unwrap("scatter").style.size, some(4.0)));
+        $(Assert.equal(layers.get(6n).unwrap("scatter").style.label, none));
+        $(Assert.equal(layers.get(7n).unwrap("band").style.label, some("Range")));
+        $(Assert.equal(layers.get(7n).unwrap("band").style.fillOpacity, some(0.15)));
+        // A layer that says nothing of how it draws keeps nothing: its mark's own look.
+        $(Assert.equal(Plan.chart({ key: "p", label: "P", layers: Chart.Line(weeks, { x: r => r.week, y: r => r.out }) })
+            .get(0n).kind.unwrap("chart").layers.get(0n).unwrap("line").style, {
+            label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+            opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+        }));
+    });
+
+    test("a scatter's points keep the size its `size` encoding gives each — a bubble's; given none, and over a row's values, each draws the layer's dot (#1753)", $ => {
+        const Lot = StructType({ week: DateTimeType, out: FloatType, sheets: FloatType });
+        const lots = $.const([
+            { week: W27, out: 10.0, sheets: 400.0 }, { week: W28, out: 12.0, sheets: 100.0 },
+        ], ArrayType(Lot));
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            Chart.Scatter(lots, { x: r => r.week, y: r => r.out, size: r => r.sheets }),
+            Chart.Scatter(lots, { x: r => r.week, y: r => r.out }, { size: 4 }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("scatter").points.map((_$, p) => p.size), [some(400.0), some(100.0)]));
+        $(Assert.equal(layers.get(1n).unwrap("scatter").points.map((_$, p) => p.size), [none, none]));
+        $(Assert.equal(layers.get(1n).unwrap("scatter").style.size, some(4.0)));
+        // A row's values give each point its value alone: the layer's one dot size draws them all.
+        const Row = StructType({ out: DictType(StringType, FloatType) });
+        const data = $.const(new Map([["p1", { out: new Map([["A", 1.0], ["B", 2.0]]) }]]), DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A", "B"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "dots", title: "Dots", label: (_r, k) => k,
+                layers: [Plan.scatter(Plan.values("out", (v) => ({ y: v })), { size: 3 })],
+            })],
+        }));
+        const scatter = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart").layers.get(0n).unwrap("scatter"));
+        $(Assert.equal(scatter.points.map((_$, q) => q.y), [1.0, 2.0]));
+        $(Assert.equal(scatter.points.map((_$, q) => q.size), [none, none]));
+        $(Assert.equal(scatter.style.size, some(3.0)));
+    });
+
+    test("a reference line keeps its dash and takes its colour and caption through Plan.layer; a reference band spans instants, values on its axis — a target zone — or both, in its colour (#1753)", $ => {
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            Chart.refLine({ y: 100, label: "TARGET", dash: "6 4" }),
+            // A wrap's channels win over the line's own.
+            Plan.layer(Chart.refLine({ y: 90, label: "FLOOR" }), { color: "red.solid", dash: "2 2", label: "MIN", axis: "right" }),
+            Plan.layer(Chart.refBand({ y: [80, 95], label: "ON TARGET" }), { axis: "right", color: "green.solid" }),
+            Chart.refBand({ x: [W27, W28], y: [10, 20] }),
+            Chart.refBand({ x: [W28, W29], label: "CRUNCH" }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("refLine"), { y: 100.0, axis: variant("left", null), label: some("TARGET"), dash: some("6 4"), color: none }));
+        $(Assert.equal(layers.get(1n).unwrap("refLine"), { y: 90.0, axis: variant("right", null), label: some("MIN"), dash: some("2 2"), color: some("red.solid") }));
+        // A target zone: a range of values on the axis its wrap names, across the plot.
+        $(Assert.equal(layers.get(2n).unwrap("refBand"),
+            { x: none, y: some({ lo: 80.0, hi: 95.0 }), axis: variant("right", null), label: some("ON TARGET"), color: some("green.solid") }));
+        // Both, the rectangle where they meet; a span of instants alone, as ever.
+        const both = $.let(layers.get(3n).unwrap("refBand"));
+        $(Assert.equal(both.x.unwrap("some").from.unwrap("time"), W27));
+        $(Assert.equal(both.x.unwrap("some").to.unwrap("time"), W28));
+        $(Assert.equal(both.y, some({ lo: 10.0, hi: 20.0 })));
+        $(Assert.equal(layers.get(4n).unwrap("refBand").y, none));
+        $(Assert.equal(layers.get(4n).unwrap("refBand").label, some("CRUNCH")));
+        // A rule at an instant stays refused: an instant is an event row's, or the now-line.
+        const vertical = (() => {
+            try { Plan.chart({ key: "v", label: "V", layers: Chart.refLine({ x: W27 }) }); return ""; }
+            catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(vertical.includes("vertical (x) refLines are not supported")), true));
+    });
+
+    test("a chart row draws its gridlines, a legend and a tooltip unless switched off, and each axis may ask for about how many numbers it prints and name its unit (#1753)", $ => {
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const points = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));
+        // Nothing said: every switch on, and an axis asks for no count and names no unit.
+        const plain = $.let(Plan.chart({
+            key: "p", label: "P", left: { domain: [0, 40] },
+            layers: Chart.Line(points, { x: r => r.week, y: r => r.pct }),
+        }).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(plain.grid, true));
+        $(Assert.equal(plain.legend, true));
+        $(Assert.equal(plain.tooltip, true));
+        $(Assert.equal(plain.left.unwrap("some").numTicks, none));
+        $(Assert.equal(plain.left.unwrap("some").label, none));
+        // Each switched off; a count and a unit on each axis, the right's beside the tick list that places its numbers.
+        const bare = $.let(Plan.chart({
+            key: "b", label: "B", grid: false, legend: false, tooltip: false,
+            left: { numTicks: 4, label: "k sheets" },
+            right: { tickValues: [0, 50, 100], numTicks: 3, label: "%" },
+            layers: Chart.Line(points, { x: r => r.week, y: r => r.pct }),
+        }).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(bare.grid, false));
+        $(Assert.equal(bare.legend, false));
+        $(Assert.equal(bare.tooltip, false));
+        $(Assert.equal(bare.left.unwrap("some").numTicks, some(4.0)));
+        $(Assert.equal(bare.left.unwrap("some").label, some("k sheets")));
+        $(Assert.equal(bare.right.unwrap("some").tickValues.unwrap("some").unwrap("number"), [0.0, 50.0, 100.0]));
+        $(Assert.equal(bare.right.unwrap("some").numTicks, some(3.0)));
+        $(Assert.equal(bare.right.unwrap("some").label, some("%")));
+        // A series' chart rows take the same switches.
+        const Row = StructType({ out: DictType(StringType, FloatType) });
+        const data = $.const(new Map([["p1", { out: new Map([["A", 1.0]]) }]]), DictType(StringType, Row));
+        const on = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "out", title: "Out", label: (_r, k) => k,
+                layers: [Plan.line(Plan.values("out", (v) => ({ y: v })))],
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(on.grid, true));
+        $(Assert.equal(on.legend, true));
+        $(Assert.equal(on.tooltip, true));
+        const off = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "out", title: "Out", label: (_r, k) => k, grid: false, tooltip: false,
+                layers: [Plan.line(Plan.values("out", (v) => ({ y: v })))],
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(off.grid, false));
+        $(Assert.equal(off.legend, true));
+        $(Assert.equal(off.tooltip, false));
     });
 
     test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {
@@ -1469,6 +1637,116 @@ describeEast("Plan", (test) => {
         const blocks = $.let(p.rows.unwrap("inline"));
         $(Assert.equal(blocks.map((_$, b) => b.fixed), [true, true, false]));
         $(Assert.equal(blocks.get(2n).parent.unwrap("some"), Plan.sectionRef("crews")));
+    });
+
+    test("a section is keyed as its members are — a variant, a struct or an Integer — read whole and a window at a time (#1715)", $ => {
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        // A press's kinds of task under a header: the rows a step down from each press, keyed by the kind, a variant.
+        const TaskKind = VariantType({ fold: NullType, print: NullType, trim: NullType });
+        const Task = StructType({ hours: FloatType });
+        const Press = StructType({ name: StringType, tasks: DictType(TaskKind, Task) });
+        type Kind = ValueTypeOf<typeof TaskKind>;
+        type Hours = ValueTypeOf<typeof Task>;
+        const presses = $.const(new Map([
+            ["p1", { name: "Press 1", tasks: new SortedMap<Kind, Hours>([[variant("print", null), { hours: 2.0 }], [variant("trim", null), { hours: 1.0 }]], compareFor(TaskKind)) }],
+            ["p2", { name: "Press 2", tasks: new SortedMap<Kind, Hours>([[variant("fold", null), { hours: 3.0 }]], compareFor(TaskKind)) }],
+        ]), DictType(StringType, Press));
+        const byPress = $.let(Plan.Root({
+            axis, data: presses,
+            series: [Plan.series.events(Press, {
+                key: "presses", title: "Presses", label: (press) => press.name, marks: _p => [],
+                children: Plan.children("tasks", [
+                    Plan.series.section(Task, { key: "task-block", title: "Tasks" }, [
+                        // Its label reads the key: the kind's name.
+                        Plan.series.events(Task, { key: "tasks", title: "Tasks", keyType: TaskKind, label: (_task, kind) => kind.getTag(), marks: _t => [] }),
+                    ]),
+                ]),
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        $(Assert.equal(byPress.map((_$, r) => r.gutter.label), ["Press 1", "Tasks", "print", "trim", "Press 2", "Tasks", "fold"]));
+        // The header sits at its press's path, and a row beneath it at the press's key and then its own, as East prints it.
+        const print = $.const(variant("print", null), TaskKind);
+        $(Assert.equal(byPress.get(1n).id, Plan.sectionRef("task-block", "p1")));
+        $(Assert.equal(byPress.get(2n).id, Plan.ref("tasks", "p1", East.print(print))));
+        $(Assert.equal(byPress.get(2n).parent.unwrap("some"), Plan.sectionRef("task-block", "p1")));
+
+        // At the top of a canvas, over a source keyed by a struct: one member reads the key, the other reads none and
+        // declares none.
+        const Bin = StructType({ hall: StringType, bin: IntegerType });
+        const Load = StructType({ v: FloatType });
+        const bins = $.const(new SortedMap([[{ hall: "H1", bin: 1n }, { v: 1.0 }], [{ hall: "H1", bin: 2n }, { v: 2.0 }]], compareFor(Bin)), DictType(Bin, Load));
+        const binSeries = [Plan.series.section(Load, { key: "bin-block", title: "Bins" }, [
+            Plan.series.table(Load, {
+                key: "bins", title: "Bins", keyType: Bin,
+                label: (_r, k) => East.str`${k.hall} · ${East.print(k.bin)}`,
+                cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
+            }),
+            Plan.series.events(Load, { key: "bin-marks", title: "Marks", label: _r => "M", marks: _r => [] }),
+        ])];
+        const byBin = $.let(Plan.Root({ axis, data: bins, series: binSeries }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        const first = $.const({ hall: "H1", bin: 1n }, Bin);
+        $(Assert.equal(byBin.map((_$, r) => r.gutter.label), ["Bins", "H1 · 1", "H1 · 2", "M", "M"]));
+        $(Assert.equal(byBin.get(1n).id, Plan.ref("bins", East.print(first))));
+        $(Assert.equal(byBin.get(1n).parent.unwrap("some"), Plan.sectionRef("bin-block")));
+        // The section's own value is a series over entries keyed as its members are: a list of it bound as an East value
+        // is typed so, and lays out the same rows.
+        const bound = $.const(binSeries, ArrayType(Plan.Types.Series(Load, Bin)));
+        const viaValue = $.let(Plan.Root({ axis, data: bins, series: bound }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        $(Assert.equal(viaValue.map((_$, r) => r.id), byBin.map((_$, r) => r.id)));
+
+        // Over rows read a window at a time, keyed by an Integer.
+        const Counted = DictType(IntegerType, Load);
+        const counted = $.const(new Map([[1n, { v: 1.0 }], [20n, { v: 2.0 }]]), Counted);
+        const handle = $.const({
+            id: "counted",
+            page: East.function([IntegerType, IntegerType], OptionType(Counted), ($, o, _l) => {
+                const noPage = $.const(none, OptionType(Counted));
+                return o.equal(0n).ifElse(() => some(counted), () => noPage);
+            }),
+            total: East.function([], OptionType(IntegerType), (_$) => some(2n)),
+            seek: none,
+        }, Paged.Types.Source(Counted));
+        const window = $.let(Plan.Root({
+            axis, data: handle,
+            series: [Plan.series.section(Load, { key: "count-block", title: "Counted" }, [
+                Plan.series.heat(Load, {
+                    key: "counted", title: "Counted", keyType: IntegerType, label: (_r, k) => East.print(k),
+                    cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
+                }),
+            ])],
+        }).rows.unwrap("paged").page(0n, 100n).unwrap("some").rows);
+        const twenty = $.const(20n, IntegerType);
+        // The header's fixed block, then its member's share of the window.
+        $(Assert.equal(window.map((_$, b) => b.fixed), [true, false]));
+        $(Assert.equal(window.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("count-block")]));
+        $(Assert.equal(window.get(1n).rows.map((_$, r) => r.gutter.label), ["1", "20"]));
+        $(Assert.equal(window.get(1n).rows.get(1n).id, Plan.ref("counted", East.print(twenty))));
+        $(Assert.equal(window.get(1n).parent.unwrap("some"), Plan.sectionRef("count-block")));
+    });
+
+    test("a section's members that declare different key types are refused, naming each with its type (#1715)", $ => {
+        const Row = StructType({ v: FloatType });
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "mixed", title: "Mixed" }, [
+            Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            Plan.series.events(Row, { key: "by-name", title: "By name", keyType: StringType, label: (_r, k) => k, marks: _r => [] }),
+        ]))), 'Plan.series.section "mixed": its members draw one collection\'s entries, keyed by one type — and they give keyType ' +
+            '.Integer (events "By number") and .String (events "By name")'));
+        // A member that declares none reads no key, and is keyed as the others: the section builds.
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "one", title: "One" }, [
+            Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            Plan.series.events(Row, { key: "unkeyed", title: "Unkeyed", label: _r => "M", marks: _r => [] }),
+        ]))), ""));
+        // A section among the members is keyed by its own, which the outer one holds its others to.
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "outer", title: "Outer" }, [
+            Plan.series.section(Row, { key: "inner", title: "Inner" }, [
+                Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            ]),
+            Plan.series.events(Row, { key: "by-name", title: "By name", keyType: StringType, label: (_r, k) => k, marks: _r => [] }),
+        ]))), 'Plan.series.section "outer": its members draw one collection\'s entries, keyed by one type — and they give keyType ' +
+            '.Integer (section "Inner") and .String (events "By name")'));
     });
 
     // =========================================================================
@@ -2228,8 +2506,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(0n).t.unwrap("number"), 1.0));
         $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(1n).t.unwrap("number"), 2.0));
         $(Assert.equal(nk.layers.get(1n).unwrap("refDot").t.unwrap("number"), 2.0));
-        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").from.unwrap("number"), 1.0));
-        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").to.unwrap("number"), 2.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").x.unwrap("some").from.unwrap("number"), 1.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").x.unwrap("some").to.unwrap("number"), 2.0));
         $(Assert.equal(nk.layers.get(3n).unwrap("scatter").points.get(0n).t.unwrap("number"), 3.0));
         const ordinal = $.let(Plan.chart({ key: "o", label: "O", layers: [
             Chart.Line(phases, { x: r => r.phase, y: r => r.y }),

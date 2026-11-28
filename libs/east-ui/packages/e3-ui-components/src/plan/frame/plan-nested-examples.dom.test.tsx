@@ -386,13 +386,11 @@ describe("the conflicts example (planConflictsTable)", () => {
     test("Go to, its works folded and the dates moved past its week: the dates come back over the week, the works opens, and the crew's week takes the focus, its row selected", async () => {
         const { c, cellOf } = await conflicted();
         const [card] = await conflictCards(c);
-        // North works folded, its crews' rows gone; the dates two weeks on, the week before them.
+        // North works folded, its crews' rows gone; the dates their own thirteen weeks on, the week before them.
         await act(async () => { fireEvent.click(c.querySelector<HTMLElement>(`${rowAt(entry("crews", "W-N"))} [role="rowheader"]`)!); });
         await settle();
-        for (const _ of [1, 2]) {
-            await act(async () => { fireEvent.click(within(slot(c, "toolbar")!.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next week" })); });
-            await settle();
-        }
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")!.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next 13 weeks" })); });
+        await settle();
         expect([c.querySelector(rowAt(entry("crew", "W-N", "C-1"))), shownFrom(c) > WEEK]).toEqual([null, true]);
         await act(async () => { fireEvent.click(card!.goTo()); });
         await settle();

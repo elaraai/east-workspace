@@ -16,7 +16,8 @@
  * - The refusals of a source's series and summary indexes, which the Calendar
  *   reads only as it is evaluated, in its words: the interval index alone, a
  *   summary and no series, a series and no summary — each naming the indexes
- *   to declare over the kind's own fields.
+ *   to declare over the kind's own fields — and, as it is built, a series index
+ *   whose entries are copies of its events (#1725): the Calendar draws rows.
  *
  * What the Calendar reads as it draws, and when, is the DOM's
  * (`src/calendar/calendar-windows.dom.test.tsx`).
@@ -111,7 +112,7 @@ describe("the paged seam the Calendar reads its presses through (#1424)", () => 
 
 describe("a source's series and summary indexes, refused as the Calendar is evaluated (#1424)", () => {
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
+    const series = String.raw`index\.flatSeries\(\{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
     const summary = String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\)`;
     const paged = String.raw`, and the kind is placed on resources\.presses, paged — a paged kind's events are read a cell at a time`;
 
@@ -135,5 +136,11 @@ describe("a source's series and summary indexes, refused as the Calendar is eval
         await assert.rejects(payloadOf(["plan_window_jobs_by_time", "plan_window_jobs_by_press_week"]),
             new RegExp(String.raw`^.*Calendar: events\.job's source lists the series index "plan_window_jobs_by_press_week", and no summary index — the Calendar ` +
                 String.raw`draws a series index's events while they fit, and its summary's shading past that: declare ${summary} over the same record and list it beside the series index`));
+    });
+
+    test("a series index whose entries are copies of its events, what its value gives of each row (#1725): refused as it is built, the Calendar drawing their rows", async () => {
+        await assert.rejects(payloadOf(["plan_window_jobs_by_time", "plan_window_job_tiles_by_press_week", "plan_window_jobs_by_press_month"]),
+            new RegExp(String.raw`^.*Calendar: events\.job's source lists the series index "plan_window_job_tiles_by_press_week", whose entries are copies of its events, ` +
+                "what its `value` gives of each row — the Calendar draws an event kind's events from their rows: list a series index declared with no `value` in its place$"));
     });
 });

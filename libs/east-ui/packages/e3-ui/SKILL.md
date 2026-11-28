@@ -154,14 +154,18 @@ Task → What do you need?
     ├─ Draw what is scheduled on ONE shared axis — the Plan
     │   ├─ Rows derived from data by a series list            → <Plan axis={…} data={…} series={[…]} />
     │   ├─ Event kinds over records, on the rows they land on → series={[Plan.series.resources(Row, { key: "presses", title, label, series? })]} events={{ job: Schedule.events(record, { resource: { field, of: "presses" } }) }} · rows of mixed kinds: Plan.series.kinds(Row, "what", { press: { title, label }, crew: false }), a case each, exhaustive
+    │   ├─ An event kind per case of one record's variant field, each drawn its own way → events={Schedule.events.kinds(record, "kind", { run: { name, start, end, resource }, setup: { …, draw: "marks" } })}
     │   ├─ Rows beneath a resource, and a kind landing on them → a kinds case's children: Plan.children("kinds", [Plan.series.resources(Kind, { key: "kinds", keyType, label, lanes })]) — or a list's rows beneath every resource: Plan.children.of(() => kinds.read(), [series…]) — + Schedule.events(record, { resource: { field, of: "press" }, child: { field: "kind", of: "kinds" }, lane: "half" }): each event on its kind's row, a lane for each case of a variant `lane` · row: false leaves a case's own row undrawn (one press's own page)
     │   ├─ One case of a variant field, on a single series    → Plan.series.chart(Row, { case: ["kind", "kpi"], label: (row, key, kpi) => kpi.name, … }): the rows holding the case, each accessor handed its value; match narrows them further
     │   ├─ Read-only rows: a dataset's, or hand-built         → rows={[Plan.over(data, [series…]), Plan.chart({…})]}
     │   ├─ Its axis: time, number or ordinal                  → Plan.axis / Plan.axis.number / Plan.axis.ordinal
     │   ├─ Rows, nested by what the data holds                → Plan.series.span / buckets / chart / heat / table / cards / events / group / section / views / rows
-    │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
+    │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle · an entry of hundreds of rows (a Plan.series.group's): paging={{ entries: 1 }}, a window one entry, only those near the view made
     │   ├─ Narrow its rows, event kinds, templates            → slice={{ slice: Slice.bindRecords(key, { rows?, job?, jobTemplates? }) }} (Schedule.templates(rows, { …, source })); the rows source narrows the resources, which are rows
-    │   ├─ Event kinds over records too large to read whole   → the kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), drawn within 10,000 events; over paged rows its source lists index.series + index.summary too, read a cell at a time
+    │   ├─ Event kinds over records too large to read whole   → the kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), drawn within 10,000 events; over paged rows its source lists index.flatSeries + index.summary too, read a cell at a time · rows nested under a group (Plan.series.group): list index.flatSeries({ on: [group field], key: resource field, …, order: "time" }) — its last `on` field holds the group's key, and each event's that field its row's group — and a block of rows is one range a tile, whatever each row's history holds (its edge cases: the **e3** skill's record indexes reference)
+    │   ├─ Rows beneath a resource counting their own events, zoomed out → the kind's source lists index.summary({ on: [<the child's field>], key: <the resource's field>, from, to, tile }) beside the resources' summary: each row beneath one counts its own; without one, past the cap those rows are hatched and one line says there are too many to show — never their resource's counts (e3-ui:plan-grouped.examples.tsx:planSeriesAll)
+    │   ├─ The horizon's bars over the rail's sources         → each source's Data.bindPaged(record, { indexes, totals: [its month, quarter and year totals] }) — index.totals({ from: <the source's range>, to, tile }) with no key: the bars read them a range of whole tiles at a time, never counting events; with none listed, no bars
+    │   ├─ A group row counting the events beneath it, a column at a time → in each source's totals, beside the horizon's: index.totals({ on: [<the fields its index.flatSeries in time order is led by>], from, to, tile }) at each period the columns take — the Plan fills those fields from the group, open or folded; nothing on the kinds or the series names them (e3-ui:plan-grouped.examples.tsx:planSeriesAll)
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Links kept in a record: selected, edited, removed  → links={{ flow: Plan.links(Record.bind(flows), { name, icon, from: { field, of }, to: { field, of }, quantity? }) }}: each link a row, each end the key of an event — `of` an event kind's slot, or a slot per case of a variant field
     │   ├─ Links drawn by hand, and the connect veto          → built in beside a link kind bound with Record.bind: the toolbar's Connect tool, a drag from one event to another; canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>} refuses a pair with its message
@@ -346,6 +350,15 @@ failed fetch throws, so wrap a hand-read in `$.try`.
 - `.seek` takes a key, a prefix, or a `from..to` range over a leading prefix of
   the key's fields (`late, 3..ok`); quote a value to make it exact.
 - `{ indexes: [...] }` lists several indexes for a `Slice.bindRecords` source.
+- `{ indexes, totals: [...] }` names the record's totals a tile apart from them:
+  summaries with no key (`index.totals({ from, to, tile })`, the **e3**
+  skill), which a Plan's horizon reads over the source's range, under its
+  narrowing. They count from the range's field and are led only by fields the
+  rail offers, the scope holds, or a series index in time order the source
+  lists is led by — what a Plan's group rows count their events through
+  (`e3-ui:plan-grouped.examples.tsx:planSeriesAll`). The build refuses a summary by key or another
+  index in `totals`, a summary with no key among the `indexes`, and two at one
+  tile over the same fields, each naming the fix.
 
 ### `Record.bind(record, mutations?)`
 
@@ -424,7 +437,7 @@ and saves nothing. A draft that no longer fits its record ends the call
   the **e3** skill): an event kind through an interval index
   (`index.interval({ from: "start", to: "end" })`) with `range: "start"` and
   `entries: Data.bindPaged(record)` for reads by key; events on paged
-  rows a cell at a time through `index.series` + `index.summary`; a
+  rows a cell at a time through `index.flatSeries` + `index.summary`; a
   drawing a window at a time through `index.area`.
 - **The app's optimiser**: `optimise={Func.bind(fn)}`, an `e3.function` from
   the builder's `Types.OptimiseRequest` — the period in view, the run and the

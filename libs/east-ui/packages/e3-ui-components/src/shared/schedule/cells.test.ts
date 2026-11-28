@@ -8,7 +8,12 @@
  * needs one as it loads.
  *
  * What a schedule's cells' reader wants and decides, worked out with no read
- * (#1039): the blocks of a paged kind's resources around the rows in view, the
+ * (#1039): the blocks of a paged kind's resources meeting the rows in view,
+ * and the next block the way the view went (#1797) — an end of them its
+ * window does not hold read as the other end (#1711), the block ahead marked
+ * so, and none for rows in view reported as none (#1795) — the way a view
+ * went, from one span of its rows to the next, which of the blocks a read
+ * takes in beneath the cap, the rows in view first (#1768), the
  * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
  * within the cap, and a window of the paged rows — the resources it draws, in
@@ -19,18 +24,25 @@
  * reads at now. And which drafts a kind that draws a draft only of an event
  * its window holds, or of a new one, leaves out — never one it last drew,
  * while its session has yet to judge it where its record reads now (#1599).
+ * And what a read hands a host that steps to another period: nothing of the
+ * period read (#1740). And a kind's rows block by block (#1793): a block's
+ * filed by their keys, and which rows a block leaves — an event two groups'
+ * spans hold to the last of them, and a row the narrowing leaves out to none.
  * The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`,
  * `plan/frame/plan-remote-rows.dom.test.tsx`).
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some, type option } from "@elaraai/east";
-import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
+import { SortedMap, StringType, compareFor, none, some, variant, type option, type ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
+import { SCHEDULE_EVENT_CAP, type ScheduleCellReadType } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, scheduleWindowKeys,
-    scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, sameCellSpan,
+    scheduleBlockEntries, scheduleBlocksLeft, scheduleCellSpanOf, scheduleCellTravel, scheduleCellsWithinCap, schedulePagedBlocks, scheduleSteppedCells,
+    scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks,
+    type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -39,21 +51,246 @@ const day = (text: string) => new Date(`${text}T00:00:00Z`);
 const HOUR = 3_600_000;
 
 describe("the blocks a reader wants (#1039)", () => {
-    test("those meeting the resources in view and the margin either side, by fifty", () => {
-        expect([SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN]).toEqual([50, 25]);
+    test("those meeting the resources in view, by fifty, and no other while the view has gone no way (#1797)", () => {
+        expect(SCHEDULE_CELL_BLOCK).toBe(50);
         // A view opening reads its first block alone.
         expect(wantedBlocks(SCHEDULE_CELL_OPENING, undefined)).toEqual([0]);
         expect(wantedBlocks({ first: 0, last: 20 }, 2_000)).toEqual([0]);
-        // Within the margin of the next block, it is wanted too.
-        expect(wantedBlocks({ first: 0, last: 30 }, 2_000)).toEqual([0, 1]);
+        // However near the next block the resources in view come, it is none of theirs.
+        expect(wantedBlocks({ first: 0, last: 49 }, 2_000)).toEqual([0]);
+        expect(wantedBlocks({ first: 50, last: 60 }, 2_000)).toEqual([1]);
+        expect(wantedBlocks({ first: 76, last: 90 }, 2_000)).toEqual([1]);
         expect(wantedBlocks({ first: 140, last: 157 }, 2_000)).toEqual([2, 3]);
-        expect(wantedBlocks({ first: 76, last: 90 }, 2_000)).toEqual([1, 2]);
+    });
+
+    test("and the next block the way the view went: after the last they meet, or before the first (#1797)", () => {
+        expect(wantedBlocks({ first: 76, last: 90 }, 2_000, "forward")).toEqual([1, 2]);
+        expect(wantedBlocks({ first: 76, last: 90 }, 2_000, "back")).toEqual([0, 1]);
+        expect(wantedBlocks({ first: 140, last: 157 }, 2_000, "forward")).toEqual([2, 3, 4]);
+        expect(wantedBlocks({ first: 140, last: 157 }, 2_000, "back")).toEqual([1, 2, 3]);
+        // A kind whose resources are not counted yet: the next block is asked for.
+        expect(wantedBlocks({ first: 10, last: 12 }, undefined, "forward")).toEqual([0, 1]);
     });
 
     test("never past the kind's last resource, nor before its first; a kind of none wants none", () => {
         expect(wantedBlocks({ first: 1_990, last: 1_999 }, 2_000)).toEqual([39]);
+        expect(wantedBlocks({ first: 1_990, last: 1_999 }, 2_000, "forward")).toEqual([39]);
+        expect(wantedBlocks({ first: 1_940, last: 1_949 }, 2_000, "forward")).toEqual([38, 39]);
         expect(wantedBlocks({ first: 10, last: 12 }, 30)).toEqual([0]);
+        expect(wantedBlocks({ first: 10, last: 12 }, 30, "forward")).toEqual([0]);
+        expect(wantedBlocks({ first: 10, last: 12 }, 30, "back")).toEqual([0]);
+        // Resources in view past the kind's last — rows it draws no more — are read as far as it goes.
+        expect(wantedBlocks({ first: 40, last: 70 }, 45, "forward")).toEqual([0]);
         expect(wantedBlocks({ first: 0, last: 0 }, 0)).toEqual([]);
+        expect(wantedBlocks({ first: 0, last: 0 }, 0, "forward")).toEqual([]);
+    });
+});
+
+describe("the paged rows' blocks a view wants (#1039, #1541, #1711, #1797)", () => {
+    /** Presses by their place among the rows, `P-0000` on. */
+    const presses = (from: number, n: number): ScheduleCellKey[] =>
+        Array.from({ length: n }, (_x, i) => ({ slot: "presses", key: `P-${String(from + i).padStart(4, "0")}` }));
+    /** Paged rows of 200 a window: each window's resources, or `undefined` for one in flight. */
+    const pagedOf = (windows: readonly (readonly ScheduleCellKey[] | undefined)[], narrowing?: string): ScheduleCellPaged => ({
+        kinds: ["presses"], window: 200, hidden: false, unassigned: false,
+        keys: (offset) => {
+            const keys = windows[Number(offset) / 200];
+            return keys === undefined ? none : some(keys);
+        },
+        total: () => some(BigInt(windows.length * 200)),
+        narrowing: () => narrowing,
+    });
+    const two = pagedOf([presses(0, 200), presses(200, 200)]);
+    /** The rows in view, one run of them: each end by its window and its key. */
+    const span = (first: readonly [number, string], last: readonly [number, string], narrowing?: string): ScheduleCellSpan =>
+        ({ runs: [{ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] } }], narrowing });
+    /** The rows in view, several runs of them in the view's order, each its ends as {@link span}'s. */
+    const runs = (...ends: (readonly [first: readonly [number, string], last: readonly [number, string]])[]): ScheduleCellSpan =>
+        ({ runs: ends.map(([first, last]) => ({ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] } })), narrowing: undefined });
+    /** The blocks a view wants, by their names: each its window and its place there. */
+    const named = (blocks: readonly { readonly id: string }[] | undefined) => blocks?.map((block) => block.id);
+
+    test("the first block before any row in view is reported, where a view opens; then those meeting the rows in view, and no other while the view has gone no way (#1797)", () => {
+        expect(schedulePagedBlocks(two, undefined)).toEqual([{ slot: "presses", id: "0.0", keys: presses(0, 50).map((press) => press.key) }]);
+        expect(named(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"])))).toEqual(["0.2"]);
+        // At a block's first rows, and at a window's last: no block beside them is theirs.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0101"])))).toEqual(["0.2"]);
+        expect(named(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0199"])))).toEqual(["0.3"]);
+        // Rows in view across two blocks, and across a window's edge: the blocks they meet.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0060"], [0, "P-0110"])))).toEqual(["0.1", "0.2"]);
+        expect(named(schedulePagedBlocks(two, span([0, "P-0160"], [1, "P-0210"])))).toEqual(["0.3", "1.0"]);
+        // Where a view opens no row in view is reported to go on from: a way reads no block ahead of it.
+        expect(named(schedulePagedBlocks(two, undefined, "forward"))).toEqual(["0.0"]);
+    });
+
+    test("the next block the way the view went: after the last block the rows in view meet, or before the first — in the next window where theirs ends there (#1797)", () => {
+        const here = span([0, "P-0100"], [0, "P-0120"]);
+        expect(named(schedulePagedBlocks(two, here, "forward"))).toEqual(["0.2", "0.3"]);
+        expect(named(schedulePagedBlocks(two, here, "back"))).toEqual(["0.1", "0.2"]);
+        // After the window's last block, the next window's first; before its first, the last of the window before.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0190"]), "forward"))).toEqual(["0.3", "1.0"]);
+        expect(named(schedulePagedBlocks(two, span([1, "P-0210"], [1, "P-0220"]), "back"))).toEqual(["0.3", "1.0"]);
+        // None before the rows' first block, nor after their last.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0010"], [0, "P-0020"]), "back"))).toEqual(["0.0"]);
+        expect(named(schedulePagedBlocks(two, span([1, "P-0360"], [1, "P-0390"]), "forward"))).toEqual(["1.3"]);
+        // Rows in view across two blocks: the one after the last of them, or before the first.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0060"], [0, "P-0110"]), "forward"))).toEqual(["0.1", "0.2", "0.3"]);
+        expect(named(schedulePagedBlocks(two, span([0, "P-0060"], [0, "P-0110"]), "back"))).toEqual(["0.0", "0.1", "0.2"]);
+        // A window whose entries nest fewer resources than a whole number of blocks: its last block is the one its
+        // last resources are in, and the block after it the next window's first.
+        const short = pagedOf([presses(0, 120), presses(120, 200)]);
+        expect(named(schedulePagedBlocks(short, span([1, "P-0125"], [1, "P-0130"]), "back"))).toEqual(["0.2", "1.0"]);
+        expect(named(schedulePagedBlocks(short, span([0, "P-0105"], [0, "P-0110"]), "forward"))).toEqual(["0.2", "1.0"]);
+    });
+
+    test("the block ahead is never waited on: while its window is in flight the blocks meeting the rows in view are wanted without it, and its window is asked for (#1797)", () => {
+        const landing = pagedOf([presses(0, 200), undefined]);
+        const asked: bigint[] = [];
+        const counted: ScheduleCellPaged = { ...landing, keys: (offset, limit) => { asked.push(offset); return landing.keys(offset, limit); } };
+        expect(named(schedulePagedBlocks(counted, span([0, "P-0180"], [0, "P-0190"]), "forward"))).toEqual(["0.3"]);
+        expect(asked).toContain(200n);
+        // A window the rows in view are in is waited on, whichever way they went.
+        expect(schedulePagedBlocks(landing, span([1, "P-0210"], [1, "P-0220"]), "back")).toBeUndefined();
+    });
+
+    test("the block ahead, none of its resources in view, is marked so: the cap holds the blocks in view (#1768)", () => {
+        /** The blocks a view wants that are read ahead of it, by their names. */
+        const aheads = (blocks: readonly { readonly id: string; readonly ahead?: boolean | undefined }[] | undefined) =>
+            blocks?.filter((block) => block.ahead === true).map((block) => block.id);
+        // Where a view opens, and while it has gone no way, every block wanted is in view.
+        expect(aheads(schedulePagedBlocks(two, undefined))).toEqual([]);
+        expect(aheads(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"])))).toEqual([]);
+        // The block after the rows in view, or before them; in the next window, where theirs ends.
+        expect(aheads(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"]), "forward"))).toEqual(["0.3"]);
+        expect(aheads(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"]), "back"))).toEqual(["0.1"]);
+        expect(aheads(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0190"]), "forward"))).toEqual(["1.0"]);
+        // Rows in view across a window's edge: each window's block in view, and the one before them ahead of a view going back.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0160"], [1, "P-0210"]), "back"))).toEqual(["0.2", "0.3", "1.0"]);
+        expect(aheads(schedulePagedBlocks(two, span([0, "P-0160"], [1, "P-0210"]), "back"))).toEqual(["0.2"]);
+    });
+
+    test("an end whose key its window does not hold — a group's own row, a row the window draws no more — is read as the other end, never as its window's start", () => {
+        // The first end: the block the last is in, and not every block from the window's start.
+        expect(named(schedulePagedBlocks(two, span([0, "H-07"], [0, "P-0120"])))).toEqual(["0.2"]);
+        // The last end: the block the first is in, and not none.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0120"], [0, "H-09"])))).toEqual(["0.2"]);
+        // In a window before the other end's: nothing of that window.
+        expect(named(schedulePagedBlocks(two, span([0, "H-07"], [1, "P-0260"])))).toEqual(["1.1"]);
+        // Neither held: where the first end's window opens.
+        expect(named(schedulePagedBlocks(two, span([1, "H-07"], [1, "H-09"])))).toEqual(["1.0"]);
+    });
+
+    test("the way the rows in view went, from one span of them to the next: on where the next begins after the last, back where it begins before it (#1797)", () => {
+        expect(scheduleCellTravel(two, span([0, "P-0010"], [0, "P-0030"]), span([0, "P-0011"], [0, "P-0031"]))).toBe("forward");
+        expect(scheduleCellTravel(two, span([0, "P-0011"], [0, "P-0031"]), span([0, "P-0010"], [0, "P-0030"]))).toBe("back");
+        // A jump, neither view holding a row of the other: by their windows, then by their places there.
+        expect(scheduleCellTravel(two, span([0, "P-0010"], [0, "P-0030"]), span([1, "P-0300"], [1, "P-0320"]))).toBe("forward");
+        expect(scheduleCellTravel(two, span([1, "P-0300"], [1, "P-0320"]), span([0, "P-0150"], [0, "P-0170"]))).toBe("back");
+        expect(scheduleCellTravel(two, span([0, "P-0150"], [0, "P-0170"]), span([0, "P-0010"], [0, "P-0030"]))).toBe("back");
+        // By the rows' places in their window, never by their keys' text.
+        const mixed = pagedOf([["b", "a", "c"].map((key) => ({ slot: "presses", key }))]);
+        expect(scheduleCellTravel(mixed, span([0, "b"], [0, "b"]), span([0, "a"], [0, "c"]))).toBe("forward");
+        expect(scheduleCellTravel(mixed, span([0, "a"], [0, "c"]), span([0, "b"], [0, "a"]))).toBe("back");
+    });
+
+    test("rows that say no way leave the one the view went: the same first row, and a first row its window holds no more; none is told while their window is in flight (#1797)", () => {
+        // A view grown, a row beneath unfolded: it begins where it began.
+        expect(scheduleCellTravel(two, span([0, "P-0010"], [0, "P-0030"]), span([0, "P-0010"], [0, "P-0035"]))).toBe("still");
+        // A row the window draws no more, at either view's start.
+        expect(scheduleCellTravel(two, span([0, "H-07"], [0, "P-0030"]), span([0, "P-0011"], [0, "P-0031"]))).toBe("still");
+        expect(scheduleCellTravel(two, span([0, "P-0010"], [0, "P-0030"]), span([0, "H-07"], [0, "P-0031"]))).toBe("still");
+        expect(scheduleCellTravel(pagedOf([undefined]), span([0, "P-0010"], [0, "P-0030"]), span([0, "P-0011"], [0, "P-0031"]))).toBeUndefined();
+        // Rows of other windows are told apart by their windows alone: none of them is asked for.
+        const asked: bigint[] = [];
+        const counted: ScheduleCellPaged = { ...two, keys: (offset, limit) => { asked.push(offset); return two.keys(offset, limit); } };
+        expect(scheduleCellTravel(counted, span([0, "P-0010"], [0, "P-0030"]), span([1, "P-0300"], [1, "P-0320"]))).toBe("forward");
+        expect(asked).toEqual([]);
+    });
+
+    test("rows beside a group at the top: a view going on from one series of the rows into the next, over the same windows, goes on — though its first row is then in an earlier window (#1710, #1797)", () => {
+        const four = pagedOf([presses(0, 200), presses(200, 200), presses(400, 200), presses(600, 200)]);
+        // The first series' last rows; then those and the second's first, a run each; then the second's alone.
+        const tail = runs([[3, "P-0700"], [3, "P-0790"]]);
+        const across = runs([[3, "P-0750"], [3, "P-0799"]], [[0, "P-0000"], [0, "P-0020"]]);
+        const head = runs([[0, "P-0010"], [0, "P-0040"]]);
+        expect(scheduleCellTravel(four, tail, across)).toBe("forward");
+        expect(scheduleCellTravel(four, across, head)).toBe("forward");
+        // And back the same way.
+        expect(scheduleCellTravel(four, head, across)).toBe("back");
+        expect(scheduleCellTravel(four, across, tail)).toBe("back");
+    });
+
+    test("the span of the rows in view: one run while their windows go on, another where a window goes back — the next series of the rows over the same windows (#1710); the same rows are the same span", () => {
+        const end = (w: number, key: string) => ({ w, key });
+        expect(scheduleCellSpanOf([], undefined)).toBeUndefined();
+        expect(scheduleCellSpanOf([end(0, "P-0010"), end(0, "P-0020"), end(1, "P-0210")], "hall: Hall 2")).toEqual(span([0, "P-0010"], [1, "P-0210"], "hall: Hall 2"));
+        const two = scheduleCellSpanOf([end(2, "P-0400"), end(3, "P-0700"), end(0, "P-0010"), end(0, "P-0020")], undefined)!;
+        expect(two).toEqual(runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0020"]]));
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0020"]]))).toBe(true);
+        // Another run's end, another number of runs, or another narrowing: other rows in view.
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0030"]]))).toBe(false);
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]]))).toBe(false);
+        expect(sameCellSpan(span([0, "P-0010"], [0, "P-0020"]), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 2"))).toBe(false);
+    });
+
+    test("rows beside a group at the top: a view running from one series of the rows into another over the same windows is a run each — the blocks of both, never those of the windows between (#1710)", () => {
+        const four = pagedOf([presses(0, 200), presses(200, 200), presses(400, 200), presses(600, 200)]);
+        // The first series' last rows, in the last window, then the second's first rows, in the first window again.
+        const across = runs([[3, "P-0700"], [3, "P-0790"]], [[0, "P-0010"], [0, "P-0020"]]);
+        expect(named(schedulePagedBlocks(four, across))).toEqual(["0.0", "3.2", "3.3"]);
+        // Two runs in one window: the blocks meeting each, never those between them.
+        expect(named(schedulePagedBlocks(four, runs([[0, "P-0010"], [0, "P-0010"]], [[0, "P-0150"], [0, "P-0160"]])))).toEqual(["0.0", "0.3"]);
+        // The block ahead is the view's (#1797): on from the last run's last block, back from the first run's first.
+        expect(named(schedulePagedBlocks(four, across, "forward"))).toEqual(["0.0", "0.1", "3.2", "3.3"]);
+        expect(named(schedulePagedBlocks(four, across, "back"))).toEqual(["0.0", "3.1", "3.2", "3.3"]);
+    });
+
+    test("none while a window of them is in flight, nor while the rows in view are another narrowing's", () => {
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200), undefined]), span([1, "P-0210"], [1, "P-0220"]))).toBeUndefined();
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 1"))).toBeUndefined();
+    });
+
+    test("rows in view reported as none — they stand for no resource, every group folded — want no block, and no window is asked for them: never the first block, where a view opens (#1795)", () => {
+        const asked: bigint[] = [];
+        const counted: ScheduleCellPaged = { ...two, keys: (offset, limit) => { asked.push(offset); return two.keys(offset, limit); } };
+        expect(schedulePagedBlocks(counted, { runs: [], narrowing: undefined })).toEqual([]);
+        expect(schedulePagedBlocks(counted, { runs: [], narrowing: undefined }, "forward")).toEqual([]);
+        expect(asked).toEqual([]);
+        // Where a view opens the first window is asked, and its first block wanted: none reported is no view opening.
+        expect(named(schedulePagedBlocks(counted, undefined))).toEqual(["0.0"]);
+        expect(asked).toEqual([0n]);
+        // Reported under another narrowing than the windows read now, it waits on the rows as any span does.
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), { runs: [], narrowing: "hall: Hall 1" })).toBeUndefined();
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), { runs: [], narrowing: "hall: Hall 2" })).toEqual([]);
+    });
+    test("a block's resources stand under one row: a place whose resources nest under two is a block each, the first named by the place (#1710)", () => {
+        /** Presses under a hall: each names the row it stands under. */
+        const under = (hall: string, from: number, n: number): ScheduleCellKey[] => presses(from, n).map((press) => ({ ...press, under: [hall] }));
+        // A window of two halls: thirty presses under the first, a hundred and seventy under the second.
+        const halls = pagedOf([[...under("H-01", 0, 30), ...under("H-02", 30, 170)]]);
+        const keysOf = (from: number, n: number) => presses(from, n).map((press) => press.key);
+        expect(schedulePagedBlocks(halls, undefined)).toEqual([
+            { slot: "presses", id: "0.0", keys: keysOf(0, 30), under: ["H-01"] },
+            { slot: "presses", id: "0.0.1", keys: keysOf(30, 20), under: ["H-02"] },
+        ]);
+        // A place wholly under one hall is one block, named as a place of no halls is — the one before the rows in view
+        // the block ahead of a view going back (#1768, #1797).
+        expect(schedulePagedBlocks(halls, span([0, "P-0110"], [0, "P-0120"]), "back")).toEqual([
+            { slot: "presses", id: "0.1", keys: keysOf(50, 50), under: ["H-02"], ahead: true },
+            { slot: "presses", id: "0.2", keys: keysOf(100, 50), under: ["H-02"] },
+        ]);
+        // The place ahead nesting its resources under two halls: a block each, both read ahead.
+        expect(schedulePagedBlocks(halls, span([0, "P-0060"], [0, "P-0070"]), "back")).toEqual([
+            { slot: "presses", id: "0.0", keys: keysOf(0, 30), under: ["H-01"], ahead: true },
+            { slot: "presses", id: "0.0.1", keys: keysOf(30, 20), under: ["H-02"], ahead: true },
+            { slot: "presses", id: "0.1", keys: keysOf(50, 50), under: ["H-02"] },
+        ]);
+        // Resources under no row beside ones under a row: a block each, and the one under no row names none.
+        const mixed = pagedOf([[...presses(0, 10), ...under("H-01", 10, 10), ...presses(20, 5)]]);
+        expect(schedulePagedBlocks(mixed, undefined)).toEqual([
+            { slot: "presses", id: "0.0", keys: [...keysOf(0, 10), ...keysOf(20, 5)] },
+            { slot: "presses", id: "0.0.1", keys: keysOf(10, 10), under: ["H-01"] },
+        ]);
     });
 });
 
@@ -121,10 +358,33 @@ describe("a counted kind within the cap (#1039)", () => {
     });
 });
 
+describe("the blocks a read takes in beneath the cap: those in view, then those read ahead while they fit (#1768)", () => {
+    /** A block meeting the rows in view, its cells holding `count` entries. */
+    const inView = (count: number) => ({ ahead: false, count });
+    /** A block read ahead of the rows in view: a place ahead is a block a slot, and a row its resources stand under. */
+    const ahead = (count: number) => ({ ahead: true, count });
+
+    test("every block in view, and each read ahead in their order while what is read stays within the cap", () => {
+        // A third block would pass the cap: the second read ahead is left unread.
+        expect(scheduleCellsWithinCap([inView(3_500), inView(3_500), ahead(3_000), ahead(3_000)])).toEqual([true, true, true, false]);
+        expect(scheduleCellsWithinCap([ahead(1_500), ahead(1_500), inView(3_500), inView(3_500)])).toEqual([true, true, true, true]);
+        // A block ahead past the cap is left unread, and a smaller one after it still read.
+        expect(scheduleCellsWithinCap([ahead(5_000), inView(6_000), ahead(4_000)])).toEqual([false, true, true]);
+        expect(scheduleCellsWithinCap([])).toEqual([]);
+    });
+
+    test("the blocks in view at the cap are read with none ahead of them; past it, none is read — the kind shades, or gives its notice", () => {
+        expect(SCHEDULE_EVENT_CAP).toBe(10_000);
+        expect(scheduleCellsWithinCap([inView(10_000), ahead(1)])).toEqual([true, false]);
+        expect(scheduleCellsWithinCap([inView(6_000), inView(4_001)])).toBeUndefined();
+        expect(scheduleCellsWithinCap([ahead(0), inView(10_001)])).toBeUndefined();
+    });
+});
+
 describe("a window of the paged rows, as the reader reads it (#1039, #1541)", () => {
     /** Paged rows whose windows of 200 answer as `read` says, each window it is asked for kept in `asked`. */
     const pagedOf = (read: () => option<readonly ScheduleCellKey[]>, asked: [bigint, bigint][] = []): ScheduleCellPaged => ({
-        kinds: ["presses", "crews"], window: 200, hidden: false,
+        kinds: ["presses", "crews"], window: 200, hidden: false, unassigned: false,
         keys: (offset, limit) => { asked.push([offset, limit]); return read(); },
         total: () => some(2_000n),
         narrowing: () => undefined,
@@ -160,9 +420,9 @@ describe("a window of the paged rows, as the reader reads it (#1039, #1541)", ()
 });
 
 describe("what Saves landed, over a kind's cells read before them", () => {
-    /** What Saves landed of the jobs: one event, their requests drafted at these revisions. */
+    /** What Saves landed of the jobs: one event — its draft, its row and its row's value no matter here — their requests drafted at these revisions. */
     const jobs = (...from: string[]): ScheduleLanded => new Map([["jobs", {
-        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]) }]]), from: new Set(from),
+        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]), value: { title: "October brochures" } }]]), from: new Set(from),
     }]]);
     /** The jobs at a revision: the one their standing cells were read at, or the one their record reads at now. */
     const at = (revision: string): ReadonlyMap<string, string> => new Map([["jobs", revision]]);
@@ -187,6 +447,93 @@ describe("what Saves landed, over a kind's cells read before them", () => {
         expect(landedBefore(jobs("r0"), new Map(), at("r1")).size).toBe(0);
         expect(landedBefore(undefined, at("r0"), at("r1")).size).toBe(0);
         expect(landedBefore(new Map(), at("r0"), at("r1")).size).toBe(0);
+    });
+});
+
+describe("what a read hands a host that steps to another period (#1740)", () => {
+    const compareString = compareFor(StringType);
+    /** The jobs and the shifts: the kinds a read is of. */
+    const KINDS = [{ key: "job" }, { key: "shift" }] as unknown as ScheduleCellKind[];
+    /** A read standing from the weeks' columns — the jobs read by their window's rows, the shifts shaded past the cap — in the view given. */
+    const standing = (view: ScheduleCellsRead["view"], drawn: ScheduleCellsRead["drawn"]): ScheduleCellsRead => ({
+        reads: new SortedMap<string, ValueTypeOf<typeof ScheduleCellReadType>>([["job", variant("rows", "jobs-window")], ["shift", variant("nothing", null)]], compareString),
+        shading: new SortedMap([["crews", new SortedMap([["C-1", [{ at: day("2026-10-05"), value: some(1) }]]], compareString)]], compareString),
+        drafts: new SortedMap([], compareString),
+        held: new Map([["job", new Map()]]),
+        notices: [{ kind: "shift" }],
+        capped: new Set(["shift"]),
+        reading: true, drawn, windowed: new Set(["job"]), view, error: undefined,
+    }) as unknown as ScheduleCellsRead;
+
+    test("stepping, every kind is handed none of its events, with no shading, no notice and no kind past the cap, and no resource's row drawn — its drafts, its read on its way and its view its own", () => {
+        const read = standing("stepping", new Set(["presses P-1"]));
+        const stepped = scheduleSteppedCells(read, KINDS);
+        expect([...stepped.reads].map(([kind, one]) => [kind, one.type])).toEqual([["job", "nothing"], ["shift", "nothing"]]);
+        expect([stepped.shading.size, stepped.held.size, stepped.notices.length, stepped.capped.size, stepped.windowed.size, stepped.drawn?.size]).toEqual([0, 0, 0, 0, 0, 0]);
+        expect(stepped.drafts).toBe(read.drafts);
+        expect([stepped.reading, stepped.view, stepped.error]).toEqual([true, "stepping", undefined]);
+        // Over no paged kind, no row waits on the cells: none is said to.
+        expect(scheduleSteppedCells(standing("stepping", undefined), KINDS).drawn).toBeUndefined();
+    });
+
+    test("in every other view the read is handed on as it is: what the last range held stands while the next is read", () => {
+        for (const view of ["cold", "filtering", "rereading", "current"] as const) {
+            const read = standing(view, new Set(["presses P-1"]));
+            expect(scheduleSteppedCells(read, KINDS)).toBe(read);
+        }
+    });
+});
+
+describe("a kind's rows block by block (#1793)", () => {
+    const compareString = compareFor(StringType);
+    /** How the jobs' keys are ordered: String keys, as their record orders them. */
+    const compareKey = (a: unknown, b: unknown) => compareString(a as string, b as string);
+    /** An event's entry of a series index, as a read keeps it: its key and its row — none for an entry of none. */
+    const entry = (key: string, row?: string) => ({ key, row: row === undefined ? none : some(row) }) as unknown as RecordSliceEntry;
+    /** A key's text, each one asked for counted. */
+    const counting = () => {
+        const asked = { n: 0 };
+        return { asked, idOf: (key: unknown) => { asked.n += 1; return key as string; } };
+    };
+
+    test("a block's rows are its spans' entries filed by their keys, in their order — an event filed under two tiles once, the later one's row — but those it leaves, and an entry of no row", () => {
+        const { idOf } = counting();
+        // A week's tiles and a month's: J-2 runs past its week, filed under it and under its month.
+        const levels = [[entry("J-3", "third"), entry("J-2", "second, the week's")], [entry("J-2", "second"), entry("J-1", "first"), entry("J-9")]];
+        expect(scheduleBlockEntries(levels, new Set(), compareKey, idOf)).toEqual([
+            { key: "J-1", row: "first" }, { key: "J-2", row: "second" }, { key: "J-3", row: "third" },
+        ]);
+        expect(scheduleBlockEntries(levels, new Set(["J-2"]), compareKey, idOf).map((one) => one.key)).toEqual(["J-1", "J-3"]);
+    });
+
+    test("groups reading no resource in common leave each other nothing, and with no row the narrowing leaves out nothing is filed to tell", () => {
+        const { asked, idOf } = counting();
+        const groups = [
+            { literals: ['"P-1"', '"P-2"'], entries: [[entry("J-1", "on P-1")]] },
+            { literals: ['"P-3"'], entries: [[entry("J-2", "on P-3")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(), idOf).map((left) => [...left])).toEqual([[], []]);
+        expect(asked.n).toBe(0);
+    });
+
+    test("a resource beneath two groups: its events are the last group's, as the rows of them all file them, and the earlier leaves them", () => {
+        const { idOf } = counting();
+        // P-2 stands beneath two halls: its job J-2 is in the spans of both halls' blocks.
+        const groups = [
+            { literals: ['"P-1"', '"P-2"'], entries: [[entry("J-1", "on P-1"), entry("J-2", "on P-2")]] },
+            { literals: ['"P-3"'], entries: [[entry("J-3", "on P-3")]] },
+            { literals: ['"P-2"', '"P-4"'], entries: [[entry("J-2", "on P-2")], [entry("J-4", "on P-4")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(), idOf).map((left) => [...left])).toEqual([["J-2"], [], []]);
+    });
+
+    test("a row the narrowing leaves out is no group's: every group holding it leaves it", () => {
+        const { idOf } = counting();
+        const groups = [
+            { literals: ['"P-1"'], entries: [[entry("J-1", "on P-1"), entry("J-5", "on P-1")]] },
+            { literals: ['"P-2"'], entries: [[entry("J-2", "on P-2")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(["J-5", "J-2"]), idOf).map((left) => [...left])).toEqual([["J-5"], ["J-2"]]);
     });
 });
 

@@ -49,6 +49,7 @@ const Shifts = sx.scheduleShifts.type;
 const shiftsRecord = sx.scheduleShifts;
 const jobsRecord = sx.scheduleJobs;
 const inspectionsRecord = sx.scheduleInspections;
+const stepsRecord = sx.schedulePrintSteps;
 
 // ============================================================================
 // Schedule.resources
@@ -184,6 +185,16 @@ describe("Schedule.events — what it refuses at build", () => {
             /`start` and `end` are both DateTime fields, or both Options of one/);
     });
 
+    test("a title naming a field the row does not have is held until the kind is built, and refused by a builder drawing its rows (#1725)", () => {
+        // Only a copy of each event a Plan draws the kind from may hold it: its source is the builder's, known as it builds.
+        assert.doesNotThrow(() => shiftsWith({ title: "label" }));
+        assert.throws(() => East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(shiftsRecord, ["patch"]));
+            const shift = Schedule.events(bound as never, { name: "Shift", icon: "i", title: "label", start: "start", end: "end" } as never);
+            $(shift.build("shift"));
+        }), /`title` names "label", a field the row does not have \(.+\) — a field only a copy of each event holds is drawn on a Plan whose source for the kind lists the series index declared with the `value` that makes it$/);
+    });
+
     test("a resource field that holds no key, an `of` of the wrong form, cases that are not the variant's, and a kind named twice", () => {
         assert.throws(() => shiftsWith({ resource: { field: "crew", of: "people" } }), /`resource\.field` names a field holding a resource's key — a String, a variant of String cases, or an Option of either — and "crew" holds \.Integer/);
         assert.throws(() => shiftsWith({ resource: { field: "person", of: { a: "people" } } }), /`resource\.of` names the resource slot "person" holds keys of/);
@@ -223,6 +234,59 @@ describe("Schedule.events — what it refuses at build", () => {
             Schedule.events($.let(Record.bind(shifts, [])) as never, { name: "Shift", icon: "i", title: "title", start: "start", end: "end" } as never);
         }), /"patch" is not bound as this record's patch door/);
     });
+
+    test("a `source` on a kind the Calendar builds: the Calendar reads each kind through the source named after its slot (#1769)", () => {
+        assert.throws(() => East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(shiftsRecord, ["patch"]));
+            const shift = Schedule.events(bound as never, { name: "Shift", icon: "i", title: "title", start: "start", end: "end", source: "rota" } as never);
+            $(shift.build("shift"));
+        }), /`source` names the source a Plan reads the kind through, and the Calendar reads each kind through the source named after its slot: leave `source` out/);
+    });
+});
+
+// ============================================================================
+// Schedule.events.kinds: the refusals at build (#1769)
+// ============================================================================
+
+describe("Schedule.events.kinds — what it refuses at build (#1769)", () => {
+    /** A kind as a builder builds it. */
+    interface Built { build(slot: string): unknown; buildRoster(slot: string): unknown; buildAllocation(slot: string): unknown }
+    /** The steps' kinds by `field`'s cases inside a bound block, `then` handed them as a builder takes them. */
+    function stepsWith(field: string, cases: object, then?: (kinds: Readonly<Record<string, Built>>) => void): void {
+        East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(stepsRecord, ["patch"]));
+            const kinds = Schedule.events.kinds(bound as never, field as never, cases as never);
+            then?.(kinds as never);
+        });
+    }
+    /** A run, titled by what its case holds. */
+    const run = { name: "Run", icon: "print", title: (_step: unknown, _key: unknown, held: ExprType<typeof sx.SchedulePrintStep.fields.kind.cases.run>) => held.title, start: "start", end: "end" };
+
+    test("a field that is no variant of the rows, or none of them", () => {
+        assert.throws(() => stepsWith("start", { run }), /Schedule\.events\.kinds: `field` names a variant field of the rows, a kind for each of its cases — and "start" is no variant, or an Option$/);
+        assert.throws(() => stepsWith("nope", { run }), /and "nope" is no field of them \(on, start, end, state, kind\)$/);
+    });
+
+    test("no case given, a case that is none of the field's, and a record's own option given by one case", () => {
+        assert.throws(() => stepsWith("kind", {}), /gives no case of "kind" a kind — give each case drawn its own: \{ run: \{ … \}, setup: \{ … \}, shift: \{ … \} \}$/);
+        assert.throws(() => stepsWith("kind", { lorry: run }), /"lorry" is no case of "kind" \(run, setup, shift\)$/);
+        assert.throws(() => stepsWith("kind", { run: { ...run, source: "steps" } }),
+            /case "run" gives `source`, the record's own — every kind of it shares its one session: give it in `shared`, the last argument$/);
+        assert.throws(() => stepsWith("kind", { run: { ...run, ready: () => variant("ready", null) } }), /case "run" gives `ready`, the record's own/);
+    });
+
+    test("a case's resource naming a slot for no case of its field, or for none at all", () => {
+        assert.throws(() => stepsWith("kind", { run: { ...run, resource: { field: "on", of: { lorry: "lorries" } } } }),
+            /Schedule\.events\.kinds: "Run": `resource\.of` names a resource slot for some of "on"'s cases \(crew, press\) — and it names lorry$/);
+        assert.throws(() => stepsWith("kind", { run: { ...run, resource: { field: "on", of: {} } } }), /for some of "on"'s cases \(crew, press\) — and it names none$/);
+    });
+
+    test("the Calendar, the Roster and the Allocation take no kind of one case: a Plan's", () => {
+        const taken = /Schedule\.events\.kinds: "Run": the (Calendar|Roster|Allocation) takes no kind of one case of its record — Schedule\.events\.kinds is a Plan's/;
+        assert.throws(() => stepsWith("kind", { run }, (kinds) => kinds.run!.build("run")), taken);
+        assert.throws(() => stepsWith("kind", { run }, (kinds) => kinds.run!.buildRoster("run")), taken);
+        assert.throws(() => stepsWith("kind", { run }, (kinds) => kinds.run!.buildAllocation("run")), taken);
+    });
 });
 
 // ============================================================================
@@ -235,8 +299,8 @@ export function scheduleTypeChecks(): void {
     const boundJobs = Record.bind(jobsRecord, ["patch"]);
     // @ts-expect-error — `start` is a DateTime field, and "title" is a String one
     Schedule.events(bound, { name: "Shift", icon: "i", title: "title", start: "title", end: "end" });
-    // @ts-expect-error — `title` is a String field, and "crew" is an Integer one
-    Schedule.events(bound, { name: "Shift", icon: "i", title: "crew", start: "start", end: "end" });
+    // A `title` naming a field of another type compiles: a title may name a field only a copy of each event holds
+    // (#1725), which the row's type cannot say. The build refuses it, naming the field's type.
     // @ts-expect-error — `resource.field` holds a resource's key, and "crew" holds none
     Schedule.events(bound, { name: "Shift", icon: "i", title: "title", start: "start", end: "end", resource: { field: "crew", of: "people" } });
     // @ts-expect-error — `backlog` takes Option times, and a shift's are plain
@@ -247,5 +311,19 @@ export function scheduleTypeChecks(): void {
         name: "Shift", icon: "i", title: "title", start: "start", end: "end",
         // @ts-expect-error — a template's values leave out the start, the end and the resource
         resource: { field: "person", of: "people" }, templates: [{ key: "day", name: "Day", duration: variant("hours", 8), values: { title: "Day", start: new Date(0), status: variant("tentative", null), crew: 1n, skills: new Set<string>(), handover: [] } }],
+    });
+    // A kind per case of one record's variant field (#1769): each case's accessors handed the value it holds, and its
+    // resource landing on the slots of some of the field's cases.
+    const boundSteps = Record.bind(stepsRecord, ["patch"]);
+    Schedule.events.kinds(boundSteps, "kind", {
+        run: { name: "Run", icon: "i", title: (_step, _key, run) => run.title, start: "start", end: "end", resource: { field: "on", of: { press: "presses" } } },
+    }, { state: "state" });
+    // @ts-expect-error — a setup holds its plates, and no title
+    Schedule.events.kinds(boundSteps, "kind", { setup: { name: "Setup", icon: "i", title: (_step, _key, setup) => setup.title, start: "start", end: "end" } });
+    // @ts-expect-error — `field` names a variant field of the rows, and "start" holds a DateTime
+    Schedule.events.kinds(boundSteps, "start", {});
+    Schedule.events.kinds(boundSteps, "kind", {
+        // @ts-expect-error — a case's resource lands on the slots of some of its field's cases, and "lorry" is none of them
+        run: { name: "Run", icon: "i", title: (_step, _key, run) => run.title, start: "start", end: "end", resource: { field: "on", of: { lorry: "lorries" } } },
     });
 }

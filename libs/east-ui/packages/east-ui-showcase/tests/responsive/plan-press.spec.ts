@@ -18,6 +18,10 @@
  *   press chosen again draws the other press's rows and tasks, never the
  *   first's.
  *
+ * A task's cell is read with a day a column: the pages' four weeks open a week
+ * a column at this width (#1740), so each check of a day's cell presses the
+ * days first.
+ *
  * On both, every row is one band and the rows tile the canvas
  * (`planBandFaults`). The machines are read a page at a time through their
  * nested series index, their kinds' rows keyed by a variant, and the tasks a
@@ -33,7 +37,7 @@
 
 import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
-import { PLAN_EVENT_EXAMPLES, openExample, rowId, rowSel, same } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, openExample, pressPeriod, rowId, rowSel, same } from "./plan-page";
 import { PLAN_INDENT, planBandFaults, planDrawn, planEventOn, planRowsOf } from "./plan-rows";
 
 /** A press's own row, its ink temperature's, and its row of a kind of task: the kind's key as East prints it. */
@@ -109,6 +113,7 @@ test.describe("Rows beneath a resource, and a kind landing on them (#1541)", () 
 
     test("planPressTasks: each task is on its kind's row in the cell of its day and its half, a lane half the row, and every row is one band @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPressTasks", PLAN_EVENT_EXAMPLES);
+        await pressPeriod(page, entry, "DAY");
         await drawn(entry, kindSel("P03", "blanket_wash"), "T-05");
         await drawn(entry, kindSel("P03", "ink_fill"), "T-03");
         const bad = [
@@ -125,6 +130,7 @@ test.describe("Rows beneath a resource, and a kind landing on them (#1541)", () 
 
     test("planOnePress: the press's own row is not drawn, its kinds' rows stand at the root under its pinned ink temperature, and its tasks are on them @desktop", async ({ page }) => {
         const entry = await openExample(page, "planOnePress", PLAN_EVENT_EXAMPLES);
+        await pressPeriod(page, entry, "DAY");
         await drawn(entry, kindSel("P03", "blanket_wash"), "T-01");
         const rows = await planRowsOf(entry);
         // The pinned ink temperature, then the kinds' rows alone: no row of the press's own, and none of another machine.
@@ -152,6 +158,7 @@ test.describe("Rows beneath a resource, and a kind landing on them (#1541)", () 
 
     test("planOnePress: the page's press chosen again draws that press's rows and tasks, and none of the first's @desktop", async ({ page }) => {
         const entry = await openExample(page, "planOnePress", PLAN_EVENT_EXAMPLES);
+        await pressPeriod(page, entry, "DAY");
         await drawn(entry, kindSel("P03", "blanket_wash"), "T-01");
         // The page's parameter, chosen here: an app's page takes it from its route.
         await entry.getByRole("combobox").first().click();

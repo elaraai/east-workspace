@@ -376,6 +376,7 @@ describe("Plan link ribbons (#818)", () => {
             // k is an expandable chart: its expand control toggles it spark ↔ chart (#1680's review).
             const chart = variant("chart", {
                 layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+                grid: true, legend: true, tooltip: true,
             });
             const { container } = renderPlan(planRoot([
                 planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
@@ -650,22 +651,25 @@ describe("Plan expand-in-place (R2)", () => {
                 layers: [variant("line", {
                     points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 })],
-                left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
+                left: some({ domain: none, tickValues: some(variant("number", [80])), numTicks: none, format: none, label: none }),
                 right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
             })),
         ], {
             expandRender: (id: PlanRowId) =>
                 variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
         }));
-        // At rest the chart row draws its marks and prints its axis.
+        // At rest the chart row draws its marks and its gridline: a spark reads its scale by its gridlines (#1750).
         expect(container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)).toBeTruthy();
-        expect(container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-gridline]`)).toBeTruthy();
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         // R2 — values RE-ENCODE: the strip is a tone strip, so there is no SVG
         // to squash and no value axis to label in 16px — the ticks go with it.
         expect(container.querySelector(rowSel("ontime"))!.hasAttribute("data-ctx")).toBe(true);
         expect(container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)).toBeNull();
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-gridline]`)).toBeNull();
         expect(container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)).toBeNull();
         // R1 — the span bar is still there, still positioned, flagged for 7px.
         const bar = container.querySelector(`${rowSel("s")} [data-run="r1"]`) as HTMLElement;
@@ -683,8 +687,10 @@ describe("Plan expand-in-place (R2)", () => {
             layers: [variant("line", {
                 points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                 axis: variant("left", null), breach: some(variant("above", 100)), fold: variant("mean", null),
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
             })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+            grid: true, legend: true, tooltip: true,
         });
         const { container } = renderPlan(planRoot([
             planRow("ontime", chart(), { expand: { height: some("120px"), axis: variant("keep", null) } }),
@@ -699,21 +705,22 @@ describe("Plan expand-in-place (R2)", () => {
         // Carets only fold: neither chart draws one, and a click on its gutter selects it, never toggles it.
         expect([...container.querySelectorAll("[role='rowheader'] [data-icon='caret-down']")]).toEqual([]);
         fireEvent.click(row("spark").querySelector("[role='rowheader']")!);
-        expect([viewBox("spark"), row("spark").hasAttribute("data-selected")]).toEqual(["0 0 1000 32", true]);
+        // A row's plot is the row less its rule (#1750): a 32px spark draws in 31.
+        expect([viewBox("spark"), row("spark").hasAttribute("data-selected")]).toEqual(["0 0 1000 31", true]);
         // With no render, its expand control toggles spark ↔ chart, and says so.
         expect([control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded")]).toEqual(["false", "false"]);
         fireEvent.click(control("spark"));
         expect([viewBox("spark"), control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded"), outlined("spark")])
-            .toEqual(["0 0 1000 88", "true", "true", true]);
+            .toEqual(["0 0 1000 87", "true", "true", true]);
         fireEvent.click(control("spark"));
-        expect([viewBox("spark"), outlined("spark")]).toEqual(["0 0 1000 32", false]);
+        expect([viewBox("spark"), outlined("spark")]).toEqual(["0 0 1000 31", false]);
         // With a render, the control opens it — and the chart draws expanded in its band, the row its band and the render.
         expect(outlined("ontime")).toBe(false);
         fireEvent.click(control("ontime"));
         expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
         expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 88", String(88 + 120), true]);
         fireEvent.keyDown(keySurface(container), { key: "Escape" });
-        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 32", "32", false]);
+        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 31", "32", false]);
     });
 
     test("a focus-expanded CHART row scales its plot to the BAND, not the grown row (#591)", () => {
@@ -729,16 +736,20 @@ describe("Plan expand-in-place (R2)", () => {
                     variant("line", {
                         points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                         axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                     }),
-                    variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
+                    variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100"), dash: none, color: none }),
                 ],
                 left: some({
                     domain: some(variant("number", { min: 80, max: 110 })),
                     tickValues: some(variant("number", [80])),
+                    numTicks: none,
                     format: none,
+                    label: none,
                 }),
                 right: none,
                 height: variant("spark", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
             }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {
@@ -748,21 +759,53 @@ describe("Plan expand-in-place (R2)", () => {
         // The plot SVG is the one holding the line — the gutter's control
         // icon is an SVG too.
         const plotSvg = () => container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)!.closest("svg")!;
-        const tick = () => container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)!;
-        // At rest: a 32px spark. The scale's floor sits at the 4px pad + the
-        // 24px inner height = 28px; too shallow for the ref label.
-        expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
-        expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
+        const tick = () => container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`);
+        const gridline = () => container.querySelector(`${rowSel("ontime")} [data-plan-gridline]`)!.getAttribute("y1");
+        // At rest: a 32px spark, its plot the row less its rule — 31px. The
+        // scale's floor sits 4px above the plot's foot, at 27; too shallow for
+        // the ref label, and for a number: its gridline reads its scale (#1750).
+        expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 31");
+        expect([tick(), gridline()]).toEqual([null, "27"]);
         expect(screen.queryByText("TARGET 100")).toBeNull();
 
         fireEvent.click(container.querySelector(`${rowSel("ontime")} [data-plan-control="expand"]`)!);
         const focal = container.querySelector(rowSel("ontime")) as HTMLElement;
         expect(focal.hasAttribute("data-expanded")).toBe(true);
         expect(focal.querySelector("[data-plan-expandrender]")).toBeTruthy();
-        // The ROW grew (32 + 240); the band did not — and the plot, the tick
-        // and the label gate all scale against the band.
+        // The ROW grew (32 + 240); the band did not — and the plot, its
+        // gridline and the label gate all scale against the band, 32px tall.
         expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
-        expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
+        expect([tick(), gridline()]).toEqual([null, "28"]);
         expect(screen.queryByText("TARGET 100")).toBeNull();
+    });
+
+    test("a focus-expanded chart row's gutter axis stands in its band, never the grown row (#1750)", () => {
+        // An 88px chart, its tick at 80 on its floor, 10.5 above its plot's
+        // foot: 76.5 down the 87px plot at rest, 77.5 down its 88px band —
+        // clear of the first line the pressed control holds, so it is drawn.
+        const { container } = renderPlan(planRoot([
+            planRow("ontime", variant("chart", {
+                layers: [variant("line", {
+                    points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
+                    axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                })],
+                left: some({ domain: none, tickValues: some(variant("number", [80])), numTicks: none, format: none, label: none }),
+                right: none,
+                height: variant("expanded", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
+            }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
+            planRow("other", spanKind([])),
+        ], {
+            expandRender: (id: PlanRowId) =>
+                variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
+        }), "plan-1750-chart-band");
+        const tick = () => container.querySelector<HTMLElement>(`${rowSel("ontime")} [data-plan-tickpx]`)!;
+        expect([tick().getAttribute("data-plan-tickpx"), tick().textContent, tick().parentElement!.style.height]).toEqual(["76.5", "80", ""]);
+        fireEvent.click(container.querySelector(`${rowSel("ontime")} [data-plan-control="expand"]`)!);
+        expect(container.querySelector(rowSel("ontime"))!.getAttribute("data-plan-h")).toBe(String(88 + 240));
+        // Its column is the band's height, and the label its tick's share of it.
+        expect([tick().getAttribute("data-plan-tickpx"), tick().parentElement!.style.height, tick().style.top])
+            .toEqual(["77.5", "88px", `${(77.5 / 88) * 100}%`]);
     });
 });

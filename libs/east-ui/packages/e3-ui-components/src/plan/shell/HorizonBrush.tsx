@@ -17,11 +17,20 @@
  * the grid below is that window, magnified.
  *
  * Its bars (#1438): over rows read through a nested series index, how much
- * the collections the series shown read hold in each month, as e3 keeps it in
- * the index's span — a bar each month, quarter or year, the finest that keeps
- * 4px a bar (`horizonDensity`) — with the largest under the caption, `max
- * 1,559 items / mo`, or `no data`. A horizon over record sources has no
- * counts yet: its strip draws the baseline alone.
+ * the collections the series shown read hold in each period, as e3 keeps it in
+ * the index's span at each period the record's totals are kept at — read at
+ * the period the bars draw by, so an item over two months is in each month's
+ * count and once in their quarter's, never two months added up. Over record
+ * sources holding the window (#1732), the record's totals a period each source
+ * lists in its binding's `totals`: how many of its events touch each period,
+ * under its narrowing, as e3 keeps them — read over the whole years around the
+ * horizon, summed over the sources, nothing counted
+ * (`shared/time/horizon-totals.ts`). Either way a bar each period of the
+ * finest there are counts at that keeps a bar its least width, or the coarsest
+ * of them (`horizonUnit`). The largest is under the caption, `max 1,559 items
+ * / mo`, or `no data`; while the counts are first read the strip says it reads
+ * them, and where a source's do not serve its narrowing, or there are counts
+ * at no period, it draws no bars.
  *
  * Renders only over a horizon of the AXIS's arm (#631): a `datetime` domain on
  * a time axis, a `float` / `integer` domain on a number axis. The horizon
@@ -39,20 +48,28 @@
  * selection, and commits on release. While the sources' span is read its row
  * is held at its height, a placeholder track in the strip's place (#1398,
  * CL1), so nothing below it moves as the span lands.
+ *
+ * On a time axis the brush sets any range (#1740): an end dragged, or a range
+ * drawn anew, goes where the hand does, on the edges of the period that range
+ * takes on the plot — days while they hold the column floor, then weeks,
+ * months — so no period's least or most stops it, and what the drag shows is
+ * what its release keeps. A window moved whole keeps its columns.
  */
 
 import { useCallback, useMemo, useRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { BrushStrip, PlaceholderShape, brushHorizon, recordSliceDomain, type BrushBucket } from "@elaraai/east-ui-components/internal";
+import { BrushStrip, PlaceholderShape, brushHorizon, type BrushBucket, type BrushHeld } from "@elaraai/east-ui-components/internal";
 import { useContainerWidth, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { periodText, resolutionInterval } from "../../shared/time/scale.js";
+import { sourcesTotals, totalsUnits } from "../../shared/time/horizon-totals.js";
+import type { HeldEnd } from "../../shared/time/period.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
-import type { PlanWindowPart } from "../root/window.js";
+import { windowPartsDomain, type PlanWindowDomain, type PlanWindowPart } from "../root/window.js";
 import type { PlanNestedSpan, PlanNestedSpanRead, SPAN_READING } from "../root/nested.js";
 import { usePlanWords, type PlanWords } from "../words.js";
-import { horizonDensity, type HorizonDensity } from "./horizon-density.js";
+import { HORIZON_BUCKET_UNITS, horizonTotalsDensity, horizonUnit, type HorizonDensity } from "./horizon-density.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -64,7 +81,7 @@ const LENS_W = 1000;
 const MAX_PERIODS = 100_000;
 
 /** A source's range domain, on the axis's arm: its kind, and its bounds as numbers. */
-type RecordSliceRange = NonNullable<ReturnType<typeof recordSliceDomain>>;
+type RecordSliceRange = PlanWindowDomain;
 
 export interface HorizonBrushProps {
     styles: Styles;
@@ -75,28 +92,17 @@ export interface HorizonBrushProps {
      *  holding its own, and taken into the sources' domains where they hold the window. */
     stated: readonly [number, number] | undefined;
     /** The span of what every series reads through the rows' nested series index (#1438, #1440), whichever are shown, or its read in
-     *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts —
-     *  the series shown's — its bars. */
+     *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its periods' counts —
+     *  the series shown's, read at the period the bars draw by — its bars. */
     span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
-}
-
-/**
- * The horizon over several sources' domains: from the earliest to the latest
- * of them, each of the axis's arm.
- *
- * @param parts - The sources holding the window
- * @returns Their horizon; `undefined` while no source has a domain
- */
-function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefined {
-    let out: RecordSliceRange | undefined;
-    for (const { part } of parts) {
-        const domain = recordSliceDomain(part);
-        if (domain === undefined) continue;
-        out = out === undefined ? domain : { kind: out.kind, min: Math.min(out.min, domain.min), max: Math.max(out.max, domain.max) };
-    }
-    return out;
+    /**
+     * The range a resize, or a range drawn anew, sets on a time axis (#1740), `[from, to)` in ms: the end under the hand
+     * on the nearest edge of the period the range takes on the canvas's plot, the end it holds in place. Left out, or
+     * giving none, the window keeps to the periods the scale shows.
+     */
+    brushed?: ((from: number, to: number, held: HeldEnd) => readonly [number, number] | undefined) | undefined;
 }
 
 /**
@@ -152,20 +158,22 @@ function densityBuckets(density: HorizonDensity, words: PlanWords): BrushBucket[
 }
 
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now, brushed }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
     // The strip's width, which decides the period its bars count by (#1438).
     const trackRef = useRef<HTMLDivElement | null>(null);
     const trackPx = useContainerWidth(trackRef);
+    // The window the strip was last handed as fractions of the track, beside those fractions: what a commit of them writes.
+    const snapped = useRef<{ from: number; to: number; min: PlanInstantValue; max: PlanInstantValue } | null>(null);
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
     // Self-subscribe (#611): each source's domain is a STORE read through its choices, and a re-render does not
     // bust a memo whose deps did not move.
     useSlicesReactivity(parts.map(({ part }) => part.key));
-    const readDomain = useCallback(() => horizonOf(parts), [parts]);
+    const readDomain = useCallback(() => windowPartsDomain(parts), [parts]);
     const { result: recordDomain } = useTrackedEvaluation(readDomain);
     // No source holding the window, the canvas holds its own (#1344): the horizon is the axis's stated window and the
     // window shown, as long again either side, which nothing reads — half-open, as a window is, where a source's domain
@@ -223,6 +231,28 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
         return { lo, hi, periods };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
     }, [fits, domain?.min, domain?.max, own, scale, shownFrom, shownTo, statedFrom, statedTo]);
+    // The period its bars count by: the finest there are counts at that keeps a bar its least width — over the rows' nested
+    // series (#1438), of those its index keeps the record's totals at; over the sources holding the window (#1732), of
+    // those every source lists.
+    const kept = read?.periods;
+    const units = useMemo(() => (own ? kept ?? [] : totalsUnits(parts.map(({ part }) => part), HORIZON_BUCKET_UNITS)), [own, kept, parts]);
+    const totalsUnit = extent === undefined || scale.kind !== "time" || !(trackPx > 0) ? undefined : horizonUnit(extent.lo, extent.hi, trackPx, units);
+    // Over the sources, each period's totals read over the whole years around the horizon and summed — nothing counted, as
+    // e3 keeps them.
+    const readTotals = useCallback(() => (own || totalsUnit === undefined || extent === undefined ? undefined
+        : sourcesTotals(parts.map(({ part }) => part), totalsUnit, extent.lo, extent.hi)), [own, parts, totalsUnit, extent]);
+    const { result: sourceTotals } = useTrackedEvaluation(readTotals);
+    // Over the rows' nested series, what the series shown hold in each period, as e3 keeps it in the index's span at the
+    // period: no finer period's counts are added up into it.
+    const spanTotals = read?.totals;
+    const readSpanTotals = useCallback(() => (!own || spanTotals === undefined || totalsUnit === undefined ? undefined : spanTotals(totalsUnit)),
+        [own, spanTotals, totalsUnit]);
+    const { result: spanCounts } = useTrackedEvaluation(readSpanTotals);
+    const nested = useMemo(() => {
+        if (spanCounts.ok) return spanCounts.value;
+        console.error("[Plan] the horizon's counts of the rows' nested series could not be read:", spanCounts.error);
+        return undefined;
+    }, [spanCounts]);
     if (!own && !recordDomain.ok) return <Box css={styles.partError} role="alert">
         Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
@@ -246,20 +276,25 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const nowFrac = Number.isFinite(nowN) ? (nowN - extent.lo) / span : undefined;
     const fromFraction = (f: number): PlanInstantValue => scale.fromNumber(extent.lo + clamp(f) * span);
     const toFrac = (t: PlanInstantValue): number => clamp((scale.toNumber(t) - extent.lo) / span);
-    // Resolution-edge snapping: the draft and the committed window land on
-    // period boundaries of the ACTIVE resolution (a whole step on a number
-    // axis), at least one period wide. The scale's OWN `snap` / `offset` —
-    // this band used to carry a hand-copy of the same floor/offset/midpoint
-    // over the same interval (#617).
-    const snapPair = (f0: number, f1: number): [PlanInstantValue, PlanInstantValue] => {
+    // Edge snapping: the draft and the committed window land on period boundaries, at least one period wide. A window
+    // moved whole lands on the periods the scale shows (a whole step on a number axis), by the scale's OWN `snap` /
+    // `offset` — this band used to carry a hand-copy of the same floor/offset/midpoint over the same interval (#617). On a
+    // time axis a resize, or a range drawn anew, sets any range (#1740): its ends land on the edges of the period that
+    // range takes on the plot, the end the gesture holds in place (the strip names it) staying where it is.
+    const snapPair = (f0: number, f1: number, held?: BrushHeld): readonly [PlanInstantValue, PlanInstantValue] => {
+        const range = held === undefined || scale.kind !== "time" ? undefined
+            : brushed?.(extent.lo + clamp(f0) * span, extent.lo + clamp(f1) * span, held === "lo" ? "start" : "end");
+        if (range !== undefined) return [scale.fromNumber(range[0]), scale.fromNumber(range[1])];
         const a = scale.snap(fromFraction(f0));
         let b = scale.snap(fromFraction(f1));
         if (scale.toNumber(b) <= scale.toNumber(a)) b = scale.offset(a, 1);
         return [a, b];
     };
-    const snapWindow = (f0: number, f1: number): { from: number; to: number } => {
-        const [a, b] = snapPair(f0, f1);
-        return { from: toFrac(a), to: toFrac(b) };
+    const snapWindow = (f0: number, f1: number, held?: BrushHeld): { from: number; to: number } => {
+        const [a, b] = snapPair(f0, f1, held);
+        const window = { from: toFrac(a), to: toFrac(b) };
+        snapped.current = { ...window, min: a, max: b };
+        return window;
     };
     // The caption spans the whole brushable horizon, not the applied window
     // — `HORIZON · 26 WK` over a 12-week window; on a number axis the count
@@ -267,10 +302,15 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
     const periods = extent.periods;
     const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
-    // Its bars (#1438): over the rows' nested series, each month's items as e3 keeps them in the index's span, in the
-    // finest period that keeps 4px a bar; a source's horizon has no counts yet, and draws the baseline alone.
-    const density = own && scale.kind === "time" && read !== undefined ? horizonDensity(extent.lo, extent.hi, read.months, trackPx) : undefined;
+    // Its bars, a bar a period at its own count: over the rows' nested series, what the series shown hold in it (#1438) —
+    // the last read standing, at the period it was read by, while one again is in flight; over the sources holding the
+    // window, the totals of them all (#1732). The strip says so while they are first read.
+    const totals = !own && sourceTotals.ok ? sourceTotals.value : undefined;
+    const density = scale.kind !== "time" ? undefined
+        : own ? (nested === undefined || nested === READING ? undefined : horizonTotalsDensity(extent.lo, extent.hi, nested.unit, nested.tiles))
+            : totalsUnit === undefined || totals?.state !== "read" ? undefined : horizonTotalsDensity(extent.lo, extent.hi, totalsUnit, totals.tiles);
     const buckets = density === undefined ? undefined : densityBuckets(density, words);
+    const counting = own ? nested === READING : totals?.state === "pending";
     // A key moves the window a period of the resolution; a handle says its instant — the end handle, on a time axis, the
     // last day inside the window, as the date navigator names it (`max − 1 ms`, its time too at the hour's resolution):
     // the window ends exclusively, so its end's own instant is the next day's start.
@@ -295,7 +335,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                 gesture, and only strip gestures can ever settle one. */}
             <Box ref={trackRef} css={styles.brushTrack} data-plan-horizon-track="" onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
-                    buckets={buckets === undefined ? undefined : () => buckets}
+                    buckets={buckets !== undefined ? () => buckets : counting ? () => "loading" : undefined}
                     step={step}
                     valueText={valueText}
                     endText={endText}
@@ -307,14 +347,14 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                     height={geometry.brush - geometry.lens}
                     barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
-                    // Snap AGAIN on the instants themselves so float round-trips
-                    // can never land the committed window off an edge. A
-                    // record's query moves once per gesture: the strip owns the
-                    // live selection preview, and the release commits it, so
-                    // dragging never floods the server with a new window for
-                    // each pointer frame.
+                    // The strip commits the fractions it was last handed, and the window they were made from is what is
+                    // written: a fraction of a horizon of decades does not hold a period's edge, and a range past the
+                    // track's end has no fraction at all. Any other fractions snap AGAIN on the instants themselves. A
+                    // record's query moves once per gesture: the strip owns the live selection preview, and the
+                    // release commits it, so dragging never floods the server with a new window for each pointer frame.
                     onCommit={(f0, f1) => {
-                        const [a, b] = snapPair(f0, f1);
+                        const kept = snapped.current;
+                        const [a, b] = kept !== null && kept.from === f0 && kept.to === f1 ? [kept.min, kept.max] : snapPair(f0, f1);
                         dispatch({ t: "brush.commit", min: a, max: b });
                     }}
                     onClear={() => { dispatch({ t: "brush.clear" }); }}

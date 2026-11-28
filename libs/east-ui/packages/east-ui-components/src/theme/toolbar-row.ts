@@ -21,6 +21,12 @@
  * its words start a whole number of pixels under its top edge, and the words
  * of the controls along a row stand on one line wherever the page stands it.
  *
+ * Words that stand in a row with no control around them — what a Save is
+ * doing, the last gesture's words, a readout, a title, a state — take the
+ * row's line too ({@link TOOLBAR_WORDS}, {@link TOOLBAR_WORDS_LINE},
+ * {@link ON_TOOLBAR_LINE}): left on the line they inherit, a row centres them
+ * at a fraction of a pixel, above the words of the chips beside them.
+ *
  * @packageDocumentation
  */
 
@@ -78,3 +84,44 @@ export const TOOLBAR_TEXT = {
 export function toolbarControlBox(edge = 1): OneLineBox {
     return oneLineBox(ROW_PX, edge);
 }
+
+/**
+ * The line of words that stand in a toolbar's row with no control around
+ * them, in a face of their own — a readout beside its stepper, a state's word
+ * beside its dot: the row's own height, as a control with no edge has, so they
+ * start a whole number of pixels under the row's top wherever the page stands
+ * it.
+ */
+export const TOOLBAR_WORDS_LINE = toolbarControlBox(0).lineHeight;
+
+/**
+ * The row's line for a part whose words stand in a toolbar's row with no
+ * control around them, and elsewhere too — a state's word, a group's name, a
+ * label voice's caption: {@link TOOLBAR_WORDS_LINE} in the row alone, the
+ * part's own line everywhere else.
+ *
+ * @example
+ * ```ts
+ * const label = { fontSize: "11px", lineHeight: "13px", ...ON_TOOLBAR_LINE };
+ * ```
+ */
+export const ON_TOOLBAR_LINE = { [IN_TOOLBAR_ROW]: { lineHeight: TOOLBAR_WORDS_LINE } } as const;
+
+/**
+ * Words that say something in a toolbar's row with no control around them:
+ * what a Save is doing, the last gesture's words. They are set as the row's
+ * chips and its date are — the mono face at a chip's size — in a box of the
+ * row's height whose line is as tall, so their baseline is the chips' on every
+ * screen. A part spreads it and adds its own ink.
+ *
+ * @example
+ * ```ts
+ * const status = { ...TOOLBAR_WORDS, color: "fg.muted" };
+ * ```
+ */
+export const TOOLBAR_WORDS = {
+    fontFamily: "mono",
+    fontSize: "11.5px",
+    whiteSpace: "nowrap",
+    ...toolbarControlBox(0),
+} as const;

@@ -60,7 +60,7 @@ import { backlogLibrary, eventsLibrary, tabLibrary } from "../frame/library.js";
 import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf, type PlanRowId, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
-import { eventRowId, kindRowId, landingResourceOf, landingRowId, landingTargetOf, type PlanLandingValue } from "../root/landings.js";
+import { eventRowId, kindRowId, landingResourceOf, landingRowId, landingTargetOf, landingUnderOf, type PlanLandingValue } from "../root/landings.js";
 import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import { fromPlanSlot } from "../slot.js";
@@ -72,6 +72,8 @@ import { eventCandidate, type PlanCandidatePlace, type PlanCandidateValue, type 
 import type { ConnectVetoOf } from "../../shared/links/veto.js";
 import { connectLink, linkEndTitle, linkStepLabel, type PlanLinkKindValue } from "../links/kinds.js";
 import { keyFieldWrite, laneFieldWrite } from "../../shared/schedule/records.js";
+import { underWrites } from "../../shared/schedule/series-groups.js";
+import type { RecordSliceIndexType } from "@elaraai/east-ui/internal";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -84,6 +86,8 @@ type PlanAuthorTabValue = Extract<PlanLibraryTabValue, { type: "tab" }>["value"]
 type PlanResourceOption = option<ValueTypeOf<typeof ScheduleResourceRefType>>;
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
+/** One index of an event kind's source, as its binding lists it. */
+type PlanSourceIndex = ValueTypeOf<typeof RecordSliceIndexType>;
 
 /** The item type an event kind's element carries: a row takes it by the event's kind, never by an item type, and no printed type reads so. */
 export const PLAN_EVENT_ITEMS = "#event";
@@ -292,6 +296,12 @@ export interface PlanEventDragArgs {
     keys: PlanKeys;
     /** The event kinds' editing: their drafts, the new keys, and the recorder. */
     editing: PlanEventEditing;
+    /**
+     * The indexes a kind's source lists, by the kind's slot (#1710): a series index in time order among them is read
+     * under the rows its events nest under, which a drop under rows writes into the event it lands. None for a kind
+     * with no source.
+     */
+    indexes: (slot: string) => readonly PlanSourceIndex[];
     /** The Plan's veto over what a drop would do (#1541, U7), when it has a check. */
     veto: PlanVeto | undefined;
     /** What Connect draws while its tool is held (#1541, U10); `undefined` while Select is. */
@@ -427,7 +437,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The answers kept for what the latest render reads — none, once any of it moved. */
         const kept = (): Map<string, PlanEventGesture> => {
             const a = latest.current;
-            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect, a.connectVeto, a.linkValues];
+            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect, a.connectVeto, a.linkValues, a.indexes];
             const was = held.current;
             if (was.read.length !== read.length || read.some((r, i) => !Object.is(r, was.read[i]))) {
                 held.current = { read, gestures: new Map() };
@@ -494,16 +504,20 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
         /**
          * What places an event on a row beside its `place` or its `create` (#1541, U1): its child's key, on a row a
-         * step beneath its resource, and its lane, where the drop names one — each written into its own field. An event
-         * following another across rows keeps its own child (`ownChild`).
+         * step beneath its resource, its lane, where the drop names one, and the rows the row stands under, where its
+         * kind's source lists a series index in time order led by them (#1710, `underWrites`) — each written into its
+         * own field, so the event is read under the rows it is drawn under. An event following another across rows
+         * keeps its own child (`ownChild`).
          */
         const placing = (kind: PlanEventKindValue, id: string, target: PlanEventTarget, lane: string | undefined, ownChild = false): PlanEventChange[] => {
             const rowType = kind.editing.entryType;
             const child = childOf(kind);
             const laneField = getSomeorUndefined(kind.roles.lane);
+            const under = target.kind === "resource" ? landingUnderOf(target.landing, target.path) : [];
             const writes = [
                 child !== undefined && target.kind === "resource" && !ownChild ? keyFieldWrite(rowType, child.field, target.key) : undefined,
                 lane !== undefined && laneField !== undefined ? laneFieldWrite(rowType, laneField, lane) : undefined,
+                ...underWrites(latest.current.indexes(kind.key), under, (field, text) => keyFieldWrite(rowType, field, text)),
             ];
             return writes.flatMap((write) => (write === undefined ? [] : [{ kind: kind.key, id, gesture: variant("field", write) as PlanEventGestureValue }]));
         };

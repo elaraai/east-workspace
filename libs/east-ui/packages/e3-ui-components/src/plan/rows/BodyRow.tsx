@@ -20,24 +20,36 @@
  * canvas keeps an entry's identity while its content holds
  * (`stableDerived`). So the memo compares those entries, not the maps: a
  * window landing renders the rows it added and the rows whose numbers it
- * moved, and none of the rows already on screen (#815).
+ * moved, and none of the rows already on screen (#815). A chart row folds its
+ * chart as it draws, through the derivations' one fold for the period
+ * (`PlanDerived.chart`, #1798) — the same function while the period holds,
+ * which the memo compares: the row drawn again by a new scale must be drawn
+ * with the new period's fold, never with the props it last kept.
  *
  * Scale changes still repaint every row — correctly: the row CONTENT consumes
  * `PlanScaleContext`, and context pierces the memo by design. What the memo
  * removes is the store-change tax, not the geometry-change work.
+ *
+ * A row the event kinds land on holds events placed for the columns' period
+ * (`../root/events.ts`). Under another period it draws none of them — its plot
+ * waits, as an unread row's does — until its window is joined for the period
+ * drawn: the last period's marks are never laid out on this one's columns.
  */
 
-import { memo, useEffect, type ReactNode } from "react";
+import { memo, useContext, useEffect, type ReactNode } from "react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
-import { ChartLeftTicks } from "./ChartRow.js";
-import { laneBand } from "./lanes.js";
+import { ChartGutterLegend, ChartGutterTicks, ChartRailTicks } from "./ChartRow.js";
+import { chartLegend, legendFit } from "./chart-geometry.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
+import { statusDraws } from "./StatusIcon.js";
 import { rowToggle } from "./row-facts.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanRowState } from "../controller/react.js";
+import { PlanScaleContext, usePlanGeometry } from "../context.js";
+import { placedPeriodOf } from "../root/events.js";
 import { usePlanGridRow } from "../root/grid.js";
 import { rowItemKey, spansWindows, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
@@ -77,6 +89,9 @@ export interface PlanBodyRowProps {
     h: number;
     styles: Styles;
     gridTemplate: string;
+    /** The Plan declares the right axis's rail (#1750): a chart row reads its right axis's numbers there, never inside
+     *  its plot. */
+    rail: boolean;
     /** Whether the row nests children (its caret, and a collapsed parent's
      *  slimmer bars). */
     hasChildren: boolean;
@@ -158,7 +173,8 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
     return da === db || (Object.is(da.bands.get(k), db.bands.get(k))
         && Object.is(da.heatArms.get(k), db.heatArms.get(k))
         && Object.is(da.tableSeries.get(k), db.tableSeries.get(k))
-        && Object.is(da.charts.get(k), db.charts.get(k))
+        // A chart row's chart is the period's fold of the chart its row declares: the same while the fold is.
+        && (a.v.row.kind.type !== "chart" || Object.is(da.chart, db.chart))
         && Object.is(da.groupStrips.get(k), db.groupStrips.get(k))
         && Object.is(da.groupMembers.get(k), db.groupMembers.get(k))
         && Object.is(da.diagnostics.get(k), db.diagnostics.get(k)));
@@ -166,7 +182,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 
 /** One body row — a group band, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
-    v, h, styles, gridTemplate, hasChildren, derived,
+    v, h, styles, gridTemplate, rail, hasChildren, derived,
     dispatch, focusRole, axisMode,
     showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd, unread,
     expandBody, expandGutter, bandHeight,
@@ -176,6 +192,11 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     const { selected, chartExpanded, activeControl, active, focusSeq } = usePlanRowState(v.row.key);
     // Its place in the treegrid and its share of the tab stop (#819).
     const grid = usePlanGridRow(rowItemKey(v.row.key), active, focusSeq);
+    const geometry = usePlanGeometry();
+    // Its events were placed for another period than the columns' (#1740): it draws none of what it holds, and waits.
+    const period = useContext(PlanScaleContext)?.resolution;
+    const placedFor = placedPeriodOf(v.row);
+    const stepped = placedFor !== undefined && period !== undefined && placedFor !== period;
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -251,7 +272,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         draft,
         grid,
         groupEnd,
-        unread,
+        unread: unread || stepped,
     } as const;
     // The per-kind SHELL differences — caret, emphasis, a laned row's lanes,
     // the chart's ticks. The plot content itself is one switch shared with
@@ -271,25 +292,26 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         emphasis?: "header" | "footer" | undefined;
         noGrid?: boolean;
         lanes?: readonly PlanGutterLane[] | undefined;
+        gutterTop?: boolean;
+        gutterAxis?: ReactNode;
+        gutterLegend?: ReactNode;
+        railAxis?: ReactNode;
     } = {};
     // The plot height a chart row scales against (see the chart case).
     let plotH = h;
     let chartExpanded_ = false;
-    // A chart's left-axis ticks, inside its plot's left edge (#1680's review).
-    let ticks: ReactNode = null;
     switch (kind.type) {
         case "span":
         case "heat":
             shellExtras = { caret, onCaretClick };
             break;
         case "buckets": {
-            // A laned row's lanes: a gutter line each, its caption in the value cell (#1680's review).
+            // A laned row's lanes: a gutter line each, its caption in the value cell (#1680's review), the row placing each
+            // in its lane's room.
             const lanes = kind.value.lanes;
             shellExtras = {
                 caret, onCaretClick,
-                lanes: lanes.length > 1
-                    ? lanes.map((lane, i) => ({ caption: lane.label.type === "some" ? lane.label.value : undefined, band: laneBand(i, lanes.length) }))
-                    : undefined,
+                lanes: lanes.length > 1 ? lanes.map((lane) => ({ caption: lane.label.type === "some" ? lane.label.value : undefined })) : undefined,
             };
             break;
         }
@@ -304,17 +326,54 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             // the grown row's. Passing the grown `h` built a ~272px y-scale
             // that squashed into a ~32px band, opened the ≥48px ref-label
             // gate on a spark row, and pushed labels + ticks past the band
-            // into the render (#591).
-            plotH = isFocal ? (bandHeight ?? h) : h;
-            shellExtras = { noGrid: false, caret, onCaretClick };
-            // A STRIP carries no value axis — its plot re-encodes as a tone
-            // strip (`ToneStrip`), so the ticks would label a scale that is not
-            // there, stacked in 16px. A diagnostic row draws no marks, so it has
-            // no value axis either. The chart the plot DRAWS (#824) — the ticks
-            // label its scale.
-            ticks = isCtx || diagnostic !== undefined
-                ? null
-                : <ChartLeftTicks kind={derived.charts.get(v.row.key) ?? kind.value} styles={styles} height={plotH} />;
+            // into the render (#591). At rest it is the plot cell's: the row
+            // less its rule, so a value's px is the px it is drawn at (#1750).
+            plotH = isFocal ? (bandHeight ?? h) : h - geometry.rule;
+            // A chart taller than a spark at rest stands its name on the row's first line, never in the middle of the
+            // chart's height (#1750). A spark at rest is a row's own lines tall, and keeps them as any row does.
+            const gutterTop = chartExpanded_ || kind.value.height.type !== "spark" || v.row.height.type === "some";
+            // What its plot draws (#824), folded as the row draws (#1798) — a diagnostic row draws none, and folds none.
+            const drawn = diagnostic === undefined ? derived.chart(kind.value) : kind.value;
+            // Its legend (#1750): a line a named series under the row's lines — its name's, and its sub line's where
+            // it has one, as a gathered row's path is — in the room the row has under them. A strip, a row open on
+            // its render and a diagnostic draw none, nor does a row with no room for a line: its meta stays.
+            const legend = chartLegend(drawn);
+            const twoLine = v.row.gutter.sub.type === "some" || (v.gathered !== undefined && v.gathered.path.length > 0);
+            const legendTop = (twoLine ? geometry.rowStacked : geometry.row) - geometry.rule;
+            const fit = gutterTop && !isCtx && !isFocal && diagnostic === undefined
+                ? legendFit(legend.entries.length, plotH - legendTop) : { shown: 0, more: 0 };
+            shellExtras = {
+                noGrid: false, caret, onCaretClick,
+                gutterTop,
+                gutterLegend: fit.shown === 0 && fit.more === 0 ? undefined : (
+                    <ChartGutterLegend legend={legend} shown={fit.shown} more={fit.more} styles={styles} top={legendTop}
+                        leaf={caret === undefined} />
+                ),
+                // Its left axis, in the gutter's value slot (#1750). A STRIP
+                // carries no value axis — its plot re-encodes as a tone strip
+                // (`ToneStrip`), so the ticks would label a scale that is not
+                // there, stacked in 16px. A diagnostic row draws no marks, so
+                // it has no value axis either. The chart the plot DRAWS (#824)
+                // — the ticks label its scale. The row's first line is its own:
+                // its value, its status, or the control it holds pressed. Its
+                // failure stays in the row, as its plot's does (#811).
+                gutterAxis: isCtx || diagnostic !== undefined ? undefined : (
+                    <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
+                        <ChartGutterTicks kind={drawn} styles={styles} height={plotH} banded={isFocal}
+                            taken={v.row.gutter.value.type === "some"
+                                || statusDraws(v.row.status.type === "some" ? v.row.status.value.type : undefined)
+                                || rowControls.some((c) => c.active)}
+                            controls={rowControls.length > 0} />
+                    </PlanPartBoundary>
+                ),
+                // Its right axis, in the rail after its plot where the Plan declares one (#1750) — on a strip and a
+                // diagnostic row none, as its left axis. A chart with no right axis leaves the rail empty.
+                railAxis: !rail || isCtx || diagnostic !== undefined ? undefined : (
+                    <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
+                        <ChartRailTicks kind={drawn} styles={styles} height={plotH} banded={isFocal} />
+                    </PlanPartBoundary>
+                ),
+            };
             break;
         }
         case "table":
@@ -331,13 +390,12 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         <RowShell {...shellBase} height={h} expandedState={expandedState} {...shellExtras}>
             {diagnostic !== undefined ? (
                 <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
-            ) : (
+            ) : stepped ? null : (
                 // One row's render failure stays in that row (#811).
                 <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}
                         hasChildren={hasChildren} ctx={isCtx}
-                        plotHeight={plotH} chartExpanded={chartExpanded_} />
-                    {ticks}
+                        plotHeight={plotH} chartExpanded={chartExpanded_} rail={rail} />
                 </PlanPartBoundary>
             )}
         </RowShell>

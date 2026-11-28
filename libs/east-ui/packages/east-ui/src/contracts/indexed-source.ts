@@ -74,6 +74,13 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * East patch or a summary's add. A page previews a drafted row's Save with it.
  * None where the binding lists neither.
  *
+ * `copies` is, for each series index the binding lists whose entries are
+ * copies of its events (e3's `index.flatSeries(spec, { value })`, #1725), the
+ * index's value function, `(K, R) → V`, by the index's name, opaque here as
+ * `maintenance` is: what the index holds of a row as its copy, which a page
+ * makes of a drafted row to draw it as it will be once saved. None where the
+ * binding lists no such index.
+ *
  * `fill` is, where the binding lists a nested series index, e3's fill of a
  * page's lean rows with the entries read of the index (e3's #1438):
  * `(Dict<K, R>, Blob) → Dict<K, R>`, the Blob a beast2 Array of the index's
@@ -87,6 +94,7 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @typeParam IK - Variant of primary and secondary index key types.
  * @typeParam N - The nested part's type, as the binding gives it.
  * @typeParam Maintenance - The maintenance part's type, as the binding gives it.
+ * @typeParam Copies - The copies part's type, as the binding gives it.
  * @param key - Primary key type.
  * @param row - Record row type.
  * @param projection - Common covering projection type.
@@ -94,6 +102,7 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @param indexKey - Variant of index key types.
  * @param nested - The nested part's type.
  * @param maintenance - The maintenance part's type.
+ * @param copies - The copies part's type.
  * @returns The indexed source handle's East type.
  * @property id - Stable identity for this binding.
  * @property recordId - Primary record identity, shared by every ordering and editing session.
@@ -108,10 +117,11 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @property refresh - Follow a confirmed state hash, or the current record state.
  * @property entryKeys - Exact maintained keys for one primary row, printed at the index key type; used only for bounded editing membership checks.
  * @property maintenance - Each listed nested series and summary index's maintenance for one row, by its name.
+ * @property copies - Each listed series index's value function, by its name, whose entries are copies of its events.
  * @property fill - A page's lean rows filled with the entries read of the listed nested series index.
  */
-export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>(
-    key: K, row: R, projection: P, indexes: Indexes, indexKey: IK, nested: N, maintenance: Maintenance,
+export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance, Copies>(
+    key: K, row: R, projection: P, indexes: Indexes, indexKey: IK, nested: N, maintenance: Maintenance, copies: Copies,
 ) {
     return StructType({
         id: StringType,
@@ -122,6 +132,7 @@ export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>(
         defaultIndex: StringType,
         entryKeys: FunctionType([StringType, key, row], ArrayType(StringType)),
         maintenance,
+        copies,
         fill: OptionType(FunctionType([DictType(key, row), BlobType], DictType(key, row))),
         page: FunctionType([StringType, IntegerType, IntegerType], OptionType(ArrayType(IndexedEntryType(key, row, projection, indexKey)))),
         seek: FunctionType([StringType, SeekQueryType], OptionType(SeekRangeType)),
@@ -140,7 +151,8 @@ export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>(
  * @typeParam IK - Variant of index key types.
  * @typeParam N - The nested part's type, as the binding gives it: any, where a reader asks nothing of it.
  * @typeParam Maintenance - The maintenance part's type, as the binding gives it: any, where a reader asks nothing of it.
+ * @typeParam Copies - The copies part's type, as the binding gives it: any, where a reader asks nothing of it.
  */
 export type IndexedSource<K extends EastType, R extends EastType, P extends EastType, Indexes extends EastType, IK extends EastType,
-    N extends EastType = EastType, Maintenance extends EastType = EastType> =
-    ExprType<ReturnType<typeof IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>>>;
+    N extends EastType = EastType, Maintenance extends EastType = EastType, Copies extends EastType = EastType> =
+    ExprType<ReturnType<typeof IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance, Copies>>>;

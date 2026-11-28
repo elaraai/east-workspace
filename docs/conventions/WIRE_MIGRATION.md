@@ -1700,6 +1700,120 @@ Each wire changed under this rule, with the kind it is.
     feature, so an agent from before it is given every URL on the advertised
     origin, and an agent that names it, under a source from before it, is
     told of none and fetches from the source's origin alone.
+- **east-ui's record Slice says the order a series index files in (#1710)** —
+  package-borne. A series or a summary index's filing
+  (`RecordSliceTilingType`) gains `order`, after `tile`: `key` for an index
+  that files a key's events together, as every series and summary index did,
+  or `time` for a series index declared `order: "time"`, which files a tile's
+  events together in their keys' order (`RecordSliceOrderType`). A binding
+  marks such an index's kind with `order=time`; an index in key order is
+  marked as it was. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, so a UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type.
+  The narrowing the store keeps (`RecordSliceStateType`) is unchanged, so a
+  narrowing kept or a view saved under the earlier type reads as it did. An
+  index declared in time order is a new index of a record, built as every
+  index is when its package is deployed; no index a record already has changes
+  its key. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.
+- **east-ui's record Slice says whether a series index's entries are copies of
+  its events (#1725)** — package-borne. A series or a summary index's filing
+  (`RecordSliceTilingType`) gains `copy`, after `order`: whether a series
+  index's entries carry a copy of each event — what its `value` gives of the
+  row — in the row's place, false for one carrying its rows and for a summary.
+  A binding marks such an index's kind with `__copy`, and names the copy's
+  type in the index's metadata beside its `fields` and `kind` (`copy`, an
+  empty Array of it), so the page's runtime reads its entries at the copy's
+  type and never joins them; an index carrying its rows is marked as it was. A
+  binding's projection no longer counts such an index, as it counts no
+  summary: one that lists it beside a summary alone, whose projection was the
+  copy, now has none. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, and the metadata in the
+  binding, so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. The narrowing the store keeps
+  (`RecordSliceStateType`) is unchanged, so a narrowing kept or a view saved
+  under the earlier type reads as it did. No index changes its key or what it
+  carries. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.
+  The binding (`IndexedSourceType`) gains `copies`, after `maintenance`: for
+  each such index it lists, the index's value function, `(K, R) → V`, by the
+  index's name — none where it lists none — which a Plan draws a drafted row's
+  copy through. The platform function a binding is made by
+  (`data_bind_indexed`) takes it as its last argument, typed by a new last
+  type parameter, so a UI task's output built by the earlier release calls it
+  with one argument fewer: packages are re-exported, and the dataflow computes
+  each UI task's output again. A Plan's event kind whose source lists such an
+  index reads its cells as copies (`cellsType`, each event's key beside its
+  copy); a kind over rows reads them as it did.
+- **east-ui's record Slice tells the record's totals from a resource's
+  summary (#1732)** — package-borne. A summary index's filing
+  (`RecordSliceIndexType`'s `summary`) is one of two
+  (`RecordSliceSummaryType`): `keyed`, the filing it was
+  (`RecordSliceTilingType`), for a summary filed by key, or `totals`, a
+  summary with no key — the record's totals a tile — its start and end fields
+  and its tile (`RecordSliceTotalsType`). A binding lists such summaries
+  apart from its indexes, in its `totals`, and marks each one's kind with
+  `__totals` beside its fields and tile, naming no key; a summary filed by key
+  is marked as it was. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, so a UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type.
+  The narrowing the store keeps (`RecordSliceStateType`) is unchanged, so a
+  narrowing kept or a view saved under the earlier type reads as it did. A
+  summary with no key is a new index of a record (`index.summary({ from, to,
+  tile })`), built as every index is when its package is deployed; no index a
+  record already has changes its key or what it carries. A UI task's output is
+  not stored state, so no repository upgrade step ships with it.
+- **A nested series index keeps its totals a period each, and its span's key
+  gains the period (#1739)** — package-borne. `index.nestedSeries` takes its
+  `summary` as a list of periods where it took one tile, and `totals` beside
+  it: the periods each node's totals are kept at, none where it lists none,
+  and the periods the record's totals are kept at across its rows — a month, a
+  quarter and a year where the declaration names none. A node's totals runs
+  (`totals`, `subtreeTotals`) hold a tile at each period of `summary`, an
+  entry's `level` the period it is kept at, so the entry key
+  (`NestedEntryKeyType`) keeps its type, and an index holds a run a period
+  where it held one. The span's key (`NestedSpanKeyType`) gains `level`,
+  between `collection` and `tile` — `{ collection, level, tile }`, the period
+  a tile is of (`RecordLevelType`) — where it was `{ collection, tile }`, a
+  collection's months. An item counts once in each tile of a period it
+  touches, so a period's totals are read as they are kept, and no reader adds
+  a finer period's up into a coarser one. Each nested series index a package
+  declares, and the span beside it, changes with them, so both are rebuilt as
+  the package is deployed, as any changed index is; an index is derived from
+  its record, so no repository upgrade step ships, and no reader keeps the
+  earlier form. A write keeps the span from what its patch touched of each
+  row — the items and values the patch names, before and after — where it
+  read each changed row whole: that is the programs' own, generated at
+  export, and no stored form's. A package's source that wrote `summary:
+  "month"` writes `summary: ["month"]` before its next export, the builder
+  refusing the earlier form by name; and a task's or a function's reader
+  names the period it reads, `totals({ …, tile: "month" })`, where its index
+  keeps several.
+- **e3-ui's nested binding and the Plan's seam name the periods a nested
+  series index keeps its totals at (#1739)** — package-borne. A binding that
+  lists a nested series index carries the index's part in its type
+  (`NestedPartType`, which `data_bind_indexed` takes as a type parameter and
+  the part's value beside it): its `summary`, a struct whose one field was the
+  index's summary tile, holds a field for each period the index keeps each
+  node's totals at, the empty struct where it keeps none, and it gains
+  `totals`, after `summary`, a field for each period it keeps the record's
+  totals at. The seam a Plan's root carries over rows paged beside the index
+  (`PlanNestedType`) holds `summary` as those periods, finest first — an Array
+  of `RecordSliceTileType` where it was an Option of one — and gains `totals`,
+  after it, the same way. Past its cap a row shades from the period its column
+  is where `summary` lists it, else from the coarsest listed that divides the
+  column, and the horizon's bars are read at the period of `totals` they count
+  by: no page adds a finer period's totals up into a coarser one the index
+  keeps. A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it.
 - **e3-ui's `Sheet` and `Record` hear a click on a row (#1726, #1727)** —
   package-borne. The Sheet's root (`SheetRootType`) gains `onRowClick`, after
   `onSelect`: a function over the grid's click on a row (`SheetRowClickType`:

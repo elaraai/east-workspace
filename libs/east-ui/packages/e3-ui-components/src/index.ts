@@ -63,6 +63,9 @@ export {
     type UseDecisionHandleResult,
     type DecisionHandleValue,
 } from './decision/handle-runtime.js';
+// `schedule_cell_rows`, the rows a Plan's or a Calendar's reader holds of its event kinds as their seams read them
+// (#1771), for a host that renders UI functions outside `UITaskPreview` and lists the platforms it lists.
+export { ScheduleCellRowsImpl } from './shared/schedule/cell-rows.js';
 
 // Studio renderers — each registers itself against its extension on import: the builder,
 // the page library, one page and the bell for a host's bar (#1674) — and the Studio's words.

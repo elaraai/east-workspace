@@ -44,12 +44,12 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
-    StringType, StructType, none, some, variant,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, OptionType, SetType,
+    StringType, StructType, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
 import { IconType, PickStateType } from "@elaraai/east-ui";
-import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
+import { PlanEventItemType, PlanEventKindType, ScheduleCellReadType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { PlanEventShadeType, shadedKind } from "./shade.js";
 // The shade a bucket draws past the cap, given on as ever (#1039).
@@ -78,11 +78,11 @@ export type PlanEventDraftsType = typeof PlanEventDraftsType;
 
 /**
  * What a reader read of each event kind by its series index's cells (#1039),
- * by the kind's slot: the entries, one beast2 of the kind's `cellsType`, that
- * the kind draws its events from. A kind it does not name is read over the
- * window, as ever.
+ * by the kind's slot: what the kind draws its events from (#1771) — the rows
+ * it holds, named by their handle, or none of the kind's events. A kind it
+ * does not name is read over the window, as ever.
  */
-export const PlanEventReadsType = DictType(StringType, BlobType);
+export const PlanEventReadsType = DictType(StringType, ScheduleCellReadType);
 
 /** Type representing {@link PlanEventReadsType}. */
 export type PlanEventReadsType = typeof PlanEventReadsType;
@@ -90,10 +90,12 @@ export type PlanEventReadsType = typeof PlanEventReadsType;
 /**
  * The resources' shading (#1039): by the key of the rows it stands in for — a
  * landing series' key and a way of drawing, `<series>.<draw>` — then by the
- * resource key's text, its buckets. Each of those rows draws heat over them in
- * place of its events: a booked-vs-free bar a bucket for bars and chips, how
- * many for tiles and marks, the counts of one key on one scale; a row with a
- * bucket of no value draws the no-data hatch.
+ * key a row of it files its events under, its buckets: the resource key's
+ * text, or for a row a step beneath a resource the pair ({@link childRowKey}),
+ * each row its own counts. Each of those rows draws heat over them in place of
+ * its events: a booked-vs-free bar a bucket for bars and chips, how many for
+ * tiles and marks, the counts of one key on one scale; a row with a bucket of
+ * no value draws the no-data hatch.
  */
 export const PlanEventShadingType = DictType(StringType, DictType(StringType, ArrayType(PlanEventShadeType)));
 
@@ -155,6 +157,11 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
  * @property under - The landing series its rows stand beneath, a step down from each of its rows (#1541, U1), for a series
  *   a kind's `child` lands on: what names its resource — the step of its row's path before the last. `none` for every
  *   other series, a resources series in its own right however deep it is nested
+ * @property within - The keys of the series it is nested in, outermost first (#1716): a group's own row, or a section's
+ *   header, whose series is among them counts the events of the kinds landing on it
+ * @property depth - How many steps its rows' paths hold (#1716): one at the top, and one more beneath each series that
+ *   nests its own beneath each of its rows — a kinds block and a section add none. What tells a group's row which of the
+ *   fields a kind's series index is led by names it: the steps before a resource's own are those fields, outermost first
  */
 export const PlanLandingType = StructType({
     key: StringType,
@@ -164,6 +171,8 @@ export const PlanLandingType = StructType({
     series: ArrayType(StringType),
     top: BooleanType,
     under: OptionType(StringType),
+    within: ArrayType(StringType),
+    depth: IntegerType,
 });
 
 /** Type representing {@link PlanLandingType}. */
@@ -245,6 +254,22 @@ const childRowKey = East.function([StringType, StringType], StringType, ($, reso
     const pair = $.let([resource, child], ArrayType(StringType));
     return East.print(pair);
 });
+
+/** East's printer of a pair of keys, as {@link childRowKey} prints one. */
+const printKeyPair = printFor(ArrayType(StringType));
+
+/**
+ * The key a row beneath a resource files its events under, printed outside East (#1712): the text {@link childRowKey}
+ * gives the resource's key and the child's inside the seam. A reader of the events placed finds by it the row a key's
+ * list is for.
+ *
+ * @param resource - The resource's key: the step of the row's path before the last
+ * @param child - The row's own key: its path's last step
+ * @returns The pair, as East prints it
+ */
+export function planChildRowKey(resource: string, child: string): string {
+    return printKeyPair([resource, child]);
+}
 
 // ============================================================================
 // Elements — one event as each way of drawing shows it
@@ -504,6 +529,7 @@ export function createEventSeam(
             const result = $.let(none, OptionType(PlanEventPlacedType));
             const rowKeyOf = $.const(childRowKey);
             const noDrafts = $.const(new Map(), ScheduleDraftsType);
+            const overWindow = $.const(variant("window", null), ScheduleCellReadType);
             const hidden = $.let(hiding.toSet(), SetType(StringType));
             // Each kind's events over the window, its drafts in place (PB17) — a kind a reader read by its cells from
             // what it read (#1039). A hidden kind is not read: it places nothing, so nothing waits on it.
@@ -511,7 +537,9 @@ export function createEventSeam(
                 const kind = $.let(built.get(BigInt(i)));
                 const kindDrafts = $.let(drafts.get(slot, () => noDrafts));
                 const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
-                $.if(hidden.has(planHideId.events(slot)).not(), ($2) => { $2.assign(read, kind.planItems(from, to, kindDrafts, given.tryGet(slot))); });
+                $.if(hidden.has(planHideId.events(slot)).not(), ($2) => {
+                    $2.assign(read, kind.planItems(from, to, kindDrafts, given.get(slot, () => overWindow)));
+                });
                 return read;
             });
             const ready = reads.reduce<ExprType<BooleanType>>((all, read) => all.and(() => read.hasTag("some")), East.value(true, BooleanType));
@@ -629,13 +657,13 @@ export function createEventSeam(
                                     p.draws.forEach((d, i) => {
                                         const series = `${p.key}.${d.draw}`;
                                         const list = $5.let(byDraw.get(d.draw, () => East.value(new Map(), ByDraw.value)).get(key, () => noEvents));
-                                        // The shading's heat in place of its events, where it names the row (#1039). It is filed by
-                                        // resource, its kinds' indexes reading none by the rows beneath one: a row a step beneath a
-                                        // resource's draws its resource's.
-                                        const shaded = `${p.under ?? p.key}.${d.draw}`;
-                                        const kind = $5.let(shading.tryGet(shaded).match({
+                                        // The shading's heat in place of its events, where it names the row (#1039): filed as its
+                                        // events are, under the row's own series by the row's own key — a row a step beneath a
+                                        // resource's by the pair, its counts its own, or the hatch where its kinds' source keeps
+                                        // none of them: never its resource's, which drew every row beneath it alike.
+                                        const kind = $5.let(shading.tryGet(series).match({
                                             none: (_$6) => drawnKind(d.draw, list, row, elements, d.always),
-                                            some: (_$6, byKey) => shade(byKey.get(resourceKey, () => noShades), tops.get(shaded), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
+                                            some: (_$6, byKey) => shade(byKey.get(key, () => noShades), tops.get(series), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
                                         }));
                                         if (i === 0) {
                                             $5(rows.pushLast(remake(row, kind)));
@@ -735,5 +763,7 @@ export function landingsOnWire(
         series: [...landing.series],
         top: landing.top,
         under: ((under) => (under === undefined ? none : some(under)))(steps.get(landing.key)),
+        within: [...landing.within],
+        depth: BigInt(landing.depth),
     })), ArrayType(PlanLandingType));
 }

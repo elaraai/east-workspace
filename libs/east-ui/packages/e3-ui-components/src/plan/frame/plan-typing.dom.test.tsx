@@ -25,11 +25,11 @@
  *   values beneath it and takes none: its tooltip says to zoom to the finest,
  *   and a double click, Enter or a tap below 480px of main zooms there about
  *   its period, on the row's cell at its middle, where a number typed into a
- *   week holding one value replaces it at its date. The resolution is the
- *   slice's: a Plan without one has no zoom but the one it shows.
+ *   week holding one value replaces it at its date. A zoom moves the window,
+ *   and a Plan with no slice has none to move: it shows the one period.
  * - Below 480px of main, a tap on a cell opens the input in a popover anchored
  *   to it, its Enter writing as above. A card reads its row's nested series
- *   whatever the desktop folds, washed while they are read.
+ *   whatever the desktop folds, its skeleton bar drawn while they are read.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -50,16 +50,19 @@ const h = planHarness({ "plan/plan-nested.fixtures": ex });
 /** The ledgers' record, as e3's requests name it. */
 const LEDGERS = (ex.ledgers.path as TreePath).map((step) => step.value).join(".");
 
-/** The weeks the canvas shows, Monday to Monday, at each resolution it is typed at. */
+/**
+ * The time the canvas shows at each period it is typed at: eight weeks, Monday to Monday, and a year — which draws in
+ * months on an axis offering weeks too, a week's column there under the column floor (#1740).
+ */
 const WINDOWS = {
     week: { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-03-02T00:00:00Z") },
-    month: { min: new Date("2026-01-01T00:00:00Z"), max: new Date("2026-07-01T00:00:00Z") },
+    month: { min: new Date("2026-01-01T00:00:00Z"), max: new Date("2027-01-01T00:00:00Z") },
 } as const;
 
-/** How the ledgers' Plan is mounted: the resolutions its axis names beside the one it opens at, and whether a slice holds them. */
+/** How the ledgers' Plan is mounted: the periods its axis offers, where it names them, and whether its rows are paged through a slice. */
 interface LedgersTyped {
     readonly resolutions?: readonly (keyof typeof WINDOWS)[];
-    /** Its rows paged through a slice, which holds the resolution, so the Plan zooms: without one it shows the one it opens at. */
+    /** Its rows paged through a slice, so the Plan zooms — a zoom moves the window: without one it shows the period it opens at. */
     readonly sliced?: boolean;
     /** Its measures folded on the desktop, so it lays out none of their children. */
     readonly collapsed?: boolean;
@@ -134,7 +137,7 @@ const measureOf = (ledger: LedgerValue, ...path: string[]): MeasureValue => {
     return at;
 };
 const readLedgers = async () => (await h.read(ex.ledgers)) as ReadonlyMap<string, LedgerValue>;
-/** The ledgers' Plan opened at the month, zooming to the week through its slice. */
+/** The ledgers' Plan over a year, which opens in months, zooming to the week through its slice. */
 const ZOOMING = ledgersTyped("month", { resolutions: ["week", "month"], sliced: true });
 
 /** Ledger 101's first leaf: January holding one reading, the one of its week of the 5th moved to Wednesday the 7th. */
@@ -198,8 +201,8 @@ describe("a number typed into a table cell (#1438)", () => {
         await typeIn(c, "15");
         await press(c, "Enter");
         await read.holding;
-        // The leaf, its middle measure and its top measure wash as in flight; its sibling does not.
-        const inFlight = () => [LEAF, MIDDLE, TOP, LEAF_2].map((row) => c.querySelector(`${row} [data-plan-unread]`) !== null);
+        // The leaf, its middle measure and its top measure draw as in flight, a skeleton bar across each; its sibling does not.
+        const inFlight = () => [LEAF, MIDDLE, TOP, LEAF_2].map((row) => c.querySelector(`${row} [data-plan-unread] > [data-loading-bar]`) !== null);
         await waitFor(() => expect(inFlight()).toEqual([true, true, true, false]));
         read.release();
         await settle();
@@ -316,13 +319,13 @@ describe("a number typed into a table cell (#1438)", () => {
         await waitFor(() => expect(printed(c, LEAF, JAN_12)).toBe("3"));
     });
 
-    test("a parent's cell takes no typing; at the month of a Plan with no slice, its one zoom however its axis names the week, a leaf's cell folding its weeks takes none either, its tooltip saying no zoom of this Plan's shows them apart", async () => {
+    test("a parent's cell takes no typing; at the month of a Plan with no slice, the one period it shows, a leaf's cell folding its weeks takes none either, its tooltip saying no zoom of this Plan's shows them apart", async () => {
         const { container: c } = await h.mount(ledgersTyped("week"));
         await settle();
         expect([MIDDLE, TOP].map((row) => cellAt(c, row, JAN_12)!.hasAttribute("data-typed"))).toEqual([false, false]);
         await openOn(c, MIDDLE, JAN_12);
         expect(inputOf(c)).toBeNull();
-        const { container: m } = await h.mount(ledgersTyped("month", { resolutions: ["week", "month"] }), { storageKey: "month" });
+        const { container: m } = await h.mount(ledgersTyped("month"), { storageKey: "month" });
         await settle();
         const january = cellAt(m, LEAF, new Date("2026-01-01T00:00:00Z"))!;
         expect(january.hasAttribute("data-typed")).toBe(false);
@@ -448,18 +451,18 @@ describe("below 480px of main (#1438)", () => {
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["15", "22"]));
     });
 
-    test("with its measures folded on the desktop, a leaf's card reads its readings, washed while they are read and the frame waiting on them, and a tap on one takes a typed number, the subtotals above it moving", async () => {
+    test("with its measures folded on the desktop, a leaf's card reads its readings, its skeleton bar drawn while they are read and the frame waiting on them, and a tap on one takes a typed number, the subtotals above it moving", async () => {
         const { container: c } = await h.mount(ledgersTyped("week", { collapsed: true }));
         await settle();
         // Folded, the desktop lays out none of ledger 101's leaves.
         expect(c.querySelector(LEAF)).toBeNull();
         await narrowTo(390);
-        // Ledger 101's rows as cards, their readings' reads held: its leaf's card washes until they land.
+        // Ledger 101's rows as cards, their readings' reads held: its leaf's card draws its skeleton bar until they land.
         const reads = h.e3.hold((request) => request.kind === "find");
         const group = [...c.querySelectorAll<HTMLElement>("[data-plan-groupcard]")]
             .find((el) => el.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
         await act(async () => { fireEvent.click(group); });
-        await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread]`)).not.toBeNull());
+        await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread] > [data-loading-bar]`)).not.toBeNull());
         // The frame waits on them as it does on a row in view on the desktop: main busy, and its line saying so — a phone's
         // the footer's still, laid over main's foot (Mobile Builder Frame Spec.md R5).
         const line = () => slot(c, "footer")!.querySelector("[data-footer-line] [data-line-text]")?.textContent ?? null;

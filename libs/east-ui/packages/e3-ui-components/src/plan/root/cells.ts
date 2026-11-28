@@ -19,16 +19,26 @@
  * links name ({@link PlanCellsArgs.links}), which the reader reads by key so a
  * link finds its row. The resources are the canvas's own rows (#1541): each
  * landing row, a resources series' or a kinds case's, by its series' key and
- * the last step of its path. Over rows read whole they are every landing row
- * of the canvas; over rows read a page at a time, each window's — 200 entries
- * to a window, as many resources as they nest — read through the root's own
- * source, with its size and the narrowing its windows belong to; then the range
- * the canvas reads and its scale's buckets. And it keeps the span store the
+ * the last step of its path — and, for a kind whose `child` lands a step
+ * beneath its resources, each with the rows beneath it, which its shading
+ * counts on their own (the reader's "Rows beneath a resource"). Over rows read whole they are every landing row
+ * of the canvas; over rows read a page at a time, each window's — the root's
+ * count of entries to a window (#1714), as many resources as they nest — read
+ * through the root's own source, with its size and the narrowing its windows
+ * belong to — and no Unassigned row: over rows read a page at a time an event
+ * on no resource is in no window (#1541), so none is read (#1710); then the
+ * range the canvas reads and its scale's buckets. And it keeps the span store the
  * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
- * never the overscan, the span standing while it shows only rows not read
- * ({@link shownCellSpan}); the rows' ids name a resource by the last step of
- * their path.
+ * never the overscan, the span standing while it shows only rows not read, and
+ * a span of no row while the rows it shows stand for no resource — group rows
+ * alone, every group folded — for which no row's events are read
+ * ({@link shownCellSpan}). A row names its
+ * resource by the last step of the path it is read by (`readPathOf`), and a
+ * group's own row, whose path is none, names none (#1711). A resource beneath
+ * a group names the rows it stands under too, by the steps of its path before
+ * its own (#1710): a kind whose source lists a series index in time order led
+ * by its rows' group is read through it, a block of rows under its own group.
  *
  * A kind read a window at a time — through its source's interval index, or a
  * day index, one event by its key — gives the reader the stored rows its
@@ -40,8 +50,12 @@
  * hold, or of a new one (`isNew`, #1343), as its window's own read drew them —
  * an event its drafts moved under another key (east-workspace#1709) among the
  * new: its record holds none under that key.
- * The canvas's range is a window panned over its rows, no period: what the last
- * range held stands while the next is read.
+ * The canvas's range is a window panned over its rows: what the last range
+ * held stands while the next is read. Its period is its columns' (#1740), and
+ * a read is made for it — whether a kind draws its events or its summary's
+ * shading, and the buckets that shading is folded into — so under another the
+ * canvas draws none of the last one's: every kind is handed nothing and each
+ * row waits on the read, as before a first (`scheduleSteppedCells`).
  *
  * A Save's confirmation reads its events by their keys, never the cells: what
  * it landed of a kind the reader gives cells draws as the Save left it over
@@ -54,11 +68,12 @@
 
 import { useMemo, useRef } from "react";
 import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
-import { PLAN_PAGE_SIZE, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { planChildRowKey, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { underOf } from "../../shared/schedule/series-groups.js";
 import {
-    useScheduleCells, type ScheduleCellBucket, type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources,
-    type ScheduleCellSpan, type ScheduleCellsRead,
+    sameCellSpan, scheduleCellSpanOf, scheduleSteppedCells, useScheduleCells, type ScheduleCellBucket, type ScheduleCellChild, type ScheduleCellEnd,
+    type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
 import { draftAdds } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
@@ -67,7 +82,7 @@ import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanEventPart } from "./sources.js";
-import { readResourceOf } from "./landings.js";
+import { landingUnderOf, readResourceOf } from "./landings.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -79,8 +94,6 @@ type Links = PlanRootValue["links"];
 
 const stringEqual = equalFor(StringType);
 const compareDate = compareFor(DateTimeType);
-/** Whether two narrowings, as a source names them, are one — none being none (#1344). */
-const sameNarrowing = (a: string | undefined, b: string | undefined): boolean => (a === undefined || b === undefined ? a === b : stringEqual(a, b));
 
 /**
  * The buckets a range is cut into at a scale's resolution: the range the
@@ -115,6 +128,8 @@ export interface PlanCellsArgs {
      * a page at a time, the root's source, whose windows' landing rows a kind read by its cells reads the events of.
      */
     readonly rows: PlanRootValue["rows"];
+    /** How many of the rows' entries each window of the root's holds (#1714): the windows the span names. */
+    readonly windowEntries: number;
     /** The event kinds narrowed through their sources of the slice, and the parts they read through. */
     readonly parts: readonly PlanEventPart[];
     /** The canvas's scale: its resolution and its buckets. */
@@ -142,24 +157,32 @@ export interface PlanCellsArgs {
  * The resources some rows' events are read by (#1541): each landing row's — a resources series' or a kinds case's — by
  * its series' key and the last step of its path, in the order the rows draw them; and, of a row beneath a resource
  * that a kind's `child` lands on, the resource it stands beneath (`readResourceOf`). A resource's own row and the
- * rows beneath it name it once — and the rows beneath it alone do, where the page draws no row of its own.
+ * rows beneath it name it once — and the rows beneath it alone do, where the page draws no row of its own — and it
+ * lists those rows beneath it, each by its series and its own key: what its kind's shading counts on its own. A
+ * resource beneath other rows — a group's — names them too (#1710): the steps of its path before its own, outermost first.
  *
  * @param blocks - The rows
  * @param landings - The series the event kinds land on
  * @returns The resources
  */
 export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: readonly Landing[]): ScheduleCellKey[] {
-    const out: ScheduleCellKey[] = [];
+    const out: (ScheduleCellKey & { children?: ScheduleCellChild[] })[] = [];
     for (const block of blocks) {
         for (const row of block.rows) {
             if (row.id.type !== "entry") continue;
-            const series = row.id.value.series;
+            const { series, path } = row.id.value;
             const landing = landings.find((l) => stringEqual(l.key, series));
-            const read = landing === undefined ? undefined : readResourceOf(landing, row.id.value.path);
+            const read = landing === undefined ? undefined : readResourceOf(landing, path);
             if (read === undefined) continue;
-            const last = out[out.length - 1];
-            if (last !== undefined && stringEqual(last.slot, read.slot) && stringEqual(last.key, read.key)) continue;
-            out.push(read);
+            let at = out[out.length - 1];
+            if (at === undefined || !stringEqual(at.slot, read.slot) || !stringEqual(at.key, read.key)) {
+                // The rows it stands under: its path's steps before its own key, which a row a step beneath it follows.
+                const under = landingUnderOf(landing!, path);
+                out.push(at = under.length === 0 ? { ...read } : { ...read, under });
+            }
+            // A row a step beneath it a kind's `child` lands on (#1541, U1): by its series and its own key.
+            const beneath = landing!.under.type === "some" ? path[path.length - 1] : undefined;
+            if (beneath !== undefined) (at.children ??= []).push({ slot: landing!.key, key: beneath });
         }
     }
     return out;
@@ -233,44 +256,60 @@ function useLinkEnds(links: Links, kinds: readonly EventKind[]): PlanLinkEnds {
  * @returns What the shared reader read
  */
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
-    const { kinds, landings, rows, parts, scale, range, drafts, hidden, span, links, editing } = args;
+    const { kinds, landings, rows, windowEntries, parts, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
     const movedFrom = editing?.movedFrom;
     const ends = useLinkEnds(links, kinds);
-    const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
-        key: kind.key,
-        name: kind.name,
-        takes: kind.takes,
-        booked: booked(kind),
-        // A resource's rows are keyed `<landing>.<draw>`: the shading stands in for those its kind draws.
-        shadeKey: (slot: string) => `${slot}.${kind.draw.type}`,
-        cellsType: kind.cellsType,
-        seriesKey: kind.seriesKey,
-        // Every kind is counted: a day index's count is an upper bound on its events, never their number.
-        count: kind.count,
-        exact: kind.countExact,
-        part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
-        hidden: hides(hidden, planHideId.events(kind.key)),
-        wanted: ends.get(kind.key) ?? NO_LINK_ENDS,
-        // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's among
-        // them — or of a new one (#1343): one its session began from no stored row, or one its drafts moved under the key
-        // its fields build (east-workspace#1709).
-        isNew: held !== undefined && movedFrom !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key))
-            ? draftAdds(held, movedFrom, kind.key) : undefined,
-        // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
-        // another planner's removal of a job drafted here never takes it off the canvas before the session has read it.
-        carrying: carrying === undefined ? undefined : () => carrying(kind.key),
-        // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and —
-        // no source narrowing it — the revision its record reads at.
-        stored: kind.entries.type === "some" ? kind.stored : undefined,
-        revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, hidden, ends, held, carrying, movedFrom]);
-    // Over rows read whole: every landing row of the canvas, by its series.
+    const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind): ScheduleCellKind => {
+        const child = kind.child.type === "some" ? kind.child.value : undefined;
+        return {
+            key: kind.key,
+            name: kind.name,
+            takes: kind.takes,
+            booked: booked(kind),
+            // A resource's rows are keyed `<landing>.<draw>`: the shading stands in for those its kind draws.
+            shadeKey: (slot: string) => `${slot}.${kind.draw.type}`,
+            cellsType: kind.cellsType,
+            seriesKey: kind.seriesKey,
+            // Every kind is counted: a day index's count is an upper bound on its events, never their number.
+            count: kind.count,
+            exact: kind.countExact,
+            part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
+            hidden: hides(hidden, planHideId.events(kind.key)),
+            wanted: ends.get(kind.key) ?? NO_LINK_ENDS,
+            // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's
+            // among them — or of a new one (#1343): one its session began from no stored row, or one its drafts moved under
+            // the key its fields build (east-workspace#1709).
+            isNew: held !== undefined && movedFrom !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key))
+                ? draftAdds(held, movedFrom, kind.key) : undefined,
+            // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now
+            // (#1599): another planner's removal of a job drafted here never takes it off the canvas before the session has
+            // read it.
+            carrying: carrying === undefined ? undefined : () => carrying(kind.key),
+            // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and
+            // — no source narrowing it — the revision its record reads at.
+            stored: kind.entries.type === "some" ? kind.stored : undefined,
+            revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
+            // A kind landing a step beneath its resources (#1541, U1): each row there counted on its own past the cap, its
+            // shading filed by the pair as the seam files its events, and its key's text read at the child's field as a
+            // row's under a group is (`underOf`).
+            child: child === undefined ? undefined : {
+                slot: child.of, field: child.field, rowKey: planChildRowKey,
+                literal: (text) => underOf(kind.cellsType, text)(child.field),
+            },
+        };
+    }), [kinds, parts, hidden, ends, held, carrying, movedFrom]);
+    // Over rows read whole: every landing row of the canvas, by its series — with the rows beneath each a kind's `child`
+    // lands on.
     const whole = useMemo((): ScheduleCellResources[] => {
         if (rows.type !== "inline") return [];
         const keys = landingKeysOf(rows.value, landings);
-        return landings.map((landing) => ({ key: landing.key, keys: keys.filter((k) => stringEqual(k.slot, landing.key)).map((k) => k.key) }));
+        return landings.map((landing) => {
+            const mine = keys.filter((k) => stringEqual(k.slot, landing.key));
+            const children = new Map(mine.flatMap((k) => (k.children === undefined ? [] : [[k.key, k.children] as const])));
+            return { key: landing.key, keys: mine.map((k) => k.key), ...(children.size > 0 && { children }) };
+        });
     }, [rows, landings]);
     // Over rows read a page at a time: each window's landing rows, read through the root's own source, once a window.
     const pagedRows = useMemo((): ScheduleCellPaged | undefined => {
@@ -279,8 +318,10 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         const kept = new WeakMap<readonly PlanWireBlock[], ScheduleCellKey[]>();
         return {
             kinds: landings.map((landing) => landing.key),
-            window: PLAN_PAGE_SIZE,
+            window: windowEntries,
             hidden: false,
+            // No Unassigned row over rows read a page at a time (#1541): an event on no resource is in no window.
+            unassigned: false,
             keys: (offset, limit) => {
                 const read = source.page(offset, limit);
                 if (read.type !== "some") return none;
@@ -294,15 +335,20 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
             total: () => source.total(),
             narrowing: () => source.query?.(),
         };
-    }, [rows, landings]);
+    }, [rows, landings, windowEntries]);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
-    return useScheduleCells({
-        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, buckets, resolution: scale?.resolution, drafts, span,
-        landed: editing?.landed, shown: editing?.shown,
+    // Zoomed out past a kind's series tile, the kind shades from its summary and reads none of its events (#1706). The
+    // read is made for the columns' period, which names it (#1740).
+    const resolution = scale?.resolution;
+    const read = useScheduleCells({
+        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, period: resolution, buckets, resolution, zoomShades: true,
+        drafts, span, landed: editing?.landed, shown: editing?.shown,
     });
+    // Under another period, none of the last one's events or shading draws: the rows wait on the read.
+    return useMemo(() => scheduleSteppedCells(read, cellKindsOf), [read, cellKindsOf]);
 }
 
 /**
@@ -349,12 +395,10 @@ export interface PlanCellSpanStore {
 export function createCellSpanStore(): PlanCellSpanStore {
     let span: ScheduleCellSpan | undefined;
     const listeners = new Set<() => void>();
-    const same = (a: ScheduleCellSpan["first"], b: ScheduleCellSpan["first"]) => a.w === b.w && stringEqual(a.key, b.key);
     return {
         get: () => span,
         set(next) {
-            if (next === span || (next !== undefined && span !== undefined && same(next.first, span.first) && same(next.last, span.last)
-                && sameNarrowing(next.narrowing, span.narrowing))) return;
+            if (next === span || (next !== undefined && span !== undefined && sameCellSpan(next, span))) return;
             span = next;
             for (const listener of [...listeners]) listener();
         },
@@ -366,11 +410,15 @@ export function createCellSpanStore(): PlanCellSpanStore {
 }
 
 /**
- * The paged rows in view among the canvas's items: the first and the last row
- * a paged window placed, each by its window and its resource's key — the last
- * step of its path — under the narrowing their windows are.
+ * The paged rows in view among the canvas's items: each row a paged window
+ * placed, by its window and its resource's key — the last step of its path —
+ * under the narrowing their windows are, in runs as the reader takes them
+ * (`scheduleCellSpanOf`): rows beside a group at the Plan's top run through the
+ * same windows twice, a run each (#1710). A row that stands for no resource,
+ * its path none — a group's own row — is passed over wherever it is: an end is
+ * always a resource its window lists (#1711).
  *
- * @param items - The rows in view, in order: each its key and its id
+ * @param items - The rows in view, in order: each its key and the path its events are read by (`readPathOf`)
  * @param origin - Which window each paged row came from
  * @param narrowing - The narrowing the windows belong to, as the source names it (#1344); `undefined` for one it names none of
  * @returns The span; `undefined` when no paged row is in view
@@ -379,17 +427,13 @@ export function cellSpanOf(
     items: readonly { readonly key: string; readonly path: readonly string[] }[], origin: ReadonlyMap<string, { readonly w: number }>,
     narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
-    let first: ScheduleCellSpan["first"] | undefined;
-    let last: ScheduleCellSpan["first"] | undefined;
+    const rows: ScheduleCellEnd[] = [];
     for (const { key, path } of items) {
         const at = origin.get(key);
         const resource = path[path.length - 1];
-        if (at === undefined || resource === undefined) continue;
-        const here = { w: at.w, key: resource };
-        first ??= here;
-        last = here;
+        if (at !== undefined && resource !== undefined) rows.push({ w: at.w, key: resource });
     }
-    return first === undefined || last === undefined ? undefined : { first, last, narrowing };
+    return scheduleCellSpanOf(rows, narrowing);
 }
 
 /**
@@ -401,17 +445,27 @@ export function cellSpanOf(
  * never the opening's first block, a view away — and the run's rows report
  * their own once they are drawn.
  *
- * @param rows - The rows the view shows, in order: each its key and its id's path
+ * A view of paged rows none of which stands for a resource — group rows alone,
+ * every group folded (#1711) — draws no row's events, so it wants none read
+ * (#1795): it reports a span of no row, under the narrowing the windows are
+ * now, whatever stood and whatever a run beside them holds. The reader reads
+ * nothing for it while it lasts and keeps what it holds (the shared reader's
+ * "A view of no row"), where the span standing had every pan and zoom read the
+ * events of rows nobody saw.
+ *
+ * @param rows - The rows the view shows, in order: each its key and the path its events are read by (`readPathOf`)
  * @param unread - Whether the view shows a run of rows not read yet, or a window whose read failed
  * @param standing - The span reported last
  * @param origin - Which window each paged row came from
  * @param narrowing - The narrowing the windows belong to, as the source names it (#1344)
- * @returns The span to report; `standing` while the view shows rows not read alone
+ * @returns The span to report: of no row while the view's paged rows stand for no resource, and `standing` while it shows rows not read alone
  */
 export function shownCellSpan(
     rows: readonly { readonly key: string; readonly path: readonly string[] }[], unread: boolean, standing: ScheduleCellSpan | undefined,
     origin: ReadonlyMap<string, { readonly w: number }>, narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
     const span = cellSpanOf(rows, origin, narrowing);
-    return span === undefined && unread ? standing : span;
+    if (span !== undefined) return span;
+    if (rows.some((row) => origin.has(row.key))) return { runs: [], narrowing };
+    return unread ? standing : undefined;
 }

@@ -21,6 +21,12 @@
  * even number of pixels over in its room (`centredLine`), a line its box's own
  * height, or is a one-line box. Every example of the showcase is measured for
  * it in the browser (`box-rows.spec.ts`).
+ *
+ * Words that stand in a toolbar's row with no control around them (#1775) —
+ * what a Save is doing, a title, a readout, a state's word — take the row's
+ * own line, by one rule of the theme's (`toolbar-row.ts`): what a held Save's
+ * words lay out is measured in the browser (`toolbar-words.spec.ts`), and
+ * every example's row at rest with the small boxes.
  */
 
 import { describe, expect, test } from "vitest";
@@ -71,9 +77,10 @@ import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
+import { timeNavigatorSlotRecipe } from "./slot-recipes/timeNavigator.js";
 import { traceSlotRecipe } from "./slot-recipes/trace.js";
 import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
-import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT, toolbarControlBox } from "./toolbar-row.js";
+import { IN_TOOLBAR_ROW, ON_TOOLBAR_LINE, TOOLBAR_CONTROL_HEIGHT, TOOLBAR_WORDS, TOOLBAR_WORDS_LINE, toolbarControlBox } from "./toolbar-row.js";
 
 type Styles = Readonly<Record<string, unknown>>;
 
@@ -194,6 +201,51 @@ describe("a control of a toolbar's row that holds words", () => {
         expect(sized(at(sheet, "tabMore"))).toEqual(["28px", "28px"]);
         expect(sized(at(sheet, "tabMenu"))).toEqual(["28px", "28px"]);
         expect(sized(at(sheet, "tabAdd"))).toEqual(["28px", "26px"]);
+    });
+});
+
+describe("words that stand in a toolbar's row with no control around them", () => {
+    test("are set as the row's chips and its date are, in a box of the row's height whose line is as tall: their baseline is the chips'", () => {
+        expect(TOOLBAR_WORDS).toEqual({ fontFamily: "mono", fontSize: "11.5px", whiteSpace: "nowrap", height: "28px", lineHeight: "28px" });
+        // A chip's face and size in the row, its line the room inside its edge; the date's.
+        expect([chipRecipe.base?.fontFamily, chipRecipe.base?.fontSize]).toEqual([TOOLBAR_WORDS.fontFamily, `min(var(--cr-fs, 12px), ${TOOLBAR_WORDS.fontSize})`]);
+        const date = at(timeNavigatorSlotRecipe.base, "trigger");
+        expect([date.fontFamily, date.fontSize]).toEqual([TOOLBAR_WORDS.fontFamily, TOOLBAR_WORDS.fontSize]);
+    });
+
+    test("what a Save is doing, and the Record's last gesture, are those words: one rule, each part adding its own ink", () => {
+        expect(at(editHistorySlotRecipe.base, "status")).toMatchObject({ ...TOOLBAR_WORDS, color: "fg.muted" });
+        expect(at(recordSlotRecipe.base, "status")).toMatchObject({ ...TOOLBAR_WORDS, color: "fg.muted" });
+    });
+
+    test("in a phone's row, what a Save is doing stands where the drafts' count stands, as it does: its face's size, on the line of its box", () => {
+        const history = editHistorySlotRecipe.base;
+        expect(at(history, "status", "[data-history-form=phone] &")).toEqual({ fontSize: "label.lg", height: "24px", lineHeight: "24px" });
+        // The count, a chip or not, and the box that holds either.
+        expect([at(history, "changes").fontSize, at(history, "changes").lineHeight, at(history, "summary").height]).toEqual(["label.lg", "24px", "24px"]);
+        expect(at(history, "changes", "&[data-changes]").lineHeight).toBeUndefined();
+    });
+
+    test("words in a face of their own take the row's line: the Snap grid's saved time and its readout, the Record's title, the Calendar's count", () => {
+        expect(TOOLBAR_WORDS_LINE).toBe("28px");
+        expect(at(snapGridSlotRecipe.base, "saved").lineHeight).toBe(TOOLBAR_WORDS_LINE);
+        expect(at(snapGridSlotRecipe.base, "readout").lineHeight).toBe(TOOLBAR_WORDS_LINE);
+        expect(at(recordSlotRecipe.base, "titleText").lineHeight).toBe(TOOLBAR_WORDS_LINE);
+        expect(at(calendarSlotRecipe.base, "toolbarText").lineHeight).toBe(TOOLBAR_WORDS_LINE);
+    });
+
+    test("a part that stands elsewhere too takes the row's line in the row alone: a state's word, a filter group's name, the Library's grouping, secondary fact and caption", () => {
+        expect(ON_TOOLBAR_LINE).toEqual({ [IN_TOOLBAR_ROW]: { lineHeight: TOOLBAR_WORDS_LINE } });
+        const parts: ReadonlyArray<readonly [string, Styles]> = [
+            ["a state's word", at(statusSlotRecipe.base, "label")],
+            ["a filter group's name", at(sliceFrameSlotRecipe.base, "railGroupLabel")],
+            ["the Library's grouping", at(librarySlotRecipe.base, "groupTrigger")],
+            ["the Library's secondary fact", at(librarySlotRecipe.base, "dimTrigger")],
+            ["the Library's caption", at(librarySlotRecipe.base, "hint")],
+        ];
+        for (const [part, styles] of parts) expect(at(styles, IN_TOOLBAR_ROW), part).toEqual({ lineHeight: TOOLBAR_WORDS_LINE });
+        // Its own line outside a row: a state's word keeps the 13 its odd rooms centre.
+        expect(at(statusSlotRecipe.base, "label").lineHeight).toBe("13px");
     });
 });
 
@@ -343,7 +395,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Plan mark's label", at(plan, "markLabel"), "15px"],
         ["a Plan chart tick", at(plan, "chartTickLeft"), "14px"],
         ["a Plan segment's label", at(plan, "segmentPart"), "var(--plan-segment-h)"],
-        ["a Plan tile", at(plan, "tile"), "calc(var(--plan-tile-h) - 4px)"],
+        // The line a tile's parts stand on is its own height (#1735); its words have a line of their own (below).
+        ["a Plan tile", at(plan, "tile"), "var(--plan-tile-h)"],
         ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
         ["a Plan chip", at(plan, "cardChip"), "calc(var(--plan-chip-h) - 4px)"],
         ["the Plan's `← All rows`", at(plan, "focusBack"), "19px"],
@@ -410,11 +463,25 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
     });
 
     test("a box whose height its recipe does not know is a size container, its words' line its own height", () => {
-        expect(at(plan, "cell").containerType).toBe("size");
+        // A bucket cell holds no words: its tiles stand at the whole pixels its row sets (#1735).
         expect(at(plan, "heatCell").containerType).toBe("size");
         expect(at(avatarSlotRecipe.base, "root").containerType).toBe("size");
         // A compact Calendar event, as tall as its duration (#1646's review); a month's chip keeps its own line.
         expect(at(calendarSlotRecipe.base, "event", "&[data-compact]:not([data-chip])").containerType).toBe("size");
+    });
+
+    test("a Plan tile's label and its `+n` chip's count stand on a 13px line with a pixel over it, a pixel low in the tile's even room: the face's 13px glyph box a whole 4px under its top edge, its digits 6 | 8 | 6 (#1735)", () => {
+        const words = { lineHeight: "13px", paddingTop: "1px" };
+        expect(at(plan, "tileLabel")).toMatchObject(words);
+        expect(at(plan, "tileMore", "& > [data-tile-more-count]", "& > *")).toMatchObject(words);
+        // Nothing trims them to a cap height, which the face's metrics put at a fraction of a pixel.
+        expect(JSON.stringify([at(plan, "tileLabel"), at(plan, "tileMore")])).not.toContain("text-box");
+    });
+
+    test("a Plan gutter line alone in an even room — a buckets row's 25px lane — stands a pixel low, its glyph box 6px under the lane's top (#1735)", () => {
+        expect(at(plan, "gutterName", "&[data-plan-even-room]")).toEqual({ paddingTop: "1px" });
+        expect(at(plan, "gutterLane", "&[data-plan-even-room]")).toEqual({ paddingTop: "1px" });
+        expect(at(plan, "gutterLane").boxSizing).toBe("border-box");
     });
 
     test("the Sheet's action cell takes the line of its room's parity, which the Sheet's cell says beside its own (#1646's review)", () => {

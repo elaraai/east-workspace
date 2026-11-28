@@ -55,12 +55,12 @@ export const draftLedgers = e3.record("draft_ledgers", DictType(StringType, Draf
         // The ledgers by name.
         draft_ledgers_by_name: index.on(["name"]),
         // Each measure's readings in time, the ledger keeping their subtotals summed, averaged, counted and the last summed.
-        draft_ledgers_in_time: index.nested({
+        draft_ledgers_in_time: index.nestedSeries({
             collections: {
-                measures: index.nested.rows({ readings: index.nested.values({ rollup: ["sum", "mean", "count", { fold: "last", aggregate: "sum" }] }) }),
+                measures: index.nestedSeries.rows({ readings: index.nestedSeries.values({ rollup: ["sum", "mean", "count", { fold: "last", aggregate: "sum" }] }) }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

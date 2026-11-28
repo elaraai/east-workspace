@@ -36,8 +36,8 @@ function same<A, B>(..._exact: Equal<A, B> extends true ? [] : [never]): void {
 }
 
 /** A binding's type arguments, from its expression. */
-type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N, infer Maint>
-    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint } : never;
+type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N, infer Maint, infer C>
+    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint; C: C } : never;
 
 /**
  * A binding's parts, held where it is written: `partsOf(source).are<U>()`
@@ -62,26 +62,31 @@ type Machines = Parts<typeof machines>;
 same<Machines["P"], typeof ex.NestedMachine>();
 // The rail reads the index paging the machines, and no part of the nested one.
 same<keyof Machines["M"]["fields"], "machines_by_site_status">();
-// Each collection by its field: things dragged from their times, an alarm at its instant, values a day.
+// Each collection by its field: things dragged from their times, an alarm at its instant, values a day — beside the
+// index's name, its tile, the period it keeps each machine's totals at, and those it keeps the record's at where it
+// names none.
 same<Machines["N"], NestedPart<StructType<{
     jobs: StructType<{ items: StructType<Span> }>;
     stops: StructType<{ items: StructType<Span> }>;
     alarms: StructType<{ items: StructType<{ at: StructType<{ at: NullType }> }> }>;
     load: StructType<{ values: NullType }>;
     output: StructType<{ values: NullType }>;
-}>, "machines_in_time", "week", "month">>();
+}>, "machines_in_time", "week", "month", "month" | "quarter" | "year">>();
 // The nested index's maintenance for one row, by its name (#1437), which a page previews a drafted row's Save with;
 // the row's patch and the ops typed as any East type, which the runtime's type names.
 same<Machines["Maint"], OptionType<StructType<{
     machines_in_time: FunctionType<[StringType, OptionType<typeof ex.NestedMachine>, OptionType<typeof ex.NestedMachine>, EastType], EastType>;
 }>>>();
+// No series index listed whose entries are copies of its events (#1725): no value function to carry.
+same<Machines["C"], OptionType<StructType<Record<never, never>>>>();
 
-// A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates.
+// A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates. Its
+// measures' totals are kept a week and a month at a time, and the record's a month and a year: a field a period.
 partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] })).nested<NestedPart<StructType<{
     measures: StructType<{ rows: StructType<{
         readings: StructType<{ values: StructType<{ rollup: StructType<{ sum: StructType<{ sum: NullType }> }> }> }>;
     }> }>;
-}>, "ledgers_in_time", "week", "month">>();
+}>, "ledgers_in_time", "week", "week" | "month", "month" | "year">>();
 
 // A part's jobs, filed under every part above it too, and the parts beneath it.
 partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] })).nested<NestedPart<StructType<{
@@ -89,7 +94,7 @@ partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "a
         jobs: StructType<{ items: StructType<{ from: StructType<{ start: NullType }>; to: StructType<{ end: NullType }>; rollup: NullType }> }>;
         parts: StructType<{ recursive: NullType }>;
     }> }>;
-}>, "assemblies_in_time", "week", "month">>();
+}>, "assemblies_in_time", "week", "month", "month" | "quarter" | "year">>();
 
 /** A part of a Slice over several records: the handle of the source by its name, as its type holds it. */
 type PartOf<H, Name extends string> = TypeOf<H> extends StructType<infer F>
@@ -174,7 +179,7 @@ const notes = [span(Machine, {
     decisions: Plan.items("notes", { at: "at" }, () => ({ applied: false })),
 })];
 refusalsOf(notes, machines).are<
-    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
+    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nestedSeries.items({ at: "at" })'>();
 const alarmValues = [Plan.series.heat(Machine, {
     key: "alarms", title: "Alarms", label: (m) => m.name, cells: Plan.heatCells(Plan.values("alarms", () => ({ value: some(1.0) }))),
 })];
@@ -191,7 +196,7 @@ const subtotalled = <const F extends "sum" | "mean", const A extends "sum" | "me
 })];
 refusalsOf(subtotalled("sum", "sum"), ledgers).are<never>();
 refusalsOf(subtotalled("mean", "mean"), ledgers).are<
-    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: index.nested.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
+    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: index.nestedSeries.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
 
 /** A part of a work: its jobs, and more parts beneath it. */
 const WorkPart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, ex.NestedJob), parts: DictType(StringType, self) }));
@@ -202,8 +207,8 @@ const works = e3.record("types_works", DictType(StringType, Work), {
     indexes: (index) => ({
         works_by_name: index.on(["name"]),
         // Its parts' jobs, filed under no parent.
-        works_in_time: index.nested({
-            collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }), parts: index.nested.recursive() }) },
+        works_in_time: index.nestedSeries({
+            collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }), parts: index.nestedSeries.recursive() }) },
             tile: "week",
         }),
     }),
@@ -227,7 +232,7 @@ const workTree = [Plan.series.group(Work, {
 })];
 refusalsOf(assemblyTree, assemblies).are<never>();
 refusalsOf(workTree, worksBinding).are<
-    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it index.nested.items({ from: "start", to: "end" }, { rollup: true })'>();
+    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true })'>();
 
 /**
  * Each refusal fails to compile where the series list is written, given as
@@ -276,7 +281,7 @@ export function refusedThroughLet($: BlockBuilder<NullType>): void {
     const held = $.let(machines);
     const slice = $.let(Slice.bindRecords("machines", { rows: { source: held, fields: { site: { label: "Site" } } } }));
     refusalsOf(notes, held).are<
-        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
+        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nestedSeries.items({ at: "at" })'>();
     refusalsOf(filed, { slice }).are<never>();
     Plan({ axis, data: held, series: filed });
     // @ts-expect-error -- a collection the index does not declare, through $.let

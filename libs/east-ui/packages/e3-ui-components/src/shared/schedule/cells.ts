@@ -9,7 +9,9 @@
  * holds no builder's type: its host gives it, in the terms below, each event
  * kind ({@link ScheduleCellKind}), the resource kinds read whole and the paged
  * rows, the range it reads and its buckets, the drafts and the paged rows in
- * view, and hands what it read to its own seams.
+ * view, and hands what it read to its own seams. Every kind is asked in the
+ * same read: one whose read is in flight holds back no other's, so the kinds'
+ * requests go out together (#1771).
  *
  * The paged rows are a Calendar's paged resource kind, or a Plan's own rows
  * read a page at a time (#1541): the resources a page draws — one an entry of
@@ -19,24 +21,27 @@
  * # Cells
  *
  * A kind placed on the paged resource kind, whose source of the slice lists a
- * series index of its record, reads the events of the resources in view — and
- * of no resource, its Unassigned row's — a level at a time, never every event
- * over the range. The series index files each event once, at the level its
+ * series index of its record, reads the events of the resources in view — and,
+ * where the paged rows draw an Unassigned row, of no resource — a level at a
+ * time, never every event over the range. A Plan's own rows draw none (#1541),
+ * so it reads no event on no resource ({@link ScheduleCellPaged.unassigned}). The series index files each event once, at the level its
  * length fits (#1433), so a cell is a block of {@link SCHEDULE_CELL_BLOCK} of
  * the paged kind's resources, in the kind's order, over one level's run of
- * tiles (`levelRuns`: from two tiles before the range read to one after it):
+ * tiles (`levelRuns`: the range's own tiles, and the one before them where an
+ * event filed there can reach the range):
  * one range a resource (`levelCellQueries`), whatever the range's width. The
- * cells wanted are the blocks meeting the rows in view and
- * {@link SCHEDULE_CELL_MARGIN} resources either side, each a level, with the
- * cells of no resource. The reader keeps what it read by block, level and
+ * cells wanted are the blocks meeting the rows in view and the next block the
+ * way the view last went (see "The way a view went"), each a level, with the
+ * Unassigned row's cells where one is drawn. The reader keeps what it read by block, level and
  * tile — a range's entries split by the tile each names — so a pan or a zoom
  * asks, a block a level, one range a resource over the tiles it does not hold
  * (two, when a zoom out grows the run both ways): their searches in one
  * request, which counts their entries before one is read, beside the entries
  * of the tiles held; their entries in one more. Tiles are kept while their run
- * is wanted, at the revision they were read at: a pan or a scroll within the
- * tiles held reads nothing, and a commit reads the wanted runs again, the old
- * ones standing in until they land. An event past a year, filed under each
+ * is wanted — and, of the runs a view has left, while they fit (see "What a
+ * view has left") — at the revision they were read at: a pan or a scroll
+ * within the tiles held reads nothing, and a commit reads the wanted runs
+ * again, the old ones standing in until they land. An event past a year, filed under each
  * year it touches, is one event, kept by its key. A window of
  * the paged kind's resources whose read failed — the paging runtime throws a
  * `PagedReadError` for it — gives no block, its host saying so where its rows
@@ -49,6 +54,91 @@
  * reported under the narrowing their windows are, and a choice's rows still to
  * land are reported by none: until they are, a span of the last narrowing's
  * reads no cell, and its cells stand in.
+ *
+ * # The way a view went
+ *
+ * Beside the blocks meeting the rows in view, a read takes in one place more:
+ * the next block the way the view last went through the paged rows (#1797) —
+ * the one after the last block its rows meet where it went on, the one before
+ * the first where it went back, in the window next to theirs where theirs ends
+ * there — so a scroll on the same way draws rows whose events are held
+ * already, and nothing is read on the side the view left. The reader tells the
+ * way from one span of the rows in view to the next
+ * ({@link scheduleCellTravel}), and it stands while the rows in view do:
+ * through a pan, a zoom, a commit, and a view of no row. A view that has gone
+ * no way — one opening, the first under a narrowing — reads the blocks meeting
+ * its rows alone. The block ahead is never waited on: while its window of the
+ * paged rows is in flight, the blocks in view are read without it.
+ *
+ * # What a view has left
+ *
+ * The tiles of the blocks no read wants any more are kept too (#1797): the
+ * most recently wanted of them, while together they hold no more than a view
+ * may draw, the least recently wanted let go first — the one rule every
+ * reader of a schedule's events keeps them by (`kept-spans.ts`). A view going
+ * back to rows it has left so reads nothing, and after a pan made meanwhile
+ * only the tiles the pan brought in. They are kept at the revision they were
+ * read at, as the tiles wanted are, and a commit lets go of them all. They are
+ * no part of what a read hands on: a kind's rows are those of the blocks its
+ * read wants, and a resource whose block the view has left is no resource
+ * whose cells the read holds.
+ *
+ * # A read on its way
+ *
+ * A series read's entries are asked a batch at a time, by the one rule every
+ * reader of a schedule's events asks by (`asked-batches.ts`, #1797): while the
+ * next read's searches are still counted, every batch on its way is asked again
+ * as it was — what that read wants is not known until they are — and once they
+ * are, each batch a read still wants a cell of, the cells no batch holds going
+ * in one more. A view that moves on before its read lands — a step, a change of
+ * period — so never has that read given up while the next is counted: given
+ * up, as a request nothing reads is, it was asked again whole once the next
+ * read's searches were. Each cell's entries are kept from when their batch
+ * lands until a read takes them in; a batch the counted read wants no cell of
+ * is given up. Cells named apart may still be read from the same runs: a series
+ * in time order searches a tile at a time, so a change of period names every
+ * cell anew over the runs a read on its way asks. Such a run is read through
+ * that read, as it was, by the record slice source while it is on its way, and
+ * from it by the paging runtime once it has landed
+ * (`platform/paged/batches.ts`).
+ *
+ * # A view of no row
+ *
+ * The rows in view may be reported as none ({@link ScheduleCellSpan.runs}
+ * empty): the paged rows a view shows stand for no resource — a Plan's group
+ * rows alone, every group folded (#1795). Such a view draws no row's events,
+ * so none is read for it: no block is wanted, and a kind read by its cells is
+ * handed nothing — neither past the cap nor given a notice. A pan, a zoom or
+ * a commit under it asks e3 for no event. What the reader holds stays held —
+ * the tiles it read, and each kind's rows — so the rows a view shows next draw
+ * from it, and only the tiles it does not hold are read. While nothing a read
+ * is made under has moved since the last one made over rows — its view, its
+ * range, the paged rows' narrowing and each kind's revision — that read
+ * stands as it was: folding every group of a page at rest hands its host
+ * nothing new, and unfolding them draws their events at once.
+ *
+ * # In time order
+ *
+ * A kind's source may list a series index in time order (#1710,
+ * `index.flatSeries({ …, order: "time" })`), which files a tile's events together
+ * in their keys' order: a cell of it is one range a tile, from the first of
+ * the block's keys through the last (`inTimeCellQueries`), so what a screen of
+ * rows reads follows what the window holds, never each row's history. Its last
+ * leading fields are where its keys stand: the reader fills them, block by
+ * block, from the rows the block's resources nest under
+ * ({@link ScheduleCellKey.under}, a Plan's group), and a block is a slot's
+ * resources under one such row. Each block is read through the series index
+ * led by the most of what its narrowing then chooses (`seriesIndexFor`), so a
+ * source that lists an index in time order led by its rows' group reads a
+ * grouped page through it, and a page of no groups through an index the
+ * narrowing alone serves — one in key order listed beside it. A Plan reads no
+ * event on no resource, so a source listing the index in time order alone reads
+ * a grouped Plan's every block; where no listed index serves a block, the kind
+ * is read as one past the cap is. A range holds the
+ * entries of every key between the block's first and last, which are the
+ * block's own where its rows run in their keys' order under their group; the
+ * reader keeps the entries of the block's keys and drops any other's, and
+ * what it counts before a read is then at least the block's, never fewer.
  *
  * # Counted first
  *
@@ -72,8 +162,14 @@
  *
  * # The cap
  *
- * While the wanted cells hold at most {@link SCHEDULE_EVENT_CAP} entries, their
- * events draw. Past it — or past one batch of searches — and for a counted
+ * While the cells of the blocks meeting the rows in view hold at most
+ * {@link SCHEDULE_EVENT_CAP} entries, their events draw (#1768). The blocks
+ * read ahead of them are counted with them, in the same request, and read
+ * too, in their order, while what is read stays within the cap: the cap holds
+ * what the screen draws, never the rows read ahead. A block ahead left unread
+ * is no block whose cells landed: scrolled to before the read that has it in
+ * view lands, its rows draw as unread. Past the cap in view — or past one
+ * batch of searches — and for a counted
  * kind past the cap, the kind's summary index draws its shading instead: its
  * cells, at the largest of its tiles that divides the host's bucket and serves
  * the narrowing whole, folded into the buckets — the share of each booked for a
@@ -82,10 +178,28 @@
  * over the range while its count there is within the cap, and past it, as a
  * counted kind with no summary, the notice: its rows hatched, and the host's
  * banner naming how many events there are — or, where the count is no number
- * of them (a day index's), that they are not counted — and the resolution its
- * smallest summary shades at, or none. A hidden kind is read for nothing:
+ * of them (a day index's), that they are not counted — and the tiles a
+ * summary shades it by here, or none ({@link ScheduleCellNotice.shades}). A
+ * host that picks its own resolution takes the finest one of them divides in
+ * place of the notice — a Plan's columns do (`fallback-period.ts`) — so the
+ * notice is what a host says where no resolution of its own shows the kind.
+ * A hidden kind is read for nothing:
  * given no cells, it draws nothing, and a host leaves it out of every figure
  * of its own — the kinds past the cap name none.
+ *
+ * # Rows beneath a resource
+ *
+ * A kind whose events land a step beneath its resources ({@link ScheduleCellKind.child},
+ * a Plan kind's `child`, #1541) reads its events by its resources, and its
+ * shading counts each row beneath one on its own: through a summary led by
+ * the child's field and keyed by the resource (`index.summary({ on: [<child
+ * field>], key: <resource field>, … })`), a search a row — its key chosen of
+ * that field, under its resource's key — filed under the child's slot by the
+ * row's own key. A summary of the resources alone counts every row beneath a
+ * resource alike, so it shades none of them: with no summary led by the
+ * child's field, the kind is read as one with no summary is — within the cap
+ * its events draw on their rows, and past it those rows are hatched and the
+ * kind gives the notice, naming no tile a summary shades it by.
  *
  * # The narrowing, the drafts and the link ends
  *
@@ -133,7 +247,12 @@
  * what is asked now is the one rule every builder reads its rows by
  * (`../view-read.ts`): a read again of the same view leaves its host live,
  * other choices of the same period leave what stands retained, and a period
- * stepped to draws none of a windowed kind's rows of the last.
+ * stepped to draws none of a windowed kind's rows of the last. A host every
+ * kind's read of which is made for its period — a Plan's, whose columns'
+ * period says whether a kind draws its events or its summary's shading, and
+ * whose buckets that shading is folded into — draws none of any kind's of the
+ * last: its seams are handed nothing, and its rows wait on the read
+ * ({@link scheduleSteppedCells}).
  *
  * # What a Save landed
  *
@@ -157,37 +276,71 @@
  * their events, and so does a Save drafted over another session's write the
  * cells have still to read.
  *
+ * # What a kind is handed
+ *
+ * The reader tells each kind's seams what to draw from (e3-ui's
+ * `ScheduleCellReadType`, #1771): the rows it read, as the page unpacked them
+ * from e3, held under a handle the seams read through `schedule_cell_rows`
+ * (`cell-rows.ts`) — never bytes packed for each kind to unpack again — or,
+ * for a kind it reads none of (hidden, past the cap), nothing; a kind it
+ * names not reads its window. It makes a kind's rows again only when what
+ * they are made from moves — the cells' entries, the rows read by key, what
+ * the narrowing answered of them — and once for kinds made from the same:
+ * the cases of one record read through one source over the same slots hold
+ * one set of spans, and one set of rows. The events a series read's entries
+ * hold are filed by their keys once, and stand while the entries do: the rows
+ * in view moving within the blocks held — a wheel's step — reads the same
+ * entries, and orders none of them again. A window's own rows, which its kind
+ * hands the reader as bytes, are unpacked once, when they are first read. A
+ * row's own bytes, which a gesture or an inspector begins from, are made when
+ * one is asked for. The rows the last few reads its host drew name stand; the
+ * reader lets go of the others once its host has drawn past them, keeping
+ * each kind's newest for a read on its way.
+ *
+ * A kind read by its series index's cells is handed its rows a block at a
+ * time too (#1793, {@link ScheduleCellsRead.blocks}): each block's — its
+ * group's spans, every level — under a handle of its own, made again only
+ * when those spans move, and kept while the reader keeps them, a view's past
+ * among them (see "What a view has left"); the rows read by their keys are a
+ * block of their own. An event two blocks' spans hold — a resource beneath two
+ * groups — is the last one's, as the rows of them all file it. A host placing
+ * a kind a block at a time so places what a read brought, and nothing for a
+ * view going back to rows it left.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    ArrayType, BlobType, DateTimeType, DictType, FloatType, OptionType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some,
+    ArrayType, DateTimeType, DictType, FloatType, OptionType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant,
     type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { SeekQueryType } from "@elaraai/east-ui";
 import {
-    MAX_RECORD_SLICE_BATCH, RecordSliceChoiceType, RecordSliceWhereType, levelCellQueries, levelRuns, summaryCellQueries, summaryRun, tileIndexFor, tilingOf,
+    MAX_RECORD_SLICE_BATCH, RecordSliceChoiceType, RecordSliceWhereType, levelRuns, seriesIndexFor, summaryCellQueries, summaryRun, tileIndexFor, tilingOf,
     type RecordSliceBindType, type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceEntry, type RecordSliceIndexType,
     type RecordTile, type TileRun,
 } from "@elaraai/east-ui/internal";
-import { SCHEDULE_EVENT_CAP, ScheduleDraftsType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { SCHEDULE_EVENT_CAP, ScheduleCellReadType, ScheduleDraftsType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    readBeforeSaves, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    RecordSliceKeptCells, readBeforeSaves, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
+import { coarserThan } from "../time/zoom.js";
 import { sameView, viewState, type ReadView, type ViewState } from "../view-read.js";
+import { scheduleBatchesAsked } from "./asked-batches.js";
+import { holdCellRows, releaseCellRows } from "./cell-rows.js";
 import { DraftedStanding } from "./drafted-rows.js";
+import { scheduleSpansKept } from "./kept-spans.js";
+import {
+    NO_UNDER, entryKey, groupQueries, keyOrderOf, keyRunOf, sameUnder, underOf, type CellGroup, type KeyOrder, type SeriesGroup,
+} from "./series-groups.js";
 import type { ScheduleEventDraftsValue, ScheduleKindRows, ScheduleLanded, ScheduleLandedRow, ScheduleLandedRows } from "./editing.js";
 
 /** How many of a paged resource kind's resources a cell holds: a block of them, in the kind's order. */
 export const SCHEDULE_CELL_BLOCK = 50;
-
-/** The resources either side of the rows in view whose blocks are read too. */
-export const SCHEDULE_CELL_MARGIN = 25;
 
 /** A kind's source of the slice: a record Slice's controls — its reads, its counts and its cells go through it. */
 export type ScheduleCellPart = ValueTypeOf<RecordSliceBindType>;
@@ -204,8 +357,20 @@ export type ScheduleCellShade = ValueTypeOf<typeof ShadeType>;
 /** The resources' shading: by the key of the rows it stands in for, then by the resource key's text, each its buckets. */
 export type ScheduleCellShading = ValueTypeOf<typeof ShadingType>;
 
-/** What the reader read of each kind it gives cells, by the kind's slot: one beast2 of the kind's `cellsType` each. */
-export type ScheduleCellReads = ValueTypeOf<DictType<StringType, BlobType>>;
+/** What a kind's seams draw it from (#1771): its window, the rows a reader holds of it — by their handle — or none of its events. */
+export type ScheduleCellRead = ValueTypeOf<typeof ScheduleCellReadType>;
+
+/**
+ * What the reader read of each kind it gives cells, by the kind's slot: the rows it holds of the kind, as the page
+ * unpacked them, by the handle its seams read them through (`schedule_cell_rows`, #1771) — or none of its events.
+ */
+export type ScheduleCellReads = ValueTypeOf<DictType<StringType, typeof ScheduleCellReadType>>;
+
+/** What a kind no reader names is read from: its window, which its seams read themselves (#1771). */
+export const SCHEDULE_READ_WINDOW: ScheduleCellRead = variant("window", null);
+
+/** What a kind given cells that hold none of its events draws from: nothing — hidden, or past the cap (#1771). */
+const READ_NOTHING: ScheduleCellRead = variant("nothing", null);
 
 /** One index of a record Slice's binding. */
 type Index = ValueTypeOf<typeof RecordSliceIndexType>;
@@ -216,10 +381,11 @@ const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
 /** Whether two narrowings, as a source names them, are one — none being none (#1344). */
 const sameNarrowing = (a: string | undefined, b: string | undefined): boolean => (a === undefined || b === undefined ? a === b : stringEqual(a, b));
-const blobEqual = equalFor(BlobType);
 const shadingEqual = equalFor(ShadingType);
+const readEqual = equalFor(ScheduleCellReadType);
 const draftsEqual = equalFor(DictType(StringType, ScheduleDraftsType));
-const printQueries = printFor(ArrayType(SeekQueryType));
+/** The slots a kind's events land on, as East prints them: what the kinds whose series reads are shared share (#1771). */
+const printSlots = printFor(ArrayType(StringType));
 /** A resource among the paged rows' (#1541): its slot and key, as East prints a `Schedule.Types.ResourceRef`. */
 const printResourceRef = printFor(ScheduleResourceRefType);
 const printWhere = printFor(RecordSliceWhereType);
@@ -240,7 +406,10 @@ export interface ScheduleCellKind {
     readonly booked: boolean;
     /** The key of the rows its shading stands in for on a resource kind's resources, by the resource kind's slot: its host's. */
     readonly shadeKey: (resources: string) => string;
-    /** What its cells are encoded in: an Array of `{ key, row }`, at its record's key and row types. */
+    /**
+     * What its rows are, as its seams read them through `schedule_cell_rows` (#1771) and its window's stored rows are
+     * encoded in: an Array of `{ key, row }`, at its record's key and row types.
+     */
     readonly cellsType: EastTypeValue;
     /**
      * The `.east` text its series and summary indexes file a resource's events under, or no resource's: the key its
@@ -302,6 +471,27 @@ export interface ScheduleCellKind {
      * it. A kind with a source reads its source's.
      */
     readonly revision?: (() => option<string>) | undefined;
+    /**
+     * Where its events land a step beneath its resources — a Plan kind's `child` (#1541, U1) — each row there counted on
+     * its own past the cap, or zoomed out (see the module docs, "Rows beneath a resource"): those rows' slot; the field
+     * of its record holding a row's own key, which a summary counting them is led by; the key a row's shading is filed
+     * under, from the resource's key and the row's own, its host's (`rowKey`); and the `.east` text the field holds for a
+     * row's key (`literal`), `undefined` for one it cannot hold. `undefined` for a kind landing on its resources' own rows.
+     */
+    readonly child?: {
+        readonly slot: string;
+        readonly field: string;
+        readonly rowKey: (resource: string, child: string) => string;
+        readonly literal: (child: string) => string | undefined;
+    } | undefined;
+}
+
+/** A row a step beneath a resource that a kind's `child` lands on (#1541, U1): its slot, and its own key's text. */
+export interface ScheduleCellChild {
+    /** Its slot: the series its rows are of. */
+    readonly slot: string;
+    /** Its own key's text: the last step of its path. */
+    readonly key: string;
 }
 
 /** A resource kind read whole, as the reader hatches and shades its rows: its slot, and its resources' keys' texts in order. */
@@ -310,6 +500,8 @@ export interface ScheduleCellResources {
     readonly key: string;
     /** Its resources' keys' texts, in order. */
     readonly keys: readonly string[];
+    /** The rows beneath each resource a kind's `child` lands on (#1541, U1), by the resource's key's text; left out for none. */
+    readonly children?: ReadonlyMap<string, readonly ScheduleCellChild[]> | undefined;
 }
 
 /** One resource a paged window draws: the slot its row lands on, and its key's text. */
@@ -318,6 +510,14 @@ export interface ScheduleCellKey {
     readonly slot: string;
     /** Its key's text. */
     readonly key: string;
+    /**
+     * Where its row stands (#1710): the keys' texts of the rows it nests under, outermost first — a Plan's group. What
+     * a series index in time order led by them reads its events under (see the module docs, "In time order"); left out
+     * for a resource under no row.
+     */
+    readonly under?: readonly string[] | undefined;
+    /** The rows beneath it a kind's `child` lands on that the window draws (#1541, U1), in their order; left out for none. */
+    readonly children?: readonly ScheduleCellChild[] | undefined;
 }
 
 /**
@@ -343,6 +543,12 @@ export interface ScheduleCellPaged {
     /** Whether the viewer hides it: none of its rows draws, so no cell of it is read. */
     readonly hidden: boolean;
     /**
+     * Whether its layout draws an Unassigned row beside its resources' — the Calendar's paged kind does — whose events, a
+     * kind's on no resource, are read as a block of their own. `false` for a Plan's own rows, which draw none over rows
+     * read a page at a time (#1541): an event on no resource is in no window, so none is read (#1710).
+     */
+    readonly unassigned: boolean;
+    /**
      * The resources its entries `[offset, offset + limit)` draw, each by its slot and its key's text, in the order its
      * rows draw them — one an entry of a resource kind's, any number of a Plan's entry whose rows nest them (#1541);
      * `none` while that window is in flight.
@@ -354,16 +560,35 @@ export interface ScheduleCellPaged {
     narrowing(): string | undefined;
 }
 
+/** A row in view at an end of a run of them: its window, and its key's text. */
+export interface ScheduleCellEnd {
+    /** Its window. */
+    readonly w: number;
+    /** Its key's text. */
+    readonly key: string;
+}
+
+/** A run of the paged rows in view, in their windows' order: its first row and its last. */
+export interface ScheduleCellRun {
+    /** Its first row. */
+    readonly first: ScheduleCellEnd;
+    /** Its last row. */
+    readonly last: ScheduleCellEnd;
+}
+
 /**
- * The paged kind's rows in view, as its host reports them: the first and the
- * last, each by its window and its key's text, and the narrowing they were
- * drawn under.
+ * The paged kind's rows in view, as its host reports them: the runs of them,
+ * each its first and its last row by its window and its key's text, and the
+ * narrowing they were drawn under. One run, but where the rows in view go from
+ * one series of the rows on into another over the same windows — a Plan's
+ * rows beside a group at its top, each paging the same entries (#1710): a run
+ * each, in the view's order. And none, where the paged rows in view stand for
+ * no resource — a Plan's group rows alone (#1795): no row's events are wanted
+ * (see the module docs, "A view of no row").
  */
 export interface ScheduleCellSpan {
-    /** The first row in view. */
-    readonly first: { readonly w: number; readonly key: string };
-    /** The last row in view. */
-    readonly last: { readonly w: number; readonly key: string };
+    /** The runs of rows in view, in the view's order; none for a view whose paged rows stand for no resource. */
+    readonly runs: readonly ScheduleCellRun[];
     /**
      * The narrowing the rows were drawn under, as the kind's source names it
      * (#1344): their windows are its. `undefined` for a kind its source does
@@ -371,6 +596,51 @@ export interface ScheduleCellSpan {
      */
     readonly narrowing: string | undefined;
 }
+
+/**
+ * The span of the paged rows in view, from the rows themselves (#1710): each
+ * row that stands for a resource by its window and its key's text, in the
+ * view's order. The rows of one series run in their windows' order; a row of a
+ * window before the last row's is the next series of the rows over the same
+ * windows — a Plan's rows beside a group at its top — and starts a run of its
+ * own.
+ *
+ * @param rows - The rows in view that stand for a resource, in the view's order
+ * @param narrowing - The narrowing they were drawn under, as the kind's source names it (#1344)
+ * @returns The span; `undefined` for no row
+ */
+export function scheduleCellSpanOf(rows: Iterable<ScheduleCellEnd>, narrowing: string | undefined): ScheduleCellSpan | undefined {
+    const runs: { first: ScheduleCellEnd; last: ScheduleCellEnd }[] = [];
+    for (const here of rows) {
+        const run = runs[runs.length - 1];
+        if (run === undefined || here.w < run.last.w) runs.push({ first: here, last: here });
+        else run.last = here;
+    }
+    return runs.length === 0 ? undefined : { runs, narrowing };
+}
+
+/**
+ * Whether two spans are the same rows in view: the same runs, each the same
+ * rows at its ends, under the same narrowing (#1344) — what a host reports
+ * again moves no read.
+ *
+ * @param a - One span
+ * @param b - The other
+ * @returns Whether they are the same rows in view
+ */
+export function sameCellSpan(a: ScheduleCellSpan, b: ScheduleCellSpan): boolean {
+    const sameEnd = (x: ScheduleCellEnd, y: ScheduleCellEnd) => x.w === y.w && stringEqual(x.key, y.key);
+    return a.runs.length === b.runs.length && a.runs.every((run, i) => sameEnd(run.first, b.runs[i]!.first) && sameEnd(run.last, b.runs[i]!.last))
+        && sameNarrowing(a.narrowing, b.narrowing);
+}
+
+/**
+ * The way the rows in view last went through the paged rows (#1797): on,
+ * toward the rows after them, or back, toward those before — what the next
+ * block a read takes in beside those in view is told by (see the module docs,
+ * "The way a view went").
+ */
+export type ScheduleCellTravel = "forward" | "back";
 
 /** One bucket of the host's, by its start and its end, in ms. */
 export interface ScheduleCellBucket {
@@ -401,18 +671,29 @@ export interface ScheduleCellsArgs {
     /** The range the host reads its events over. */
     readonly range: { readonly from: Date; readonly to: Date } | undefined;
     /**
-     * The period the range is, as text, for a host whose rows are a period's — the Calendar's day, week or month: a read
-     * for another is a step, and none of a windowed kind's rows of the last draws under it (`../view-read.ts`). Left out
-     * by a host whose range is a window panned over its rows — the Plan's — where what the last range held stands.
+     * The period a read is made for, as text: a read for another is a step (`../view-read.ts`). A host whose rows are a
+     * period's — the Calendar's day, week or month — names its range, and none of a windowed kind's rows of the last
+     * draws under the next. A host whose range is a window panned over its rows — the Plan's — names its columns'
+     * period: what the last range held stands while the next is read, and under another period of its columns it draws
+     * none of any kind's ({@link scheduleSteppedCells}). Left out, every read is of one period.
      */
     readonly period?: string | undefined;
     /** The range cut into the host's buckets, in order: what a summary's shading is folded into. */
     readonly buckets: readonly ScheduleCellBucket[] | undefined;
     /** The host's resolution, which a summary's tile must divide; `undefined` on an axis of no time. */
     readonly resolution: TimeResolution | undefined;
+    /**
+     * Whether a kind read by its cells shades from its summary at a resolution coarser than its series index's tile,
+     * reading none of its events (#1706): a Plan's zoom, a month past a week's tile. Left out, a kind shades only past
+     * the cap — a Calendar's period draws its events however long.
+     */
+    readonly zoomShades?: boolean | undefined;
     /** Every kind's drafts — the same object while they hold. */
     readonly drafts: ScheduleEventDraftsValue;
-    /** The paged kind's rows in view, as the host last reported them; `undefined` before it has. */
+    /**
+     * The paged kind's rows in view, as the host last reported them — of no run where they stand for no resource, which
+     * reads no row's events (see the module docs, "A view of no row"); `undefined` before it has.
+     */
     readonly span: ScheduleCellSpan | undefined;
     /**
      * What confirmed Saves landed of the kinds read by their cells, as the host's editing hands them on (its `landed`):
@@ -439,36 +720,80 @@ export interface ScheduleCellNotice {
     readonly name: string;
     /** How many of its events there are; `undefined` where its count is no number of them — a day index's — so they are not counted. */
     readonly events: number | undefined;
-    /** The resolution its smallest summary shades at; `undefined` when it has none. */
-    readonly resolution: RecordTile | undefined;
+    /**
+     * The tiles a summary of its source's shades it by here, the smallest first: its narrowing answered whole, and its
+     * cells over the rows the read was made over asked in one batch. A host whose resolution one of them divides
+     * ({@link dividingTiles}) shows the kind there, so one that picks its own resolution takes the finest such
+     * (`fallback-period.ts`). None where no summary does — its source keeps none, or none that shades it here.
+     */
+    readonly shades: readonly RecordTile[];
 }
 
-/** The rows a kind's cells hold, by the event's key's text, each its row's bytes. */
+/** The rows a kind's cells hold, by the event's key's text: each its row as the page unpacked it, its bytes made when asked for (#1771). */
 type HeldRows = ScheduleKindRows;
 
-/** A read of the event kinds that failed: why, and the kinds whose own read threw. */
+/**
+ * One block's rows of a kind, as the reader holds them apart (#1793): under a handle of their own, which a kind's seams
+ * read them through as they read the handle of them all, and by the event's key's text.
+ */
+export interface ScheduleBlockRows {
+    /** The handle they are held under: the same while the block's rows are, and while the reader keeps its tiles. */
+    readonly handle: string;
+    /** The rows, by the event's key's text: which of a kind's drafts are of the block's events. */
+    readonly held: HeldRows;
+}
+
+/** A kind's rows block by block (#1793): what a host places a block at a time. */
+export interface ScheduleKindBlocks {
+    /** Each block's rows, in the order the read took the blocks in: together the rows the handle of them all holds. */
+    readonly blocks: readonly ScheduleBlockRows[];
+    /** How two of the kind's events are ordered by their keys' texts: as its record orders its keys. */
+    readonly compare: (a: string, b: string) => number;
+}
+
+/**
+ * A read of the event kinds that failed: why, and the kinds whose own read
+ * threw — a kind's window, its count over the range, what its narrowing holds
+ * of its drafts, or its cells over the paged kind's blocks (#1599, #1710) — or
+ * the paged kind's own rows. A read that threw is no read in flight, and
+ * nothing waits on it: the rows whose cells it could not read draw no
+ * "loading" for it. Its host says a kind's failure as its period's read
+ * failed, with Retry; the paged kind's own rows' failure its paging says
+ * where those rows are ({@link ScheduleCellsFailure.rows}).
+ */
 export interface ScheduleCellsFailure {
     /** Why it failed, in the read's own words. */
     readonly reason: string;
     /** The slots of the kinds whose own read threw, in the kinds' order; none where the failure was no one kind's. */
     readonly kinds: readonly string[];
     /**
-     * Whether it was a kind's window that could not be read — its count over the range, its window's own rows, or what
-     * its narrowing holds of its drafts: what its host says its period's read failed by, with Retry. `false` for a read
-     * over the paged kind's blocks — a block's cells, the paged kind's own windows — which its host says where those
-     * rows are.
+     * Whether it was the paged kind's own rows that could not be read — their count, a window, as its paging runtime
+     * says (`isPagedReadError`): which its host's paging says where those rows are, never as its period's. Every other
+     * failure, a kind's cells among them, nothing else says: its host says it.
      */
-    readonly window: boolean;
+    readonly rows: boolean;
 }
 
 /** What the reader read: what its host's seams draw the kinds from, and what a gesture finds an event's row in. */
 export interface ScheduleCellsRead {
     /**
-     * What it read of each kind it gives cells, by the kind's slot: a kind read by its cells, their entries; one past
-     * the cap, or hidden, none. A kind it names not is read over the range by its host — a counted kind only once its
-     * count there is within the cap ({@link scheduleWithinCap}).
+     * What it read of each kind it gives cells, by the kind's slot (#1771): a kind read by its cells, or by its window's
+     * own rows, the rows it holds, by their handle; one past the cap, or hidden, none of its events. A kind it names not
+     * is read over the range by its host ({@link SCHEDULE_READ_WINDOW}) — a counted kind only once its count there is
+     * within the cap ({@link scheduleWithinCap}).
      */
     readonly reads: ScheduleCellReads;
+    /**
+     * Each kind it hands rows of, block by block (#1793): of a kind read by its series index's cells, the rows its handle
+     * in {@link reads} holds, a block's under a handle of their own — its group's spans, every level, but the rows its
+     * narrowing leaves out — and the rows read by their keys a block of their own; an event two blocks' spans hold, a
+     * resource beneath two groups, the last one's. A block's handle stands while its rows do — and, of a block the view
+     * has left, while the reader keeps its tiles — so a host placing a block at a time places what a read brought, and
+     * nothing for a view going back. A kind read by its window's own rows is one block, its handle's. Each block's rows
+     * are those held, never with what Saves landed laid over them ({@link held}). A read built by hand may name none: a
+     * host takes each kind's handle as one block.
+     */
+    readonly blocks?: ReadonlyMap<string, ScheduleKindBlocks> | undefined;
     /** The resources' shading. */
     readonly shading: ScheduleCellShading;
     /**
@@ -539,6 +864,29 @@ export function scheduleWithinCap(count: ScheduleCellKind["count"], from: Date, 
     return counted.type === "some" ? some(counted.value <= BigInt(SCHEDULE_EVENT_CAP)) : none;
 }
 
+/**
+ * Which of the blocks a read wants it reads, by how many entries each block's
+ * cells hold (#1768): every block meeting the rows in view, while together
+ * they hold at most {@link SCHEDULE_EVENT_CAP} entries, and each read ahead of
+ * them, in their order, while what is read stays within it — the cap holds
+ * what the screen draws, never the rows read ahead. A block ahead past it is
+ * left unread, and one after it that fits is read.
+ *
+ * @param blocks - Each block wanted, in order: whether it is read ahead of the rows in view, and how many entries its cells hold
+ * @returns Whether each is read, in order; `undefined` where the blocks in view alone hold more than the cap
+ */
+export function scheduleCellsWithinCap(blocks: readonly { readonly ahead: boolean; readonly count: number }[]): boolean[] | undefined {
+    let held = 0;
+    for (const block of blocks) if (!block.ahead) held += block.count;
+    if (held > SCHEDULE_EVENT_CAP) return undefined;
+    return blocks.map((block) => {
+        if (!block.ahead) return true;
+        if (held + block.count > SCHEDULE_EVENT_CAP) return false;
+        held += block.count;
+        return true;
+    });
+}
+
 /** A window of the paged rows whose read failed: its host says so where its rows would be, with Retry. */
 export const SCHEDULE_WINDOW_FAILED = "failed";
 
@@ -578,25 +926,257 @@ export interface ScheduleCellView {
 
 /**
  * No row in view reported yet: the first resource, where a view opens — the
- * first block, and the next only once the rows in view reach within
- * {@link SCHEDULE_CELL_MARGIN} of it.
+ * first block alone, a view that has gone no way reading none ahead of it.
  */
 export const SCHEDULE_CELL_OPENING: ScheduleCellView = { first: 0, last: 0 };
 
 /**
  * The blocks of a paged resource kind's resources a reader wants: those
- * meeting the resources in view and {@link SCHEDULE_CELL_MARGIN} either side.
+ * meeting the resources in view, and the next block the way the view last
+ * went (#1797) — the one after them where it went on, the one before them
+ * where it went back, where the kind has one.
  *
  * @param view - The resources in view
  * @param total - How many resources the kind has, once known
+ * @param travel - The way the view last went; left out for a view that has gone none, which reads no block ahead
  * @returns The blocks, by their place, ascending
  */
-export function wantedBlocks(view: ScheduleCellView, total: number | undefined): number[] {
-    const lo = Math.max(0, view.first - SCHEDULE_CELL_MARGIN);
-    const hi = total === undefined ? view.last + SCHEDULE_CELL_MARGIN : Math.min(view.last + SCHEDULE_CELL_MARGIN, total - 1);
+export function wantedBlocks(view: ScheduleCellView, total: number | undefined, travel?: ScheduleCellTravel): number[] {
+    const first = Math.max(0, view.first);
+    const last = total === undefined ? view.last : Math.min(view.last, total - 1);
+    if (last < first) return [];
     const out: number[] = [];
-    for (let b = Math.floor(lo / SCHEDULE_CELL_BLOCK); b <= Math.floor(hi / SCHEDULE_CELL_BLOCK); b++) out.push(b);
-    return hi < lo ? [] : out;
+    for (let b = Math.floor(first / SCHEDULE_CELL_BLOCK); b <= Math.floor(last / SCHEDULE_CELL_BLOCK); b++) out.push(b);
+    if (travel === "back" && out[0]! > 0) out.unshift(out[0]! - 1);
+    const next = out[out.length - 1]! + 1;
+    if (travel === "forward" && (total === undefined || next * SCHEDULE_CELL_BLOCK < total)) out.push(next);
+    return out;
+}
+
+/** A block of resources and their keys' texts: what a cell holds of them. */
+export interface ScheduleCellBlock {
+    /** Where the block's rows draw: the slot their rows land on. */
+    readonly slot: string;
+    /**
+     * Its place among its slot's blocks: of resources read whole, its place in their order; of the paged rows, its window
+     * and its place in that window (`w.j`), so a block is the same block however the view moves — and, of a place whose
+     * resources of the slot stand under more rows than one, which of those it is after the first (`w.j.n`, #1710).
+     */
+    readonly id: string;
+    /** Its resources' keys' texts, in order. */
+    readonly keys: readonly string[];
+    /** Where its resources stand (#1710): the keys' texts of the rows they nest under, outermost first; left out under no row. */
+    readonly under?: readonly string[] | undefined;
+    /**
+     * Whether it is read ahead of the rows in view (#1768, #1797): none of its resources is in view, and it is the next
+     * the way the view went. The cap holds the blocks in view, and such a block is read while what is read stays within
+     * it ({@link scheduleCellsWithinCap}); left out for one in view.
+     */
+    readonly ahead?: boolean | undefined;
+    /** The rows beneath each of its resources a kind's `child` lands on (#1541, U1), by the resource's key's text; left out for none. */
+    readonly children?: ReadonlyMap<string, readonly ScheduleCellChild[]> | undefined;
+}
+
+/**
+ * The paged rows' blocks a view wants, each its resources' keys: those meeting the rows in view, in their windows'
+ * order, and — where the view has gone a way (`travel`, #1797) — the next block that way, none of its resources in
+ * view, marked so (`ahead`, #1768).
+ *
+ * The block ahead is the one after the last block the rows in view meet, for a view that went on, and the one before
+ * the first, for one that went back: in the window next to theirs where theirs ends there — that window's first
+ * block, or its last. It is never waited on: while that window is in flight the blocks meeting the rows in view are
+ * wanted without it, the window asked for, and a tracked read made over them runs again once it lands. A view
+ * opening has no row to go on from, and wants no block ahead.
+ *
+ * A block is a window's own (#1541): its resources `[j × BLOCK, (j + 1) × BLOCK)` in the order the window draws
+ * them, a block a slot their rows land on — as many as the window draws, one an entry of a resource kind's, any
+ * number of a Plan's group rows — and, where they nest under rows, a block a row they stand under (#1710), so a
+ * block's resources are one group's. A window whose read failed gives no block: its host says so where its rows
+ * would be, with its Retry, and no cell of it is read until a Retry lands it.
+ *
+ * An end of the rows in view whose key its window does not hold — a row the window draws no more, or one that stands
+ * for no resource — is read as the other end, and with neither held the view is read where the first end's window
+ * opens, at its first resource (#1711). An end is never placed at its window's start for want of a place: the blocks
+ * from there down to the view are none of the view's.
+ *
+ * Rows in view that run from one series of the rows on into another over the same windows — rows beside a group at a
+ * Plan's top (#1710) — are a run each: each run's blocks are wanted, a window two runs meet in wanting the blocks
+ * meeting each, and never the windows between one run's and another's; the block ahead is the view's, after its last
+ * run's last block or before its first run's first. Rows in view reported as none — they stand for no resource
+ * (#1795) — want no block, and no window is asked for them.
+ *
+ * @param paged - The paged rows
+ * @param span - The rows in view, as the host last reported them — a run of them, several, or none; `undefined` before it has: the first resource, where a view opens
+ * @param travel - The way the rows in view last went ({@link scheduleCellTravel}); left out for a view that has gone none
+ * @returns The blocks; `undefined` while a window the rows in view are in is in flight, and while the rows in view are
+ *   another narrowing's than the one the windows read now (#1344) — a choice's rows still to land and be reported,
+ *   whose places the last narrowing's windows do not hold
+ */
+export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined, travel?: ScheduleCellTravel): ScheduleCellBlock[] | undefined {
+    const narrowing = paged.narrowing();
+    if (span !== undefined && !sameNarrowing(span.narrowing, narrowing)) return undefined;
+    const total = paged.total();
+    const windows = total.type === "some" ? Math.ceil(Number(total.value) / paged.window) : undefined;
+    const read = new Map<number, readonly ScheduleCellKey[]>();
+    // A window's resources, read once; `undefined` while it is in flight, none of a window past the last or failed.
+    const keysOf = (w: number): readonly ScheduleCellKey[] | undefined => {
+        if (w < 0 || (windows !== undefined && w >= windows)) return [];
+        const held = read.get(w);
+        if (held !== undefined) return held;
+        const keys = scheduleWindowKeys(paged, w);
+        if (keys === undefined) return undefined;
+        const out = keys === SCHEDULE_WINDOW_FAILED ? [] : keys;
+        read.set(w, out);
+        return out;
+    };
+    // Each end of the rows in view, by its window and its place there: `null` for a key its window does not hold.
+    // Before any is reported, the first resource, where a view opens.
+    const placeOf = (end: ScheduleCellEnd | undefined): { readonly w: number; readonly at: number } | null | undefined => {
+        if (end === undefined) return { w: 0, at: 0 };
+        const keys = keysOf(end.w);
+        if (keys === undefined) return undefined;
+        const at = keys.findIndex((k) => stringEqual(k.key, end.key));
+        return at < 0 ? null : { w: end.w, at };
+    };
+    // Each window's blocks meeting the rows in view: what the cap holds (#1768). A window two runs meet in wants the
+    // blocks meeting each, never those between them; a place past its window's resources wants none.
+    const seen = new Map<number, Set<number>>();
+    const see = (w: number, keys: readonly ScheduleCellKey[], lo: number, hi: number): void => {
+        let held = seen.get(w);
+        if (held === undefined) seen.set(w, (held = new Set()));
+        const end = Math.min(keys.length - 1, hi);
+        for (let j = Math.floor(Math.max(0, lo) / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= end; j++) held.add(j);
+    };
+    // The first block the rows in view meet and the last, in the view's order, by their windows and their places there:
+    // what the block ahead is told from. None before a row in view is reported, where a view opens.
+    let head: { readonly w: number; readonly j: number } | undefined;
+    let tail: { readonly w: number; readonly j: number } | undefined;
+    // Each run of the rows in view (#1710) — or, before any is reported, where a view opens — from its first row to its
+    // last.
+    for (const run of span?.runs ?? [undefined]) {
+        const firstAt = placeOf(run?.first);
+        const lastAt = placeOf(run?.last);
+        if (firstAt === undefined || lastAt === undefined) return undefined;
+        // An end its window does not hold is read as the other; with neither, where the first end's window opens.
+        const one = firstAt ?? lastAt ?? { w: run?.first.w ?? 0, at: 0 };
+        const other = lastAt ?? one;
+        // Its ends in their windows' order, whichever its host named first.
+        const [first, last] = other.w < one.w || (other.w === one.w && other.at < one.at) ? [other, one] : [one, other];
+        for (let w = first.w; w <= last.w; w++) {
+            const keys = keysOf(w);
+            if (keys === undefined) return undefined;
+            see(w, keys, w === first.w ? first.at : 0, w === last.w ? last.at : keys.length - 1);
+        }
+        if (run === undefined) continue;
+        head ??= { w: first.w, j: Math.floor(first.at / SCHEDULE_CELL_BLOCK) };
+        tail = { w: last.w, j: Math.floor(last.at / SCHEDULE_CELL_BLOCK) };
+    }
+    // The next block the way the view went (#1797): after the last block its rows meet, or before the first — in the
+    // window next to theirs where theirs ends there. Never waited on: while that window is in flight it is left out,
+    // the window asked for, and a tracked read made over these runs again when it lands.
+    let next: { readonly w: number; readonly j: number } | undefined;
+    if (travel === "forward" && tail !== undefined) {
+        if ((tail.j + 1) * SCHEDULE_CELL_BLOCK < (keysOf(tail.w) ?? []).length) next = { w: tail.w, j: tail.j + 1 };
+        else if ((keysOf(tail.w + 1) ?? []).length > 0) next = { w: tail.w + 1, j: 0 };
+    }
+    if (travel === "back" && head !== undefined) {
+        if (head.j > 0) next = { w: head.w, j: head.j - 1 };
+        else {
+            const before = keysOf(head.w - 1) ?? [];
+            if (before.length > 0) next = { w: head.w - 1, j: Math.floor((before.length - 1) / SCHEDULE_CELL_BLOCK) };
+        }
+    }
+    // The places wanted, in their windows' order: those the rows in view meet, and the one ahead where none of them
+    // does (#1768).
+    const places = [...seen].flatMap(([w, held]) => [...held].map((j) => ({ w, j, ahead: false })));
+    if (next !== undefined && seen.get(next.w)?.has(next.j) !== true) places.push({ ...next, ahead: true });
+    places.sort((a, b) => a.w - b.w || a.j - b.j);
+    const blocks: ScheduleCellBlock[] = [];
+    for (const { w, j, ahead } of places) {
+        // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
+        // window draws them — each with the rows beneath it a kind's `child` lands on (#1541, U1).
+        const runs: { slot: string; under: readonly string[]; keys: string[]; children: Map<string, readonly ScheduleCellChild[]> }[] = [];
+        for (const k of keysOf(w)!.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
+            const under = k.under ?? NO_UNDER;
+            let run = runs.find((one) => stringEqual(one.slot, k.slot) && sameUnder(one.under, under));
+            if (run === undefined) runs.push(run = { slot: k.slot, under, keys: [k.key], children: new Map() });
+            else run.keys.push(k.key);
+            if (k.children !== undefined) run.children.set(k.key, [...(run.children.get(k.key) ?? []), ...k.children]);
+        }
+        // A slot's first block of a place is named by the place; each further one, under another row, by which it is.
+        const placed = new Map<string, number>();
+        for (const run of runs) {
+            const n = placed.get(run.slot) ?? 0;
+            placed.set(run.slot, n + 1);
+            blocks.push({
+                slot: run.slot, id: n === 0 ? `${w}.${j}` : `${w}.${j}.${n}`, keys: run.keys, ...(run.under.length > 0 && { under: run.under }),
+                ...(ahead && { ahead: true }), ...(run.children.size > 0 && { children: run.children }),
+            });
+        }
+    }
+    return blocks;
+}
+
+/**
+ * The way the rows in view went, from one span of them to the next (#1797):
+ * told by where the next begins against the last — on where it begins among
+ * the last's rows after their first, back where the last began among its own,
+ * and, where neither holds a row of the other, a jump, by their first rows'
+ * windows and then their places in one. Told by the rows the views hold, never
+ * by their windows alone: a view going on from one series of the rows into the
+ * next over the same windows — rows beside a group at a Plan's top (#1710) —
+ * begins in an earlier window and has still gone on.
+ *
+ * Rows that say no way leave the one the view had gone: the same first row —
+ * a view grown, a row beneath unfolded — and a first row its window holds no
+ * more. Every window asked is one a row of the next span stands in, which its
+ * blocks ask for too: telling the way reads nothing of its own.
+ *
+ * @param paged - The paged rows
+ * @param was - The rows in view the way was last told from
+ * @param now - The rows in view now
+ * @returns The way they went; `"still"` where they say none; `undefined` while a window a row of `now` stands in is in flight
+ */
+export function scheduleCellTravel(paged: ScheduleCellPaged, was: ScheduleCellSpan, now: ScheduleCellSpan): ScheduleCellTravel | "still" | undefined {
+    const a = was.runs[0]?.first;
+    const b = now.runs[0]?.first;
+    if (a === undefined || b === undefined) return "still";
+    // Where one row stands to another: before it, at it, or after it, as a number below, at or above nothing — by their
+    // windows where they differ, else by their places in the one; `null` where the window holds one of them no more,
+    // `undefined` while it is in flight.
+    const order = (x: ScheduleCellEnd, y: ScheduleCellEnd): number | null | undefined => {
+        if (x.w !== y.w) return x.w - y.w;
+        if (stringEqual(x.key, y.key)) return 0;
+        const keys = scheduleWindowKeys(paged, x.w);
+        if (keys === undefined) return undefined;
+        if (keys === SCHEDULE_WINDOW_FAILED) return null;
+        const at = keys.findIndex((k) => stringEqual(k.key, x.key));
+        const to = keys.findIndex((k) => stringEqual(k.key, y.key));
+        return at < 0 || to < 0 ? null : at - to;
+    };
+    // The run of a span's a row stands in, by its place among them: none where it stands in none of them.
+    const runOf = (end: ScheduleCellEnd, span: ScheduleCellSpan): number | undefined => {
+        for (const [n, run] of span.runs.entries()) {
+            const after = order(run.first, end);
+            const before = order(end, run.last);
+            if (after === undefined || before === undefined) return undefined;
+            if (after !== null && before !== null && after <= 0 && before <= 0) return n;
+        }
+        return -1;
+    };
+    const moved = order(a, b);
+    if (moved === undefined) return undefined;
+    if (moved === 0) return "still";
+    // The next view begins among the last's rows, after their first: it went on.
+    const on = runOf(b, was);
+    if (on === undefined) return undefined;
+    if (on >= 0) return "forward";
+    // The last began among the next's rows, after their first: it went back.
+    const back = runOf(a, now);
+    if (back === undefined) return undefined;
+    if (back >= 0) return "back";
+    // A jump: neither holds a row of the other.
+    return moved === null ? "still" : moved < 0 ? "forward" : "back";
 }
 
 /** The tiles that divide a bucket of each resolution — a bucket is a union of whole ones — the largest first. */
@@ -686,7 +1266,9 @@ const NO_RESOURCES: ReadonlySet<string> = new Set();
 /** No kind past the cap. */
 const NONE_CAPPED: ReadonlySet<string> = new Set();
 /** No rows: what a kind given no cells holds — a gesture reads one of its events by its key, never over the range. */
-const NO_ROWS: HeldRows = new Map();
+const NO_ROWS: HeldRows = { has: () => false, get: () => undefined, value: () => undefined, ids: () => [], rows: () => [] };
+/** How many of the reads its host last drew the reader keeps the rows of (#1771): what a read still on its way draws from. */
+const HANDED_KEPT = 3;
 /** No drafted event left out. */
 const NO_IDS: ReadonlySet<string> = new Set();
 /** No kind read by its cells: no revision any was read at. */
@@ -713,65 +1295,166 @@ function sameRange(a: ScheduleCellRange | undefined, b: ScheduleCellRange | unde
 /** One kind's read: by its cells, at the revision they were read at. */
 type KindRead =
     | {
-        readonly mode: "cells"; readonly cells: Uint8Array; readonly held: HeldRows; readonly dropped: ReadonlySet<string>; readonly revision: string;
+        /** The handle its rows are held under (#1771), and the rows by the event's key's text. */
+        readonly mode: "cells"; readonly handle: string; readonly held: HeldRows; readonly dropped: ReadonlySet<string>; readonly revision: string;
         /** Whether they are a series index's cells over the paged kind's blocks; `false` for its window's own rows. */
         readonly paged: boolean;
+        /** The resources of the blocks ahead left unread beneath the cap (#1768), by {@link scheduleCellId}: their rows wait on a read. */
+        readonly unread: ReadonlySet<string>;
+        /** Its rows block by block (#1793), for a series index's cells; `undefined` for its window's own rows. */
+        readonly blocks?: readonly ScheduleBlockRows[] | undefined;
     }
-    | { readonly mode: "shade"; readonly cells: Uint8Array; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
+    | { readonly mode: "shade"; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
+    /** Read by its cells under a view of no row (#1795): none of its events is read, and it is neither past the cap nor given a notice. */
+    | { readonly mode: "none" }
     | { readonly mode: "window" };
 
-/** A kind's types, as its cells are encoded in. */
+/** A kind's types, as its rows are read: their keys ordered and named, its window's stored rows unpacked, a row packed alone. */
 interface KindCodec {
     readonly compareKey: (a: unknown, b: unknown) => number;
+    /** How two keys' texts are ordered: as the keys are (#1793) — a text no key reads as by the text. */
+    readonly compareId: (a: string, b: string) => number;
     readonly idOf: (key: unknown) => string;
     readonly keyOf: (id: string) => unknown;
-    readonly encodeCells: (entries: { key: unknown; row: unknown }[]) => Uint8Array;
     readonly decodeCells: (bytes: Uint8Array) => { key: unknown; row: unknown }[];
     readonly encodeRow: (row: unknown) => Uint8Array;
-    readonly empty: Uint8Array;
+}
+
+/** One entry of a kind's rows: its key, and its row — or the copy its index holds of it — as the kind's seams read it. */
+interface CellEntry {
+    readonly key: unknown;
+    readonly row: unknown;
 }
 
 /**
- * The rows a window's stored cells hold, by the event's key's text (see the module docs, "A window's rows"): decoded
- * when one is first asked for, and each row's bytes made when it is. A window's rows are handed on at every draft's
- * redraw, and asked for a row only as a gesture or an inspector wants one.
+ * The rows a reader holds of a kind (#1771): its entries as the page unpacked them — its cells', or its window's stored
+ * rows, unpacked once (see the module docs, "A window's rows") — by the event's key's text, filed when first asked for,
+ * and each row's bytes made when it is: a gesture or an inspector asks for one, and nothing else packs a row.
  */
-class StoredRows implements ScheduleKindRows {
-    private decoded: Map<string, unknown> | undefined;
+class CellRows implements ScheduleKindRows {
+    private byId: Map<string, unknown> | undefined;
     private readonly encoded = new Map<string, { readonly row: Uint8Array }>();
 
     /**
      * @param codec - The kind's codec
-     * @param bytes - Its window's rows, one beast2 of its cells' type
+     * @param entries - Its entries, made when first read: the Array its seams read through `schedule_cell_rows`
      */
-    constructor(private readonly codec: KindCodec, private readonly bytes: Uint8Array) {}
+    constructor(private readonly codec: KindCodec, private readonly entries: () => readonly CellEntry[]) {}
 
-    /** The rows by the event's key's text, decoded once. */
-    private rows(): Map<string, unknown> {
-        if (this.decoded === undefined) {
-            this.decoded = new Map();
-            for (const entry of this.codec.decodeCells(this.bytes)) this.decoded.set(this.codec.idOf(entry.key), entry.row);
+    /** The rows by the event's key's text, filed once. */
+    private filed(): Map<string, unknown> {
+        if (this.byId === undefined) {
+            this.byId = new Map();
+            for (const entry of this.entries()) this.byId.set(this.codec.idOf(entry.key), entry.row);
         }
-        return this.decoded;
+        return this.byId;
     }
 
     has(id: string): boolean {
-        return this.rows().has(id);
+        return this.filed().has(id);
     }
 
     get(id: string): { readonly row: Uint8Array } | undefined {
         const made = this.encoded.get(id);
         if (made !== undefined) return made;
-        const rows = this.rows();
+        const rows = this.filed();
         if (!rows.has(id)) return undefined;
         const row = { row: this.codec.encodeRow(rows.get(id)) };
         this.encoded.set(id, row);
         return row;
     }
 
-    *[Symbol.iterator](): Iterator<readonly [string, { readonly row: Uint8Array }]> {
-        for (const id of this.rows().keys()) yield [id, this.get(id)!];
+    value(id: string): unknown {
+        return this.filed().get(id);
     }
+
+    ids(): Iterable<string> {
+        return this.filed().keys();
+    }
+
+    rows(): Iterable<readonly [string, unknown]> {
+        return this.filed().entries();
+    }
+}
+
+/** A kind's rows as the reader last made them (#1771): what they were made from, the handle they are held under, and the rows by key. */
+interface Generation {
+    readonly from: readonly unknown[];
+    readonly handle: string;
+    readonly held: HeldRows;
+}
+
+/**
+ * A block's rows as the reader last made them (#1793): the spans' entries they are made from, a level each, the keys'
+ * texts of the rows among them it leaves — to a block after it, or out of the narrowing — as one text, the handle they
+ * are held under, and the rows by key.
+ */
+interface BlockGeneration {
+    readonly entries: readonly (readonly RecordSliceEntry[])[];
+    readonly left: string;
+    readonly handle: string;
+    readonly held: HeldRows;
+}
+
+/** The rows a block leaves (#1793): their keys' texts, as one text and as a set. */
+interface BlockLeft {
+    readonly text: string;
+    readonly ids: ReadonlySet<string>;
+}
+
+/** No row left: what a block of a resource no other block holds, under a narrowing its index answers whole, leaves. */
+const NONE_LEFT: BlockLeft = { text: "", ids: new Set() };
+
+/**
+ * A block's rows (#1793): its spans' entries filed by their keys — an event past a year, filed under each year it
+ * touches, once — but the rows it leaves, in their keys' order.
+ *
+ * @param entries - The block's spans' entries, a level each
+ * @param left - The keys' texts of the rows it leaves
+ * @param compareKey - How the kind's keys are ordered
+ * @param idOf - A key's text
+ * @returns The rows
+ * @internal
+ */
+export function scheduleBlockEntries(entries: readonly (readonly RecordSliceEntry[])[], left: ReadonlySet<string>,
+    compareKey: (a: unknown, b: unknown) => number, idOf: (key: unknown) => string): { readonly key: unknown; readonly row: unknown }[] {
+    const rows = new SortedMap<unknown, unknown>([], compareKey);
+    for (const level of entries) for (const entry of level) if (entry.row?.type === "some") rows.set(entry.key, entry.row.value);
+    const out: { key: unknown; row: unknown }[] = [];
+    for (const [key, row] of rows) if (left.size === 0 || !left.has(idOf(key))) out.push({ key, row });
+    return out;
+}
+
+/**
+ * The rows each group a series read took in leaves (#1793): an event two groups' spans hold — a resource beneath two
+ * groups — to the last of them, as the rows of them all file it, and a row the narrowing leaves out to none. An event is
+ * filed under its resource, so groups that read no resource in common leave none to each other: without one, and with
+ * no row left out, nothing is filed to tell.
+ *
+ * @param groups - The groups the read took in, in its order: each its resources' literals and its entries a level
+ * @param outside - The keys' texts of the rows the narrowing leaves out
+ * @param idOf - A key's text
+ * @returns The keys' texts of the rows each group leaves, in the groups' order
+ * @internal
+ */
+export function scheduleBlocksLeft(groups: readonly SeriesGroupRead[], outside: ReadonlySet<string>, idOf: (key: unknown) => string): readonly ReadonlySet<string>[] {
+    const seen = new Set<string>();
+    let shared = false;
+    for (const group of groups) {
+        if (!shared) for (const literal of group.literals) if (seen.has(literal)) { shared = true; break; }
+        for (const literal of group.literals) seen.add(literal);
+    }
+    if (!shared && outside.size === 0) return groups.map(() => NO_IDS);
+    const claimed = new Set<string>();
+    const left: ReadonlySet<string>[] = [];
+    for (let g = groups.length - 1; g >= 0; g--) {
+        const ids = new Set<string>();
+        for (const level of groups[g]!.entries) for (const entry of level) if (entry.row?.type === "some") ids.add(idOf(entry.key));
+        const leaves = [...ids].filter((id) => outside.has(id) || claimed.has(id));
+        for (const id of ids) claimed.add(id);
+        left[g] = leaves.length === 0 ? NO_IDS : new Set(leaves);
+    }
+    return left;
 }
 
 /** A kind's rows with what Saves landed laid over them: each landed event's row as its Save left it, one it deleted gone. */
@@ -793,29 +1476,51 @@ class LaidRows implements ScheduleKindRows {
         return laid.row === undefined ? undefined : { row: laid.row };
     }
 
-    *[Symbol.iterator](): Iterator<readonly [string, { readonly row: Uint8Array }]> {
-        for (const entry of this.under) if (!this.landed.has(entry[0])) yield entry;
-        for (const [id, laid] of this.landed) if (laid.row !== undefined) yield [id, { row: laid.row }];
+    value(id: string): unknown {
+        const laid = this.landed.get(id);
+        return laid === undefined ? this.under.value(id) : laid.value;
+    }
+
+    *ids(): Iterable<string> {
+        for (const id of this.under.ids()) if (!this.landed.has(id)) yield id;
+        for (const [id, laid] of this.landed) if (laid.row !== undefined) yield id;
+    }
+
+    *rows(): Iterable<readonly [string, unknown]> {
+        for (const entry of this.under.rows()) if (!this.landed.has(entry[0])) yield entry;
+        for (const [id, laid] of this.landed) if (laid.row !== undefined) yield [id, laid.value];
+    }
+}
+
+/** What a read threw, kept, its message the thrown one's: what the reader's failures are. */
+class ReadFailure extends Error {
+    /**
+     * @param thrown - What the read threw
+     * @param name - The failure's name
+     */
+    constructor(readonly thrown: unknown, name: string) {
+        super(thrown instanceof Error ? thrown.message : String(thrown));
+        this.name = name;
     }
 }
 
 /** What a read of one kind threw, and the kind: what a failed read names the kinds it could not read by. */
-class KindReadFailure extends Error {
+class KindReadFailure extends ReadFailure {
     /**
      * @param thrown - What the kind's read threw
      * @param kind - The kind's slot
-     * @param window - Whether it was the kind's window that threw: its count over the range, its window's own rows, or
-     *   what its narrowing holds of its drafts
      */
-    constructor(readonly thrown: unknown, readonly kind: string, readonly window: boolean) {
-        super(thrown instanceof Error ? thrown.message : String(thrown));
-        this.name = "KindReadFailure";
+    constructor(thrown: unknown, readonly kind: string) {
+        super(thrown, "KindReadFailure");
     }
 }
 
-/** A cell's searches, as a key of what the reader keeps. */
-function cellText(index: string, cell: RecordSliceCell): string {
-    return `${index}\u0000${printQueries([...cell.queries])}`;
+/** What reading the paged kind's own rows threw, as its paging runtime says a read failed: no one kind's failure (#1710). */
+class PagedRowsFailure extends ReadFailure {
+    /** @param thrown - What reading the rows threw: a `PagedReadError` */
+    constructor(thrown: unknown) {
+        super(thrown, "PagedRowsFailure");
+    }
 }
 
 /** A narrowing without its range of the field an index's tiles cover: the tiles hold the range. */
@@ -830,27 +1535,6 @@ function residualOf(index: Index, where: Where): string[] {
     const leading = index.fields;
     return [...where].filter(([field, choice]) => !leading.some((l) => stringEqual(l, field)) && !(stringEqual(field, tiling.from) && choice.type === "range"))
         .map(([field]) => field);
-}
-
-/** A block of resources and their keys' texts: what a cell holds of them. */
-interface Block {
-    /** Where the block's rows draw: the slot their rows land on. */
-    readonly slot: string;
-    /**
-     * Its place among its slot's blocks: of resources read whole, its place in their order; of the paged rows, its window
-     * and its place in that window (`w.j`), so a block is the same block however the view moves.
-     */
-    readonly id: string;
-    /** Its resources' keys' texts, in order. */
-    readonly keys: readonly string[];
-}
-
-/** A block of keys a series cell is read for (#1433): a block of the paged kind's resources by its place, or the events on none. */
-interface CellGroup {
-    /** Its name among the groups a read asks for. */
-    readonly id: string;
-    /** Its keys, as `.east` literals of the index's key field, in order. */
-    readonly literals: readonly string[];
 }
 
 /**
@@ -868,10 +1552,105 @@ interface Span {
 }
 
 /**
- * A series read's outcome (#1433): each group's entries a level, at the revision they were read at, or how many its runs
- * hold, past the cap.
+ * The spans a series read holds of one index, at the revision they were read at: each group's a level the latest read
+ * took in, and those of the groups it wants no more, kept while they fit — the least recently wanted first (#1797; see
+ * the module docs, "What a view has left").
  */
-type SeriesEntries = { readonly entries: readonly (readonly RecordSliceEntry[])[]; readonly revision: string } | { readonly count: number };
+interface SpansHeld {
+    readonly revision: string;
+    readonly spans: ReadonlyMap<string, Span>;
+    readonly kept: ReadonlyMap<string, Span>;
+}
+
+/** The spans a series read holds, by the index read through. */
+type SpansByIndex = Map<string, SpansHeld>;
+
+/** No span kept of a view's past. */
+const NONE_KEPT: ReadonlyMap<string, Span> = new Map();
+
+/**
+ * The spans a series read keeps of those it wants no more (#1797, `kept-spans.ts`): those kept before and those the
+ * last read took in, less the ones this read takes in — the last read's the most recently wanted. The same map while
+ * a read takes in every span the last did and none kept: the rows in view moving within the blocks held — a wheel's
+ * step — makes none again.
+ *
+ * @param was - What was held at the revision this read is made at; `undefined` for nothing, or for what another revision's read held
+ * @param taken - The spans this read takes in
+ * @returns The spans kept, the least recently wanted first
+ */
+function keptSpans(was: SpansHeld | undefined, taken: ReadonlyMap<string, Span>): ReadonlyMap<string, Span> {
+    if (was === undefined) return NONE_KEPT;
+    let moved = false;
+    for (const key of was.spans.keys()) if (!taken.has(key)) { moved = true; break; }
+    if (!moved) for (const key of taken.keys()) if (was.kept.has(key)) { moved = true; break; }
+    if (!moved) return was.kept;
+    return new Map(scheduleSpansKept([...was.kept, ...was.spans].filter(([key]) => !taken.has(key)), (span) => span.entries.length));
+}
+
+/**
+ * A cell a series read asks the entries of (#1797), under a name that is the same for the same searches read to read: its
+ * group's, what they were made from, its level and its tiles' bounds — what tells a batch on its way that a later read
+ * still wants.
+ */
+interface NamedCell {
+    readonly name: string;
+    readonly cell: RecordSliceCell;
+}
+
+/**
+ * The entries a series read has asked of one index and not yet taken in (#1797), at the revision they were asked at: the
+ * batches of cells on their way, each asked again as it was until it lands, and each cell's entries once its batch has
+ * landed, by the cell's name, until a read takes them in.
+ */
+interface EntriesAsked {
+    readonly revision: string;
+    readonly batches: NamedCell[][];
+    readonly landed: Map<string, readonly RecordSliceEntry[]>;
+}
+
+/** No cell's entries: what a read that asks none reads. */
+const NO_ENTRIES: ReadonlyMap<string, readonly RecordSliceEntry[]> = new Map();
+
+/** One group's run of one level a series read wants (#1433): the span of it held, and a cell for each part of it not held. */
+interface SeriesWant {
+    /** The span's name among a kind's: the group's, and the level's. */
+    readonly key: string;
+    /** What its searches were made from: the group's keys and the narrowing's choices of the index's leading fields. */
+    readonly identity: string;
+    readonly from: number;
+    readonly to: number;
+    /** The span of it held, at the revision counted; `undefined` for none. */
+    readonly held: Span | undefined;
+    /** A cell for each part of it not held, each by its name. */
+    readonly cells: readonly NamedCell[];
+    readonly group: SeriesGroup;
+    /** The group's place among those counted. */
+    readonly at: number;
+}
+
+/**
+ * A series index's cells counted (#1433, #1768): each group's run of each level wanted, at the revision counted, and
+ * how many entries each group's runs hold — of the tiles held, and of the parts not held — in the groups' order.
+ */
+interface SeriesCounted {
+    readonly revision: string;
+    readonly wanted: readonly SeriesWant[];
+    readonly counts: readonly number[];
+}
+
+/** One group a series read took in (#1793): what its block's rows are made from. */
+export interface SeriesGroupRead {
+    /** Its resources, as its index files their events: the `.east` text of each. */
+    readonly literals: readonly string[];
+    /** Its spans' entries, a level each. */
+    readonly entries: readonly (readonly RecordSliceEntry[])[];
+}
+
+/**
+ * A series read's entries (#1433): each group's entries a level, of the groups read, at the revision they were read at,
+ * and the same group by group (#1793).
+ */
+type SeriesEntries = { readonly entries: readonly (readonly RecordSliceEntry[])[]; readonly groups: readonly SeriesGroupRead[]; readonly revision: string };
 
 const printChoice = printFor(RecordSliceChoiceType);
 
@@ -889,20 +1668,70 @@ function readByCells(kind: ScheduleCellKind, paged: ScheduleCellPaged | undefine
         && kind.part.config.indexes.some((index) => index.series.type === "some");
 }
 
+/** A reader no builder holds any more lets go of the rows of every handle it made (#1771). */
+const readersGone = new FinalizationRegistry<Set<string>>((made) => releaseCellRows(made));
+
+/**
+ * Test-only probe of a reader filing a series read's events by their keys —
+ * lets "the rows in view moving within the blocks held files none of them
+ * again" be asserted. `undefined` outside tests.
+ */
+let filedProbe: (() => void) | undefined;
+/** Install (or clear) the test probe of a reader filing a series read's events. Test use only. */
+export function setScheduleCellsFiledProbe(fn: (() => void) | undefined): void {
+    filedProbe = fn;
+}
+
 /**
  * The reader's state across reads: the cells it holds, each kind's codec and
  * the series keys it has asked its kinds for.
  */
 class CellsReader {
     /** The cells each kind's summary read holds, by the kind's slot and index: their entries by their searches' text, at a revision. */
-    private readonly kept = new Map<string, { revision: string; cells: Map<string, RecordSliceEntry[]> }>();
-    /** The tiles each kind's series read holds (#1433), by the kind's slot and index: each group's span a level, at a revision. */
-    private readonly spans = new Map<string, { revision: string; spans: ReadonlyMap<string, Span> }>();
+    private readonly kept = new RecordSliceKeptCells();
+    /**
+     * The tiles the series reads hold (#1433), by the source the kinds read through and the slots their events land on —
+     * the cases of one record read over the same blocks hold one set (#1771) — then by the index.
+     */
+    private readonly spans = new Map<string, Map<string, SpansByIndex>>();
+    /**
+     * The entries the series reads have asked and not yet taken in (#1797; see the module docs, "A read on its way"), by
+     * the spans the kinds read through one source over the same slots share, then by the index.
+     */
+    private readonly entriesAsked = new WeakMap<SpansByIndex, Map<string, EntriesAsked>>();
     private readonly codecs = new WeakMap<object, KindCodec>();
+    /** How a series index in time order orders the keys it files by (#1710), by a kind's cells' type and the field: made once each. */
+    private readonly orders = new WeakMap<object, Map<string, KeyOrder>>();
     private readonly literals = new WeakMap<object, Map<string, string | undefined>>();
     private readonly unassigned = new WeakMap<object, { literal: string | undefined }>();
-    /** Each kind's last encoded cells and rows held, by what they were made from: a read again that holds the same encodes nothing. */
-    private readonly encoded = new Map<string, { from: readonly unknown[]; bytes: Uint8Array; held: HeldRows }>();
+    /**
+     * The events a series read's entries hold, each once by its key, as last filed — by the spans the kinds read through
+     * one source over the same slots share (#1771), the cases of one record, whose keys are one type's: a read made from
+     * the same entries, the next kind's or the next read's, files none of them again (east-workspace#1776). Never
+     * changed once filed.
+     */
+    private readonly filed = new WeakMap<SpansByIndex, { readonly from: readonly (readonly RecordSliceEntry[])[]; readonly rows: SortedMap<unknown, unknown> }>();
+    /** Each kind's rows as it last made them, by its slot (#1771): a read again made from the same makes nothing. */
+    private readonly generations = new Map<string, Generation>();
+    /**
+     * Each block's rows as last made (#1793), by the spans the kinds read through one source over the same slots share:
+     * kept while those spans are held — read now, or kept of a view's past — so a read that wants a block again hands
+     * the handle it had, and the cases of one record hold one handle a block.
+     */
+    private readonly blockGenerations = new Map<SpansByIndex, BlockGeneration[]>();
+    /** The rows each kind read by their keys beside its blocks (#1793), as last made, by its slot. */
+    private readonly besides = new Map<string, Generation>();
+    /**
+     * The rows each block leaves, as last worked out (#1793), by the spans: worked out again only when the entries read,
+     * or the rows the narrowing leaves out, move.
+     */
+    private readonly leftBy = new WeakMap<SpansByIndex, {
+        readonly from: readonly (readonly RecordSliceEntry[])[]; readonly outside: string; readonly left: readonly BlockLeft[];
+    }>();
+    /** Every handle it holds rows under, made and not yet let go (#1771). */
+    private readonly made = new Set<string>();
+    /** What the reads its host last drew each kind from, the latest last (#1771) — each kind's rows and its blocks' (#1793): the rows they name stand. */
+    private handed: Pick<ScheduleCellsRead, "reads" | "blocks">[] = [];
     /** The paged rows' resources whose blocks the latest read wants — landed or in flight — by {@link scheduleCellId}, the same set while they hold. */
     private wantedKeys: ReadonlySet<string> = NO_RESOURCES;
     /** The revision each kind read by its cells reads at now, as the latest read found it, by its slot — the same map while it says the same. */
@@ -911,14 +1740,61 @@ class CellsReader {
      * The rows each kind's window read holds (see the module docs, "A window's rows"), by the kind's slot: kept while its
      * record's revision, its narrowing and the range — what they are named by, `at` — hold.
      */
-    private readonly windows = new Map<string, { readonly at: string; readonly bytes: Uint8Array; readonly held: StoredRows }>();
+    private readonly windows = new Map<string, { readonly at: string; readonly handle: string; readonly held: HeldRows }>();
     /** The view the latest read was asked for, in flight or not — the same object while it says the same. */
     private askedView: ReadView = NO_VIEW;
+    /**
+     * The paged rows' blocks the last complete read not of a view of no row was made over, and what it was made under —
+     * its view, its range, the rows' narrowing and each kind's revision: what a view of no row is read over while none
+     * of them has moved (see the module docs, "A view of no row"). `undefined` once one has, and before any such read.
+     */
+    private stood: {
+        readonly blocks: ScheduleCellBlock[]; readonly made: ReadView; readonly range: ScheduleCellRange; readonly narrowing: string | undefined;
+        readonly revisions: ReadonlyMap<string, string>;
+    } | undefined;
+    /**
+     * The rows in view the way was last told from, and the way they had gone through the paged rows by then (#1797; see
+     * the module docs, "The way a view went") — none for a view that has gone no way: one opening, or the first under a
+     * narrowing. `undefined` before any row in view is reported.
+     */
+    private went: { readonly span: ScheduleCellSpan; readonly way: ScheduleCellTravel | undefined } | undefined;
     /**
      * Which drafts a kind given {@link ScheduleCellKind.isNew} draws, and those its last read drew: what stands through
      * a carry-over (`drafted-rows.ts`).
      */
     private readonly standing = new DraftedStanding();
+
+    constructor() {
+        // Its builder gone, every handle it made is let go of.
+        readersGone.register(this, this.made);
+    }
+
+    /**
+     * Lets go of the rows no read its host may still draw from names (#1771): those of the latest {@link HANDED_KEPT}
+     * reads its host drew stand — each kind's and its blocks' (#1793) — and so do the newest it made of each kind, for a
+     * read on its way, and every block's whose spans it keeps.
+     *
+     * @param read - What the read its host has just drawn draws each kind from
+     */
+    letGo(read: Pick<ScheduleCellsRead, "reads" | "blocks">): void {
+        const last = this.handed[this.handed.length - 1];
+        if (last === undefined || !Object.is(last.reads, read.reads) || !Object.is(last.blocks, read.blocks)) {
+            this.handed.push(read);
+            if (this.handed.length > HANDED_KEPT) this.handed.shift();
+        }
+        const kept = new Set<string>();
+        for (const one of this.handed) {
+            for (const [, drawn] of one.reads) if (drawn.type === "rows") kept.add(drawn.value);
+            for (const kind of one.blocks?.values() ?? []) for (const block of kind.blocks) kept.add(block.handle);
+        }
+        for (const made of this.generations.values()) kept.add(made.handle);
+        for (const made of this.besides.values()) kept.add(made.handle);
+        for (const made of this.blockGenerations.values()) for (const block of made) kept.add(block.handle);
+        for (const window of this.windows.values()) kept.add(window.handle);
+        const gone = [...this.made].filter((handle) => !kept.has(handle));
+        for (const handle of gone) this.made.delete(handle);
+        releaseCellRows(gone);
+    }
 
     /** The paged rows' resources whose blocks the latest read wants (#1398), by {@link scheduleCellId}: while it is in flight, the rows it reads again. */
     wanted(): ReadonlySet<string> {
@@ -936,6 +1812,29 @@ class CellsReader {
     /** The view the latest read was asked for, whatever of it is in flight: its host's period, and each kind's source's choices. */
     asked(): ReadView {
         return this.askedView;
+    }
+
+    /**
+     * The way the rows in view last went through the paged rows (#1797; see the module docs, "The way a view went"):
+     * told from the rows the way was last told from to those reported now, and the same while they are the same rows —
+     * a read made again is told the same. Rows that say no way leave the way as it stood, as do rows in view reported
+     * as none, and rows of another narrowing than the windows read now, whose blocks wait on the rows; the first rows
+     * reported under a narrowing have gone none.
+     *
+     * @returns The way; `undefined` for a view that has gone none; {@link READING} while a window the rows in view are in is in flight
+     */
+    private travelOf(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined): ScheduleCellTravel | undefined | typeof READING {
+        const went = this.went;
+        if (span === undefined || span.runs.length === 0 || !sameNarrowing(span.narrowing, paged.narrowing())) return went?.way;
+        if (went === undefined || !sameNarrowing(went.span.narrowing, span.narrowing)) {
+            this.went = { span, way: undefined };
+            return undefined;
+        }
+        if (sameCellSpan(went.span, span)) return went.way;
+        const way = scheduleCellTravel(paged, went.span, span);
+        if (way === undefined) return READING;
+        this.went = { span, way: way === "still" ? went.way : way };
+        return this.went.way;
     }
 
     /** The revision a kind's record reads at now: its source's, else its host's say of it; `none` while it is not known. */
@@ -965,23 +1864,19 @@ class CellsReader {
         if (kept === undefined || !stringEqual(kept.at, at)) {
             const read = kind.stored!(range.from, range.to);
             if (read.type !== "some") return READING;
-            kept = { at, bytes: read.value, held: new StoredRows(this.codecOf(kind), read.value) };
+            const codec = this.codecOf(kind);
+            const bytes = read.value;
+            // Unpacked once, when first read: by the kind's seams, or for a gesture's row (#1771).
+            let entries: readonly CellEntry[] | undefined;
+            const rowsOf = (): readonly CellEntry[] => (entries ??= codec.decodeCells(bytes));
+            const handle = holdCellRows(rowsOf);
+            this.made.add(handle);
+            kept = { at, handle, held: new CellRows(codec, rowsOf) };
             this.windows.set(kind.key, kept);
         }
-        return { mode: "cells", cells: kept.bytes, held: kept.held, dropped: NO_IDS, revision: revision.value, paged: false };
+        return { mode: "cells", handle: kept.handle, held: kept.held, dropped: NO_IDS, revision: revision.value, paged: false, unread: NO_RESOURCES };
     }
 
-    /**
-     * A read of a kind's own window — its count over the range, its window's rows, what its narrowing holds of its
-     * drafts: one that throws is named the kind's window's ({@link ScheduleCellsFailure.window}).
-     */
-    private own<T>(kind: ScheduleCellKind, read: () => T): T {
-        try {
-            return read();
-        } catch (thrown) {
-            throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key, true);
-        }
-    }
 
     /** A kind's codec, made once per kind's cells' type. */
     codecOf(kind: ScheduleCellKind): KindCodec {
@@ -992,10 +1887,15 @@ class CellsReader {
             const keyType = fields["key"]!;
             const printKey = printFor(keyType);
             const parseKey = parseFor(keyType);
-            const encodeCells = encodeBeast2For(cellsType) as (entries: { key: unknown; row: unknown }[]) => Uint8Array;
             const string = keyType.type === "String";
+            const compareKey = compareFor(keyType) as (a: unknown, b: unknown) => number;
             codec = {
-                compareKey: compareFor(keyType) as (a: unknown, b: unknown) => number,
+                compareKey,
+                compareId: string ? compareString : (a, b) => {
+                    const x = parseKey(a);
+                    const y = parseKey(b);
+                    return x.success && y.success ? compareKey(x.value, y.value) : compareString(a, b);
+                },
                 // An entry's id is its key's text: a String key as it is, any other key as East prints it.
                 idOf: (key) => (string ? key as string : printKey(key as never)),
                 keyOf: (id) => {
@@ -1003,14 +1903,21 @@ class CellsReader {
                     const read = parseKey(id);
                     return read.success ? read.value : undefined;
                 },
-                encodeCells,
                 decodeCells: decodeBeast2For(cellsType) as (bytes: Uint8Array) => { key: unknown; row: unknown }[],
                 encodeRow: encodeBeast2For(fields["row"]!) as (row: unknown) => Uint8Array,
-                empty: encodeCells([]),
             };
             this.codecs.set(kind.cellsType, codec);
         }
         return codec;
+    }
+
+    /** How a kind's series index in time order orders the keys it files by (#1710): by the type of the row field it names. */
+    private orderOf(kind: ScheduleCellKind, field: string): KeyOrder {
+        let held = this.orders.get(kind.cellsType);
+        if (held === undefined) { held = new Map(); this.orders.set(kind.cellsType, held); }
+        let order = held.get(field);
+        if (order === undefined) { order = keyOrderOf(kind.cellsType, field); held.set(field, order); }
+        return order;
     }
 
     /** The `.east` text a kind's series and summary indexes file a resource's events under; `undefined` for one its field cannot name. */
@@ -1037,120 +1944,145 @@ class CellsReader {
     }
 
     /**
-     * A kind's cells, encoded, and the rows they hold by the event's key's
-     * text: made again only when what they are made from moved — the cells'
-     * entries, the rows read by key and what the narrowing answered of them.
+     * A kind's rows, held under a handle its seams read them by, and the rows by the event's key's text (#1771): made
+     * again only when what they are made from moved — the cells' entries, the rows read by key and what the narrowing
+     * answered of them — and made once for kinds made from the same: the cases of one record read over the same blocks.
+     * `rows` gives them by key when they are first read, which a read made from the same never asks.
      */
-    private encode(slot: string, codec: KindCodec, from: readonly unknown[], rows: ReadonlyMap<unknown, unknown>): { bytes: Uint8Array; held: HeldRows } {
-        const last = this.encoded.get(slot);
-        if (last !== undefined && last.from.length === from.length && last.from.every((part, i) => Object.is(part, from[i]))) return last;
-        const entries: { key: unknown; row: unknown }[] = [];
-        const held = new Map<string, { readonly row: Uint8Array }>();
-        for (const [key, row] of rows) {
-            entries.push({ key, row });
-            held.set(codec.idOf(key), { row: codec.encodeRow(row) });
+    private hold(slot: string, codec: KindCodec, from: readonly unknown[], rows: () => Iterable<readonly [unknown, unknown]>): Generation {
+        const same = (made: Generation | undefined): made is Generation =>
+            made !== undefined && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
+        const last = this.generations.get(slot);
+        if (same(last)) return last;
+        for (const other of this.generations.values()) {
+            if (!same(other)) continue;
+            this.generations.set(slot, other);
+            return other;
         }
-        const made = { from, bytes: codec.encodeCells(entries), held };
-        this.encoded.set(slot, made);
+        let entries: readonly CellEntry[] | undefined;
+        const rowsOf = (): readonly CellEntry[] => (entries ??= [...rows()].map(([key, row]) => ({ key, row })));
+        const handle = holdCellRows(rowsOf);
+        this.made.add(handle);
+        const made: Generation = { from, handle, held: new CellRows(codec, rowsOf) };
+        this.generations.set(slot, made);
         return made;
     }
 
     /**
-     * The cells' entries a kind's read holds, at the record's revision now:
-     * those of the wanted cells it does not hold read in one request, and
-     * every cell no longer wanted let go.
-     *
-     * @returns Each wanted cell's entries, in order; none while the revision or the read is in flight
+     * The spans a kind's series reads hold, by the index (#1771): those of every kind read through its source over the
+     * same slots — the cases of one record, whose searches are one — so they read one set of rows.
      */
-    private entriesOf(at: string, part: ScheduleCellPart, index: string, cells: readonly RecordSliceCell[]): option<RecordSliceEntry[][]> {
-        const revision = recordSliceRevision(part);
-        if (revision.type !== "some") return none;
-        let kept = this.kept.get(at);
-        if (kept === undefined || !stringEqual(kept.revision, revision.value)) {
-            kept = { revision: revision.value, cells: new Map() };
-            this.kept.set(at, kept);
-        }
-        const texts = cells.map((cell) => cellText(index, cell));
-        const missing = cells.filter((_cell, i) => !kept.cells.has(texts[i]!));
-        if (missing.length > 0) {
-            const read = recordSliceCellEntries(part, index, missing);
-            if (read.type !== "some") return none;
-            for (const cell of missing) kept.cells.set(cellText(index, cell), read.value.get(cell.id) ?? []);
-        }
-        const wanted = new Set(texts);
-        for (const text of [...kept.cells.keys()]) if (!wanted.has(text)) kept.cells.delete(text);
-        return some(texts.map((text) => kept.cells.get(text)!));
+    private spansOf(kind: ScheduleCellKind, part: ScheduleCellPart): SpansByIndex {
+        let bySlots = this.spans.get(part.key);
+        if (bySlots === undefined) { bySlots = new Map(); this.spans.set(part.key, bySlots); }
+        const slots = printSlots([...kind.takes]);
+        let byIndex = bySlots.get(slots);
+        if (byIndex === undefined) { byIndex = new Map(); bySlots.set(slots, byIndex); }
+        return byIndex;
     }
 
     /**
-     * A kind's series cells over the runs wanted, at the record's revision now
-     * (#1433): each group's run of each level, the entries of its tiles held
-     * and of the parts of it not held — one range a key over each part, their
-     * searches in one request that counts them first, then their entries in
-     * one more, each kept under the tile it names — and every span no longer
-     * wanted let go.
+     * A kind's series cells over the runs wanted, through one of its series
+     * indexes, counted at the record's revision now (#1433, #1768): each
+     * group's run of each level — the span of it held, and a cell for each part
+     * of it not held, one range a key over each part, or through an index in
+     * time order one a tile (#1710) — every part's searches in one request,
+     * which counts their entries before one is read, and how many entries each
+     * group's runs hold, its tiles held among them. Through an index in time
+     * order a range holds every key between the group's first and last: what
+     * is counted is at least the group's own.
      *
-     * @returns Each group's entries a level, in order; how many the runs hold, past {@link SCHEDULE_EVENT_CAP}, the parts
-     *   not held unread; {@link READING} while the revision, a count or a read is in flight
+     * @returns The runs wanted, and each group's count in the groups' order; {@link READING} while the revision or a count
+     *   is in flight
      */
-    private seriesEntries(at: string, part: ScheduleCellPart, series: Index, where: Where, groups: readonly CellGroup[], runs: readonly TileRun[]):
-        SeriesEntries | typeof READING {
+    private seriesCounts(stored: SpansByIndex, part: ScheduleCellPart, series: Index, groups: readonly SeriesGroup[], runs: readonly TileRun[]):
+        SeriesCounted | typeof READING {
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
-        const last = this.spans.get(at);
-        const kept = last !== undefined && stringEqual(last.revision, revision.value) ? last.spans : new Map<string, Span>();
-        const leading = series.fields.map((field) => {
-            const choice = where.get(field);
-            return choice === undefined ? "" : printChoice(choice);
-        }).join("\u0001");
-        // Each group's run of each level: the span of it held, and a cell for each part of it not held.
-        const wanted: { key: string; identity: string; from: number; to: number; held: Span | undefined; cells: RecordSliceCell[] }[] = [];
-        const missing: RecordSliceCell[] = [];
-        for (const group of groups) {
+        const last = stored.get(series.name);
+        const was = last !== undefined && stringEqual(last.revision, revision.value) ? last : undefined;
+        // Each group's run of each level: the span of it held — the last read's, or one kept of a view's past (#1797) —
+        // and a cell for each part of it not held.
+        const wanted: SeriesWant[] = [];
+        const missing: NamedCell[] = [];
+        groups.forEach((group, g) => {
+            // What its searches are made from: its keys, and what its narrowing chooses of the index's leading fields.
+            const leading = series.fields.map((field) => {
+                const choice = group.where.get(field);
+                return choice === undefined ? "" : printChoice(choice);
+            }).join("\u0001");
             const identity = `${group.literals.join("\u0001")}\u0000${leading}`;
             for (const run of runs) {
                 const key = `${group.id}\u0000${run.level}`;
                 const from = run.from.getTime();
                 const to = run.to.getTime();
-                const span = kept.get(key);
+                const span = was?.spans.get(key) ?? was?.kept.get(key);
                 const held = span !== undefined && stringEqual(span.identity, identity) && span.from < to && span.to > from ? span : undefined;
                 const parts: [number, number][] = held === undefined ? [[from, to]] : [];
                 if (held !== undefined && from < held.from) parts.push([from, held.from]);
                 if (held !== undefined && held.to < to) parts.push([held.to, to]);
-                const cells = parts.map(([a, b]) => ({
-                    id: `${group.id}@${run.level}@${a}`,
-                    queries: levelCellQueries(series, where, { level: run.level, from: new Date(a), to: new Date(b) }, group.literals).queries,
+                // Named by its searches — what they are made from, the level and the tiles — so a later read wanting the
+                // same searches knows a batch on its way holds them (#1797).
+                const cells = parts.map(([a, b]): NamedCell => ({
+                    name: `${identity}\u0000${run.level}\u0000${a}\u0000${b}`,
+                    cell: { id: `${group.id}@${run.level}@${a}`, queries: groupQueries(series, group, { level: run.level, from: new Date(a), to: new Date(b) }) },
                 }));
                 missing.push(...cells);
-                wanted.push({ key, identity, from, to, held, cells });
+                wanted.push({ key, identity, from, to, held, cells, group, at: g });
+            }
+        });
+        // Counted first: the entries of the tiles held, and of the parts not held, before one of those is read.
+        const counts = groups.map(() => 0);
+        for (const want of wanted) {
+            if (want.held === undefined) continue;
+            for (const [tile, entries] of want.held.byTile) if (tile >= want.from && tile < want.to) counts[want.at] = counts[want.at]! + entries.length;
+        }
+        if (missing.length > 0) {
+            const found = recordSliceCellRuns(part, series.name, missing.map((one) => one.cell));
+            if (found.type !== "some") {
+                // While these are counted, every batch of entries on its way is asked again (#1797): what this read wants is
+                // not known until they are, and unread, a batch's request is given up, and asked again whole once they land.
+                this.entriesOf(stored, part, series, revision.value, missing, false);
+                return READING;
+            }
+            for (const want of wanted) {
+                for (const one of want.cells) counts[want.at] = counts[want.at]! + Number(found.value.get(one.cell.id)?.total ?? 0n);
             }
         }
-        // Counted first: the entries of the tiles held, and of the parts not held, before one of those is read.
-        let count = 0;
-        for (const { from, to, held } of wanted) {
-            if (held === undefined) continue;
-            for (const [tile, entries] of held.byTile) if (tile >= from && tile < to) count += entries.length;
-        }
+        return { revision: revision.value, wanted, counts };
+    }
+
+    /**
+     * A kind's series cells read, of the groups `taken` takes in (#1433,
+     * #1768): the entries of the parts not held — each cell counted already,
+     * so none is searched again — asked a batch at a time
+     * ({@link CellsReader.entriesOf}, #1797): a batch on its way asked again as
+     * it was, the cells no batch holds in one request more. Each entry is kept
+     * under the tile it names, and the spans no group taken in wants kept while
+     * they fit (#1797, {@link keptSpans}). Through an index in time order the
+     * entries of each group's own keys are kept (#1710).
+     *
+     * @returns The groups taken in's entries a level, in order; {@link READING} while the entries are in flight
+     */
+    private seriesRead(stored: SpansByIndex, part: ScheduleCellPart, series: Index, counted: SeriesCounted, taken: readonly boolean[]): SeriesEntries | typeof READING {
+        const reading = counted.wanted.filter((want) => taken[want.at] === true);
+        const missing = reading.flatMap((want) => want.cells);
+        let read = NO_ENTRIES;
         if (missing.length > 0) {
-            const found = recordSliceCellRuns(part, series.name, missing);
-            if (found.type !== "some") return READING;
-            for (const cell of missing) count += Number(found.value.get(cell.id)?.total ?? 0n);
-        }
-        if (count > SCHEDULE_EVENT_CAP) return { count };
-        let read: ReadonlyMap<string, RecordSliceEntry[]> = new Map();
-        if (missing.length > 0) {
-            const got = recordSliceCellEntries(part, series.name, missing);
-            if (got.type !== "some") return READING;
-            read = got.value;
+            const landed = this.entriesOf(stored, part, series, counted.revision, missing, true);
+            if (landed === undefined) return READING;
+            read = landed;
         }
         const spans = new Map<string, Span>();
-        const entries = wanted.map(({ key, identity, from, to, held, cells }) => {
+        const entries = reading.map(({ key, identity, from, to, held, cells, group }) => {
             let span = held !== undefined && held.from === from && held.to === to ? held : undefined;
             if (span === undefined) {
                 const byTile = new Map<number, RecordSliceEntry[]>();
                 if (held !== undefined) for (const [tile, list] of held.byTile) if (tile >= from && tile < to) byTile.set(tile, [...list]);
-                for (const cell of cells) {
-                    for (const entry of read.get(cell.id) ?? []) {
+                for (const { name } of cells) {
+                    for (const entry of read.get(name) ?? []) {
+                        // Through an index in time order, a range holds the keys between the group's first and last too (#1710).
+                        if (group.run !== undefined && !group.run.holds(entryKey(entry))) continue;
                         const tile = tileOf(entry);
                         const list = byTile.get(tile);
                         if (list === undefined) byTile.set(tile, [entry]);
@@ -1163,19 +2095,151 @@ class CellsReader {
             spans.set(key, span);
             return span.entries;
         });
-        // The spans this read wants, and no other.
-        this.spans.set(at, { revision: revision.value, spans });
-        return { entries, revision: revision.value };
+        // The spans this read takes in, and of those it wants no more — at the revision it was counted at — the most
+        // recently wanted, while they fit (#1797): a view going back to them reads nothing.
+        const last = stored.get(series.name);
+        const was = last !== undefined && stringEqual(last.revision, counted.revision) ? last : undefined;
+        stored.set(series.name, { revision: counted.revision, spans, kept: keptSpans(was, spans) });
+        // What landed is the spans' now (#1797): a cell this read took in is held there, and one it did not take in is asked
+        // again where a read wants it.
+        if (missing.length > 0) this.entriesAsked.get(stored)?.get(series.name)?.landed.clear();
+        // The same group by group (#1793): a group's runs are wanted together, a level each.
+        const groups: { literals: readonly string[]; entries: (readonly RecordSliceEntry[])[] }[] = [];
+        reading.forEach((want, n) => {
+            const group = groups[groups.length - 1];
+            if (group !== undefined && reading[n - 1]!.at === want.at) group.entries.push(entries[n]!);
+            else groups.push({ literals: want.group.literals, entries: [entries[n]!] });
+        });
+        return { entries, groups, revision: counted.revision };
     }
 
     /**
-     * A read of every kind (see the module docs).
+     * Some cells' entries of a series read, asked of one index a batch at a time (#1797; see the module docs, "A read on
+     * its way"): each batch on its way asked again as it was — every one while the cells are still counted, else each
+     * holding one of them — the cells no batch holds asked in one request more where `fresh`, and each cell's entries
+     * kept once its batch lands, until a read takes them in. Once they are counted, a batch holding none of them is given
+     * up; what was asked at another revision is let go.
+     *
+     * @param stored - The spans the kind reads through, which the cases of one record share
+     * @param part - The kind's source of the slice
+     * @param series - The index read
+     * @param revision - The revision the cells were counted at
+     * @param cells - The cells wanted
+     * @param fresh - Whether the cells are counted, so the cells no batch holds are asked; `false` while the read wanting
+     *   them is still counted, which asks again every batch on its way and nothing more
+     * @returns Each cell's entries landed, by its name, once every one of them has; `undefined` while any is on its way, or not yet asked
+     */
+    private entriesOf(stored: SpansByIndex, part: ScheduleCellPart, series: Index, revision: string, cells: readonly NamedCell[], fresh: boolean):
+        ReadonlyMap<string, readonly RecordSliceEntry[]> | undefined {
+        let byIndex = this.entriesAsked.get(stored);
+        if (byIndex === undefined) { byIndex = new Map(); this.entriesAsked.set(stored, byIndex); }
+        let asked = byIndex.get(series.name);
+        if (asked === undefined || !stringEqual(asked.revision, revision)) {
+            asked = { revision, batches: [], landed: new Map() };
+            byIndex.set(series.name, asked);
+        }
+        const { batches, landed } = asked;
+        const complete = scheduleBatchesAsked(cells, (one) => one.name, (one) => landed.has(one.name), batches, (batch) => {
+            const got = recordSliceCellEntries(part, series.name, batch.map((one) => one.cell));
+            if (got.type !== "some") return false;
+            for (const one of batch) landed.set(one.name, got.value.get(one.cell.id) ?? []);
+            return true;
+        }, fresh);
+        return complete ? landed : undefined;
+    }
+
+    /**
+     * A kind's rows block by block (#1793; see the module docs, "What a kind is handed"): each group read's — its spans,
+     * every level — under a handle of its own, made again only when those spans move or the rows it leaves do, and the
+     * rows read by their keys a block of their own. The blocks made of spans no longer held are let go of; those of a
+     * view's past stand while their spans are kept.
+     *
+     * @param codec - The kind's codec
+     * @param spans - The spans the kind reads through, which the cases of one record share
+     * @param groups - The groups the read took in, in its order
+     * @param outside - The keys of the rows the narrowing leaves out, in their keys' order
+     * @param beside - The rows read by their keys that the narrowing holds
+     * @param slot - The kind's slot: what its rows read by key are kept by
+     * @returns The blocks, in the read's order, the rows read by key last
+     */
+    private blocksOf(codec: KindCodec, spans: SpansByIndex, groups: readonly SeriesGroupRead[], outside: readonly unknown[],
+        beside: readonly CellEntry[], slot: string): readonly ScheduleBlockRows[] {
+        const left = this.leftOf(codec, spans, groups, outside);
+        // The spans held now, a view's past among them: a block made of others is let go of.
+        const held = new Set<readonly RecordSliceEntry[]>();
+        for (const one of spans.values()) {
+            for (const span of one.spans.values()) held.add(span.entries);
+            for (const span of one.kept.values()) held.add(span.entries);
+        }
+        const made = (this.blockGenerations.get(spans) ?? []).filter((block) => block.entries.every((entries) => held.has(entries)));
+        const out: ScheduleBlockRows[] = groups.map((group, g) => {
+            const leaves = left[g]!;
+            const found = made.find((block) => block.entries.length === group.entries.length
+                && block.entries.every((entries, n) => Object.is(entries, group.entries[n])) && stringEqual(block.left, leaves.text));
+            if (found !== undefined) return found;
+            // Made when a seam first reads them, or a gesture asks for a row.
+            let rows: readonly CellEntry[] | undefined;
+            const rowsOf = (): readonly CellEntry[] => (rows ??= scheduleBlockEntries(group.entries, leaves.ids, codec.compareKey, codec.idOf));
+            const handle = holdCellRows(rowsOf);
+            this.made.add(handle);
+            const block: BlockGeneration = { entries: group.entries, left: leaves.text, handle, held: new CellRows(codec, rowsOf) };
+            made.push(block);
+            return block;
+        });
+        this.blockGenerations.set(spans, made);
+        if (beside.length === 0) {
+            this.besides.delete(slot);
+            return out;
+        }
+        // The rows read by their keys: made again only when they move, and once for the kinds that read the same.
+        const from = beside.flatMap((entry) => [entry.key, entry.row]);
+        const same = (made: Generation | undefined): made is Generation =>
+            made !== undefined && made.from.length === from.length && made.from.every((part, i) => Object.is(part, from[i]));
+        let kept = this.besides.get(slot);
+        if (!same(kept)) {
+            kept = [...this.besides.values()].find(same);
+            if (kept === undefined) {
+                const handle = holdCellRows(() => beside);
+                this.made.add(handle);
+                kept = { from, handle, held: new CellRows(codec, () => beside) };
+            }
+            this.besides.set(slot, kept);
+        }
+        out.push(kept);
+        return out;
+    }
+
+    /**
+     * The rows each group read leaves ({@link scheduleBlocksLeft}, #1793), worked out again only when the entries read or
+     * the rows the narrowing leaves out move.
+     *
+     * @param codec - The kind's codec
+     * @param spans - The spans the kind reads through
+     * @param groups - The groups the read took in, in its order
+     * @param outside - The keys of the rows the narrowing leaves out
+     * @returns The rows each group leaves, in the groups' order
+     */
+    private leftOf(codec: KindCodec, spans: SpansByIndex, groups: readonly SeriesGroupRead[], outside: readonly unknown[]): readonly BlockLeft[] {
+        const from = groups.flatMap((group) => group.entries);
+        const out = outside.map((key) => codec.idOf(key));
+        const outsideText = out.join("\u0000");
+        const last = this.leftBy.get(spans);
+        if (last !== undefined && last.from.length === from.length && last.from.every((entries, n) => Object.is(entries, from[n]))
+            && stringEqual(last.outside, outsideText)) return last.left;
+        const left = scheduleBlocksLeft(groups, new Set(out), codec.idOf).map((ids) => (ids.size === 0 ? NONE_LEFT : { text: [...ids].join("\u0000"), ids }));
+        this.leftBy.set(spans, { from, outside: outsideText, left });
+        return left;
+    }
+
+    /**
+     * A read of every kind (see the module docs), each asked whatever the others' reads are doing: a kind whose read is
+     * in flight holds no other's back, so the kinds' requests go out together (#1771).
      *
      * @param args - What it reads over
-     * @returns What it read; {@link READING} while a count, or a cell's count or entries, are in flight
+     * @returns What it read; {@link READING} while a count, or a cell's count or entries, of any kind are in flight
      */
     read(args: Omit<ScheduleCellsArgs, "host">): Read | typeof READING {
-        const { kinds, resources, paged, range, period, buckets, resolution, drafts, span } = args;
+        const { kinds, resources, paged, range, period, buckets, resolution, drafts, span, zoomShades } = args;
         // The revision each kind read by its cells, or its window's rows, reads at now, before anything of the read is in
         // flight: what cells standing from an earlier read are told from, as from before a Save or holding it. And each
         // narrowed kind's choices: what the read is asked under.
@@ -1193,21 +2257,45 @@ class CellsReader {
         const made: ReadView = { period: period ?? "", choices: choices.join("\u0001") };
         if (!sameView(made, this.askedView)) this.askedView = made;
         if (range === undefined || buckets === undefined) return READING;
-        const reads: [string, Uint8Array][] = [];
+        const reads: [string, ScheduleCellRead][] = [];
+        const blocked = new Map<string, ScheduleKindBlocks>();
         const held = new Map<string, HeldRows>();
         const dropped = new Map<string, ReadonlySet<string>>();
         const revisions = new Map<string, string>();
         const notices: ScheduleCellNotice[] = [];
         const capped = new Set<string>();
         const windowed = new Set<string>();
+        // The resources of the blocks ahead a kind left unread beneath the cap (#1768): their rows wait on a read.
+        const unread = new Set<string>();
         const over: ScheduleCellRange = { from: range.from.getTime(), to: range.to.getTime() };
         // The shading, by a row's key, then by the resource's key: each tile's totals, or the hatch.
         const totals: Totals = new Map();
+        // A view of no row (#1795): the paged rows in view are reported, and none of them stands for a resource.
+        const noRow = paged !== undefined && !paged.hidden && span !== undefined && span.runs.length === 0;
         // The paged kind's blocks in view, read once for every kind placed on it — and its resources wanted, kept.
-        let pagedBlocks: Block[] | typeof READING | undefined;
-        const blocksOfPaged = (): Block[] | typeof READING => {
+        let pagedBlocks: ScheduleCellBlock[] | typeof READING | undefined;
+        const blocksOfPaged = (): ScheduleCellBlock[] | typeof READING => {
             if (pagedBlocks !== undefined) return pagedBlocks;
-            pagedBlocks = paged === undefined || paged.hidden ? [] : this.pagedBlocks(paged, span);
+            try {
+                if (paged === undefined || paged.hidden) pagedBlocks = [];
+                else {
+                    // The blocks meeting the rows in view, and the next the way they last went (#1797).
+                    const way = this.travelOf(paged, span);
+                    pagedBlocks = way === READING ? READING : schedulePagedBlocks(paged, span, way) ?? READING;
+                }
+            } catch (thrown) {
+                // The paged kind's own rows — their count, a window — failing to read: what its host's paging says where
+                // those rows are, never as its period's (#1710). Anything else thrown is the reader's own failure.
+                throw isPagedReadError(thrown) ? new PagedRowsFailure(thrown) : thrown;
+            }
+            // A view of no row wants no block: while nothing the last read over rows was made under has moved, it is read
+            // over that read's blocks — the read it made, which asks e3 nothing — and once anything has, over none.
+            if (noRow && pagedBlocks !== READING) {
+                const stood = this.stood;
+                if (stood !== undefined && sameView(stood.made, this.askedView) && sameRange(stood.range, over)
+                    && sameNarrowing(stood.narrowing, paged.narrowing()) && sameRevisions(stood.revisions, this.nowAt)) pagedBlocks = stood.blocks;
+                else this.stood = undefined;
+            }
             if (pagedBlocks !== READING) {
                 const wanted = new Set(pagedBlocks.flatMap((block) => block.keys.map((key) => scheduleCellId(block.slot, key))));
                 if (!sameKeys(wanted, this.wantedKeys)) this.wantedKeys = wanted;
@@ -1215,8 +2303,8 @@ class CellsReader {
             return pagedBlocks;
         };
         // A kind's resources' blocks, a counted kind's past the cap: the paged kind's in view, and every resource read whole.
-        const blocksOf = (kind: ScheduleCellKind): Block[] | typeof READING => {
-            const out: Block[] = [];
+        const blocksOf = (kind: ScheduleCellKind): ScheduleCellBlock[] | typeof READING => {
+            const out: ScheduleCellBlock[] = [];
             for (const slot of kind.takes) {
                 if (pagedSlot(paged, slot)) {
                     const blocks = blocksOfPaged();
@@ -1224,15 +2312,25 @@ class CellsReader {
                     out.push(...blocks.filter((block) => stringEqual(block.slot, slot)));
                     continue;
                 }
-                const keys = resources.find((r) => stringEqual(r.key, slot))?.keys ?? [];
+                const whole = resources.find((r) => stringEqual(r.key, slot));
+                const keys = whole?.keys ?? [];
                 for (let at = 0; at < keys.length; at += SCHEDULE_CELL_BLOCK) {
-                    out.push({ slot, id: String(at / SCHEDULE_CELL_BLOCK), keys: keys.slice(at, at + SCHEDULE_CELL_BLOCK) });
+                    const mine = keys.slice(at, at + SCHEDULE_CELL_BLOCK);
+                    // The rows beneath its resources a kind's `child` lands on (#1541, U1).
+                    const children = new Map(mine.flatMap((key) => {
+                        const beneath = whole?.children?.get(key);
+                        return beneath === undefined ? [] : [[key, beneath] as const];
+                    }));
+                    out.push({ slot, id: String(at / SCHEDULE_CELL_BLOCK), keys: mine, ...(children.size > 0 && { children }) });
                 }
             }
             return out;
         };
         // Whether a kind drew its cells, or its shading, over the paged kind's blocks: then its rows draw what they hold.
         let byCells = false;
+        // Whether a kind's read is in flight (#1771): every other kind is asked all the same, so their requests go out
+        // together, never each once the one before it has landed.
+        let inFlight = false;
         for (const kind of kinds) {
             let read: KindRead | typeof READING;
             let outside: ReadonlySet<string> | typeof READING = NO_IDS;
@@ -1241,12 +2339,19 @@ class CellsReader {
                 if (readByCells(kind, paged)) {
                     if (kind.hidden) {
                         // Hidden: it draws nothing, so no cell of it is read — and given none, nothing reads its range.
-                        read = { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
+                        read = { mode: "shade", notice: undefined, paged: false };
                     } else {
-                        // The paged rows' blocks of the slots it lands on.
+                        // The paged rows' blocks of the slots it lands on. Under a view of no row with no read standing
+                        // (#1795) none of its events is read — and its cells are never asked over no block, which would
+                        // let go of every tile held: the rows a view shows next draw from them.
                         const blocks = blocksOfPaged();
-                        read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where,
-                            blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), range, buckets, resolution, drafts, totals);
+                        if (blocks === READING) read = READING;
+                        else if (noRow && this.stood === undefined) read = { mode: "none" };
+                        else {
+                            read = this.cellsKind(kind, kind.part!, kind.part!.read().where,
+                                blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
+                                resolution, drafts, totals, zoomShades === true);
+                        }
                     }
                 } else {
                     read = this.countedKind(kind, range, buckets, resolution, totals, blocksOf);
@@ -1256,7 +2361,7 @@ class CellsReader {
                     if (read !== READING && kind.windowField !== undefined && kind.part !== undefined && !kind.hidden) {
                         const { part, windowField } = kind;
                         const held = read.mode === "cells" ? read.held : undefined;
-                        outside = this.own(kind, () => this.draftsOutside(kind, part, windowField, drafts, held));
+                        outside = this.draftsOutside(kind, part, windowField, drafts, held);
                     } else if (read !== READING && read.mode === "cells" && kind.isNew !== undefined) {
                         // A kind whose window draws a draft only of an event it holds, or of a new one (#1343): the
                         // drafts of the other events left out, told by the rows held and where each draft began — but
@@ -1265,24 +2370,32 @@ class CellsReader {
                     }
                 }
             } catch (thrown) {
-                throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key, false);
+                throw thrown instanceof KindReadFailure || thrown instanceof PagedRowsFailure ? thrown : new KindReadFailure(thrown, kind.key);
             }
-            if (read === READING || outside === READING) return READING;
+            if (read === READING || outside === READING) {
+                inFlight = true;
+                continue;
+            }
             if (outside.size > 0) dropped.set(kind.key, outside);
             switch (read.mode) {
                 // Its host reads it over the range, as it reads a kind no reader names.
                 case "window": continue;
                 case "cells":
-                    reads.push([kind.key, read.cells]);
+                    reads.push([kind.key, variant("rows", read.handle)]);
+                    // Its window's own rows are one block (#1793): what its host splits its drafts by is the rows held, never
+                    // those with what Saves landed laid over them.
+                    blocked.set(kind.key, { blocks: read.blocks ?? [{ handle: read.handle, held: read.held }], compare: this.codecOf(kind).compareId });
                     held.set(kind.key, read.held);
                     if (read.dropped.size > 0) dropped.set(kind.key, read.dropped);
                     revisions.set(kind.key, read.revision);
                     // A series index's cells draw over the paged kind's blocks; a window's rows are the range's alone.
-                    if (read.paged) byCells = true;
-                    else windowed.add(kind.key);
+                    if (read.paged) {
+                        byCells = true;
+                        for (const id of read.unread) unread.add(id);
+                    } else windowed.add(kind.key);
                     break;
                 case "shade":
-                    reads.push([kind.key, read.cells]);
+                    reads.push([kind.key, READ_NOTHING]);
                     held.set(kind.key, NO_ROWS);
                     if (read.notice !== undefined) notices.push(read.notice);
                     if (read.paged) byCells = true;
@@ -1290,104 +2403,38 @@ class CellsReader {
                     // no host's figure at all, so it is named here by none.
                     if (!kind.hidden) capped.add(kind.key);
                     break;
+                case "none":
+                    // No row's events are wanted: it draws nothing, over the paged rows — whose rows, shown next, wait on
+                    // their cells — and is no kind past the cap.
+                    reads.push([kind.key, READ_NOTHING]);
+                    held.set(kind.key, NO_ROWS);
+                    byCells = true;
+                    break;
             }
+        }
+        if (inFlight) return READING;
+        // What a view of no row is read over next (#1795): the blocks this read was made over, and what it was made under.
+        if (!noRow) {
+            this.stood = paged === undefined || pagedBlocks === undefined || pagedBlocks === READING ? undefined
+                : { blocks: pagedBlocks, made: this.askedView, range: over, narrowing: paged.narrowing(), revisions: this.nowAt };
         }
         return {
             reads: new SortedMap(reads, compareString),
+            blocks: blocked.size === 0 ? undefined : blocked,
             shading: shadingOf(totals, buckets),
             drafts: narrowedDrafts(drafts, dropped),
             held,
             notices,
             capped: capped.size === 0 ? NONE_CAPPED : capped,
             dropped,
-            // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them.
-            covered: byCells ? this.wantedKeys : undefined,
+            // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them — but
+            // those of the blocks ahead a kind left unread beneath the cap (#1768), whose rows wait on a read.
+            covered: !byCells ? undefined : unread.size === 0 ? this.wantedKeys : new Set([...this.wantedKeys].filter((id) => !unread.has(id))),
             range: over,
             revisions: revisions.size === 0 ? NO_REVISIONS : revisions,
             windowed: windowed.size === 0 ? NONE_WINDOWED : windowed,
             made: this.askedView,
         };
-    }
-
-    /**
-     * The paged rows' blocks in view, each its resources' keys: those meeting the rows in view and
-     * {@link SCHEDULE_CELL_MARGIN} resources either side, in their windows' order; {@link READING} while a window of them
-     * is in flight, and while the rows in view are another narrowing's than the one the windows read now (#1344): a
-     * choice's rows still to land and be reported, whose places the last narrowing's windows do not hold.
-     *
-     * A block is a window's own (#1541): its resources `[j × BLOCK, (j + 1) × BLOCK)` in the order the window draws
-     * them, a block a slot their rows land on — as many as the window draws, one an entry of a resource kind's, any
-     * number of a Plan's group rows. A window whose read failed gives no block: its host says so where its rows would
-     * be, with its Retry, and no cell of it is read until a Retry lands it.
-     */
-    private pagedBlocks(paged: ScheduleCellPaged, span: ScheduleCellSpan | undefined): Block[] | typeof READING {
-        const narrowing = paged.narrowing();
-        if (span !== undefined && !sameNarrowing(span.narrowing, narrowing)) return READING;
-        const total = paged.total();
-        const windows = total.type === "some" ? Math.ceil(Number(total.value) / paged.window) : undefined;
-        const read = new Map<number, readonly ScheduleCellKey[]>();
-        // A window's resources, read once; `undefined` while it is in flight, none of a window past the last or failed.
-        const keysOf = (w: number): readonly ScheduleCellKey[] | undefined => {
-            if (w < 0 || (windows !== undefined && w >= windows)) return [];
-            const held = read.get(w);
-            if (held !== undefined) return held;
-            const keys = scheduleWindowKeys(paged, w);
-            if (keys === undefined) return undefined;
-            const out = keys === SCHEDULE_WINDOW_FAILED ? [] : keys;
-            read.set(w, out);
-            return out;
-        };
-        // The rows in view, each by its window and its place in it: a row its window draws no resource of — a group's
-        // own row — at the window's start. Before any is reported, the first resource, where a view opens.
-        const first = span?.first ?? { w: 0, key: undefined as string | undefined };
-        const last = span?.last ?? first;
-        const placeIn = (at: { readonly w: number; readonly key: string | undefined }): number | undefined => {
-            const keys = keysOf(at.w);
-            if (keys === undefined) return undefined;
-            return at.key === undefined ? 0 : Math.max(0, keys.findIndex((k) => stringEqual(k.key, at.key!)));
-        };
-        const from = placeIn(first);
-        const to = placeIn(last);
-        if (from === undefined || to === undefined) return READING;
-        // Each window's wanted places, from the first row in view less the margin to the last plus it.
-        const wanted = new Map<number, { lo: number; hi: number }>();
-        for (let w = first.w; w <= last.w; w++) {
-            const keys = keysOf(w);
-            if (keys === undefined) return READING;
-            wanted.set(w, { lo: w === first.w ? from - SCHEDULE_CELL_MARGIN : 0, hi: w === last.w ? to + SCHEDULE_CELL_MARGIN : keys.length - 1 });
-        }
-        // The margin spills into the window before the first, and after the last, as far as it reaches.
-        const head = wanted.get(first.w)!;
-        if (head.lo < 0 && first.w > 0) {
-            const before = keysOf(first.w - 1);
-            if (before === undefined) return READING;
-            wanted.set(first.w - 1, { lo: before.length + head.lo, hi: before.length - 1 });
-        }
-        const tail = wanted.get(last.w)!;
-        const lastKeys = keysOf(last.w)!;
-        if (tail.hi >= lastKeys.length) {
-            const after = keysOf(last.w + 1);
-            if (after === undefined) return READING;
-            wanted.set(last.w + 1, { lo: 0, hi: tail.hi - lastKeys.length });
-        }
-        const blocks: Block[] = [];
-        for (const w of [...wanted.keys()].sort((a, b) => a - b)) {
-            const keys = keysOf(w)!;
-            const { lo, hi } = wanted.get(w)!;
-            const start = Math.max(0, lo);
-            const end = Math.min(keys.length - 1, hi);
-            for (let j = Math.floor(start / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= end; j++) {
-                // A block a slot its resources' rows land on, in the order the window draws them.
-                const bySlot = new Map<string, string[]>();
-                for (const k of keys.slice(j * SCHEDULE_CELL_BLOCK, (j + 1) * SCHEDULE_CELL_BLOCK)) {
-                    const list = bySlot.get(k.slot);
-                    if (list === undefined) bySlot.set(k.slot, [k.key]);
-                    else list.push(k.key);
-                }
-                for (const [slot, own] of bySlot) blocks.push({ slot, id: `${w}.${j}`, keys: own });
-            }
-        }
-        return blocks;
     }
 
     /**
@@ -1397,15 +2444,15 @@ class CellsReader {
      */
     private countedKind(
         kind: ScheduleCellKind, range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined,
-        totals: Totals, blocksOf: (kind: ScheduleCellKind) => Block[] | typeof READING,
+        totals: Totals, blocksOf: (kind: ScheduleCellKind) => ScheduleCellBlock[] | typeof READING,
     ): KindRead | typeof READING {
-        const within = this.own(kind, () => scheduleWithinCap(kind.count, range.from, range.to));
+        const within = scheduleWithinCap(kind.count, range.from, range.to);
         if (within.type !== "some") return READING;
         // Within the cap: a kind read a window at a time is given its window's rows; one read whole, or hidden, is left
         // to its host.
-        if (within.value) return kind.stored === undefined || kind.hidden ? { mode: "window" } : this.own(kind, () => this.windowKind(kind, range));
+        if (within.value) return kind.stored === undefined || kind.hidden ? { mode: "window" } : this.windowKind(kind, range);
         // Past the cap: none of its events is read or drawn.
-        if (kind.hidden) return { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
+        if (kind.hidden) return { mode: "shade", notice: undefined, paged: false };
         const blocks = blocksOf(kind);
         if (blocks === READING) return READING;
         const where = kind.part === undefined ? new Map() : kind.part.read().where;
@@ -1462,59 +2509,138 @@ class CellsReader {
     /**
      * A kind placed on the paged kind, read by its series index's cells: its
      * events while the cells hold at most the cap, its summary's shading past
-     * it (see the module docs).
+     * it (see the module docs). `unassigned` says whether the paged rows draw
+     * an Unassigned row, whose events — those on no resource — are read too.
+     * Where its host's zoom shades (`zoomShades`, #1706), a resolution coarser
+     * than its series index's tile shades from its summary too, and reads none
+     * of its events.
      */
     private cellsKind(
-        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, blocks: readonly Block[], range: { from: Date; to: Date },
-        buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, drafts: ScheduleEventDraftsValue, totals: Totals,
+        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, blocks: readonly ScheduleCellBlock[], unassigned: boolean,
+        range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, drafts: ScheduleEventDraftsValue,
+        totals: Totals, zoomShades: boolean,
     ): KindRead | typeof READING {
         const codec = this.codecOf(kind);
-        const series = tileIndexFor(part.config.indexes, where, "series");
-        const tiling = series === undefined ? undefined : tilingOf(series);
-        // The groups read: each block of resources in view, and the events on none — each a run of each level (#1433).
+        const indexes = part.config.indexes;
+        // The groups read: each block of resources in view, and the events on none where an Unassigned row draws them —
+        // each a run of each level (#1433). Where none draws them they are read for nothing (#1710), and through an index
+        // in time order led by the rows' group, which no block of theirs stands under, none would serve them.
         const groups: CellGroup[] = [];
+        // The resources of each group read ahead of the rows in view, by the group (#1768): what waits on a read where the
+        // cap leaves it.
+        const aheads = new Map<string, readonly string[]>();
         for (const block of blocks) {
             const literals = block.keys.flatMap((key) => {
                 const literal = this.literal(kind, block.slot, key);
                 return literal === undefined ? [] : [literal];
             });
-            if (literals.length > 0) groups.push({ id: `${block.slot}:${block.id}`, literals });
+            if (literals.length === 0) continue;
+            const id = `${block.slot}:${block.id}`;
+            groups.push({ id, literals, under: block.under ?? NO_UNDER });
+            if (block.ahead === true) aheads.set(id, block.keys.map((key) => scheduleCellId(block.slot, key)));
         }
-        const unassigned = this.noResource(kind);
-        if (unassigned !== undefined) groups.push({ id: "none", literals: [unassigned] });
-        const runs = tiling === undefined ? [] : levelRuns(tiling.tile.type, range.from, range.to);
-        // A range a key a level, under each combination of the leading values — as many as one key's searches of one
-        // run: more than one batch, as many events as the summary is for.
-        const perKey = series === undefined || runs.length === 0 || groups.length === 0 ? 0
-            : levelCellQueries(series, where, runs[0]!, [groups[0]!.literals[0]!]).queries.length;
-        const searches = groups.reduce((sum, group) => sum + group.literals.length, 0) * runs.length * perKey;
-        if (series === undefined || runs.length === 0 || searches > MAX_RECORD_SLICE_BATCH) {
+        const unplaced = unassigned ? this.noResource(kind) : undefined;
+        if (unplaced !== undefined) groups.push({ id: "none", literals: [unplaced], under: NO_UNDER });
+        // The series index each group is read through, and the narrowing it is read under (#1710): the one led by the
+        // most of the narrowing's choices, one in time order under the rows the group stands under. A range a key a
+        // level, or through an index in time order a range a tile, under each combination of the leading values.
+        const plans = new Map<string, { series: Index; runs: TileRun[]; groups: SeriesGroup[] }>();
+        let served = true;
+        let searches = 0;
+        for (const group of groups) {
+            const found = seriesIndexFor(indexes, where, group.under.map((text) => underOf(kind.cellsType, text)));
+            const tiling = found === undefined ? undefined : tilingOf(found.index);
+            if (found === undefined || tiling === undefined) { served = false; break; }
+            let plan = plans.get(found.index.name);
+            if (plan === undefined) {
+                plan = { series: found.index, runs: levelRuns(tiling.tile.type, range.from, range.to), groups: [] };
+                plans.set(found.index.name, plan);
+            }
+            const run = tiling.order.type === "time" ? keyRunOf(this.orderOf(kind, tiling.key), group.literals) : undefined;
+            const reading: SeriesGroup = { ...group, where: found.where, run };
+            plan.groups.push(reading);
+            for (const level of plan.runs) searches += groupQueries(found.index, reading, level).length;
+        }
+        // With no group to read, the index a page of no groups is read through — or, a source listing one in time order,
+        // that one — says which field its tiles cover: nothing is read of it.
+        const standing = plans.values().next().value?.series ?? seriesIndexFor(indexes, where, [])?.index
+            ?? indexes.find((index) => index.series.type === "some" && index.series.value.order.type === "time");
+        const tiled = standing === undefined ? undefined : tilingOf(standing);
+        // Zoomed out past its series index's tile (#1706): a month's, a quarter's or a year's buckets hold more than a
+        // week's events can draw, so its summary shades them, and none of its events is read.
+        if (zoomShades && resolution !== undefined && tiled !== undefined && coarserThan(resolution, tiled.tile.type)) {
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
         }
-        const read = this.seriesEntries(`${kind.key}\u0000${series.name}`, part, series, where, groups, runs);
-        if (read === READING) return READING;
-        if ("count" in read) return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, read.count, true);
-        // Each event once, by its key: one past a year is under every year it touches.
-        const rows = new SortedMap<unknown, unknown>([], codec.compareKey);
-        for (const entries of read.entries) {
-            for (const entry of entries) if (entry.row?.type === "some") rows.set(entry.key, entry.row.value);
+        // No series index serves a group, or its narrowing: more than one batch, as many events as the summary is for.
+        if (!served || tiled === undefined || searches > MAX_RECORD_SLICE_BATCH) {
+            return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
+        }
+        const revision = recordSliceRevision(part);
+        if (revision.type !== "some") return READING;
+        const reading = [...plans.values()];
+        // The spans of the kinds read through its source over its slots (#1771): the cases of one record share them.
+        const spansHeld = this.spansOf(kind, part);
+        // Each index's cells counted, asked together: a count in flight of one never holds another's back.
+        const counted = reading.map((plan) => this.seriesCounts(spansHeld, part, plan.series, plan.groups, plan.runs));
+        // The spans of an index no group is read through now are let go.
+        for (const name of [...spansHeld.keys()]) if (!plans.has(name)) spansHeld.delete(name);
+        if (counted.some((one) => one === READING)) return READING;
+        const counts = counted as SeriesCounted[];
+        // The cap holds the groups meeting the rows in view, through every index together; those read ahead are read too,
+        // in their order, while what is read stays within it (#1768). Past it in view: its summary's shading.
+        const weighed = counts.flatMap((one, p) => reading[p]!.groups.map((group, g) => ({ ahead: aheads.has(group.id), count: one.counts[g]! })));
+        const taken = scheduleCellsWithinCap(weighed);
+        if (taken === undefined) {
+            const inView = weighed.reduce((sum, group) => (group.ahead ? sum : sum + group.count), 0);
+            return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, inView, true);
+        }
+        // Each index's groups taken in read, asked together; the resources of those the cap leaves wait on a read.
+        const unread = new Set<string>();
+        const reads: (SeriesEntries | typeof READING)[] = [];
+        let first = 0;
+        for (const [p, one] of counts.entries()) {
+            const plan = reading[p]!;
+            const mine = taken.slice(first, first + plan.groups.length);
+            first += plan.groups.length;
+            for (const [g, group] of plan.groups.entries()) {
+                if (mine[g] !== true) for (const id of aheads.get(group.id) ?? []) unread.add(id);
+            }
+            reads.push(this.seriesRead(spansHeld, part, plan.series, one, mine));
+        }
+        if (reads.some((one) => one === READING)) return READING;
+        const read = { entries: (reads as SeriesEntries[]).flatMap((one) => one.entries), revision: revision.value };
+        // Each event once, by its key: one past a year is under every year it touches. Filed once for the entries read:
+        // the rows in view moving within the blocks held — a wheel's step — reads the same entries, and ordering every
+        // one of them by its key again, for each kind, was a third of what the step cost (east-workspace#1776). Never
+        // changed once filed: every read made from the same entries reads these, each kind of the record's cases.
+        const lastFiled = this.filed.get(spansHeld);
+        const fileAgain = lastFiled === undefined || lastFiled.from.length !== read.entries.length
+            || !lastFiled.from.every((entries, n) => Object.is(entries, read.entries[n]));
+        const cells = fileAgain ? new SortedMap<unknown, unknown>([], codec.compareKey) : lastFiled.rows;
+        if (fileAgain) {
+            filedProbe?.();
+            for (const entries of read.entries) {
+                for (const entry of entries) if (entry.row?.type === "some") cells.set(entry.key, entry.row.value);
+            }
+            this.filed.set(spansHeld, { from: read.entries, rows: cells });
         }
         // The events not read whose rows are wanted: those drafted, and those its host wants by key — a link's ends.
         const kindDrafts = drafts.get(kind.key);
         const extra: { id: string; key: unknown }[] = [];
         const wanted = (id: string) => {
             const key = codec.keyOf(id);
-            if (key !== undefined && !rows.has(key) && !extra.some((e) => stringEqual(e.id, id))) extra.push({ id, key });
+            if (key !== undefined && !cells.has(key) && !extra.some((e) => stringEqual(e.id, id))) extra.push({ id, key });
         };
-        const narrowing = withoutTiled(where, tiling!.from);
+        const narrowing = withoutTiled(where, tiled.from);
         if (narrowing.size > 0) for (const id of kindDrafts?.keys() ?? []) wanted(id);
         for (const id of kind.wanted) wanted(id);
         let stored: option<option<unknown>[]> = some([]);
         if (extra.length > 0) stored = recordSliceRows(part, extra.map((e) => e.key));
         // The rows asked of the narrowing: the cells', for the fields their searches leave, and the stored rows read by key.
         const asked: { key: unknown; row: unknown }[] = [];
-        const residual = residualOf(series, where).length > 0;
-        if (residual) for (const [key, row] of rows) asked.push({ key, row });
+        // What the narrowing chooses beside an index's leading fields: asked of every row read, where any index leaves some.
+        const residual = [...plans.values()].some((plan) => residualOf(plan.series, where).length > 0);
+        if (residual) for (const [key, row] of cells) asked.push({ key, row });
         const storedRows: { id: string; key: unknown; row: unknown }[] = [];
         if (stored.type === "some") {
             stored.value.forEach((row, i) => { if (row.type === "some") storedRows.push({ ...extra[i]!, row: row.value }); });
@@ -1526,25 +2652,39 @@ class CellsReader {
             if (answer.type !== "some") return READING;
             within = answer.value;
         }
-        // What the narrowing does not hold draws nowhere, nor does a draft of it.
+        // What the narrowing does not hold draws nowhere, nor does a draft of it: the kind's rows are the cells' but
+        // those of them the narrowing leaves out, with the rows read by key it holds beside them.
         const dropped = new Set<string>();
+        const outside: unknown[] = [];
+        const beside: { key: unknown; row: unknown }[] = [];
         let i = 0;
         if (residual) {
-            for (const [key] of [...rows]) {
-                if (!within[i++]) {
-                    rows.delete(key);
-                    dropped.add(codec.idOf(key));
-                }
+            for (const [key] of cells) {
+                if (within[i++]) continue;
+                outside.push(key);
+                dropped.add(codec.idOf(key));
             }
         }
         for (const { id, key, row } of storedRows) {
             const holds = narrowing.size === 0 || within[i++] === true;
-            if (holds) rows.set(key, row);
+            if (holds) beside.push({ key, row });
             else dropped.add(id);
         }
-        // Drafts of events whose rows are still in flight show as drafted until they land.
-        const made = this.encode(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], rows);
-        return { mode: "cells", cells: made.bytes, held: made.held, dropped, revision: read.revision, paged: true };
+        // Drafts of events whose rows are still in flight show as drafted until they land. The cells' events are copied
+        // only where the kind's rows differ from them, and only once what the rows are made from has moved.
+        const made = this.hold(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], () => {
+            if (outside.length === 0 && beside.length === 0) return cells;
+            const rows = new SortedMap<unknown, unknown>(cells, codec.compareKey);
+            for (const key of outside) rows.delete(key);
+            for (const { key, row } of beside) rows.set(key, row);
+            return rows;
+        });
+        // The same rows block by block (#1793): what a host places a block at a time.
+        const byBlock = this.blocksOf(codec, spansHeld, (reads as SeriesEntries[]).flatMap((one) => one.groups), outside, beside, kind.key);
+        return {
+            mode: "cells", handle: made.handle, held: made.held, blocks: byBlock, dropped, revision: read.revision, paged: true,
+            unread: unread.size === 0 ? NO_RESOURCES : unread,
+        };
     }
 
     /**
@@ -1556,54 +2696,88 @@ class CellsReader {
      * where its count is no number of them.
      */
     private overBudget(
-        kind: ScheduleCellKind, where: Where, blocks: readonly Block[], range: { from: Date; to: Date },
+        kind: ScheduleCellKind, where: Where, blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date },
         buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, totals: Totals, counted: number | undefined, windowed: boolean,
     ): KindRead | typeof READING {
-        const codec = this.codecOf(kind);
         const part = kind.part;
         const indexes = part?.config.indexes ?? [];
+        const child = kind.child;
         // Whether its shading or its hatch draws over the paged kind's rows: then those rows draw what they hold.
         const paged = windowed;
         if (part !== undefined) {
             for (const tile of dividingTiles(resolution)) {
-                const summary = tileIndexFor(indexes, where, "summary", (t) => t === tile);
+                // A kind landing a step beneath its resources shades those rows from a summary led by its child's field,
+                // each row its own counts (#1541, U1): never from its resources', which drew every row beneath one alike.
+                const summary = child === undefined
+                    ? tileIndexFor(indexes, where, "summary", (t) => t === tile)
+                    : childSummaryFor(indexes, where, child.field, tile);
                 if (summary === undefined || residualOf(summary, where).length > 0) continue;
-                const shaded = this.summaryCells(kind, part, where, summary, blocks, range, totals);
-                if (shaded !== undefined) return shaded === READING ? READING : { mode: "shade", cells: codec.empty, notice: undefined, paged };
+                const shaded = child === undefined
+                    ? this.summaryCells(kind, part, where, summary, blocks, range, totals)
+                    : this.childCells(kind, child, part, where, summary, blocks, range, totals);
+                if (shaded !== undefined) return shaded === READING ? READING : { mode: "shade", notice: undefined, paged };
             }
         }
         let events = counted;
         if (windowed) {
             // Its count over the range it reads: the count its window's read asks first.
-            const within = this.own(kind, () => scheduleWithinCap(kind.count, range.from, range.to));
+            const within = scheduleWithinCap(kind.count, range.from, range.to);
             if (within.type !== "some") return READING;
-            if (within.value) return kind.stored === undefined ? { mode: "window" } : this.own(kind, () => this.windowKind(kind, range));
+            if (within.value) return kind.stored === undefined ? { mode: "window" } : this.windowKind(kind, range);
             events = this.eventsOf(kind, range);
         }
-        // The notice: the rows hatched, and the resolution the smallest summary shades at.
+        // The notice: the rows hatched — beneath a resource, each row there (#1541, U1) — and the tiles a summary shades
+        // the kind by here.
         for (const block of blocks) {
-            const series = kind.shadeKey(block.slot);
+            const series = kind.shadeKey(child === undefined ? block.slot : child.slot);
             let held = totals.get(series);
             if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
-            for (const key of block.keys) held.byKey.set(key, "hatch");
+            for (const key of block.keys) {
+                if (child === undefined) { held.byKey.set(key, "hatch"); continue; }
+                for (const row of block.children?.get(key) ?? []) if (stringEqual(row.slot, child.slot)) held.byKey.set(child.rowKey(key, row.key), "hatch");
+            }
         }
-        const tiles = indexes.flatMap((index) => (index.summary.type === "some" ? [index.summary.value.tile.type] : []));
-        const smallest = (["day", "week", "month", "quarter", "year"] as const).find((t) => tiles.includes(t));
-        return { mode: "shade", cells: codec.empty, notice: { kind: kind.key, name: kind.name, events, resolution: smallest }, paged };
+        // The tiles a summary shades it by here, the smallest first, each chosen and asked as the shading above chooses
+        // and asks one — so a host that takes a resolution one of them divides is shown the kind there. A summary that
+        // leaves a choice of the narrowing unanswered, or whose cells over these blocks no one batch asks, shades it at
+        // no resolution, and names none to go to.
+        const shades = (["day", "week", "month", "quarter", "year"] as const).filter((tile) => {
+            const summary = child === undefined ? tileIndexFor(indexes, where, "summary", (t) => t === tile) : childSummaryFor(indexes, where, child.field, tile);
+            return summary !== undefined && residualOf(summary, where).length === 0 && this.askedInOneBatch(kind, where, summary, blocks, range);
+        });
+        return { mode: "shade", notice: { kind: kind.key, name: kind.name, events, shades }, paged };
     }
 
     /**
-     * A summary's cells over some blocks, folded into each resource's totals
-     * by tile; `undefined` when they take more than one batch of searches.
+     * Whether a summary's cells over some blocks are asked in one batch, as the shading asks them
+     * ({@link CellsReader.summaryCells}, {@link CellsReader.childCells}): what tells a tile a kind is shaded by from
+     * one its source only keeps. Cells that cannot be planned — the narrowing's values of the summary's leading
+     * fields in more combinations than a cell takes — are asked in none, and nothing is asked of e3 to tell.
      */
-    private summaryCells(
-        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, summary: Index, blocks: readonly Block[], range: { from: Date; to: Date },
-        totals: Totals,
-    ): true | typeof READING | undefined {
+    private askedInOneBatch(
+        kind: ScheduleCellKind, where: Where, summary: Index, blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date },
+    ): boolean {
+        const child = kind.child;
+        try {
+            const { searches } = child === undefined ? this.summarySearches(kind, where, summary, blocks, range) : this.childSearches(kind, child, where, summary, blocks, range);
+            return searches <= MAX_RECORD_SLICE_BATCH;
+        } catch {
+            // Planning a cell throws where it takes more searches a key than one may: no batch asks such cells.
+            return false;
+        }
+    }
+
+    /**
+     * A summary's cells over some blocks, a cell a block — a search a key, under each combination of the leading
+     * fields' values — and how many searches they are: what its shading asks, before anything is asked of e3.
+     */
+    private summarySearches(
+        kind: ScheduleCellKind, where: Where, summary: Index, blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date },
+    ): { readonly cells: { cell: RecordSliceCell; block: ScheduleCellBlock; keys: string[] }[]; readonly searches: number } {
         const tiling = tilingOf(summary)!;
         // Its tiles over the range, one range a key (#1433): what a resource's totals are split by tile from.
         const run = summaryRun(tiling.tile.type, range.from, range.to);
-        const cells: { cell: RecordSliceCell; block: Block; keys: string[] }[] = [];
+        const cells: { cell: RecordSliceCell; block: ScheduleCellBlock; keys: string[] }[] = [];
         let searches = 0;
         for (const block of blocks) {
             const keys: string[] = [];
@@ -1619,10 +2793,22 @@ class CellsReader {
             cells.push({ cell: { id: `${block.slot}:${block.id}`, queries }, block, keys });
             searches += queries.length;
         }
+        return { cells, searches };
+    }
+
+    /**
+     * A summary's cells over some blocks, folded into each resource's totals
+     * by tile; `undefined` when they take more than one batch of searches.
+     */
+    private summaryCells(
+        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, summary: Index, blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date },
+        totals: Totals,
+    ): true | typeof READING | undefined {
+        const { cells, searches } = this.summarySearches(kind, where, summary, blocks, range);
         if (searches > MAX_RECORD_SLICE_BATCH) return undefined;
         const runs = recordSliceCellRuns(part, summary.name, cells.map((c) => c.cell));
         if (runs.type !== "some") return READING;
-        const read = this.entriesOf(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
+        const read = this.kept.entries(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
         if (read.type !== "some") return READING;
         cells.forEach(({ cell, block, keys }, n) => {
             const series = kind.shadeKey(block.slot);
@@ -1654,6 +2840,121 @@ class CellsReader {
         });
         return true;
     }
+
+    /**
+     * A summary led by a kind's child's field over the rows beneath some
+     * blocks' resources (#1541, U1), folded into each row's totals by tile —
+     * filed under the child's slot by the row's own key: a search a row, under
+     * its key chosen of the field and its resource's key. A row its narrowing
+     * leaves out, or whose key or resource the fields cannot hold, shades at
+     * nothing. `undefined` when they take more than one batch of searches.
+     */
+    private childCells(
+        kind: ScheduleCellKind, child: NonNullable<ScheduleCellKind["child"]>, part: ScheduleCellPart, where: Where, summary: Index,
+        blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date }, totals: Totals,
+    ): true | typeof READING | undefined {
+        const series = kind.shadeKey(child.slot);
+        let held = totals.get(series);
+        if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
+        const { cells, nothing, searches } = this.childSearches(kind, child, where, summary, blocks, range);
+        if (searches > MAX_RECORD_SLICE_BATCH) return undefined;
+        for (const row of nothing) if (!held.byKey.has(row)) held.byKey.set(row, new Map());
+        if (cells.length === 0) return true;
+        const runs = recordSliceCellRuns(part, summary.name, cells.map((c) => c.cell));
+        if (runs.type !== "some") return READING;
+        const read = this.kept.entries(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
+        if (read.type !== "some") return READING;
+        cells.forEach(({ cell, rows }, n) => {
+            const found = runs.value.get(cell.id) as RecordSliceCellRuns;
+            const entries = read.value[n]!;
+            // The entries of each search in order, those of an empty one none.
+            let at = 0;
+            found.ranges.forEach((range, q) => {
+                const count = Number(range.count);
+                const row = rows[q]!;
+                let byTile = held.byKey.get(row);
+                if (byTile === undefined || byTile === "hatch") { byTile = new Map(); held.byKey.set(row, byTile); }
+                for (const entry of entries.slice(at, at + count)) {
+                    if (entry.value?.type !== "some") continue;
+                    const t = entry.value.value as { count: bigint; ms: bigint };
+                    // The tile its total is of, as the summary keys it.
+                    const tile = tileOf(entry);
+                    const was = byTile.get(tile);
+                    byTile.set(tile, { count: (was?.count ?? 0) + Number(t.count), ms: (was?.ms ?? 0) + Number(t.ms) });
+                }
+                at += count;
+            });
+        });
+        return true;
+    }
+
+    /**
+     * A child's summary's cells over the rows beneath some blocks' resources, a cell a block — a search a row, under
+     * its key chosen of the child's field and its resource's key — with the rows that shade at nothing, and how many
+     * searches the cells are: what its shading asks, before anything is asked of e3.
+     */
+    private childSearches(
+        kind: ScheduleCellKind, child: NonNullable<ScheduleCellKind["child"]>, where: Where, summary: Index, blocks: readonly ScheduleCellBlock[],
+        range: { from: Date; to: Date },
+    ): { readonly cells: { cell: RecordSliceCell; rows: string[] }[]; readonly nothing: string[]; readonly searches: number } {
+        const tiling = tilingOf(summary)!;
+        // Its tiles over the range, one range a row (#1433): what a row's totals are split by tile from.
+        const run = summaryRun(tiling.tile.type, range.from, range.to);
+        // What the narrowing chooses of the child's field: a row it leaves out holds none of the events it counts.
+        const chosen = where.get(child.field);
+        const cells: { cell: RecordSliceCell; rows: string[] }[] = [];
+        const nothing: string[] = [];
+        let searches = 0;
+        for (const block of blocks) {
+            const queries: RecordSliceCell["queries"][number][] = [];
+            // The row each search counts for, search by search.
+            const rows: string[] = [];
+            for (const key of block.keys) {
+                const resource = this.literal(kind, block.slot, key);
+                for (const beneath of block.children?.get(key) ?? []) {
+                    if (!stringEqual(beneath.slot, child.slot)) continue;
+                    const row = child.rowKey(key, beneath.key);
+                    const literal = child.literal(beneath.key);
+                    if (resource === undefined || literal === undefined || (chosen?.type === "values" && !chosen.value.some((value) => stringEqual(value, literal)))) {
+                        nothing.push(row);
+                        continue;
+                    }
+                    // A narrowing is a Dict of its fields' choices: in its fields' order, as one decoded is.
+                    const its = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([...where], compareString);
+                    its.set(child.field, variant("values", [literal]));
+                    for (const query of summaryCellQueries(summary, its, run, [resource]).queries) {
+                        queries.push(query);
+                        rows.push(row);
+                    }
+                }
+            }
+            if (queries.length === 0) continue;
+            cells.push({ cell: { id: `${child.slot}:${block.id}`, queries }, rows });
+            searches += queries.length;
+        }
+        return { cells, nothing, searches };
+    }
+}
+
+/**
+ * The summary that counts the rows beneath a resource a kind's `child` lands
+ * on, at a tile (#1541, U1): of its summaries by key at the tile led by the
+ * child's field, those whose leading fields the narrowing — a key of the
+ * child's chosen of that field, as each search chooses one — chooses exactly,
+ * the one led by the most; of two led by as many, the one listed first.
+ *
+ * @param indexes - The kind's source's indexes
+ * @param where - Its narrowing
+ * @param field - The child's field
+ * @param tile - The tile wanted
+ * @returns The index; `undefined` for none, or where the narrowing chooses the field otherwise than by its values
+ */
+function childSummaryFor(indexes: readonly Index[], where: Where, field: string, tile: RecordTile): Index | undefined {
+    const chosen = where.get(field);
+    if (chosen !== undefined && chosen.type !== "values") return undefined;
+    const probe = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([...where], compareString);
+    probe.set(field, variant("values", [""]));
+    return tileIndexFor(indexes.filter((index) => index.fields.some((one) => stringEqual(one, field))), probe, "summary", (t) => t === tile);
 }
 
 /**
@@ -1771,25 +3072,37 @@ function narrowedDrafts(drafts: ScheduleEventDraftsValue, dropped: ReadonlyMap<s
     }), compareString);
 }
 
+/** Whether two reads hand each kind the same blocks (#1793): the same handles, in the same order. */
+function sameBlocks(a: ReadonlyMap<string, ScheduleKindBlocks> | undefined, b: ReadonlyMap<string, ScheduleKindBlocks> | undefined): boolean {
+    if (a === undefined || b === undefined) return a === b;
+    return a.size === b.size && [...a].every(([slot, kind]) => {
+        const other = b.get(slot)?.blocks;
+        return other !== undefined && other.length === kind.blocks.length && kind.blocks.every((block, i) => stringEqual(block.handle, other[i]!.handle));
+    });
+}
+
 /**
- * Two reads alike: the same cells by their bytes — the rows they hold are
- * made from them — and the same shading, drafts, notices and kinds past the
- * cap; over a paged kind read by its cells, the same resources covered over
- * the same range, as its rows wait on them. A read over another range that
- * holds the same is the same, where nothing waits on its range: a pan within
- * the cap hands nothing on.
+ * Two reads alike: each kind drawn from the same — the same rows, by their
+ * handle, made again only when what they are made from moved (#1771), block
+ * by block too (#1793) — and the same shading, drafts, notices and kinds past
+ * the cap; over a paged kind read by its cells, the same resources covered
+ * over the same range, as its rows wait on them. A read over another range
+ * that holds the same is the same, where nothing waits on its range: a pan
+ * within the cap hands nothing on.
  */
 function sameRead(a: Read, b: Read): boolean {
-    const blobs = (x: ScheduleCellReads, y: ScheduleCellReads) => x.size === y.size && [...x].every(([slot, bytes]) => {
+    const drawnFrom = (x: ScheduleCellReads, y: ScheduleCellReads) => x.size === y.size && [...x].every(([slot, read]) => {
         const other = y.get(slot);
-        return other !== undefined && blobEqual(other, bytes);
+        return other !== undefined && readEqual(other, read);
     });
-    return blobs(a.reads, b.reads) && shadingEqual(a.shading, b.shading) && draftsEqual(a.drafts, b.drafts) && sameKeys(a.capped, b.capped)
+    return drawnFrom(a.reads, b.reads) && sameBlocks(a.blocks, b.blocks) && shadingEqual(a.shading, b.shading) && draftsEqual(a.drafts, b.drafts)
+        && sameKeys(a.capped, b.capped)
         && sameKeys(a.windowed, b.windowed)
         && sameKeys(a.covered, b.covered) && (a.covered === undefined || sameRange(a.range, b.range))
         && a.notices.length === b.notices.length && a.notices.every((n, i) => {
             const m = b.notices[i]!;
-            return stringEqual(n.kind, m.kind) && n.events === m.events && n.resolution === m.resolution;
+            return stringEqual(n.kind, m.kind) && n.events === m.events
+                && n.shades.length === m.shades.length && n.shades.every((tile, t) => tile === m.shades[t]);
         });
 }
 
@@ -1803,6 +3116,59 @@ function sameRead(a: Read, b: Read): boolean {
  */
 export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: ScheduleCellPaged | undefined): string[] {
     return kinds.filter((kind) => readByCells(kind, paged)).map((kind) => kind.key);
+}
+
+/**
+ * The failure of a read its host says as its period's read failed, with Retry
+ * (#1599, #1710): every one but the paged kind's own rows', which its paging
+ * says where those rows are ({@link ScheduleCellsFailure.rows}) — a kind's
+ * window, its count, its drafts, and its cells over the paged kind's blocks,
+ * which nothing else says.
+ *
+ * @param read - What the reader handed on; `undefined` before it reads
+ * @returns The failure its host says; `undefined` with none
+ */
+export function schedulePeriodFailure(read: Pick<ScheduleCellsRead, "error"> | undefined): ScheduleCellsFailure | undefined {
+    const error = read?.error;
+    return error === undefined || error.rows ? undefined : error;
+}
+
+/** No shading: what a host draws while it steps to another period. */
+const NO_SHADING: ScheduleCellShading = new SortedMap([], compareString);
+/** No kind's rows held. */
+const NO_KINDS_HELD: ReadonlyMap<string, HeldRows> = new Map();
+/** No kind giving the notice. */
+const NO_NOTICES: readonly ScheduleCellNotice[] = [];
+
+/**
+ * What a read hands its host's seams while the period asked is another than
+ * the one read (`../view-read.ts`' stepping), for a host every kind's read of
+ * which is made for its period — a Plan's, whose columns' period says whether
+ * a kind draws its events or its summary's shading, and whose buckets that
+ * shading is folded into. Nothing of the period read draws under the labels of
+ * the one asked: every kind is handed none of its events — so none is read
+ * over the range meanwhile either — with no shading, no notice and no kind
+ * past the cap, and over a paged kind no resource's row drawn, so every row
+ * waits on the read as before a first. The drafts, whether a read is on its
+ * way, the view and a failure are the read's own.
+ *
+ * @param read - What the reader handed on
+ * @param kinds - The event kinds
+ * @returns `read` itself, but while its view is stepping: the same with nothing of the period read to draw
+ */
+export function scheduleSteppedCells(read: ScheduleCellsRead, kinds: readonly ScheduleCellKind[]): ScheduleCellsRead {
+    if (read.view !== "stepping") return read;
+    return {
+        ...read,
+        reads: new SortedMap(kinds.map((kind): [string, ScheduleCellRead] => [kind.key, READ_NOTHING]), compareString),
+        blocks: undefined,
+        shading: NO_SHADING,
+        held: NO_KINDS_HELD,
+        notices: NO_NOTICES,
+        capped: NONE_CAPPED,
+        drawn: read.drawn === undefined ? undefined : NO_RESOURCES,
+        windowed: NONE_WINDOWED,
+    };
 }
 
 /**
@@ -1828,13 +3194,13 @@ export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: Sch
  */
 export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     const [reader] = useState(() => new CellsReader());
-    const { host, kinds, resources, paged, range, period, buckets, resolution, drafts, span, landed, shown } = args;
+    const { host, kinds, resources, paged, range, period, buckets, resolution, zoomShades, drafts, span, landed, shown } = args;
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const read = useCallback(() => reader.read({
-        kinds, resources, paged, buckets, resolution, drafts, span, period,
+        kinds, resources, paged, buckets, resolution, zoomShades, drafts, span, period,
         range: from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) },
-    }), [reader, kinds, resources, paged, buckets, resolution, from, to, period, drafts, span]);
+    }), [reader, kinds, resources, paged, buckets, resolution, zoomShades, from, to, period, drafts, span]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<Read | undefined>(undefined);
     // The revision each kind's record reads at now, as the read just made found it — in flight or not.
@@ -1852,8 +3218,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     const opening = useMemo((): Read => {
         const slots = scheduleCellKinds(kinds, paged);
         return {
-            reads: new SortedMap(slots.map((slot): [string, Uint8Array] =>
-                [slot, reader.codecOf(kinds.find((kind) => stringEqual(kind.key, slot))!).empty]), compareString),
+            reads: new SortedMap(slots.map((slot): [string, ScheduleCellRead] => [slot, READ_NOTHING]), compareString),
             shading: new SortedMap([], compareString),
             drafts,
             held: new Map(),
@@ -1866,7 +3231,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             windowed: NONE_WINDOWED,
             made: NO_VIEW,
         };
-    }, [reader, kinds, drafts, paged]);
+    }, [kinds, drafts, paged]);
     // What it hands on: the same object while the read, whether one its rows wait on is in flight, what it reads again
     // and over which range, and what Saves landed over cells read before them hold.
     const handed = useRef<{
@@ -1878,14 +3243,14 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         let error: ScheduleCellsFailure | undefined;
         if (!result.ok) {
             const failure = result.error instanceof KindReadFailure ? result.error : undefined;
-            const thrown = failure?.thrown ?? result.error;
+            const rows = result.error instanceof PagedRowsFailure;
+            const thrown = failure?.thrown ?? (result.error instanceof PagedRowsFailure ? result.error.thrown : result.error);
             console.error(`[${host}] the event kinds' cells could not be read:`, thrown);
             const reason = thrown instanceof Error ? thrown.message : String(thrown);
             const was = failed.current;
-            const window = failure?.window === true;
-            error = was !== undefined && stringEqual(was.reason, reason) && was.window === window
+            error = was !== undefined && stringEqual(was.reason, reason) && was.rows === rows
                 && (failure === undefined ? was.kinds.length === 0 : was.kinds.length === 1 && stringEqual(was.kinds[0]!, failure.kind))
-                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind], window };
+                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind], rows };
             failed.current = error;
         }
         const inFlight = !result.ok || result.value === READING;
@@ -1919,6 +3284,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         const seams = laidLanded(inFlight ? narrowedDrafts(drafts, standing.dropped) : standing.drafts, standing.held, standing.dropped, laid, drafts);
         const read: ScheduleCellsRead = {
             reads: standing.reads,
+            blocks: standing.blocks,
             shading: standing.shading,
             drafts: seams.drafts,
             held: seams.held,
@@ -1942,5 +3308,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             if (at === undefined || !readBeforeSaves(at, now.get(kind), rows.from)) shown(kind, [...rows.rows.keys()]);
         }
     }, [landed, shown, handedOn, now]);
+    // The rows no read its host may still draw from names are let go, once its host has drawn the latest (#1771).
+    useEffect(() => { reader.letGo(handedOn); }, [reader, handedOn]);
     return handedOn;
 }

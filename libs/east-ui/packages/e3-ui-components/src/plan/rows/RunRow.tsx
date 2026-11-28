@@ -9,11 +9,11 @@
  * shared `UnloadedRun`: rows at the rows' pitch where the run meets the view,
  * each on the canvas's own two columns with the gutter's rule, the bucket grid
  * and the now line; its label a bar, and its sub line one on two-line rows;
- * its plot the region wash — no bar, card or event shape, so nothing implies
- * a time (CL2). The canvas cannot know how many rows an unvisited window
- * produces (a series emits several per source element, or none), so the
- * placeholder rows say nothing of a count: they are the rows' look at the
- * rows' pitch, and nothing else.
+ * its plot one skeleton bar across the whole window (#1764) — no event's bar,
+ * card or other shape, so nothing implies a time (CL2). The canvas cannot
+ * know how many rows an unvisited window produces (a series emits several per
+ * source element, or none), so the placeholder rows say nothing of a count:
+ * they are the rows' look at the rows' pitch, and nothing else.
  *
  * Its height comes from the ledger, so the run and the rows that replace it
  * occupy exactly the same space: scrolling in loads content without moving
@@ -31,8 +31,8 @@
  */
 
 import { useMemo } from "react";
-import { Box, type SystemStyleObject } from "@chakra-ui/react";
-import { UnloadedRun, loadingLineText, type RunCell, type RunFailure } from "@elaraai/east-ui-components/internal";
+import type { SystemStyleObject } from "@chakra-ui/react";
+import { UnloadedRun, loadingLineText, useSlotClass, type RunCell, type RunFailure } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { bandElements, type PlanBand, type PlanWindowFailure } from "../use-plan-paging.js";
 import { usePlanWords } from "../words.js";
@@ -73,18 +73,20 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
     const { m } = words;
     const scale = usePlanScale();
     const geometry = usePlanGeometry();
+    // The run's own box a plain element of its slot's class, made once a theme (#1780), as a row's is.
+    const slotClass = useSlotClass();
     const itemKey = band !== undefined ? bodyItemKey({ kind: "band", band }) : bodyItemKey({ kind: "failed", failure: failure! });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
     const px = Math.max(0, band?.px ?? failure?.px ?? 0);
     const from = band?.from ?? failure?.from ?? 0;
     const to = band?.to ?? failure?.to ?? -1;
-    // The gutter's label — and its sub line on two-line rows — then the plot: the wash under the grid and the now line.
+    // The gutter's label — and its sub line on two-line rows — then the plot: its skeleton bar under the grid and the now line.
     const nowFrac = scale.nowFrac;
     const cells = useMemo((): RunCell[] => [
         { kind: pitch >= geometry.rowStacked ? "label2" : "label", css: slot(styles, "runGutter") },
         {
-            kind: "wash", css: slot(styles, "runPlot"),
+            kind: "rowBar", css: slot(styles, "runPlot"),
             overlay: <>
                 <GridSeparators styles={styles} />
                 {nowFrac !== undefined && <NowLine styles={styles} at={nowFrac} data-plan-axisline data-plan-now />}
@@ -101,9 +103,9 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the range is its two formatted ends
     }), [w, m, noun, range.from, range.to, onRetry]);
     return (
-        <Box
+        <div
             ref={grid.ref}
-            css={styles.runBand}
+            className={slotClass(styles.runBand)}
             role="row"
             aria-level={1}
             tabIndex={grid.tabIndex}
@@ -118,6 +120,6 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
             aria-busy={band?.loading !== undefined ? "true" : undefined}
         >
             <UnloadedRun height={px} pitch={pitch} columns={gridTemplate} cells={cells} first={from} rowCss={slot(styles, "runRow")} failed={failed} cell={RUN_CELL} />
-        </Box>
+        </div>
     );
 }

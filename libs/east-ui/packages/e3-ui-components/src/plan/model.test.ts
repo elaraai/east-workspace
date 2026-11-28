@@ -95,7 +95,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("chart rows: spark 32; expanded uses expandedHeight over the 88 default; fixed wins outright", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: true,
+            layers: [], left: none, right: none, height, expandedHeight, expandable: true, grid: true, legend: true, tooltip: true,
         });
         const spark = row(chart(variant("spark", null), none));
         expect(rowHeight(visible(spark), false, new Set())).toBe(32);
@@ -110,7 +110,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("a two-line gutter floors a chart SPARK row too — the sub-line has to fit", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: false,
+            layers: [], left: none, right: none, height, expandedHeight, expandable: false, grid: true, legend: true, tooltip: true,
         });
         // Every other kind ran through the two-line `floor()`; chart returned
         // its spark height directly, so a chart row carrying a sub-line clipped
@@ -154,14 +154,16 @@ describe("Plan rowHeight (§8)", () => {
         expect(rowHeight(visible(row(flat)), false, new Set())).toBe(ROW_H);   // single series never grows
     });
 
-    test("laned bucket rows grow to fit their stacked lane cells", () => {
-        const laned = variant("buckets", {
-            lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
-            events: [], markers: [],
+    test("a buckets row is 25px a lane — 24 of room and a rule under each — one lane where it declares none, dense or not; a two-line gutter floors it as any row (#1735)", () => {
+        const lanes = (keys: string[]) => variant("buckets", {
+            lanes: keys.map((key) => ({ key, label: some(key.toUpperCase()) })), events: [], markers: [],
         });
-        const unlaned = variant("buckets", { lanes: [], events: [], markers: [] });
-        expect(rowHeight(visible(row(laned)), false, new Set())).toBe(52);      // 6 + 2×22 + 2
-        expect(rowHeight(visible(row(unlaned)), false, new Set())).toBe(ROW_H);
+        expect(rowHeight(visible(row(lanes(["am", "pm"]))), false, new Set())).toBe(50);
+        expect(rowHeight(visible(row(lanes(["am", "pm", "eve"]))), false, new Set())).toBe(75);
+        expect(rowHeight(visible(row(lanes([]))), false, new Set())).toBe(25);
+        expect(rowHeight(visible(row(lanes([]))), true, new Set())).toBe(25);
+        expect(rowHeight(visible(row(lanes([]), { sub: "fleet" })), false, new Set())).toBe(ROW_H_STACKED);
+        expect(rowHeight(visible(row(lanes(["am", "pm"]), { sub: "fleet" })), false, new Set())).toBe(50);
     });
 
     test("group bands: 26 expanded, 28 as a collapsed summary strip", () => {
@@ -261,7 +263,7 @@ describe("Plan windowRestHeight (#613)", () => {
 
     test("chart expansion measures at its DECLARED state, never a toggle's", () => {
         const chart = (height: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight: none, expandable: true,
+            layers: [], left: none, right: none, height, expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
         });
         expect(windowRestHeight(toCanvasRows([wire("s", chart(variant("spark", null)))]), "resource", false)).toBe(32);
         expect(windowRestHeight(toCanvasRows([wire("e", chart(variant("expanded", null)))]), "resource", false)).toBe(88);
@@ -302,6 +304,7 @@ describe("Plan windowRestHeight (#613)", () => {
 describe("win skeletons — the heights of evicted rows (#823)", () => {
     const chart = variant("chart", {
         layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+        grid: true, legend: true, tooltip: true,
     });
     const strip = groupKind(heatArm());
     const win = toCanvasRows([
@@ -407,6 +410,25 @@ describe("the row stream (#822)", () => {
         expect(rows.map((r) => r.key)).toEqual([rowKey("a"), rowKey("b"), `${rowKey("a")}#1`, `${rowKey("a")}#2`]);
         expect(rows.map((r) => r.duplicateOf)).toEqual([undefined, undefined, rowKey("a"), rowKey("a")]);
         expect(new Set(rows.map((r) => r.key)).size).toBe(4);
+    });
+
+    test("a row read again as the object it was is the canvas row it was keyed as — in its block, repeating no row before it (#1712)", () => {
+        const a = wire("a", spanKind);
+        const b = wire("b", spanKind, { parent: "a" });
+        const first = toCanvasRows([a, b], 0);
+        // Read again, as a window whose rows its new events left alone: the same canvas rows.
+        const again = toCanvasRows([a, b], 0);
+        expect(again[0]).toBe(first[0]);
+        expect(again[1]).toBe(first[1]);
+        // A row its events joined again is a new wire row, keyed anew under the same key.
+        const joined = toCanvasRows([a, wire("b", heatKind, { parent: "a" })], 0);
+        expect(joined[0]).toBe(first[0]);
+        expect(joined[1]).not.toBe(first[1]);
+        expect([joined[1]!.key, joined[1]!.parent]).toEqual([first[1]!.key, some(first[0]!.key)]);
+        // In another block it names that block; after a row of its id, it is that row's repeat.
+        expect(toCanvasRows([a], 1)[0]!.block).toBe(1);
+        const repeated = toCanvasRows([wire("a", heatKind), a], 0);
+        expect(repeated.map((r) => [r.key, r.duplicateOf])).toEqual([[rowKey("a"), undefined], [`${rowKey("a")}#1`, rowKey("a")]]);
     });
 
     test("rowIdOfKey inverts the key — a repeat's `#n` names the same id; other text names none", () => {

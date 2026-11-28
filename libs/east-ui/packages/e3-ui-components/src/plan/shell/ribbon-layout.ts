@@ -19,11 +19,11 @@
  * A link's end meets its element where the element DRAWS (#1258): a run's bar
  * from its start, never narrower than the canvas's narrowest bar; a chip in
  * from its ends by the cell inset, never narrower than the narrowest chip; a
- * tile's cell in from its bucket's edges and its lane's; a mark across its
- * glyph, centred on its instant — each clipped to the plot as the plot clips
- * it. The widths are the geometry table's, the numbers the recipe draws them
- * at, so a tiny run's link leaves the end its bar shows, not the end its time
- * says.
+ * tile's cell, its bucket's room in its lanes' on the plot's whole pixels, as
+ * its row places it (#1735); a mark across its glyph, centred on its instant —
+ * each clipped to the plot as the plot clips it. The widths are the geometry
+ * table's, the numbers the recipe draws them at, so a tiny run's link leaves
+ * the end its bar shows, not the end its time says.
  *
  * A bounded frame shows only part of its rows. An endpoint beyond that view
  * clamps to the edge it lies past and ends in a stub pointing toward its row
@@ -42,6 +42,8 @@ import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowValue } fr
 import type { PlanBucket, PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { PLAN_CELL_INSET, type PlanGeometry } from "../geometry.js";
+import { laneRooms, laneSpan } from "../rows/lanes.js";
+import { dayRoom } from "../rows/bucket-slots.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText } from "../quantity.js";
 import type { PlanWords } from "../words.js";
@@ -118,8 +120,8 @@ export type LinkedDraw =
     | { kind: "bar" }
     /** A chip: in by the cell inset from its ends, at least the narrowest chip wide, at the chip height. */
     | { kind: "chip" }
-    /** The cell a tile sits in: its bucket in by the cell inset, at least the narrowest cell wide; down,
-     *  `span` of the row's `lanes` from lane `lane`, in by the inset from them. */
+    /** The cell a tile sits in (#1735): its bucket's room — from its start's whole pixel of the plot to the pixel before
+     *  its rule — and down, `span` of the row's `lanes` from lane `lane`, each lane's room as the row lays it out. */
     | { kind: "cell"; lane: number; span: number; lanes: number }
     /** A mark: its glyph, centred on its instant. */
     | { kind: "mark"; glyph: LinkedGlyph };
@@ -317,17 +319,22 @@ interface Endpoint {
 
 /**
  * An element's extent across the plot as it draws (#1258), from its extent on
- * the window, `x0` to `x1` px.
+ * the window, `f0` to `f1` of the plot.
  */
-function drawnX(draw: LinkedDraw, x0: number, x1: number, g: Readonly<PlanGeometry>): [number, number] {
+function drawnX(draw: LinkedDraw, f0: number, f1: number, g: Readonly<PlanGeometry>, plot: { left: number; width: number }): [number, number] {
+    const x0 = plot.left + f0 * plot.width;
+    const x1 = plot.left + f1 * plot.width;
     switch (draw.kind) {
         case "bar":
             return [x0, Math.max(x1, x0 + g.barMinWidth)];
-        case "chip":
-        case "cell": {
+        case "chip": {
             const left = x0 + PLAN_CELL_INSET;
-            const least = draw.kind === "chip" ? g.chipMinWidth : g.cellMinWidth;
-            return [left, left + Math.max(x1 - x0 - 2 * PLAN_CELL_INSET, least)];
+            return [left, left + Math.max(x1 - x0 - 2 * PLAN_CELL_INSET, g.chipMinWidth)];
+        }
+        case "cell": {
+            // Its bucket's room on the plot's whole pixels, as its row places its cell (#1735).
+            const room = dayRoom(f0, f1, plot.width);
+            return [plot.left + room.left, plot.left + room.left + room.width];
         }
         case "mark": {
             const half = glyphSize(draw.glyph, g).w / 2;
@@ -338,8 +345,8 @@ function drawnX(draw: LinkedDraw, x0: number, x1: number, g: Readonly<PlanGeomet
 
 /**
  * An element's extent down its row as it draws (#1258) — centred in the row's
- * plot cell (the row less its rule), or a tile's cell in its lane. A row with
- * no such element is met at its bar.
+ * plot cell (the row less its rule), or a tile's cell: its lanes' rooms, in
+ * whole pixels (#1735). A row with no such element is met at its bar.
  */
 function drawnY(draw: LinkedDraw | undefined, slot: RibbonSlot, g: Readonly<PlanGeometry>): [number, number] {
     const plotH = slot.height - g.rule;
@@ -352,8 +359,9 @@ function drawnY(draw: LinkedDraw | undefined, slot: RibbonSlot, g: Readonly<Plan
         case "chip":
             return around(g.chip);
         case "cell": {
-            const top = slot.top + (draw.lane / draw.lanes) * plotH + PLAN_CELL_INSET;
-            return [top, top + Math.max(0, (draw.span / draw.lanes) * plotH - 2 * PLAN_CELL_INSET)];
+            // Its lanes' rooms, as its row lays them out.
+            const band = laneSpan(laneRooms(slot.height, draw.lanes), draw.lane, draw.span);
+            return band === undefined ? around(slot.bar) : [slot.top + band.top, slot.top + band.top + band.height];
         }
         case "mark":
             return around(glyphSize(draw.glyph, g).h);
@@ -446,8 +454,7 @@ function elementAcross(
                 offWindow = "right";
                 leftX = rightX;
             } else {
-                const [x0, x1] = drawnX(el.draw,
-                    plot.left + Math.max(0, f0) * plot.width, plot.left + Math.min(1, f1) * plot.width, g);
+                const [x0, x1] = drawnX(el.draw, Math.max(0, f0), Math.min(1, f1), g, plot);
                 leftX = Math.min(plotRight, Math.max(plot.left, x0));
                 rightX = Math.min(plotRight, Math.max(plot.left, x1));
             }

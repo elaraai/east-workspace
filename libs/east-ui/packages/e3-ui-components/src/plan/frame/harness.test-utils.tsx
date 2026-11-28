@@ -22,7 +22,8 @@
  * @packageDocumentation
  */
 
-import type { RenderResult } from "@testing-library/react";
+import { vi } from "vitest";
+import { fireEvent, within, type RenderResult } from "@testing-library/react";
 import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
@@ -120,6 +121,64 @@ export const slot = (container: HTMLElement, name: string) => container.querySel
  * @returns Each tab's text: its name and its count
  */
 export const tabs = (pane: HTMLElement) => [...pane.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
+
+/**
+ * Switches one of the library's Series tab's lines on or off by its name, as a viewer does, the tab opened first where
+ * it is not; then lets what it starts settle.
+ *
+ * @param container - The render's container
+ * @param name - The line's name: its series' title, or its kind's name
+ * @throws {Error} When the Plan's library has no Series tab
+ */
+export async function toggleSeries(container: HTMLElement, name: string): Promise<void> {
+    const pane = slot(container, "start")!;
+    const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "));
+    if (tab === undefined) throw new Error("no Series tab");
+    if (tab.getAttribute("aria-selected") !== "true") {
+        fireEvent.click(tab);
+        await settle();
+    }
+    const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    fireEvent.click(within(panel).getByRole("button", { name: `Toggle ${name}` }));
+    await settle();
+}
+
+/**
+ * Zooms the canvas to a resolution through the toolbar's segment, as a planner does — its option found by its label —
+ * then lets what it starts settle.
+ *
+ * @param container - The render's container
+ * @param resolution - The resolution
+ * @throws {Error} When the toolbar's segment offers no such zoom
+ */
+export async function zoomTo(container: HTMLElement, resolution: "day" | "week" | "month" | "quarter" | "year"): Promise<void> {
+    const seg = slot(container, "toolbar")?.querySelector<HTMLElement>("[data-plan-seg='resolution']");
+    const option = [...(seg?.querySelectorAll<HTMLElement>("[role='radio']") ?? [])].find((o) => sameText(o.textContent?.trim().toLowerCase() ?? "", resolution));
+    if (option === undefined) throw new Error(`the toolbar offers no ${resolution} zoom`);
+    await act(async () => {
+        fireEvent.mouseDown(option, { button: 0 });
+        fireEvent.click(option);
+    });
+    await settle();
+}
+
+/**
+ * Lays the horizon's strip out over jsdom's measures (#1438), which the
+ * harness leaves to the test: its width is what the returned setter last set,
+ * and a resize tells the strip it moved.
+ *
+ * @returns Sets the strip's width, px
+ */
+export function horizonLaidOut(): (px: number) => void {
+    let laid = 0;
+    const real = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        return this.hasAttribute("data-plan-horizon-track") || this.hasAttribute("data-brush-track")
+            ? { x: 0, y: 0, top: 0, left: 0, right: laid, bottom: 32, width: laid, height: 32, toJSON() {} } as DOMRect
+            : real.call(this);
+    });
+    return (px) => { laid = px; };
+}
 
 /** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
 export { entry };

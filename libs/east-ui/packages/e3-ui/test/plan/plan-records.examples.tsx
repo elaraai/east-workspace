@@ -4,9 +4,9 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Box, EventStateType, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from "../sheet/sheet-records.examples.js";
@@ -112,13 +112,20 @@ export const planOperations = e3.record("plan_operations", Operations, {
         // The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it.
         plan_operations_by_time: index.interval({ from: "start", to: "end" }),
         // The operations by their work order and by time, each filed once at the level its length fits: a cell is fifty orders' operations over a level's run (#1433).
-        plan_operations_by_work_week: index.series({
+        plan_operations_by_work_week: index.flatSeries({
             key: "work", from: "start", to: "end", tile: "week",
         }),
         // How busy each work order is, a month at a time: what the canvas shades where the operations in view are too many to draw.
         plan_operations_by_work_month: index.summary({
             key: "work", from: "start", to: "end", tile: "month",
         }),
+        // The operations' totals a day, a week, a month, a quarter and a year (#1732): how many of them touch each, under no work order —
+        // what the horizon's bars read at the period that fits the strip, never counting operations.
+        plan_operations_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_operations_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_operations_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_operations_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_operations_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The operations' patch door: a canvas's Save commits through it, by the operation's key.
@@ -149,7 +156,7 @@ export const planRecordIndexes = example({
     keywords: [
         "Plan", "Schedule", "Plan.series.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
         "rows source", "paged", "Data.bindPaged", "index.on", "interval index", "series index", "summary index",
-        "index.interval", "index.series", "index.summary", "cell", "window", "range", "large record",
+        "index.interval", "index.flatSeries", "index.summary", "cell", "window", "range", "large record",
         "million rows", "work orders", "operations", "Record.bind", "entries", "editing", "Save", "#1344", "#1039",
     ],
     description: "The Sheet's 50,000 work orders on a Plan — its rows, a Plan.series.resources over the rail's `rows` source, narrowed over their indexes: Status with a Due range, Job, Quantity, Urgent and Tag, the presets and the search, Due a field of the rail the viewer sets — and their operations a record of their own placed on them, read a cell at a time: the `operation` source lists their interval, series and summary indexes, its range the canvas's window, so the orders' rows stay as the dates move and only the cells around the rows in view are read; a moved operation is a draft of its kind's session, saved through the operations' patch door by its key",
@@ -168,7 +175,11 @@ export const planRecordIndexes = example({
                     search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
                 },
                 operation: {
-                    source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
+                    source: Data.bindPaged(planOperations, {
+                        indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
+                        // The operations' totals, which the horizon's bars read (#1732).
+                        totals: ["plan_operations_day_totals", "plan_operations_week_totals", "plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                    }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
@@ -215,7 +226,11 @@ export const planRecordIndexesMobile = example({
                     search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
                 },
                 operation: {
-                    source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
+                    source: Data.bindPaged(planOperations, {
+                        indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
+                        // The operations' totals, which the horizon's bars read (#1732).
+                        totals: ["plan_operations_day_totals", "plan_operations_week_totals", "plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                    }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
@@ -231,6 +246,90 @@ export const planRecordIndexesMobile = example({
                         resource: { field: "work", of: "orders" }, entries: operationEntries,
                     }),
                 }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** A job on a press: what it makes, when it runs, and its state. */
+export const PlanHallJob = StructType({ product: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+/** A press of a hall: its name, and its jobs by key. */
+export const PlanHallPress = StructType({ label: StringType, jobs: DictType(StringType, PlanHallJob) });
+/** A hall: its name, and its presses by key. */
+export const PlanHall = StructType({ name: StringType, presses: DictType(StringType, PlanHallPress) });
+/** The halls, by key. */
+export const PlanHalls = DictType(StringType, PlanHall);
+
+/**
+ * `halls` halls of `presses` presses each, keyed `H-101` on and each press `P-101` on within its hall, so their keys
+ * hold their order: a press's two jobs a week apart in October 2026, a day and two days long, each press at its own
+ * offset so no two presses' jobs line up. A function of the counts alone.
+ */
+export const generatePlanHalls = East.function([IntegerType, IntegerType], PlanHalls, ($, halls, presses) => {
+    const start = $.const(new Date("2026-10-05T00:00:00Z"));
+    const products = $.const(["cap", "lid", "tub", "jar"], ArrayType(StringType));
+    const confirmed = $.const(variant("confirmed", null), EventStateType);
+    return East.Array.range(0n, halls).toDict(
+        (_$2, h) => East.str`H-${h.add(101n)}`,
+        (_$2, h) => ({
+            name: East.str`Hall ${h.add(1n)}`,
+            presses: East.Array.range(0n, presses).toDict(
+                (_$3, p) => East.str`P-${p.add(101n)}`,
+                ($3, p) => {
+                    const offset = $3.const(h.multiply(7n).add(p).remainder(10n));
+                    return {
+                        label: East.str`Press ${p.add(1n)}`,
+                        jobs: East.Array.range(0n, 2n).toDict(
+                            (_$4, j) => East.str`J-${j.add(1n)}`,
+                            ($4, j) => {
+                                const begins = $4.const(start.addDays(offset.add(j.multiply(7n))));
+                                return { product: products.get(h.add(p).add(j).remainder(4n)), start: begins, end: begins.addDays(j.add(1n)), state: confirmed };
+                            },
+                        ),
+                    };
+                },
+            ),
+        }),
+    );
+});
+
+/** Forty halls of 75 presses each, 3,000 presses: read a hall at a time, never whole. */
+export const planHalls = e3.record("plan_halls", PlanHalls, {
+    initial: () => East.compile(generatePlanHalls, [])(40n, 75n),
+});
+
+/**
+ * Forty halls of 75 presses each on a Plan, a group each with its presses'
+ * rows beneath it, read a hall at a time (#1714). A window of the rows is 200
+ * of their entries unless the Plan says otherwise, and under
+ * `Plan.series.group` an entry is a group with every row it nests: these forty
+ * would be one window, and the canvas would make all 3,000 presses' rows as it
+ * opened. `paging={{ entries: 1 }}` makes a window one hall: the canvas reads
+ * and makes the halls near the view, and every other hall stands as a band of
+ * its height until the view nears it.
+ */
+export const planGroupWindows = example({
+    keywords: [
+        "Plan", "Plan.series.group", "Plan.children", "Plan.series.span", "groups", "paging", "entries", "window", "windows",
+        "paged", "Data.bindPaged", "large groups", "rows near the view", "bands", "#1714",
+    ],
+    description: "Forty halls of 75 presses each on a Plan, a group each with its presses' rows beneath it, read a hall at a time: paging={{ entries: 1 }} makes a window of the rows one of their entries, so the canvas makes rows only for the halls near the view, every other hall a band of its height until the view nears it, where a window of 200 entries would make all 3,000 presses' rows as it opened",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const halls = $.let(Data.bindPaged(planHalls));
+            return <Box width="100%" height="760px"><Plan id="planGroupWindows" data={halls}
+                // A window of the rows is one hall: the canvas makes the rows of the halls near the view alone.
+                paging={{ entries: 1 }}
+                axis={Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-26T00:00:00Z") }, resolution: "day", resolutions: ["week", "day"] })}
+                series={[Plan.series.group(PlanHall, {
+                    key: "halls", title: "Halls", label: (hall) => hall.name,
+                    children: Plan.children("presses", [Plan.series.span(PlanHallPress, {
+                        key: "presses", title: "Press", label: (press) => press.label,
+                        runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                    })]),
+                })]}
                 style={{ height: "fill" }} />
             </Box>;
         }}</Reactive>

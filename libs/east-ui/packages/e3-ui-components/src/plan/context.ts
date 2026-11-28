@@ -50,16 +50,26 @@ export const PlanDispatchContext = createContext<(e: PlanEvent) => void>(() => u
 
 /**
  * The hover-cursor controller (#609) — display-only chrome, written straight
- * to the DOM: `move` sets ONE CSS variable on the canvas body (every row's
- * hairline positions from it) and writes the ruler chip's label/position;
- * `leave` hides both. Never React state: routing a pointermove through the
- * reducer re-rendered every mounted row once per event.
+ * to the DOM: `move` writes each mounted row's hairline its place and the ruler
+ * chip's label/position; `leave` hides both. Never React state: routing a
+ * pointermove through the reducer re-rendered every mounted row once per event.
+ * Nor a variable on the canvas body for the hairlines to read: a change to one
+ * there leaves every element of the canvas to be styled again (`root/cursor.ts`).
  */
 export interface PlanCursor {
     /** The pointer is at a window fraction over a row plot. */
     move(frac: number): void;
     /** The pointer left a row plot. */
     leave(): void;
+    /**
+     * A row's hairline, handed over as the row mounts — its `ref`. Every move
+     * writes it its place; mounting under a resting pointer, it takes the place
+     * the cursor holds.
+     *
+     * @param el - The hairline's element
+     * @returns Take it back, as the row unmounts
+     */
+    line(el: HTMLElement | null): (() => void) | undefined;
     /**
      * Follow the hovered BUCKET (#743) — the listener hears the bucket index
      * each time the pointer crosses into another one (`-1` once it is over no
@@ -77,6 +87,7 @@ export interface PlanCursor {
 export const PlanCursorContext = createContext<PlanCursor>({
     move: () => undefined,
     leave: () => undefined,
+    line: () => undefined,
     subscribe: () => () => undefined,
 });
 

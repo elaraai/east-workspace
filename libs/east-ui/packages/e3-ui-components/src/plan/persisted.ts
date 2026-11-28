@@ -23,6 +23,13 @@ export interface PlanAnchor {
     /** The source window its row came from, on a paged canvas — where a
      *  remount that has not loaded the row yet looks for it. */
     window: number | null;
+    /**
+     * How many of the source's entries a window held when `window` was counted (#1714): a canvas's windows hold as many
+     * as its root says, which a deploy may change, so a remount opens the window that holds the entry the saved one
+     * began at, never the window of the same number. Absent in an anchor saved before a window's size could change,
+     * whose number is read at the size now.
+     */
+    entries?: number | undefined;
     /** The block its row came from (#823) — which block the remount opens at
      *  that window; `null` for a row of no paged block, or an anchor saved
      *  before blocks paged apart (every block then opens there). */
@@ -38,7 +45,9 @@ export interface PlanAnchor {
 /**
  * The canvas's own window (#1344) — what a canvas whose slice has no source
  * holding the window shows, as a gesture last moved it: `[min, max)` on the
- * axis's domain, on the arm it was written on.
+ * axis's domain, on the arm it was written on. A range, and no more (#1740):
+ * the period its columns take is worked out again as the canvas opens, from
+ * the range and the plot as it is then laid out.
  */
 export interface PlanOwnWindow {
     /** The axis's arm it was written on: a time axis's, its bounds epoch ms, or a number axis's. */
@@ -47,13 +56,6 @@ export interface PlanOwnWindow {
     min: number;
     /** Its end, exclusive. */
     max: number;
-    /**
-     * A time axis's zoom it was shown at (#1438): the slice holds the zoom, but
-     * a page's store may not outlive the page, so the window keeps its own —
-     * a decade kept without the year it was shown in would open a week at a
-     * time.
-     */
-    resolution?: string;
 }
 
 /** What the canvas persists under its `storageKey` (#813). */
@@ -62,6 +64,9 @@ export interface PlanPersisted {
     collapse: Array<[string, boolean]>;
     /** The chart rows the user expanded. */
     charts: string[];
+    /** What Collapse all (`true`) or Expand all (`false`) left standing for
+     *  the rows read later (#1777). Absent until either is pressed. */
+    standing?: boolean;
     /** Where the scroll rests, once the user has scrolled a bounded frame. */
     anchor: PlanAnchor | null;
     /**
@@ -77,18 +82,18 @@ export const NOT_PERSISTED: PlanPersisted = { collapse: [], charts: [], anchor: 
 
 /**
  * The canvas's own window as storage holds it, taken only in the shape this
- * version writes: an arm it names, and finite bounds, the end past the start,
- * with the zoom it was shown at where it names one.
+ * version writes: an arm it names, and finite bounds, the end past the start.
+ * A zoom an earlier version kept beside them is left behind.
  *
  * @param stored - What storage holds under the persisted state's `window`
  * @returns The window; `undefined` for anything else
  */
 function ownWindowOf(stored: unknown): PlanOwnWindow | undefined {
     if (typeof stored !== "object" || stored === null) return undefined;
-    const { kind, min, max, resolution } = stored as Partial<Record<keyof PlanOwnWindow, unknown>>;
+    const { kind, min, max } = stored as Partial<Record<keyof PlanOwnWindow, unknown>>;
     if ((kind !== "time" && kind !== "number") || typeof min !== "number" || typeof max !== "number") return undefined;
     if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return undefined;
-    return typeof resolution === "string" ? { kind, min, max, resolution } : { kind, min, max };
+    return { kind, min, max };
 }
 
 /**
@@ -101,7 +106,7 @@ function ownWindowOf(stored: unknown): PlanOwnWindow | undefined {
  */
 export function persistedOf(stored: unknown): PlanPersisted {
     if (typeof stored !== "object" || stored === null) return NOT_PERSISTED;
-    const { collapse, charts, anchor, window } = stored as Partial<Record<keyof PlanPersisted, unknown>>;
+    const { collapse, charts, standing, anchor, window } = stored as Partial<Record<keyof PlanPersisted, unknown>>;
     const okCollapse = Array.isArray(collapse) && collapse.every((e) =>
         Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && typeof e[1] === "boolean");
     const okCharts = Array.isArray(charts) && charts.every((k) => typeof k === "string");
@@ -112,11 +117,14 @@ export function persistedOf(stored: unknown): PlanPersisted {
         // Written before blocks paged apart, an anchor names none.
         && (a.block === undefined || a.block === null || Number.isInteger(a.block))
         // Over rows not read, the element under the view's top (#1398); over a row, none.
-        && (a.element === undefined || (Number.isInteger(a.element) && a.element >= 0));
+        && (a.element === undefined || (Number.isInteger(a.element) && a.element >= 0))
+        // The size its window is counted in (#1714); an anchor saved before a window's size could change names none.
+        && (a.entries === undefined || (Number.isInteger(a.entries) && a.entries > 0));
     const own = ownWindowOf(window);
     return {
         collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
         charts: okCharts ? charts as string[] : [],
+        ...(standing === true || standing === false ? { standing } : {}),
         anchor: okAnchor ? { ...(a as PlanAnchor), block: a.block ?? null } : null,
         ...(own === undefined ? {} : { window: own }),
     };
@@ -137,8 +145,8 @@ export const sameKey = (x: string, y: string): boolean => x === y;
 /** Two anchors are the same — `x` may be absent. */
 export const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor): boolean => x !== null
     && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window && x.block === y.block
-    && x.element === y.element;
+    && x.element === y.element && x.entries === y.entries;
 
 /** Two of the canvas's own windows are the same — `x` may be absent. */
 export const sameOwnWindow = (x: PlanOwnWindow | undefined, y: PlanOwnWindow): boolean => x !== undefined
-    && x.kind === y.kind && x.min === y.min && x.max === y.max && x.resolution === y.resolution;
+    && x.kind === y.kind && x.min === y.min && x.max === y.max;

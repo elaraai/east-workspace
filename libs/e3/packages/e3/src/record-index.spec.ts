@@ -21,15 +21,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
+  DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
   compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, printType, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { record } from './record.js';
 import type { IndexBuilder, IndexDraft } from './record-builders.js';
 import { functionAt } from './record-guards.js';
-import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { package_ } from './package.js';
+import { assertMaintainedIsRebuilt, indexEntries } from './test-helpers.js';
 import type { RecordIndexDef } from './types.js';
 
 const RowType = StructType({ status: StringType, due: IntegerType, title: StringType, tags: SetType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
@@ -46,18 +46,6 @@ const tagKeys = East.function([StringType, RowType], SetType(StringType), ($, _k
 /** The plans record declaring the indexes given, each built by `e3.record` under its key and typed as declared. */
 const declared = <I extends Readonly<Record<string, IndexDraft>>>(indexes: (index: IndexBuilder<typeof PlansType>) => I) =>
   record('plans', PlansType, { initial: new Map(), indexes });
-
-/** The `[entry, projection]` pairs a build program emits for `rows`. */
-function emitted(recordType: typeof PlansType, def: RecordIndexDef, rows: Map<string, unknown>): [unknown, unknown][] {
-  const out: [unknown, unknown][] = [];
-  const run = indexBuildProgram(recordType, def).compile([]) as (
-    slice: unknown, emit: (entry: unknown, value: unknown) => null) => unknown;
-  run(rows, (entry, value) => {
-    out.push([entry, value]);
-    return null;
-  });
-  return out;
-}
 
 const rows = new SortedMap<string, ValueTypeOf<typeof RowType>>([
   ['p1', { status: 'late', due: 3n, title: 'One', tags: new Set(['a', 'b']), start: some(new Date(0)), end: some(new Date(86_400_000)) }],
@@ -108,7 +96,7 @@ describe('index.on, index.key and index.keys — the declaration', () => {
     const projection: typeof StringType = pair.valueType;
     assert.equal(printType(pairType), printType(StatusKeyType));
     assert.equal(printType(projection), printType(StringType));
-    assert.deepEqual(emitted(PlansType, pair, rows), emitted(PlansType, rec.indexes.computed, rows));
+    assert.deepEqual(indexEntries(PlansType, pair, rows), indexEntries(PlansType, rec.indexes.computed, rows));
     assert.deepEqual(Object.keys(rec.indexes.by_due_status.keyType.fields), ['due', 'status']);
     assert.equal(rec.indexes.computed.on, undefined);
   });
@@ -123,8 +111,8 @@ describe('index.on, index.key and index.keys — the declaration', () => {
     const keyType: typeof StringType = one.keyType;
     assert.equal(printType(keyType), printType(StringType));
     assert.equal(one.multi, true);
-    assert.deepEqual(emitted(PlansType, one, rows), emitted(PlansType, rec.indexes.computed, rows));
-    assert.deepEqual(emitted(PlansType, rec.indexes.by_status_tag, rows), [
+    assert.deepEqual(indexEntries(PlansType, one, rows), indexEntries(PlansType, rec.indexes.computed, rows));
+    assert.deepEqual(indexEntries(PlansType, rec.indexes.by_status_tag, rows), [
       [{ ik: { status: 'late', tags: 'a' }, k: 'p1' }, null],
       [{ ik: { status: 'late', tags: 'b' }, k: 'p1' }, null],
       [{ ik: { status: 'ok', tags: 'b' }, k: 'p2' }, null],
@@ -209,7 +197,7 @@ describe('index.on, index.key and index.keys — the declaration', () => {
 
 describe('a plain index — the build program', () => {
   it('emits each row\'s entry as it reads the row, index key first', () => {
-    const out = emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey, { value: titleOf }) })).indexes.by_status, rows);
+    const out = indexEntries(PlansType, declared((index) => ({ by_status: index.key(statusKey, { value: titleOf }) })).indexes.by_status, rows);
     assert.deepEqual(out, [
       [{ ik: { status: 'late', due: 3n }, k: 'p1' }, 'One'],
       [{ ik: { status: 'ok', due: 1n }, k: 'p2' }, 'Two'],
@@ -218,7 +206,7 @@ describe('a plain index — the build program', () => {
   });
 
   it('emits one entry per element of a multi-valued key, and none for an empty set', () => {
-    const out = emitted(PlansType, declared((index) => ({ by_tag: index.keys(tagKeys) })).indexes.by_tag, rows);
+    const out = indexEntries(PlansType, declared((index) => ({ by_tag: index.keys(tagKeys) })).indexes.by_tag, rows);
     assert.deepEqual(out, [
       [{ ik: 'a', k: 'p1' }, null],
       [{ ik: 'b', k: 'p1' }, null],
@@ -227,12 +215,12 @@ describe('a plain index — the build program', () => {
   });
 
   it('carries Null where an index declares no projection', () => {
-    const out = emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, rows);
+    const out = indexEntries(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, rows);
     assert.deepEqual(out.map(([, value]) => value), [null, null, null]);
   });
 
   it('emits nothing for an empty record', () => {
-    assert.deepEqual(emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, new Map()), []);
+    assert.deepEqual(indexEntries(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, new Map()), []);
   });
 });
 
@@ -258,22 +246,7 @@ describe("a record's indexes — fields through mutation and rebuild", () => {
       ['p3', { ...rows.get('p3')!, start: some(new Date(500)), end: some(new Date(1500)) }],
       ['p4', { status: 'new', due: 2n, title: 'Four', tags: new Set(['d']), start: some(new Date(1000)), end: some(new Date(2000)) }],
     ], compareFor(StringType));
-    const diff = East.compile(East.function([PlansType, PlansType], PatchType(PlansType), (_$, before, after) => East.diff(before, after)), []);
-    const changes: Array<{ index: string; key: unknown; op: unknown }> = [];
-    const run = buildMutationProgram(assembled, rec.mutations.patch).compile([]);
-    run(rows, diff(rows, after), (key: { type: string; value: unknown }, op: { value: unknown }) => {
-      changes.push({ index: key.type, key: key.value, op: op.value });
-      return null;
-    });
-    for (const index of indexes) {
-      const keyType = StructType({ ik: index.keyType, k: StringType });
-      const collection = DictType(keyType, index.valueType);
-      const before = new SortedMap(emitted(PlansType, index, rows) as never, compareFor(keyType));
-      const rebuilt = new SortedMap(emitted(PlansType, index, after) as never, compareFor(keyType));
-      const ops = new SortedMap(changes.filter((change) => change.index === index.name).map((change) => [change.key, change.op]) as never, compareFor(keyType));
-      const apply = East.compile(East.function([collection, PatchType(collection)], collection, (_$, value, patch) => East.applyPatch(value, patch)), []);
-      assert.equal(equalFor(collection)(apply(before as never, variant('patch', ops) as never), rebuilt as never), true, index.name);
-    }
+    assertMaintainedIsRebuilt(assembled, rec.mutations.patch, indexes, rows, after);
   });
 });
 
@@ -298,7 +271,7 @@ describe('a generated index key reserves no field name (#1432)', () => {
         named_by_area: index.area({ on, x: 'x', y: 'y', cell: 1 }),
         by_area: index.area({ x: 'x', y: 'y', cell: 1 }),
         // A series index, and a summary's totals: the press, then the week the instant falls in — the series' at its level (#1433).
-        named_by_week: index.series({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        named_by_week: index.flatSeries({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
         named_by_week_totals: index.summary({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
       }),
     });

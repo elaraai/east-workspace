@@ -26,9 +26,10 @@
  * - hovering an element opens the hover card after a short delay, on devices
  *   that can hover; leaving it closes the card unless the pointer moved into
  *   the card;
- * - hovering a labelled port, cell marker, link ribbon (#818) or row control
- *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
- *   card: its caption is what hovering it says;
+ * - hovering a labelled port, cell marker, link ribbon (#818), row control
+ *   (#1258) or a group band's count (#1716) shows its `aria-label` as a
+ *   tooltip — a ribbon opens no hover card: its caption is what hovering it
+ *   says;
  * - hovering a bar, a chip, a tile or a rollup band whose label is hidden (too
  *   narrow for a letter and the ellipsis) or ellipsized, or a heat or table
  *   cell whose number its column has no room for, shows the whole label as a
@@ -73,9 +74,10 @@ export const PLAN_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-
  *  shows its caption as a tooltip, never a hover card. */
 export const PLAN_LINK_SELECTOR = "[data-link-key]";
 /** The labelled marks a tooltip reads — their `aria-label` is its text: ports,
- *  cell markers, link ribbons (#818) and a row's focus controls (#1258). */
+ *  cell markers, link ribbons (#818), a row's focus controls (#1258) and a
+ *  group band's counts (#1716). */
 export const PLAN_TIP_SELECTOR =
-    "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
+    "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label],[data-plan-band-count][aria-label]";
 /** The elements whose label (`data-plan-label`) a tooltip says while it is
  *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), a tile
  *  (#1266), and a heat or table cell's number (#1269). */
@@ -170,13 +172,17 @@ function anchorOf(el: HTMLElement): HTMLElement {
 }
 
 /** A labelled mark's identity — its row and the mark's own attribute; a link
- *  ribbon's, its index in the root's links. */
+ *  ribbon's, its index in the root's links; a group band's count, its band's
+ *  key and its column (#1716). */
 function tipOf(el: Element): { key: string; text: string } | undefined {
     const text = el.getAttribute("aria-label");
     if (text === null) return undefined;
     // A ribbon spans rows, so it belongs to none — the link is its identity.
     const link = el.getAttribute("data-link");
     if (link !== null) return { key: `link|${link}`, text };
+    const count = el.getAttribute("data-plan-band-count");
+    const band = count === null ? null : el.closest("[data-plan-group]")?.getAttribute("data-plan-group");
+    if (count !== null) return band === null || band === undefined ? undefined : { key: `${band}|count|${count}`, text };
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     if (row === null || row === undefined) return undefined;

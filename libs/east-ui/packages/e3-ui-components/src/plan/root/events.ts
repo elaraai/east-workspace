@@ -25,25 +25,83 @@
  * whose window it could not read: said the same way. The events move only when
  * they differ, so a write that changes none of them redraws nothing.
  *
+ * A kind the reader holds rows of is placed a block at a time (#1793, its
+ * cells' `blocks`): each block's events by the seam's `placed` over that
+ * block's rows alone — the kind given the drafts of the block's own events,
+ * every other kind nothing — and kept while the block's handle, the range and
+ * those drafts hold. A read that brings a block places that block; one that
+ * lets a block go places nothing; a view going back to rows it left, whose
+ * blocks the reader kept, places nothing; an edit places its own block again.
+ * A block's rows are the reader's, and a kind's accessors read only an
+ * event's row and its key, so its placing reads nothing a tracked read
+ * follows, and is made outside one. The kinds read over the window, and the
+ * drafts of events no block holds, are placed in the tracked read, as before
+ * — each kind placed a block at a time given no rows there. The lists are put
+ * together row by row: kind by kind in the kinds' order, a kind's blocks' by
+ * their events' keys and its drafts no block holds after them — the order one
+ * placing of them all gives — each the object it was wherever nothing feeding
+ * it moved.
+ *
  * The read runs in a component of its own, {@link PlanEventsReader}, which
  * hands the canvas what it read only when it moves: a kind narrowed through an
  * interval index lands some fifty-five key searches a window, and each would
  * otherwise render the whole canvas (#1343, #1344).
  *
+ * Each read that lands is handed to the frame too, with what it was read over
+ * — the range, the drafts, the cells and the ids hidden — through a store the
+ * canvas renders nothing for ({@link PlanEventPlacings}, #1771). The footer's
+ * counts take the window's events from it, each that meets the window by the
+ * views' rule ({@link placedEvents}), so no kind's events are read again for
+ * them. While a read is in flight, or has failed, the last one stands.
+ *
  * # Joined into the rows
  *
  * Inline, the root's blocks are placed once, the Unassigned rows after them.
- * Paged, the root's source is ONE wrapper per source (a host function is
- * equivalent only to itself, so a new wrapper would drop the driver's windows)
+ * Paged, the root's source is ONE wrapper per source (`wrapped-source.ts`)
  * that places each window the source serves — and a window standing in, as
  * the canvas's editing redraws it (#1599) — and names a new revision when the
  * events move, so the driver reads its windows again and keeps the rows it
- * has standing in until they land (#821). Until the first read answers the
- * rows draw with no events. The wrapper names the snapshot of the source's own
- * data apart from that revision (`snapshot`, #1199): new events over the same
- * data read the windows again and are no new snapshot of it, so a key search
- * standing stays where it is. Over rows read a page at a time no Unassigned row
- * is drawn: an event on no row of the canvas's is in no window (#1541).
+ * has standing in until they land (#821). It names which series the viewer
+ * shows there too, as the nested series' wrapper does (`nested.ts`): the root's
+ * page function reads which show as it makes a window, and nothing else tells
+ * the driver of a switch — the cells' reader follows one only through the
+ * windows it asks, and asks none while the view shows no row a kind lands on
+ * (#1795). A window read again over new events
+ * or a new shading alone — the same blocks from the source under the wrapper,
+ * which the kept layer gives while they hold (`kept.ts`) — is joined again only
+ * in the rows they moved (#1712, #1791): a landing row's rows depend on the
+ * row, the list of events filed under its key, its own shading and the scale
+ * it shades on, and what the viewer hides, so the rows filed under a key whose
+ * events or shading moved — and, where a way of drawing's largest value moved,
+ * the rows that shade on it — are joined in one `place`, each written over its
+ * place, and every other row is the object it was. A move of the shading as the
+ * view scrolls is a few rows' own: joined whole, every window held was made
+ * again, folded or out of view. New blocks, another set hidden or another
+ * period join the window whole. Until the first read answers the rows draw
+ * with no events. The events as last read are compared with the new once, as
+ * they are read (#1793): the rows the new ones moved are kept beside them, and
+ * a window joined again takes those — every step since the events it was
+ * joined with — never comparing the two itself, so what an answer costs
+ * follows the rows it moved, not the windows held. Events that hold under a
+ * new shading are the object the canvas has, and are compared by no window.
+ * The wrapper names the snapshot of the source's own data apart from that
+ * revision (`snapshot`, #1199): new events over the same data read the windows
+ * again and are no new snapshot of it, so a key search standing stays where it
+ * is. Over rows read a page at a time no Unassigned row is drawn: an event on
+ * no row of the canvas's is in no window (#1541).
+ *
+ * # Placed for a period
+ *
+ * The events are placed for the columns' period (#1740): which of a kind's
+ * events are read, and the buckets its shading is folded into, are the
+ * period's. So the events as last read say the period they were placed for,
+ * and each landing row joined says it too ({@link placedPeriodOf}) — by the row
+ * itself, whichever read of its window made it and however long the canvas
+ * holds it. A row placed for another period than the canvas draws draws none
+ * of what it holds, and waits: the rows a paged canvas holds are joined again
+ * only once the next events are handed over, and until then they are the last
+ * period's. A change of period joins every window whole, so every row says the
+ * period it is drawn under.
  *
  * # A link's event end
  *
@@ -62,26 +120,32 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    SortedMap, StringType, compareFor, equalFor, equivalentFor, none, some, variant, type ValueTypeOf,
+    DateTimeType, FloatType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
-    planHideId,
+    planChildRowKey, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { printEventRef } from "../../shared/schedule/event-ref.js";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
+import { useTrackedEvaluation, type TrackedResult } from "@elaraai/east-ui-components";
+import { windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
-import type { PlanScale } from "../scale.js";
+import type { PlanResolution, PlanScale } from "../scale.js";
+import { appendAll } from "../reductions.js";
 import type { PlanInstantValue } from "../instant.js";
-import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
-import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import type { PlanPagedSourceValue } from "../use-plan-paging.js";
+import {
+    SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleBlockRows, type ScheduleCellRead, type ScheduleCellSpan, type ScheduleCellsRead,
+} from "../../shared/schedule/cells.js";
+import { NO_CELL_ROWS, cellRowsHeld } from "../../shared/schedule/cell-rows.js";
+import { meetsWindow } from "../../shared/schedule/window.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
-import { landingRowId, type PlanLandingValue } from "./landings.js";
+import { landingRowId, landingRowSeries, type PlanLandingValue } from "./landings.js";
+import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
 
 /** The payload's seam, decoded: the events of a range, filed, and how they join any rows (#1541). */
 export type PlanEventSeamValue = ValueTypeOf<typeof PlanEventSeamType>;
@@ -117,6 +181,47 @@ export interface PlanEventLead {
     version: number;
     /** The last read's failure, when it failed: why, and the kinds whose own events it could not read (#1398). */
     error: PlanEventFailure | undefined;
+    /** The columns' period the events were placed for (#1740); `undefined` until the first read answers, and on an axis
+     *  of no periods. */
+    period: PlanResolution | undefined;
+    /**
+     * The columns' period the cells were read for (#1799): what their notices say a kind shows nothing of — the canvas
+     * acts on them only at that period, since the canvas's own render, the one after a fallback, still holds the lead the
+     * reader handed it before; `undefined` before the reader hands any on, and on an axis of no periods.
+     */
+    cellsPeriod: PlanResolution | undefined;
+}
+
+/**
+ * The columns' period each landing row's events were placed for (#1740), by what the row draws — which its canvas row
+ * holds as its window's row does — and while it lives.
+ */
+const periodPlaced = new WeakMap<PlanWireRow["kind"], PlanResolution>();
+
+/**
+ * Says the period a window's landing rows were joined for: each row of a series the event kinds land on.
+ *
+ * @param blocks - The window's blocks, the events joined in
+ * @param landings - The series the event kinds land on
+ * @param period - The columns' period the events were placed for
+ */
+function placedUnder(blocks: readonly PlanWireBlock[], landings: readonly PlanLandingValue[] | undefined, period: PlanResolution | undefined): void {
+    if (landings === undefined || period === undefined) return;
+    const series = landingRowSeries(landings);
+    for (const block of blocks) {
+        for (const row of block.rows) if (row.id.type === "entry" && series.has(row.id.value.series)) periodPlaced.set(row.kind, period);
+    }
+}
+
+/**
+ * The columns' period a row's events were placed for (#1740, see the module docs): what a row is drawn by, since under
+ * another period it draws none of what it holds.
+ *
+ * @param row - The row, as its window gave it or as the canvas keys it
+ * @returns The period; `undefined` for a row no event kind lands on, and one no join has made
+ */
+export function placedPeriodOf(row: Pick<PlanWireRow, "kind">): PlanResolution | undefined {
+    return periodPlaced.get(row.kind);
 }
 
 /**
@@ -146,13 +251,25 @@ const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], c
 const NOTHING_PLACED: PlanEventPlacedValue = { on: new SortedMap([], compareString), lost: new SortedMap([], compareString) };
 /** Nothing hidden: every kind and series draws. */
 const NONE_HIDDEN: readonly string[] = [];
-const placedEqual = equalFor(PlanEventPlacedType);
+/** Whether two placings hold the same events on no row, kind by kind: what the rows read whole draw after their own. */
+const lostEqual = equalFor(PlanEventPlacedType.fields.lost);
 const shadingEqual = equalFor(PlanEventShadingType);
+/** Whether two lists of the events filed for a row, one way of drawing, are one: what a landing row's join reads. */
+const listEqual = equalFor(PlanEventPlacedType.fields.on.value.value.value);
+/** Whether two lists of a row's shading, one way of drawing, are one: what a shaded landing row's join reads (#1791). */
+const shadesEqual = equalFor(PlanEventShadingType.value.value);
+const compareFloat = compareFor(FloatType);
+const floatEqual = equalFor(FloatType);
+const rowIdEqual = equalFor(Plan.Types.RowId);
+const compareDateTime = compareFor(DateTimeType);
+/** The events filed for a row, one way of drawing — or a kind's on no row — each with its times and its kind's icon. */
+type PlacedListValue = ValueTypeOf<typeof PlanEventPlacedType.fields.lost.value>;
+/** One event as Plan draws it, as the events placed hold it. */
+type PlacedItemValue = PlacedListValue[number]["item"];
+/** No series the event kinds land on. */
+const NO_LANDINGS: readonly PlanLandingValue[] = [];
 /** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
 const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): PlanPagedSourceValue | undefined => source;
-
-/** Whether two paged sources derive the same rows — the paging driver's test (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /** A `time` instant's epoch ms; `undefined` for an instant of another arm. */
 function timeMs(t: PlanInstantValue): number | undefined {
@@ -169,7 +286,7 @@ const NO_KIND_DRAFTS: KindDrafts = new SortedMap([], compareString);
 const NO_KINDS_FAILED: readonly string[] = [];
 /** No event kinds: a reader given none names no kind a failure is of. */
 const NO_EVENT_KINDS: PlanEventKinds = [];
-const slotEqual = equalFor(StringType);
+const stringEqual = equalFor(StringType);
 
 /**
  * What a read of the event kinds' events throws when it fails (#1398): what it
@@ -207,9 +324,9 @@ function failedKinds(kinds: PlanEventKinds, from: Date, to: Date, drafts: ValueT
     const out: string[] = [];
     for (const kind of kinds) {
         if (hides(hidden, planHideId.events(kind.key))) continue;
-        const held = reads.get(kind.key);
         try {
-            kind.planItems(from, to, drafts.get(kind.key) ?? NO_KIND_DRAFTS, held === undefined ? none : some(held));
+            // What the reader read of it, or — a kind it names not — its window (#1771).
+            kind.planItems(from, to, drafts.get(kind.key) ?? NO_KIND_DRAFTS, reads.get(kind.key) ?? SCHEDULE_READ_WINDOW);
         } catch {
             out.push(kind.key);
         }
@@ -217,9 +334,294 @@ function failedKinds(kinds: PlanEventKinds, from: Date, to: Date, drafts: ValueT
     return out;
 }
 
-/** Whether two failures name the same kinds, in the same order. */
-function sameKinds(a: readonly string[], b: readonly string[]): boolean {
-    return a.length === b.length && a.every((slot, i) => slotEqual(slot, b[i]!));
+/** Whether two lists hold the same texts in the same order: the kinds two failures name, or the ids the viewer hides. */
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((text, i) => stringEqual(text, b[i]!));
+}
+
+// ============================================================================
+// Placed a block at a time (#1793)
+// ============================================================================
+
+/** One event placed on a row, or on none. */
+type PlacedOne = PlacedListValue[number];
+/** A way of drawing's events on a landing, by the key each row files its events under. */
+type ByKeyValue = ValueTypeOf<typeof PlanEventPlacedType.fields.on.value.value>;
+/** A landing's events, by the way they draw. */
+type ByDrawValue = ValueTypeOf<typeof PlanEventPlacedType.fields.on.value>;
+/** Nothing read of a kind: what every kind but the one a block is of is given, as that block is placed. */
+const READ_NOTHING: ScheduleCellRead = variant("nothing", null);
+const readsEqual = equalFor(PlanEventReadsType);
+const draftsEqual = equalFor(PlanEventDraftsType);
+const kindDraftsEqual = equalFor(PlanEventDraftsType.value);
+
+/** A kind's rows block by block, as the reader holds them, and how its events are ordered by their keys' texts. */
+interface KindBlocks {
+    readonly blocks: readonly ScheduleBlockRows[];
+    readonly compare: ((a: string, b: string) => number) | undefined;
+}
+
+/** A block of a kind's events as last placed, and what it was placed over. */
+interface BlockPlaced {
+    readonly seam: PlanEventSeamValue;
+    readonly from: number;
+    readonly to: number;
+    readonly drafts: KindDrafts;
+    readonly placed: PlanEventPlacedValue;
+}
+
+/** One block's events placed, of the kind at its place among the kinds. */
+interface PlacedPiece {
+    readonly kind: number;
+    readonly placed: PlanEventPlacedValue;
+}
+
+/** One row's events from what placed them: each block's that holds some, by its kind's place, and the tracked read's. */
+interface RowParts {
+    readonly parts: { readonly kind: number; readonly list: PlacedListValue }[];
+    rest: PlacedListValue | undefined;
+}
+
+/** What the kinds held a block at a time placed, and what the tracked read is to place beside them. */
+interface PlacedBlocks {
+    /** Each block's events placed, the kinds in their order, a kind's blocks in its read's — of the kinds the viewer shows. */
+    readonly pieces: readonly PlacedPiece[];
+    /** How each kind's events are ordered by their keys' texts, by its place among the kinds: as its record orders its keys. */
+    readonly compares: readonly (((a: string, b: string) => number) | undefined)[];
+    /** What the tracked read reads each kind from — a kind placed a block at a time, no rows: the same object while it holds. */
+    readonly reads: ValueTypeOf<typeof PlanEventReadsType>;
+    /** The drafts the tracked read is given — a kind placed a block at a time, those of events no block holds: the same object while they hold. */
+    readonly drafts: ValueTypeOf<typeof PlanEventDraftsType>;
+    /** What a block's placing threw, naming the kinds whose blocks threw; `undefined` for none. */
+    readonly failure: EventRowsFailure | undefined;
+}
+
+/**
+ * Test-only probe of a block of a kind's events placed — lets "a read that brings a block places that block alone, and a
+ * view going back places none" be asserted: the kind's slot, and the handle of the block's rows. `undefined` outside
+ * tests.
+ */
+let blockPlacedProbe: ((kind: string, handle: string) => void) | undefined;
+/** Install (or clear) the test probe of a block placed. Test use only. */
+export function setBlockPlacedProbe(fn: ((kind: string, handle: string) => void) | undefined): void {
+    blockPlacedProbe = fn;
+}
+
+/**
+ * A block of one kind's events placed: the seam's `placed` over the block's rows alone, the kind given the drafts of the
+ * block's own events and every other kind nothing.
+ *
+ * @param seam - The payload's seam
+ * @param from - The range's start, in ms
+ * @param to - Its end, exclusive
+ * @param kinds - The event kinds
+ * @param slot - The kind's slot
+ * @param handle - The handle the block's rows are held under
+ * @param drafts - The drafts of the block's own events
+ * @returns The events placed; `undefined` where the seam says a read is in flight, which a block's rows never are
+ */
+function placeBlock(seam: PlanEventSeamValue, from: number, to: number, kinds: PlanEventKinds, slot: string, handle: string,
+    drafts: KindDrafts): PlanEventPlacedValue | undefined {
+    const reads = new SortedMap(kinds.map((kind): [string, ScheduleCellRead] =>
+        [kind.key, stringEqual(kind.key, slot) ? variant("rows", handle) : READ_NOTHING]), compareString);
+    const placed = seam.placed(new Date(from), new Date(to), new SortedMap([[slot, drafts]], compareString), [], reads);
+    return placed.type === "some" ? placed.value : undefined;
+}
+
+/**
+ * A row's events from what placed them (see the module docs): kind by kind in the kinds' order, a kind's blocks' by their
+ * events' keys and the tracked read's of the kind after them.
+ *
+ * @param parts - Each block's events on the row that holds some, by its kind's place
+ * @param rest - The tracked read's events on it; `undefined` for none
+ * @param order - Each kind's place, by its slot
+ * @param compares - How each kind's events are ordered by their keys' texts, by its place
+ * @returns The row's events
+ */
+function mergedList(parts: RowParts["parts"], rest: PlacedListValue | undefined, order: ReadonlyMap<string, number>,
+    compares: PlacedBlocks["compares"]): PlacedListValue {
+    const kindOf = (one: PlacedOne): number => order.get(one.item.kind) ?? order.size;
+    const kinds = [...new Set([...parts.map((part) => part.kind), ...(rest ?? []).map(kindOf)])].sort((a, b) => a - b);
+    const out: PlacedOne[] = [];
+    for (const k of kinds) {
+        const mine = parts.filter((part) => part.kind === k);
+        if (mine.length === 1) appendAll(out, mine[0]!.list);
+        else if (mine.length > 1) {
+            const compare = compares[k] ?? compareString;
+            appendAll(out, mine.flatMap((part) => part.list).sort((a, b) => compare(a.item.key, b.item.key)));
+        }
+        for (const one of rest ?? []) if (kindOf(one) === k) out.push(one);
+    }
+    return out;
+}
+
+/**
+ * What places the kinds a block at a time (see the module docs): each block as last placed, kept while its handle is
+ * held, and the events put together from them and the tracked read's.
+ */
+class BlockPlacer {
+    /** Each block as last placed, by its kind's slot, then by its handle. */
+    private readonly done = new Map<string, Map<string, BlockPlaced>>();
+    /** What the tracked read was last given, kept by identity while it holds. */
+    private reads: ValueTypeOf<typeof PlanEventReadsType> = NO_READS;
+    private drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS;
+    /** The events last put together, and what they were put together from. */
+    private last: { readonly pieces: readonly PlacedPiece[]; readonly rest: PlanEventPlacedValue; readonly placed: PlanEventPlacedValue } | undefined;
+    /** Each row's events put together from more than one placing, by the row, with what they were put together from. */
+    private lists = new Map<string, { readonly from: readonly PlacedListValue[]; readonly list: PlacedListValue }>();
+
+    /**
+     * Places each block of the kinds the reader holds rows of that is not placed already over the same range and drafts,
+     * and works out what the tracked read places beside them.
+     *
+     * @param seam - The payload's seam
+     * @param from - The range's start, in ms
+     * @param to - Its end, exclusive
+     * @param kinds - The event kinds
+     * @param cells - The kinds' cells and counts
+     * @param drafts - Every kind's drafts, as the seams take them
+     * @param hidden - The ids the viewer hides: a hidden kind's blocks are placed for none
+     * @returns What the blocks placed, and what the tracked read is given
+     */
+    place(seam: PlanEventSeamValue | undefined, from: number | undefined, to: number | undefined, kinds: PlanEventKinds,
+        cells: ScheduleCellsRead | undefined, drafts: ValueTypeOf<typeof PlanEventDraftsType>, hidden: readonly string[]): PlacedBlocks {
+        const reads = cells?.reads ?? NO_READS;
+        // A kind the reader holds rows of, by their blocks — one a read built by hand names none of is one block, its handle's.
+        const held = kinds.map((kind): KindBlocks | undefined => {
+            const named = cells?.blocks?.get(kind.key);
+            if (named !== undefined) return named;
+            const read = reads.get(kind.key);
+            const rows = cells?.held.get(kind.key);
+            return read?.type === "rows" && rows !== undefined ? { blocks: [{ handle: read.value, held: rows }], compare: undefined } : undefined;
+        });
+        if (seam === undefined || from === undefined || to === undefined || held.every((one) => one === undefined)) {
+            return { pieces: [], compares: [], reads, drafts, failure: undefined };
+        }
+        const pieces: PlacedPiece[] = [];
+        const compares: (((a: string, b: string) => number) | undefined)[] = [];
+        const restReads: [string, ScheduleCellRead][] = [];
+        const restDrafts: [string, KindDrafts][] = [];
+        const failed: string[] = [];
+        let thrown: unknown;
+        kinds.forEach((kind, k) => {
+            const own = held[k];
+            const kindDrafts = drafts.get(kind.key);
+            if (own === undefined) {
+                const read = reads.get(kind.key);
+                if (read !== undefined) restReads.push([kind.key, read]);
+                if (kindDrafts !== undefined) restDrafts.push([kind.key, kindDrafts]);
+                return;
+            }
+            compares[k] = own.compare;
+            // The tracked read places it over no rows: the drafts of its events no block holds, after its blocks'.
+            restReads.push([kind.key, variant("rows", NO_CELL_ROWS)]);
+            const byBlock = own.blocks.map((): [string, Uint8Array][] => []);
+            const notHeld: [string, Uint8Array][] = [];
+            for (const [id, bytes] of kindDrafts ?? []) {
+                const b = own.blocks.findIndex((block) => block.held.has(id));
+                if (b < 0) notHeld.push([id, bytes]);
+                else byBlock[b]!.push([id, bytes]);
+            }
+            if (notHeld.length > 0) restDrafts.push([kind.key, new SortedMap(notHeld, compareString)]);
+            // A hidden kind is placed for none, as the seam leaves it out; its blocks stand as placed for when it shows.
+            if (hides(hidden, planHideId.events(kind.key))) return;
+            let done = this.done.get(kind.key);
+            if (done === undefined) this.done.set(kind.key, (done = new Map()));
+            own.blocks.forEach((block, b) => {
+                const blockDrafts = byBlock[b]!.length === 0 ? NO_KIND_DRAFTS : new SortedMap(byBlock[b]!, compareString);
+                const was = done.get(block.handle);
+                if (was !== undefined && Object.is(was.seam, seam) && was.from === from && was.to === to && kindDraftsEqual(was.drafts, blockDrafts)) {
+                    pieces.push({ kind: k, placed: was.placed });
+                    return;
+                }
+                try {
+                    blockPlacedProbe?.(kind.key, block.handle);
+                    const placed = placeBlock(seam, from, to, kinds, kind.key, block.handle, blockDrafts);
+                    if (placed === undefined) throw new Error(`Plan: the seam held back the events of a block of ${kind.key}'s rows, which are read`);
+                    done.set(block.handle, { seam, from, to, drafts: blockDrafts, placed });
+                    pieces.push({ kind: k, placed });
+                } catch (error) {
+                    if (failed.length === 0) thrown = error;
+                    if (!failed.some((slot) => stringEqual(slot, kind.key))) failed.push(kind.key);
+                }
+            });
+        });
+        // A block whose rows the reader let go of is placed for none again.
+        for (const done of this.done.values()) for (const handle of [...done.keys()]) if (!cellRowsHeld(handle)) done.delete(handle);
+        const nextReads = new SortedMap(restReads, compareString);
+        if (!readsEqual(nextReads, this.reads)) this.reads = nextReads;
+        const nextDrafts = new SortedMap(restDrafts, compareString);
+        if (!draftsEqual(nextDrafts, this.drafts)) this.drafts = nextDrafts;
+        return { pieces, compares, reads: this.reads, drafts: this.drafts, failure: failed.length === 0 ? undefined : new EventRowsFailure(thrown, failed) };
+    }
+
+    /**
+     * The events put together (see the module docs): the blocks' and the tracked read's, row by row — the same object
+     * while what they are put together from is.
+     *
+     * @param rest - What the tracked read placed
+     * @param blocks - What the blocks placed
+     * @param kinds - The event kinds
+     * @returns The events placed
+     */
+    merge(rest: PlanEventPlacedValue, blocks: PlacedBlocks, kinds: PlanEventKinds): PlanEventPlacedValue {
+        const { pieces, compares } = blocks;
+        if (pieces.length === 0) return rest;
+        const last = this.last;
+        if (last !== undefined && Object.is(last.rest, rest) && last.pieces.length === pieces.length
+            && last.pieces.every((piece, i) => piece.kind === pieces[i]!.kind && Object.is(piece.placed, pieces[i]!.placed))) return last.placed;
+        const order = new Map(kinds.map((kind, k) => [kind.key, k] as const));
+        const lists = new Map<string, { readonly from: readonly PlacedListValue[]; readonly list: PlacedListValue }>();
+        // A row's events from what placed them: one placing's list as it is, and what more than one placed put together
+        // once — the same list while they hold.
+        const listOf = (id: string, parts: RowParts["parts"], restList: PlacedListValue | undefined): PlacedListValue => {
+            if (parts.length === 0) return restList ?? [];
+            if (parts.length === 1 && (restList === undefined || restList.length === 0)) return parts[0]!.list;
+            const from = [...parts.map((part) => part.list), ...(restList === undefined ? [] : [restList])];
+            const was = this.lists.get(id);
+            const made = was !== undefined && was.from.length === from.length && was.from.every((list, i) => Object.is(list, from[i]))
+                ? was : { from, list: mergedList(parts, restList, order, compares) };
+            lists.set(id, made);
+            return made.list;
+        };
+        const on = new SortedMap<string, ByDrawValue>([], compareString);
+        for (const [landing, restDraws] of rest.on) {
+            const rows = new Map<string, Map<string, RowParts>>();
+            const row = (draw: string, key: string): RowParts => {
+                let byKey = rows.get(draw);
+                if (byKey === undefined) rows.set(draw, (byKey = new Map()));
+                let one = byKey.get(key);
+                if (one === undefined) byKey.set(key, (one = { parts: [], rest: undefined }));
+                return one;
+            };
+            for (const piece of pieces) {
+                for (const [draw, byKey] of piece.placed.on.get(landing) ?? []) for (const [key, list] of byKey) row(draw, key).parts.push({ kind: piece.kind, list });
+            }
+            for (const [draw, byKey] of restDraws) for (const [key, list] of byKey) row(draw, key).rest = list;
+            const draws = new SortedMap<string, ByKeyValue>([], compareString);
+            for (const [draw, byKey] of rows) {
+                const filed = new SortedMap<string, PlacedListValue>([], compareString);
+                for (const [key, one] of byKey) filed.set(key, listOf(`on\u0000${landing}\u0000${draw}\u0000${key}`, one.parts, one.rest));
+                draws.set(draw, filed);
+            }
+            on.set(landing, draws);
+        }
+        const lost = new SortedMap<string, PlacedListValue>([], compareString);
+        for (const [slot, restList] of rest.lost) {
+            const k = order.get(slot);
+            const parts: RowParts["parts"] = [];
+            for (const piece of pieces) {
+                if (piece.kind !== k) continue;
+                const list = piece.placed.lost.get(slot);
+                if (list !== undefined && list.length > 0) parts.push({ kind: piece.kind, list });
+            }
+            lost.set(slot, listOf(`lost\u0000${slot}`, parts, parts.length > 0 && restList.length === 0 ? undefined : restList));
+        }
+        const placed: PlanEventPlacedValue = { on, lost };
+        this.lists = lists;
+        this.last = { pieces, rest, placed };
+        return placed;
+    }
 }
 
 /** The range the canvas reads its event kinds' events over. */
@@ -247,6 +649,94 @@ export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | u
 }
 
 /**
+ * A read of the event kinds' events that landed, and what it was read over (#1771): what the footer's counts take a
+ * window's events from, where the window is within its range and they count by the drafts, the cells and the ids hidden
+ * it was read with.
+ */
+export interface PlanEventPlacing {
+    /** The events of the range, filed by the series they land on. */
+    readonly placed: PlanEventPlacedValue;
+    /** The range's start: the scale's window less the periods laid out before it. */
+    readonly from: Date;
+    /** Its end, exclusive. */
+    readonly to: Date;
+    /** Every kind's drafts the read was given — the same object while they hold. */
+    readonly drafts: ValueTypeOf<typeof PlanEventDraftsType>;
+    /** The kinds' cells and counts it read them by; `undefined` for none. */
+    readonly cells: ScheduleCellsRead | undefined;
+    /** The ids the viewer hid in the Series tab: a kind hidden there was not read. */
+    readonly hidden: readonly string[];
+}
+
+/** Where the canvas hands the frame each read of the event kinds' events that lands (#1771): a store of the last. */
+export interface PlanEventPlacings {
+    /** The last read that landed; `undefined` before one has. */
+    get(): PlanEventPlacing | undefined;
+    /** Hands on a read that landed: the one held already moves nothing. */
+    set(placing: PlanEventPlacing): void;
+    /** Listens for the next; returns the unsubscribe. */
+    subscribe(listener: () => void): () => void;
+}
+
+/**
+ * A store of the event kinds' events as each read of them lands (#1771): the canvas's reader of them writes it, and the
+ * frame's reader of the footer's counts reads it — the canvas renders nothing for it.
+ *
+ * @returns The store
+ */
+export function createEventPlacings(): PlanEventPlacings {
+    let held: PlanEventPlacing | undefined;
+    const listeners = new Set<() => void>();
+    return {
+        get: () => held,
+        set(next) {
+            if (Object.is(next, held)) return;
+            held = next;
+            for (const listener of [...listeners]) listener();
+        },
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => { listeners.delete(listener); };
+        },
+    };
+}
+
+/**
+ * Each kind's events in a window, as the canvas placed them (#1771): those of a read that landed that meet `[from, to)`
+ * by the views' rule ({@link meetsWindow}) — on every series they land on, and on none — by their kind's slot, where
+ * the window is within the range they were read over and they were read with the drafts, the cells and the ids hidden
+ * given. A kind's seams read a window by the same rule, so they are the events a read of the window would give.
+ *
+ * @param placing - The last read that landed; `undefined` before one has
+ * @param from - The window's start
+ * @param to - Its end, exclusive
+ * @param drafts - Every kind's drafts, as the read is given them
+ * @param cells - The kinds' cells and counts it reads them by
+ * @param hidden - The ids the viewer hides in the Series tab
+ * @returns Each kind's events in the window, by its slot — a kind with none there absent; `undefined` before a read has
+ *   landed, or where the last that did was of another range, or of other drafts, cells or ids hidden: its read is in flight
+ */
+export function placedEvents(
+    placing: PlanEventPlacing | undefined, from: Date, to: Date, drafts: ValueTypeOf<typeof PlanEventDraftsType>,
+    cells: ScheduleCellsRead | undefined, hidden: readonly string[],
+): ReadonlyMap<string, readonly PlacedItemValue[]> | undefined {
+    if (placing === undefined || !Object.is(placing.drafts, drafts) || !Object.is(placing.cells, cells) || !sameTexts(placing.hidden, hidden)) return undefined;
+    if (compareDateTime(placing.from, from) > 0 || compareDateTime(to, placing.to) > 0) return undefined;
+    const out = new Map<string, PlacedItemValue[]>();
+    const take = (list: PlacedListValue): void => {
+        for (const one of list) {
+            if (!meetsWindow(one.start, one.end, from, to)) continue;
+            const held = out.get(one.item.kind);
+            if (held === undefined) out.set(one.item.kind, [one.item]);
+            else held.push(one.item);
+        }
+    };
+    for (const byDraw of placing.placed.on.values()) for (const byKey of byDraw.values()) for (const list of byKey.values()) take(list);
+    for (const list of placing.placed.lost.values()) take(list);
+    return out;
+}
+
+/**
  * The event kinds' events over the range the canvas draws: the scale's window
  * and the periods laid out beyond each edge, what the viewer hides left out,
  * every kind's drafts in place (#1194, PB17) — a kind read by its cells drawn
@@ -260,41 +750,59 @@ export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | u
  * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold
  * @param cells - The kinds' cells and counts, when the reader decides a kind (#1039): each kind's cells it gives — none past the cap — every kind's drafts as the seams take them, the shading
  * @param kinds - The event kinds, as the payload carries them: a read that fails names those whose own events it could not read (#1398)
+ * @param placings - Where each read that lands is handed on, with what it was read over (#1771): what the footer's counts take a
+ *   window's events from; none, nowhere
  * @returns The events as the canvas draws them now
  */
 export function usePlanEventPlaced(
     events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN,
     drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS, cells?: ScheduleCellsRead | undefined,
-    kinds: PlanEventKinds = NO_EVENT_KINDS,
+    kinds: PlanEventKinds = NO_EVENT_KINDS, placings?: PlanEventPlacings,
 ): PlanEventLead {
     const seam = events?.seam;
     const range = eventReadRange(scale);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
-    const reads = cells?.reads ?? NO_READS;
     const shading = cells?.shading ?? NO_SHADING;
     const seamDrafts = cells?.drafts ?? drafts;
-    // One read: the events of the range, filed — `undefined` while a kind is in flight. One that fails names the kinds
-    // whose own events it could not read, each read alone in it (#1398).
+    const period = scale?.resolution;
+    // The kinds the reader holds rows of, a block at a time (#1793): each block placed once, outside the tracked read.
+    const [placer] = useState(() => new BlockPlacer());
+    const blocks = useMemo(() => placer.place(seam, from, to, kinds, cells, seamDrafts, hidden), [placer, seam, from, to, kinds, cells, seamDrafts, hidden]);
+    const { reads, drafts: restDrafts } = blocks;
+    // The tracked read: every other kind's events of the range, and the drafts no block holds, filed — `undefined` while a
+    // kind is in flight. One that fails names the kinds whose own events it could not read, each read alone in it (#1398).
     const read = useCallback((): PlanEventPlacedValue | undefined => {
         if (seam === undefined || from === undefined || to === undefined) return undefined;
         try {
-            const placed = seam.placed(new Date(from), new Date(to), seamDrafts, [...hidden], reads);
+            const placed = seam.placed(new Date(from), new Date(to), restDrafts, [...hidden], reads);
             return placed.type === "some" ? placed.value : undefined;
         } catch (thrown) {
-            throw new EventRowsFailure(thrown, failedKinds(kinds, new Date(from), new Date(to), seamDrafts, hidden, reads));
+            throw new EventRowsFailure(thrown, failedKinds(kinds, new Date(from), new Date(to), restDrafts, hidden, reads));
         }
-    }, [seam, from, to, hidden, seamDrafts, reads, kinds]);
-    const { result } = useTrackedEvaluation(read);
-    // The last events read, held while a read is in flight or failed: kept by identity while a new read holds the same.
-    const held = useRef<{ placed: PlanEventPlacedValue | undefined; shading: PlanEventShadingValue; hidden: readonly string[]; version: number }>(
-        { placed: undefined, shading: NO_SHADING, hidden: NONE_HIDDEN, version: 0 });
+    }, [seam, from, to, hidden, restDrafts, reads, kinds]);
+    const { result: tracked } = useTrackedEvaluation(read);
+    // The events placed: the blocks' and the tracked read's put together. A block whose placing threw fails the read,
+    // naming its kind; the tracked read in flight or failed, so is this.
+    const result = useMemo((): TrackedResult<PlanEventPlacedValue | undefined> => {
+        if (blocks.failure !== undefined) return { ok: false, error: blocks.failure };
+        if (!tracked.ok || tracked.value === undefined) return tracked;
+        return { ok: true, value: placer.merge(tracked.value, blocks, kinds) };
+    }, [tracked, blocks, placer, kinds]);
+    // The last events read, held while a read is in flight or failed: kept by identity while a new read holds the same,
+    // for the same period.
+    const held = useRef<{
+        placed: PlanEventPlacedValue | undefined; shading: PlanEventShadingValue; hidden: readonly string[]; version: number;
+        period: PlanResolution | undefined;
+    }>({ placed: undefined, shading: NO_SHADING, hidden: NONE_HIDDEN, version: 0, period: undefined });
     // The last failure, kept by identity while a read fails the same way — its words and its kinds — so the reader hands
     // the canvas nothing new for it.
     const failed = useRef<PlanEventFailure | undefined>(undefined);
-    // A kind's window the reader could not read (#1599): the reader reads each kind read a window at a time, and names
-    // the kind whose window's read threw — said as the events' own failure is, on the footer's line, with its Retry.
-    const cellsFailure = cells?.error?.window === true ? cells.error : undefined;
+    // A kind the reader could not read (#1599, #1710): its window, its count, or its cells over the paged rows — the
+    // reader names the kind whose read threw — said as the events' own failure is, on the footer's line, with its Retry.
+    // A failure of the cells said nowhere left the rows in view waiting on them, and the line loading, for ever. The paged
+    // rows' own failure the paging says, where those rows are.
+    const cellsFailure = schedulePeriodFailure(cells);
     const error = useMemo((): PlanEventFailure | undefined => {
         if (result.ok && cellsFailure === undefined) return undefined;
         let next: PlanEventFailure;
@@ -310,22 +818,42 @@ export function usePlanEventPlaced(
             };
         }
         const was = failed.current;
-        if (was !== undefined && was.reason === next.reason && sameKinds(was.kinds, next.kinds)) return was;
+        if (was !== undefined && was.reason === next.reason && sameTexts(was.kinds, next.kinds)) return was;
         failed.current = next;
         return next;
     }, [result, cellsFailure]);
+    // The read the events held were last compared with: the same read again — under another shading, or for another
+    // period — holds what they hold, and is compared with them no more.
+    const compared = useRef<PlanEventPlacedValue | undefined>(undefined);
     const now = useMemo(() => {
         const previous = held.current;
         if (!result.ok || result.value === undefined) return previous;
         const next = result.value;
-        // The shading and what the viewer hides are placed with the events: a new one places the rows again.
-        const same = previous.placed !== undefined && placedEqual(previous.placed, next)
-            && shadingEqual(previous.shading, shading) && previous.hidden === hidden;
-        if (same) return previous;
-        held.current = { placed: next, shading, hidden, version: previous.version + 1 };
+        // Events that hold are the object the canvas has: under a new shading no window compares them again.
+        let kept = previous.placed !== undefined && Object.is(compared.current, next) ? previous.placed : undefined;
+        if (kept === undefined) {
+            // Compared with the last once, here (#1793): the rows the new events moved, which every window joined again takes.
+            const was = previous.placed ?? NOTHING_PLACED;
+            const moved = movedKeys(was, next);
+            if (previous.placed !== undefined && moved.size === 0 && lostEqual(previous.placed.lost, next.lost)) kept = previous.placed;
+            else keepMoved(was, next, moved);
+            compared.current = next;
+        }
+        // The shading and what the viewer hides are placed with the events, for the columns' period: a new one places
+        // the rows again — another period too, whatever it holds, so every row is joined for the period it is drawn under.
+        if (kept !== undefined && shadingEqual(previous.shading, shading) && previous.hidden === hidden && previous.period === period) return previous;
+        held.current = { placed: kept ?? next, shading, hidden, version: previous.version + 1, period };
         return held.current;
-    }, [result, hidden, shading]);
-    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error }), [now, cells, error]);
+    }, [result, hidden, shading, period]);
+    // The read that landed, with what it was read over, handed to the frame (#1771) — never one in flight or failed: the
+    // last stands, and the footer's counts with it.
+    const landed = result.ok && result.value !== undefined ? now.placed : undefined;
+    const placing = useMemo((): PlanEventPlacing | undefined => (landed === undefined || from === undefined || to === undefined ? undefined
+        : { placed: landed, from: new Date(from), to: new Date(to), drafts, cells, hidden }), [landed, from, to, drafts, cells, hidden]);
+    useLayoutEffect(() => { if (placing !== undefined) placings?.set(placing); }, [placings, placing]);
+    // The cells are the reader's of this render, read for the scale's period as it is: their notices are that period's.
+    return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error, period: now.period, cellsPeriod: period }),
+        [now, cells, error, period]);
 }
 
 /**
@@ -334,7 +862,7 @@ export function usePlanEventPlaced(
  * @returns The events to stand in
  */
 export function initialEventLead(): PlanEventLead {
-    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined };
+    return { placed: undefined, shading: NO_SHADING, cells: undefined, version: 0, error: undefined, period: undefined, cellsPeriod: undefined };
 }
 
 /** Props of {@link PlanEventsReader}. */
@@ -351,14 +879,24 @@ export interface PlanEventsReaderProps {
     kinds: PlanCellsArgs["kinds"];
     /** The canvas's own rows: what a kind read by its cells reads the resources of, and a kind past the cap shades (#1541). */
     rows: PlanCellsArgs["rows"];
+    /** How many of the rows' entries each window of the root's holds (#1714). */
+    windowEntries: PlanCellsArgs["windowEntries"];
     /** The event kinds narrowed through their sources of the slice, and their parts. */
     parts: PlanCellsArgs["parts"];
     /** The canvas's links: an event end its kind's cells do not hold is read by its key. */
     links: PlanCellsArgs["links"];
     /** The canvas's paged rows in view, as it reports them. */
     spans: PlanCellSpanStore;
+    /**
+     * The rows in view until the canvas has reported any (#1795): a span of no row while no paged row it has laid out
+     * stands for a resource — none landed yet, or a page opened with every group folded, whose rows' events nobody sees —
+     * so none is read; `undefined` once one does, where the first block is read as a view opening.
+     */
+    opening?: ScheduleCellSpan | undefined;
     /** What confirmed Saves landed of the kinds read by their cells, and how it is let go: drawn until the cells are read again. */
     editing: PlanCellsArgs["editing"];
+    /** Where each read of the events that lands is handed to the frame, with what it was read over (#1771): the footer's counts take a window's events from it. */
+    placings: PlanEventPlacings;
     /** Where the events go: called only when they move. */
     onLead: (lead: PlanEventLead) => void;
 }
@@ -371,21 +909,26 @@ export interface PlanEventsReaderProps {
  * render the whole canvas. A kind read by its cells (#1039) is read here too,
  * every cell it wants in one request a read, and every other kind counted
  * before one of its events is read; the rows the canvas reports in view are
- * read here alone. What a Save landed of a kind read by its cells draws as the
+ * read here alone — and until it has reported any, the rows it opens on
+ * (`opening`, #1795). What a Save landed of a kind read by its cells draws as the
  * Save left it until they are read again: its confirmation reads its events by
- * their keys, never the cells.
+ * their keys, never the cells. Each read that lands is handed to the frame as
+ * well, with what it was read over, which the canvas renders nothing for
+ * (#1771): the footer's counts take the window's events from it.
  *
  * @param props - What the events are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
-    const span = useSyncExternalStore(spans.subscribe, spans.get);
+export function PlanEventsReader({
+    events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, opening, editing, placings, onLead,
+}: PlanEventsReaderProps): null {
+    const span = useSyncExternalStore(spans.subscribe, spans.get) ?? opening;
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
-        kinds, landings: events?.landings ?? [], rows, parts, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
+        kinds, landings: events?.landings ?? [], rows, windowEntries, parts, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
     });
-    const lead = usePlanEventPlaced(events, scale, hidden, drafts, cells, kinds);
+    const lead = usePlanEventPlaced(events, scale, hidden, drafts, cells, kinds, placings);
     // What the canvas holds: no events until the first read lands.
     const reported = useRef<{ version: number; error: PlanEventFailure | undefined; cells: ScheduleCellsRead | undefined }>({ version: 0, error: undefined, cells: undefined });
     useLayoutEffect(() => {
@@ -399,6 +942,321 @@ export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, p
     return null;
 }
 
+/** What a window is joined with: the events placed and the shading, which a join again follows row by row, and what else moving joins it whole. */
+interface PlacedWith {
+    /** The seam that joined it. */
+    readonly seam: PlanEventSeamValue;
+    /** The events placed. */
+    readonly placed: PlanEventPlacedValue;
+    /** The resources' shading: a row joined again where its own moves, and the rows that shade on a way of drawing's
+     *  largest value where it moves (#1791). */
+    readonly shading: PlanEventShadingValue;
+    /** The ids the viewer hides: how many rows each landing row makes. */
+    readonly hidden: readonly string[];
+    /** The columns' period the events were placed for: another joins the window whole, every row then saying its own. */
+    readonly period: PlanResolution | undefined;
+}
+
+/**
+ * A window as the wrapper last joined it (#1712), kept by the blocks the source under the wrapper gave: where each of
+ * its rows went, and what it was joined with, so that new events or a new shading alone join again only the rows they
+ * moved (#1791).
+ */
+interface PlacedWindow {
+    /** Each landing row's place among the window's blocks, by its landing series' key, then the key its events are filed under. */
+    readonly rowsOf: ReadonlyMap<string, ReadonlyMap<string, readonly (readonly [block: number, row: number])[]>>;
+    /** Each row's place among its block's joined rows: its own first, the rows of its further ways of drawing after it. */
+    readonly places: readonly (readonly number[])[];
+    /** The window as last joined. */
+    joined: PlanWireBlock[];
+    /** What it was joined with. */
+    with: PlacedWith;
+}
+
+/**
+ * Where each row of a window went when it was joined whole (#1712), and the landing rows each key's events are on: the
+ * index a join of the moved rows alone writes through. Each row's own comes first of the rows it makes — a landing row
+ * keeps its id, and every other row is as it was — and the rows of its further ways of drawing follow it.
+ *
+ * @param blocks - The window's blocks, as the source gave them
+ * @param joined - The same, the events joined in
+ * @param landings - The series the event kinds land on
+ * @returns The index; `undefined` where the joined blocks hold some row's own out of its order, which no join row by row keeps
+ */
+function placedIndex(blocks: readonly PlanWireBlock[], joined: readonly PlanWireBlock[], landings: readonly PlanLandingValue[]):
+    Pick<PlacedWindow, "rowsOf" | "places"> | undefined {
+    if (joined.length !== blocks.length) return undefined;
+    const rowsOf = new Map<string, Map<string, [number, number][]>>();
+    const places: number[][] = [];
+    for (let b = 0; b < blocks.length; b++) {
+        const rows = blocks[b]!.rows;
+        const out = joined[b]!.rows;
+        const at: number[] = [];
+        let j = 0;
+        for (let r = 0; r < rows.length; r++) {
+            const row = rows[r]!;
+            while (j < out.length && !Object.is(out[j]!.id, row.id) && !rowIdEqual(out[j]!.id, row.id)) j += 1;
+            if (j === out.length) return undefined;
+            at.push(j);
+            j += 1;
+            if (row.id.type !== "entry") continue;
+            const { series, path } = row.id.value;
+            const landing = landings.find((one) => one.draws.length > 0 && stringEqual(one.key, series));
+            if (landing === undefined) continue;
+            // Filed by its resource's key, as `place` reads it — a row a step beneath a resource's by the pair.
+            const key = landing.under.type === "some" ? planChildRowKey(path[path.length - 2]!, path[path.length - 1]!) : path[path.length - 1]!;
+            let filed = rowsOf.get(series);
+            if (filed === undefined) rowsOf.set(series, (filed = new Map()));
+            const held = filed.get(key);
+            if (held === undefined) filed.set(key, [[b, r]]);
+            else held.push([b, r]);
+        }
+        places.push(at);
+    }
+    return { rowsOf, places };
+}
+
+/** The keys whose events moved between two placings, by the landing series they are filed under. */
+type PlacedMoved = ReadonlyMap<string, ReadonlySet<string>>;
+
+/**
+ * Test-only probe of two placings compared list by list — lets "the old placing is compared with the new once an
+ * answer, never once a window held" be asserted. `undefined` outside tests.
+ */
+let comparedProbe: (() => void) | undefined;
+/** Install (or clear) the test probe of two placings compared. Test use only. */
+export function setPlacedComparedProbe(fn: (() => void) | undefined): void {
+    comparedProbe = fn;
+}
+
+/**
+ * The keys whose events moved between two placings (#1712), by landing series: a list against a list by East's
+ * equality, in every way of drawing — events arrived, changed or left. A list that is the object it was has not moved.
+ *
+ * @param was - The events a window was joined with
+ * @param now - The events it is joined with now
+ * @returns The keys, by landing series
+ */
+function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<string, Set<string>> {
+    comparedProbe?.();
+    const moved = new Map<string, Set<string>>();
+    const mark = (series: string, key: string): void => {
+        const keys = moved.get(series);
+        if (keys === undefined) moved.set(series, new Set([key]));
+        else keys.add(key);
+    };
+    for (const [series, byDraw] of now.on) {
+        for (const [draw, byKey] of byDraw) {
+            const then = was.on.get(series)?.get(draw);
+            for (const [key, list] of byKey) {
+                const before = then?.get(key);
+                if (before === undefined || !(Object.is(before, list) || listEqual(before, list))) mark(series, key);
+            }
+        }
+    }
+    for (const [series, byDraw] of was.on) {
+        for (const [draw, byKey] of byDraw) {
+            const next = now.on.get(series)?.get(draw);
+            for (const key of byKey.keys()) if (next?.has(key) !== true) mark(series, key);
+        }
+    }
+    return moved;
+}
+
+/** How many of the latest steps from one placing to the next are kept: a window joined with events read before them compares the two itself. */
+const PLACED_STEPS_KEPT = 64;
+/** Each placing's place in the order the events were read in: what the steps from one to another are found by. */
+const placedAt = new WeakMap<PlanEventPlacedValue, number>();
+/** What each placing moved from the one read before it, by its place, with that one's place: the latest {@link PLACED_STEPS_KEPT}. */
+const placedSteps = new Map<number, { readonly from: number; readonly moved: PlacedMoved }>();
+/** How many places have been given. */
+let placedCount = 0;
+
+/**
+ * Keeps what a placing moved from the one read before it (#1793): compared once, as the events are read, and taken by
+ * every window joined again ({@link movedBetween}).
+ *
+ * @param was - The events as last read
+ * @param now - The events read now
+ * @param moved - The keys whose events moved between them, by landing series
+ */
+function keepMoved(was: PlanEventPlacedValue, now: PlanEventPlacedValue, moved: PlacedMoved): void {
+    let from = placedAt.get(was);
+    if (from === undefined) placedAt.set(was, (from = ++placedCount));
+    placedCount += 1;
+    placedAt.set(now, placedCount);
+    placedSteps.set(placedCount, { from, moved });
+    if (placedSteps.size > PLACED_STEPS_KEPT) placedSteps.delete(placedSteps.keys().next().value!);
+}
+
+/**
+ * The keys whose events moved from one placing to a later one (#1793), by landing series, from what each read kept of
+ * the one before it ({@link keepMoved}): every step from the one to the other, a key that moved in any of them moved —
+ * one that moved and moved back among them, which a join again leaves as it was.
+ *
+ * @param was - The events a window was joined with
+ * @param now - The events it is joined with now
+ * @returns The keys; `undefined` where the steps between the two are not all kept, and the two are to be compared
+ */
+function movedBetween(was: PlanEventPlacedValue, now: PlanEventPlacedValue): PlacedMoved | undefined {
+    const from = placedAt.get(was);
+    let at = placedAt.get(now);
+    if (from === undefined || at === undefined) return undefined;
+    // One step, the usual: what the read kept, as it is.
+    const last = placedSteps.get(at);
+    if (last !== undefined && last.from === from) return last.moved;
+    const moved = new Map<string, Set<string>>();
+    while (at !== from) {
+        const step = placedSteps.get(at);
+        if (step === undefined) return undefined;
+        for (const [series, keys] of step.moved) {
+            const held = moved.get(series);
+            if (held === undefined) moved.set(series, new Set(keys));
+            else for (const key of keys) held.add(key);
+        }
+        at = step.from;
+    }
+    return moved;
+}
+
+/** One way of drawing's shading: each row's buckets, by the key its events are filed under. */
+type ShadingOfWay = ValueTypeOf<typeof PlanEventShadingType.value>;
+
+/** The largest value a way of drawing's shading holds, as the seam works it out — nought where none is more: the scale its rows shade their counts on. */
+function shadingTop(byKey: ShadingOfWay): number {
+    let top = 0;
+    for (const shades of byKey.values()) {
+        for (const shade of shades) if (shade.value.type === "some" && compareFloat(shade.value.value, top) > 0) top = shade.value.value;
+    }
+    return top;
+}
+
+/** The rows a move of the shading moved, by landing series: the keys of some, and the landings every row of which moved. */
+interface ShadingMoved {
+    /** The keys of the rows moved, by their landing series. */
+    readonly keys: ReadonlyMap<string, ReadonlySet<string>>;
+    /** The landing series every row of which moved. */
+    readonly every: ReadonlySet<string>;
+}
+
+/**
+ * The rows whose shading moved between two placings (#1791), as `place` shades them: a row of a way of drawing the
+ * shading names draws its own buckets, and — of tiles or marks, or of bars or chips with a bucket of no value — their
+ * counts on the way of drawing's largest value; a row of bars or chips whose every bucket holds a value draws the share
+ * of each booked, on no scale. So the rows moved are those whose own buckets moved, arrived or left; where a way of
+ * drawing's largest value moved, those that shade on it; and where the shading begins or stops naming a way of drawing,
+ * every row of its landing, which draws its events there in place of its shading, or the other way round.
+ *
+ * @param was - The shading a window was joined with
+ * @param now - The shading it is joined with now
+ * @param landings - The series the event kinds land on
+ * @returns The rows moved; `undefined` where the shading names a way of drawing no landing draws, which only a join of
+ *   the whole window places
+ */
+function movedShading(was: PlanEventShadingValue, now: PlanEventShadingValue, landings: readonly PlanLandingValue[]): ShadingMoved | undefined {
+    // Each way of drawing the shading may name — `<landing>.<draw>`, as the seam names it — its landing, and whether its
+    // rows draw bars or chips.
+    const ways = new Map<string, { readonly landing: string; readonly booked: boolean }>();
+    for (const landing of landings) {
+        for (const draw of landing.draws) {
+            ways.set(`${landing.key}.${draw.type}`, { landing: landing.key, booked: draw.type === "span" || draw.type === "cards" });
+        }
+    }
+    const keys = new Map<string, Set<string>>();
+    const every = new Set<string>();
+    const mark = (landing: string, key: string): void => {
+        const held = keys.get(landing);
+        if (held === undefined) keys.set(landing, new Set([key]));
+        else held.add(key);
+    };
+    for (const series of new Set([...was.keys(), ...now.keys()])) {
+        const before = was.get(series);
+        const after = now.get(series);
+        if (Object.is(before, after)) continue;
+        const way = ways.get(series);
+        if (way === undefined) return undefined;
+        if (before === undefined || after === undefined) {
+            every.add(way.landing);
+            continue;
+        }
+        for (const [key, shades] of after) {
+            const then = before.get(key);
+            if (then === undefined || !shadesEqual(then, shades)) mark(way.landing, key);
+        }
+        for (const key of before.keys()) if (!after.has(key)) mark(way.landing, key);
+        if (floatEqual(shadingTop(before), shadingTop(after))) continue;
+        if (!way.booked) {
+            // Every row of tiles or marks shades on it — one with no buckets of its own too.
+            every.add(way.landing);
+            continue;
+        }
+        for (const [key, shades] of after) if (shades.some((shade) => shade.value.type === "none")) mark(way.landing, key);
+    }
+    return { keys, every };
+}
+
+/**
+ * A window joined again over new events or a new shading alone (#1712, #1791): the rows they moved — filed under a key
+ * whose events or shading moved, or shading on a way of drawing's largest value that moved ({@link movedShading}) —
+ * joined in one `place`, each written over its place, every other row the object it was. Each row makes as many rows
+ * as it did: that is a matter of what the viewer hides, which has not moved.
+ *
+ * @param blocks - The window's blocks, as the source under the wrapper gave them
+ * @param was - The window as last joined: kept as joined now
+ * @param now - What it is joined with now, which differs from what it was joined with only in the events placed and
+ *   the shading
+ * @param landings - The series the event kinds land on: the ways of drawing the shading names are theirs
+ * @returns The window's blocks joined, in new arrays; `undefined` where the join gives some row other rows than its
+ *   places hold, or the shading names a way of drawing no landing draws, which only a join of the whole window places
+ */
+function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: PlacedWith, landings: readonly PlanLandingValue[]): PlanWireBlock[] | undefined {
+    // The rows the events or the shading moved, by their block, as each block's index holds them — each once.
+    const moving = new Map<number, Set<number>>();
+    const take = (series: string, key: string): void => {
+        for (const [b, r] of was.rowsOf.get(series)?.get(key) ?? []) {
+            const rows = moving.get(b);
+            if (rows === undefined) moving.set(b, new Set([r]));
+            else rows.add(r);
+        }
+    };
+    if (!Object.is(was.with.placed, now.placed)) {
+        // What the reads since kept of each step (#1793); compared here only where a step between the two is not kept.
+        const moved = movedBetween(was.with.placed, now.placed) ?? movedKeys(was.with.placed, now.placed);
+        for (const [series, keys] of moved) for (const key of keys) take(series, key);
+    }
+    if (!Object.is(was.with.shading, now.shading)) {
+        const moved = movedShading(was.with.shading, now.shading, landings);
+        if (moved === undefined) return undefined;
+        for (const series of moved.every) for (const key of was.rowsOf.get(series)?.keys() ?? []) take(series, key);
+        for (const [series, keys] of moved.keys) for (const key of keys) take(series, key);
+    }
+    const joined = [...was.joined];
+    if (moving.size > 0) {
+        const at = [...moving.keys()];
+        // The rows each block gives the join, in the order its rows come back in.
+        const given = at.map((b) => [...moving.get(b)!]);
+        const made = now.seam.place(at.map((b, i) => ({ ...blocks[b]!, rows: given[i]!.map((r) => blocks[b]!.rows[r]!) })),
+            now.placed, now.shading, [...now.hidden], false);
+        if (made.length !== at.length) return undefined;
+        for (let i = 0; i < at.length; i++) {
+            const b = at[i]!;
+            const places = was.places[b]!;
+            const into = [...joined[b]!.rows];
+            const out = made[i]!.rows;
+            let k = 0;
+            for (const r of given[i]!) {
+                const end = r + 1 < places.length ? places[r + 1]! : into.length;
+                for (let j = places[r]!; j < end; j++) into[j] = out[k++]!;
+            }
+            if (k !== out.length) return undefined;
+            joined[b] = { ...joined[b]!, rows: into };
+        }
+    }
+    was.joined = joined;
+    was.with = now;
+    return joined;
+}
+
 /**
  * The root with the event kinds' events joined into its rows, and its links'
  * event ends named where the events draw (see the module docs).
@@ -408,80 +1266,95 @@ export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, p
  * @param lead - The event kinds' events; `undefined` for a Plan with none
  * @param events - The Plan's event rows: the seam that places the events, and the series they land on
  * @param hidden - The ids the viewer hides in the library's Series tab: a further row whose kinds are all hidden is left out
+ * @param picked - The version of which of `data`'s series the viewer shows — its pick's state's, which moves at each
+ *   switch: a paged root's wrapper names it in its revision; none picked, nought
  * @returns The two roots the canvas draws
  */
 export function usePlanEventRoot(
     value: PlanRootValue, data: PlanRootValue, lead: PlanEventLead | undefined,
-    events?: PlanEventRows | undefined, hidden: readonly string[] = NONE_HIDDEN,
+    events?: PlanEventRows | undefined, hidden: readonly string[] = NONE_HIDDEN, picked = 0,
 ): { value: PlanRootValue; data: PlanRootValue } {
     const seam = lead !== undefined ? events?.seam : undefined;
     const placed = lead?.placed ?? NOTHING_PLACED;
     const shading = lead?.shading ?? NO_SHADING;
+    const period = lead?.period;
+    const landings = events?.landings;
     // Inline: the root's blocks with the events joined in, the Unassigned rows after them — one array for both roots,
     // whose rows hold the same data.
-    const inline = useMemo(
-        () => (seam !== undefined && data.rows.type === "inline" ? seam.place(data.rows.value, placed, shading, [...hidden], true) : undefined),
-        [seam, data.rows, placed, shading, hidden]);
+    const inline = useMemo(() => {
+        if (seam === undefined || data.rows.type !== "inline") return undefined;
+        const joined = seam.place(data.rows.value, placed, shading, [...hidden], true);
+        placedUnder(joined, landings, period);
+        return joined;
+    }, [seam, data.rows, placed, shading, hidden, landings, period]);
     // Paged: one wrapper per source, placing each window it serves with the latest events.
     const paged = seam !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const latest = useRef({ src: paged, seam, placed, shading, hidden, version: lead?.version ?? 0 });
-    latest.current = { src: paged, seam, placed, shading, hidden, version: lead?.version ?? 0 };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
+    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0, period, picked }, (source, latest) => {
         // A window's blocks with the latest events joined in: no Unassigned row, an event on no row of the canvas's being
         // in no window.
         const placedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
-            const l = latest.current;
-            return l.seam === undefined ? [...blocks] : l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            const l = latest();
+            if (l.seam === undefined) return [...blocks];
+            const joined = l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            placedUnder(joined, l.landings, l.period);
+            return joined;
         };
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
+        // Each window as last joined, by the blocks the source under this one gave: the same while they hold, which the
+        // kept layer gives (`kept.ts`), so new events or a new shading alone join again only the rows they moved (#1712,
+        // #1791).
+        const windows = new WeakMap<readonly PlanWireBlock[], PlacedWindow>();
+        const joinedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
+            const l = latest();
+            if (l.seam === undefined) return [...blocks];
+            const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden, period: l.period };
+            const was = windows.get(blocks);
+            const again = was !== undefined && Object.is(was.with.seam, now.seam) && sameTexts(was.with.hidden, now.hidden)
+                && was.with.period === now.period ? rejoined(blocks, was, now, l.landings ?? NO_LANDINGS) : undefined;
+            if (again !== undefined) {
+                placedUnder(again, l.landings, l.period);
+                return again;
+            }
+            const joined = l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            placedUnder(joined, l.landings, l.period);
+            const index = placedIndex(blocks, joined, l.landings ?? NO_LANDINGS);
+            if (index === undefined) windows.delete(blocks);
+            else windows.set(blocks, { ...index, joined, with: now });
+            return joined;
+        };
+        return {
             page: (offset, limit) => {
-                const l = latest.current;
+                const l = latest();
                 if (l.src === undefined) return none;
                 const read = l.src.page(offset, limit);
                 // The window's own entries stay beside its blocks.
-                return read.type === "some" ? some({ rows: placedIn(read.value.rows), entries: read.value.entries }) : read;
+                return read.type === "some" ? some({ rows: joinedIn(read.value.rows), entries: read.value.entries }) : read;
             },
-            total: () => latest.current.src?.total() ?? none,
             // New events are a new revision: the driver reads its windows again, the rows it has standing in until they land.
+            // So is a series the viewer switches (#1795): the windows are made with the series shown, whatever the events.
             revision: () => {
-                const l = latest.current;
+                const l = latest();
                 const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#events-${l.version}`);
+                return some(`${r.type === "some" ? r.value : ""}#events-${l.version}-${l.picked}`);
             },
             // A window standing in is drawn as it is composed now: the events joined into the data's own rows (#1599) —
             // where the source under this one, the canvas's editing's, says how it draws one.
-            ...(under(paged)?.redraft === undefined || under(paged)?.redrafted === undefined ? {} : {
+            ...(under(source)?.redraft === undefined || under(source)?.redrafted === undefined ? {} : {
                 redraft: (entries: Parameters<NonNullable<PlanPagedSourceValue["redraft"]>>[0]) => {
-                    const own = under(latest.current.src)?.redraft?.(entries);
+                    const own = under(latest().src)?.redraft?.(entries);
                     return own === undefined ? undefined : placedIn(own);
                 },
-                redrafted: () => `${under(latest.current.src)?.redrafted?.() ?? ""}#events-${latest.current.version}`,
+                redrafted: () => `${under(latest().src)?.redrafted?.() ?? ""}#events-${latest().version}`,
             }),
-            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
-            // The snapshot of `data` itself (#1199): its own revision — and a live source's narrowing with it, whose rows a
-            // key search's answer names (#1354) — which new events over it leave.
-            snapshot: () => {
-                const src = latest.current.src;
-                return src === undefined ? none : snapshotOf(src) ?? none;
-            },
-            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
-            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
+            refresh: ownRefresh(latest),
+            // The snapshot of `data` itself (#1199), which new events over it leave.
+            snapshot: ownSnapshot(latest),
+            // The windows the driver holds, said on to the source under this one where it keeps what it made for each
+            // (#1712): this wrapper keeps a window by the blocks that source gave, so it keeps what that one does.
+            ...(under(source)?.retain === undefined ? {} : {
+                retain: (offsets: readonly bigint[]) => { under(latest().src)?.retain?.(offsets); },
+            }),
         };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged]);
-    const landings = events?.landings;
+    });
     const links = useMemo(
         () => (seam === undefined ? data.links
             : inline !== undefined ? resolveEventLinks(data.links, inline)
@@ -489,7 +1362,7 @@ export function usePlanEventRoot(
         [seam, inline, data.links, placed, landings]);
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
-        if (wrapped !== undefined) return variant(windowedArm(root.rows), wrapped) as PlanRootValue["rows"];
+        if (wrapped !== undefined) return wrappedRows(root, wrapped);
         return root.rows;
     }, [inline, wrapped]);
     const active = seam !== undefined;

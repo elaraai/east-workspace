@@ -518,12 +518,13 @@ export interface FlowchartTransitionDetailsSpec {
  * @typeParam IK - Through an entries index, the binding's index keys
  * @typeParam N - Through an entries index, the binding's nested part
  * @typeParam X - Through an entries index, the binding's maintenance part
+ * @typeParam C - Through an entries index, the binding's copies part
  * @typeParam K - The details' key type: their kind's
  */
 export type FlowchartDetailsBinding<R extends StructType, P extends EastType = EastType, M extends EastType = EastType, IK extends EastType = EastType,
-    N extends EastType = EastType, X extends EastType = EastType, K extends EastType = StringType> =
+    N extends EastType = EastType, X extends EastType = EastType, C extends EastType = EastType, K extends EastType = StringType> =
     | FlowchartBinding<R, K>
-    | IndexedSource<K, R, P, M, IK, N, X>;
+    | IndexedSource<K, R, P, M, IK, N, X, C>;
 
 /** The key a kind's details carry their mark under. */
 export const FLOWCHART_DETAILS: unique symbol = Symbol("Flowchart.details");
@@ -1134,6 +1135,7 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * @typeParam IK - Through an entries index, the binding's index keys, inferred from it
  * @typeParam N - Through an entries index, the binding's nested part, inferred from it
  * @typeParam X - Through an entries index, the binding's maintenance part, inferred from it
+ * @typeParam C - Through an entries index, the binding's copies part, inferred from it
  * @typeParam K - The details' key type, inferred from the binding: their kind's (#1549)
  * @param binding - The details' record: `Data.bind(record)`, `Data.bindPaged(record)`, or `Data.bindPaged(record, { indexes: [its entries index] })`
  * @param spec - `{ source?, details: [ … ] }`: the rail's source whose picks weigh them, and every read, in the order drawn
@@ -1220,8 +1222,8 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * ```
  */
 export function flowchartDetails<R extends StructType, const S extends FlowchartDetailsSpec<R>, P extends EastType = EastType, M extends EastType = EastType,
-    IK extends EastType = EastType, N extends EastType = EastType, X extends EastType = EastType, K extends EastType = StringType>(
-    binding: FlowchartDetailsBinding<R, P, M, IK, N, X, K>,
+    IK extends EastType = EastType, N extends EastType = EastType, X extends EastType = EastType, C extends EastType = EastType, K extends EastType = StringType>(
+    binding: FlowchartDetailsBinding<R, P, M, IK, N, X, C, K>,
     spec: S & FlowchartLegendOnCanvas<S>,
 ): FlowchartDetails<NoInfer<R>, NoInfer<S>> {
     const where = "Flowchart.details";

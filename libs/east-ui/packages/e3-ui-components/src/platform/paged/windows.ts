@@ -15,7 +15,7 @@
 import { SortedMap, SortedSet, compareFor, fromEastTypeValue, type EastTypeValue } from "@elaraai/east";
 
 import type { PagedRun } from "./api.js";
-import type { PageEntry } from "./state.js";
+import type { PageEntry, RunSpans } from "./state.js";
 
 /**
  * Where a read of `[offset, offset + limit)` of a family starts in a landed
@@ -88,6 +88,19 @@ export function cutWindow(sourceType: EastTypeValue, window: unknown, from: numb
         }
         default: return undefined;
     }
+}
+
+/**
+ * Where each run's entries sit in a runs read's window (#1351): the runs one
+ * after another, in order, so a read inside one is answered from them.
+ *
+ * @param family - The read's family
+ * @param runs - Its runs, in order
+ * @returns Each run's first row, how many entries it holds, and where they start in the window
+ */
+export function runSpansOf(family: string, runs: readonly PagedRun[]): RunSpans {
+    let at = 0;
+    return { family, runs: runs.map(([row, count]) => { const span = { row, count, at }; at += count; return span; }) };
 }
 
 /**

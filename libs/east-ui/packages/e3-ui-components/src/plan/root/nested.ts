@@ -9,10 +9,12 @@
  *
  * # What it reads
  *
- * The canvas's rows in view and 25 either side (`SCHEDULE_CELL_MARGIN`), in
- * blocks of {@link SCHEDULE_CELL_BLOCK} of its rows — top rows and child rows
- * alike, in the canvas's order. A folded row's children are no rows of it, and
- * their items are not read. For each row, each collection its series reads
+ * The blocks of {@link SCHEDULE_CELL_BLOCK} of the canvas's rows meeting those
+ * in view, and the next block the way the view last went (#1797) — the one
+ * after them where it went on down the rows, the one before them where it went
+ * back up; none beside them for a view that has gone no way — top rows and
+ * child rows alike, in the canvas's order. A folded row's children are no rows
+ * of it, and their items are not read. For each row, each collection its series reads
  * (the seam's `uses`) and each level the collection's items are filed at, one
  * range over that level's run of tiles (#1433): `[place, row, path, .items,
  * level, from]` to `[…, to]`, every literal as the index's key prints it. A row
@@ -23,21 +25,38 @@
  * hold them, so the bands roll up from them as over rows read whole.
  *
  * Every search it does not hold goes in one request, which counts each one's
- * entries first; the entries it does not hold go in one more. What it holds is
- * kept at the record's revision: a pan or a scroll within what it holds reads
+ * entries first; the entries it does not hold go in one more. A request on its
+ * way is asked again as it was — every one while the next read's searches are
+ * still counted, what that read wants not known until they are; once they are,
+ * each the read still wants a part of — so a view that moves on before it lands
+ * never has it given up and asked once more; one the counted read wants no
+ * part of is given up (#1797, the one rule every reader of a schedule's events
+ * asks by, `shared/schedule/asked-batches.ts`). A run a landed request holds
+ * whole is read from it by a read of other parts over its rows, and one it
+ * holds a part of is asked of e3 whole (`platform/paged/batches.ts`). What it
+ * holds is kept at the record's revision: a pan or a scroll within what it holds reads
  * nothing, and a commit reads what is wanted again, the last standing in until
- * it lands.
+ * it lands. Of the runs a view has left it keeps the most recently wanted
+ * while they fit — the one rule every reader of a schedule's events keeps them
+ * by (#1797, `shared/schedule/kept-spans.ts`) — so a view going back to rows it
+ * has left reads nothing; they are none of the cells it hands on.
  *
  * # The cap
  *
  * While a collection's items in the cells wanted are at most
  * {@link SCHEDULE_EVENT_CAP}, they draw. Past it, no item of it is read, and the
  * rows of the series reading it shade from their totals — a parent rolling it
- * up into bands from its subtree's — at the summary tile, where that divides the
- * canvas's bucket: the share of each bucket booked, how many items touch it, or
- * its values folded as the series folds them. Where no summary divides it, the
- * rows are hatched, and the reader names the collection among its notices, with
- * how many items there are.
+ * up into bands from its subtree's — at the canvas's bucket's own period where
+ * the index keeps each row's totals at it, an item counted once as e3 counts
+ * it, else at the coarsest period it keeps them at that divides the bucket, its
+ * tiles inside each bucket added up: the share of each bucket booked, how many
+ * items touch it, or its values folded as the series folds them. Where it keeps
+ * them at no period that divides the bucket, the rows are hatched, and the
+ * reader names the collection among its notices, with how many items there are
+ * and the periods its totals are kept at, beside the resolution it read at:
+ * the canvas's columns take the finest coarser period one of them divides
+ * (#1799, `shared/schedule/fallback-period.ts`), and where it offers none, the
+ * frame's one line says so.
  *
  * # What it hands on
  *
@@ -55,7 +74,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, printFor, some, variant,
+    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -63,17 +82,19 @@ import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-
 import { nestedPathCases, nestedPathValue, nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
-import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
+import { scheduleBatchesAsked } from "../../shared/schedule/asked-batches.js";
+import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket, type ScheduleCellTravel } from "../../shared/schedule/cells.js";
+import { scheduleSpansKept } from "../../shared/schedule/kept-spans.js";
 import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
-import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import { bucketsOver } from "./cells.js";
 import { eventReadRange } from "./events.js";
+import { ownRefresh, ownSnapshot, usePagedRoots, usePagedWrapper } from "./wrapped-source.js";
 
 /** The seam a Plan's root carries over paged rows beside their nested series index, decoded. */
 export type PlanNestedValue = ValueTypeOf<typeof PlanNestedType>;
@@ -95,6 +116,12 @@ export interface PlanNestedNotice {
     readonly place: readonly string[];
     /** How many of its items the cells wanted hold. */
     readonly items: number;
+    /**
+     * The periods the index keeps each row's totals at, the finest first: its rows shade at a resolution one of them
+     * divides, which the canvas's columns take in its place where they offer one (`shared/schedule/fallback-period.ts`).
+     * None where it keeps them at none.
+     */
+    readonly shades: readonly RecordTile[];
 }
 
 /** What the reader hands the canvas (see the module docs). */
@@ -107,6 +134,12 @@ export interface PlanNestedLead {
     readonly parents: PlanParentSubtotals;
     /** The collections past the cap that no totals shade at this resolution. */
     readonly notices: readonly PlanNestedNotice[];
+    /**
+     * The canvas's resolution the read was made at (#1799): what its notices say no totals shade — the canvas acts on
+     * them only at that resolution, since what stands while a read is in flight is the last resolution's. Where there are
+     * none, the resolution of a read that drew the same before.
+     */
+    readonly resolution: PlanResolution | undefined;
     /** Moves each time the cells, the shading or the subtotals do: the canvas reads its windows again then. */
     readonly version: number;
     /** Whether a read is in flight: what stands was read before it. */
@@ -352,18 +385,20 @@ function viewOf(view: PlanNestedView | undefined, visible: readonly PlanRowValue
 
 /**
  * Every search a view wants (see the module docs): each row of the blocks
- * meeting it, each collection its series reads at each level it is filed at;
- * each parent's subtotals or subtree; and, past the cap, each row's totals.
+ * meeting it and of the next the way it went, each collection its series reads
+ * at each level it is filed at; each parent's subtotals or subtree; and, past
+ * the cap, each row's totals.
  *
  * @param args - What the reader reads over
  * @param lit - The index's literals
  * @param capped - The places past the cap, as their key prints them: their rows read totals in place of items
  * @param derives - How a row derives its numbers from its children's: as it was drawn before the reader shaded it
- * @param summary - The summary tile, where it divides the canvas's bucket; `undefined` where none does
+ * @param summary - The period the rows past the cap read their totals at; `undefined` where the index keeps them at none that divides the canvas's bucket
+ * @param way - The way the rows in view last went (#1797); `undefined` for a view that has gone none
  * @returns The runs, each node's at a level once
  */
 function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<string>, summary: RecordTile | undefined,
-    derives: (row: PlanRowValue) => Derives): Cell[] {
+    derives: (row: PlanRowValue) => Derives, way: ScheduleCellTravel | undefined): Cell[] {
     const { seam, visible, index, range, resolution } = args;
     if (range === undefined) return [];
     const tile = seam.tile.type as RecordTile;
@@ -427,7 +462,7 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
         });
     };
     const view = viewOf(args.view, visible);
-    for (const block of wantedBlocks(view, visible.length)) {
+    for (const block of wantedBlocks(view, visible.length, way)) {
         for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) want(visible[i]!);
     }
     // A pinned row stands under the ruler wherever the view rests, and is none of the rows laid out: its cells are
@@ -460,6 +495,7 @@ interface Read {
     readonly shading: PlanNestedShadingValue;
     readonly parents: PlanParentSubtotals;
     readonly notices: readonly PlanNestedNotice[];
+    readonly resolution: PlanResolution | undefined;
 }
 
 /** The tiles held of a run: their span, and their entries. */
@@ -506,10 +542,17 @@ function sameParents(a: PlanParentSubtotals, b: PlanParentSubtotals): boolean {
 /** Whether two places are one: the same names, in order. */
 const samePlace = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((name, i) => stringEqual(name, b[i]!));
 
-/** Whether two reads draw the same. */
+/**
+ * Whether two reads draw the same — their notices at the same resolution too, which the canvas acts on only at theirs
+ * (#1799). Two with none are the same at any: a new read for a new resolution alone would read every window again.
+ */
 function sameRead(a: Read, b: Read): boolean {
     return blobEqual(a.cells, b.cells) && shadingEqual(a.shading, b.shading) && sameParents(a.parents, b.parents)
-        && a.notices.length === b.notices.length && a.notices.every((n, i) => n.items === b.notices[i]!.items && samePlace(n.place, b.notices[i]!.place));
+        && a.notices.length === b.notices.length && (a.notices.length === 0 || a.resolution === b.resolution) && a.notices.every((n, i) => {
+            const m = b.notices[i]!;
+            return n.items === m.items && n.shades.length === m.shades.length && n.shades.every((tile, t) => tile === m.shades[t])
+                && samePlace(n.place, m.place);
+        });
 }
 
 /** A tile's totals, as numbers: how many items touch it, the ms of it they cover, and their values' sum, least, greatest and last. */
@@ -612,10 +655,14 @@ function withChanges(entries: readonly Entry[], ops: ReadonlyMap<string, Change>
  */
 class NestedCellsReader {
     /**
-     * The tiles held of each run, by its prefix, at a revision; each part's
+     * The tiles held of each run, by its prefix, at a revision — the runs the
+     * latest read wants last, and before them those it wants no more, kept
+     * while they fit, the least recently wanted first (#1797); each part's
      * bounds counted and its entries once read; and the batches of searches and
-     * of reads in flight, each asked again until it lands, so a part is asked
-     * in one batch however the wanted runs move meanwhile.
+     * of reads in flight, each asked again until it lands — every read while the
+     * next view's searches are counted — so a part is asked in one batch
+     * however the wanted runs move meanwhile, and a batch no counted view wants
+     * is given up (#1797).
      */
     private held: {
         revision: string; spans: Map<string, Span>; found: Map<string, Range>; read: Map<string, readonly Entry[]>;
@@ -633,6 +680,32 @@ class NestedCellsReader {
      */
     private derived = new Map<string, Derives>();
     private shadedRows: ReadonlySet<string> = new Set();
+    /**
+     * The first row in view the way was last told from, by its key, and the way the view had gone through the rows laid
+     * out by then (#1797): none for a view that has gone no way. `undefined` before the canvas reports a view.
+     */
+    private went: { readonly first: string; readonly way: ScheduleCellTravel | undefined } | undefined;
+
+    /**
+     * The way the rows in view last went through the rows laid out (#1797): on where the view's first row stands after
+     * the one the way was last told from, back where it stands before it — and as it stood while the view begins at the
+     * same row, or that row is laid out no more. A read made again over the same view is told the same.
+     *
+     * @returns The way; `undefined` for a view that has gone none — before the canvas reports one, the first it reports,
+     *   and one whose first row is laid out no more, which reads the first block alone
+     */
+    private wayOf(args: PlanNestedArgs): ScheduleCellTravel | undefined {
+        const view = args.view;
+        if (view === undefined) return undefined;
+        const went = this.went;
+        if (went !== undefined && stringEqual(went.first, view.first)) return went.way;
+        const now = args.visible.findIndex((row) => stringEqual(row.key, view.first));
+        if (now < 0) return undefined;
+        const was = went === undefined ? -1 : args.visible.findIndex((row) => stringEqual(row.key, went.first));
+        const way = was < 0 ? went?.way : was < now ? "forward" : "back";
+        this.went = { first: view.first, way };
+        return way;
+    }
 
     /** How a row derives its numbers from its children's: as drawn, or, while this reader shades it, as it was. */
     private derivesOf = (row: PlanRowValue): Derives => {
@@ -657,31 +730,44 @@ class NestedCellsReader {
             throw new Error(`The Plan's rows are read through '${args.seam.source}', which no indexed runtime here built with a nested series index`);
         }
         const lit = literals(binding);
+        // The way the rows in view last went: the next block that way is read beside those they meet (#1797).
+        const way = this.wayOf(args);
         const revision = binding.handle.revision();
-        if (revision.type !== "some") return waitingOn(wantedCells(args, lit, new Set(), undefined, this.derivesOf));
+        if (revision.type !== "some") return waitingOn(wantedCells(args, lit, new Set(), undefined, this.derivesOf, way));
         if (this.held === undefined || !stringEqual(this.held.revision, revision.value)) {
             this.held = { revision: revision.value, spans: new Map(), found: new Map(), read: new Map(), counting: [], reading: [] };
         }
         const index = binding.nested.index;
-        const summaryTile = args.seam.summary.type === "some" ? args.seam.summary.value.type as RecordTile : undefined;
-        const summary = summaryTile !== undefined && dividingTiles(args.resolution).includes(summaryTile) ? summaryTile : undefined;
+        // The periods the index keeps each row's totals at. Past the cap a row shades at the canvas's bucket's own where
+        // that is one of them, else at the coarsest of them that divides the bucket: those that divide it come coarsest first.
+        const kept = new Set(args.seam.summary.map((period) => period.type as RecordTile));
+        const summary = dividingTiles(args.resolution).find((tile) => kept.has(tile));
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
-        const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf);
+        const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf, way);
         const firstParts = this.partsOf(first, lit);
-        if (!this.counted(binding, index, firstParts)) return waitingOn(firstParts.map((part) => part.cell));
+        if (!this.counted(binding, index, firstParts)) {
+            // While these are counted, every read on its way is asked again (#1797): what this view wants is not known
+            // until they are, and unread, a read's request is given up, and asked again whole once the count lands.
+            this.entries(binding, index, firstParts, false);
+            return waitingOn(firstParts.map((part) => part.cell));
+        }
         const items = new Map<string, number>();
         for (const cell of first) {
             if (cell.kind !== "items" && cell.kind !== "subtree") continue;
             items.set(cell.place, (items.get(cell.place) ?? 0) + this.countOf(cell, firstParts));
         }
         const capped = new Set([...items].filter(([, n]) => n > SCHEDULE_EVENT_CAP).map(([place]) => place));
-        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf);
+        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf, way);
         const parts = capped.size === 0 ? firstParts : this.partsOf(wanted, lit);
-        if (!this.counted(binding, index, parts)) return waitingOn(parts.map((part) => part.cell));
+        if (!this.counted(binding, index, parts)) {
+            this.entries(binding, index, parts, false);
+            return waitingOn(parts.map((part) => part.cell));
+        }
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.
         const read = this.held.read;
         if (!this.entries(binding, index, parts)) return waitingOn(parts.filter((part) => !read.has(part.text)).map((part) => part.cell));
-        // Each run's tiles held now: those it held in its span, and its parts' — and nothing else.
+        // Each run's tiles held now: those it held in its span, and its parts'. A run wanted stands last among the spans:
+        // the most recently wanted.
         const spans = this.held.spans;
         const byCell = new Map<string, Part[]>();
         for (const part of parts) {
@@ -694,16 +780,22 @@ class NestedCellsReader {
             const span = spans.get(cell.prefix);
             const kept = span === undefined ? [] : span.entries.filter((entry) => { const t = tileOf(entry).getTime(); return t >= from && t < to; });
             const added = (byCell.get(cell.prefix) ?? []).flatMap((part) => read.get(part.text) ?? []);
+            spans.delete(cell.prefix);
             spans.set(cell.prefix, { from, to, entries: added.length === 0 && span !== undefined && span.from === from && span.to === to ? span.entries : [...kept, ...added] });
         }
-        // Every run no longer wanted let go, and every part counted and read, held now.
-        const prefixes = new Set(wanted.map((cell) => cell.prefix));
-        for (const prefix of [...spans.keys()]) if (!prefixes.has(prefix)) spans.delete(prefix);
+        // Of the runs wanted no more, the most recently wanted are kept while they fit, so a view going back to them
+        // reads nothing (#1797) — the rest let go; and every part counted and read is held now.
+        if (spans.size > wanted.length) {
+            const prefixes = new Set(wanted.map((cell) => cell.prefix));
+            const unwanted = [...spans].filter(([prefix]) => !prefixes.has(prefix));
+            const staying = new Set(scheduleSpansKept(unwanted, (left) => left.entries.length).map(([prefix]) => prefix));
+            for (const [prefix] of unwanted) if (!staying.has(prefix)) spans.delete(prefix);
+        }
         for (const part of parts) {
             this.held.found.delete(part.text);
             read.delete(part.text);
         }
-        return this.drawn(args, wanted, spans, capped, items, summary);
+        return this.drawn(args, wanted, spans, capped, items, summary, TILES.filter((tile) => kept.has(tile)));
     }
 
     /**
@@ -729,15 +821,16 @@ class NestedCellsReader {
     }
 
     /**
-     * Every part counted: each batch in flight holding one asked again, and
-     * the parts in none counted in one more request.
+     * Every part counted, by the one rule every reader of a schedule's events
+     * asks by (`shared/schedule/asked-batches.ts`): each batch in flight holding
+     * one asked again, and the parts in none counted in one more request.
      *
      * @returns Whether every part is counted; `false` while a count is in flight
      */
     private counted(binding: IndexedBindingRead, index: string, parts: readonly Part[]): boolean {
         const held = this.held!;
         const found = held.found;
-        return this.asked(parts, (part) => found.has(part.text), held.counting, (batch) => {
+        return scheduleBatchesAsked(parts, (part) => part.text, (part) => found.has(part.text), held.counting, (batch) => {
             const answer = binding.batches.seekAll(index, batch.map((part) => part.query));
             if (answer.type !== "some") return false;
             batch.forEach((part, i) => found.set(part.text, answer.value[i]!));
@@ -746,21 +839,27 @@ class NestedCellsReader {
     }
 
     /**
-     * Every counted part's entries read: each batch in flight holding one
-     * asked again, and the parts in none read in one more request, their runs
-     * in the index's order.
+     * Every counted part's entries read, by the same rule: each batch in flight
+     * holding one asked again, and the parts in none read in one more request,
+     * their runs in the index's order — or, while some of the parts are still
+     * counted (`fresh` false, #1797), every batch on its way asked again and
+     * nothing more.
      *
-     * @returns Whether every part's entries are read; `false` while a read is in flight
+     * @param fresh - Whether the parts no batch holds are read; `false` while some of the parts are still counted
+     * @returns Whether every part's entries are read; `false` while a read is in flight, or the parts are still counted
      */
-    private entries(binding: IndexedBindingRead, index: string, parts: readonly Part[]): boolean {
+    private entries(binding: IndexedBindingRead, index: string, parts: readonly Part[], fresh = true): boolean {
         const held = this.held!;
         const { found, read } = held;
+        // Those counted: a part counted holding no entry is read already. While the rest are counted, these alone are asked of.
         const counted = parts.filter((part) => {
-            if (found.get(part.text)!.count > 0n) return true;
+            const range = found.get(part.text);
+            if (range === undefined) return false;
+            if (range.count > 0n) return true;
             read.set(part.text, []);
             return false;
         }).sort((a, b) => Number(found.get(a.text)!.row - found.get(b.text)!.row));
-        return this.asked(counted, (part) => read.has(part.text), held.reading, (batch) => {
+        return scheduleBatchesAsked(counted, (part) => part.text, (part) => read.has(part.text), held.reading, (batch) => {
             const runs = binding.batches.runsAll(index, batch.map((part) => found.get(part.text)!));
             if (runs.type !== "some") return false;
             let at = 0;
@@ -771,36 +870,7 @@ class NestedCellsReader {
                 at += n;
             }
             return true;
-        });
-    }
-
-    /**
-     * Some parts asked of e3 in batches: each batch in flight holding a part
-     * not yet answered asked again, the parts in none asked in a batch of their
-     * own, and the batches that land let go.
-     *
-     * @param parts - The parts wanted
-     * @param answered - Whether a part is answered
-     * @param inFlight - The batches in flight, which this keeps
-     * @param ask - Asks a batch: whether it landed, its answers kept
-     * @returns Whether every part is answered
-     */
-    private asked(parts: readonly Part[], answered: (part: Part) => boolean, inFlight: Part[][], ask: (batch: readonly Part[]) => boolean): boolean {
-        const missing = new Set(parts.filter((part) => !answered(part)).map((part) => part.text));
-        if (missing.size === 0) return true;
-        let complete = true;
-        const asking = new Set<string>();
-        for (const batch of [...inFlight]) {
-            if (!batch.some((part) => missing.has(part.text))) continue;
-            if (ask(batch)) inFlight.splice(inFlight.indexOf(batch), 1);
-            else { complete = false; for (const part of batch) asking.add(part.text); }
-        }
-        const fresh = parts.filter((part) => missing.has(part.text) && !answered(part) && !asking.has(part.text));
-        if (fresh.length > 0 && !ask(fresh)) {
-            inFlight.push(fresh);
-            complete = false;
-        }
-        return complete;
+        }, fresh);
     }
 
     /** How many entries a run holds over its tiles: those held of them, and its parts' counted. */
@@ -813,9 +883,13 @@ class NestedCellsReader {
         return n;
     }
 
-    /** What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched. */
+    /**
+     * What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched —
+     * `summary` the period their totals were read at, `kept` the periods the index keeps them at, the finest first, which
+     * a notice names.
+     */
     private drawn(args: PlanNestedArgs, cells: readonly Cell[], held: ReadonlyMap<string, Span>, capped: ReadonlySet<string>,
-        items: ReadonlyMap<string, number>, summary: RecordTile | undefined): Read {
+        items: ReadonlyMap<string, number>, summary: RecordTile | undefined, kept: readonly RecordTile[]): Read {
         const binding = indexedBindingOf(args.seam.source)!;
         const lit = literals(binding);
         // Each drafted row's Save, previewed (#1437), put into what is held: an entry's insert or update where a held run's
@@ -845,7 +919,7 @@ class NestedCellsReader {
             })));
         }
         const parents: PlanParentSubtotals = new Map([...byRow].map(([key, uses]) => [key, [...uses].sort(([a], [b]) => a - b).map(([, series]) => series)] as const));
-        // The rows past the cap: their totals at the summary tile, or the hatch where none divides the bucket.
+        // The rows past the cap: their totals at the period read, or the hatch where the index keeps them at none that divides the bucket.
         const shades = new Map<string, Map<string, Map<number, Totals>>>();
         const series = new Map<string, Use>();
         for (const cell of cells) {
@@ -876,14 +950,14 @@ class NestedCellsReader {
             const use = series.get(key)!;
             shading.set(key, new SortedMap([...rows].map(([path, tiles]) => [path, shadesOf(tiles, buckets, use.shade)] as const), compareString));
         }
-        // A place past the cap no summary shades: its rows hatched, and the notice — the rows laid out, and the pinned.
+        // A place past the cap no totals shade at this resolution: its rows hatched, and the notice — the rows laid out, and the pinned.
         const shown = [...pinnedRows(args.index), ...args.visible];
         const notices: PlanNestedNotice[] = [];
         if (summary === undefined && capped.size > 0) {
             for (const use of args.seam.uses) {
                 const place = lit.place(use.place);
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
-                notices.push({ place: use.place, items: items.get(place) ?? 0 });
+                notices.push({ place: use.place, items: items.get(place) ?? 0, shades: kept });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
                 for (const row of shown) {
                     if (row.id.type === "entry" && stringEqual(row.id.value.series, use.series)) rows.set(printPathText(row.id.value.path), hatchOf(buckets));
@@ -899,7 +973,7 @@ class NestedCellsReader {
             }
         }
         this.shadedRows = shadedRows;
-        return { cells: bytes, shading: shading as unknown as PlanNestedShadingValue, parents, notices };
+        return { cells: bytes, shading: shading as unknown as PlanNestedShadingValue, parents, notices, resolution: args.resolution };
     }
 }
 
@@ -973,7 +1047,7 @@ export interface PlanNestedReaderProps {
     onLead: (lead: PlanNestedLead | undefined) => void;
     /** Where the rows waiting on a read in flight go, by their keys: called only when they move, and with none as it unmounts. */
     onWaiting: (rows: ReadonlySet<string>) => void;
-    /** Where the span of the collections the series shown read, and their months' counts, go (#1438): called only when they move. */
+    /** Where the span of the collections the series read, and the read of what those shown hold in each period, go (#1438): called only when they move. */
     onSpan: (span: PlanNestedSpanRead | typeof SPAN_READING | undefined) => void;
 }
 
@@ -1016,111 +1090,158 @@ export function PlanNestedReader({ seam, visible, index, scale, views, session, 
 export type PlanNestedSpan = readonly [number, number];
 
 /**
- * How much the collections a Plan's series read hold in each month (#1438),
- * as e3 keeps it in the index's span: each month's start, in ms, and the items
- * and values touching it across the rows, in order — what the horizon's bars
- * count.
+ * How much the collections a Plan's series shown read hold in each period
+ * (#1438), as e3 keeps it in the index's span at the period: what the
+ * horizon's bars count. An item is in the count of each period it touches,
+ * once — a quarter's count is e3's own, never its months' added up.
  */
-export type PlanNestedMonths = readonly (readonly [number, number])[];
+export interface PlanNestedTotals {
+    /** The period they are counted by. */
+    readonly unit: RecordTile;
+    /** Each period's count, by its start in ms: a period nothing touches has none. */
+    readonly tiles: ReadonlyMap<number, number>;
+}
 
 /**
  * The span's read (#1438): the span of what every series reads — the horizon,
- * whichever are shown (#1440) — and the months' counts of what the series
- * shown read.
+ * whichever are shown (#1440) — the periods the horizon's bars may count by,
+ * and the read of their counts.
  */
 export interface PlanNestedSpanRead {
-    /** `[from, to)`, in ms: from the first month any collection of any series touches to the end of the last. */
+    /** `[from, to)`, in ms: from the first period any collection of any series touches to the end of the last, by the finest period the index keeps the record's totals at. */
     readonly span: PlanNestedSpan;
-    /** Each month's count across the series shown, in order: none while none is shown. */
-    readonly months: PlanNestedMonths;
+    /** The periods the index keeps the record's totals at, finest first: those the horizon's bars may count by. */
+    readonly periods: readonly RecordTile[];
+    /**
+     * How much the collections the series shown read hold in each period, at one of
+     * {@link PlanNestedSpanRead.periods} — nothing while none is shown. A tracked read: an evaluation that reads it runs
+     * again when it lands. While a read again is in flight — a commit's, another period's — it answers the last read,
+     * at the period that was read by, so the bars hold still until the new counts land; {@link SPAN_READING} before the
+     * first lands.
+     */
+    readonly totals: (period: RecordTile) => PlanNestedTotals | typeof SPAN_READING;
 }
 
 /** A span whose read is in flight. */
 export const SPAN_READING = "reading";
 
-/** An entry of a nested series index's span, as a read of its runs gives it: its month, and its totals. */
+/** An entry of a nested series index's span, as a read of its runs gives it: its tile, and its totals. */
 type SpanEntry = { readonly ik: { readonly value: { readonly tile: Date } }; readonly value: option<{ readonly count: bigint }> };
 
 /** A collection's place, printed as its key. */
 const placeKey = (place: readonly string[]): string => place.join("\u0001");
 
 /**
- * Each collection's months, as the index's span keeps them (#1438): its
- * months across the record's rows — one batch of searches, each an exact
- * match on a collection's place, and one read of their entries, each
- * collection's the next of them in the window that read answers.
+ * Where each collection's tiles at a period are in the index's span (#1438):
+ * one batch of searches, each an exact match on a collection's place and the
+ * period, which lead its key — the collection's tiles at the period follow, in
+ * time order.
  *
  * @param binding - The binding the rows are read through
  * @param places - The collections' places, each by its field names from the row down
- * @returns Each collection holding an item's months, by its place's key; {@link SPAN_READING} while a read is in flight; undefined where none holds one
+ * @param period - The period: one the index keeps the record's totals at
+ * @returns Each collection's run, in the places' order, one holding no tile empty; {@link SPAN_READING} while the searches are in flight
  */
-function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[]): ReadonlyMap<string, PlanNestedMonths> | typeof SPAN_READING | undefined {
-    if (places.length === 0) return undefined;
-    const name = nestedSpanName(binding.nested!.index);
+function spanRuns(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): readonly Range[] | typeof SPAN_READING {
     const lit = literals(binding);
-    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.place(place)], prefix: none })));
-    if (found.type !== "some") return SPAN_READING;
-    // Each collection's months, in the index's order, as a read of runs asks: ascending and disjoint.
-    const held = found.value.map((range, i) => ({ range, key: placeKey(places[i]!) }))
-        .filter(({ range }) => range.count > 0n)
-        .sort((a, b) => (a.range.row < b.range.row ? -1 : a.range.row > b.range.row ? 1 : 0));
-    if (held.length === 0) return undefined;
-    const read = binding.batches.runsAll(name, held.map(({ range }) => ({ found: true, row: range.row, count: range.count })));
+    const level = lit.level(period);
+    const found = binding.batches.seekAll(nestedSpanName(binding.nested!.index),
+        places.map((place) => variant("fields", { values: [lit.place(place), level], prefix: none })));
+    return found.type === "some" ? found.value : SPAN_READING;
+}
+
+/** Two runs in the index's order: a read of runs asks them ascending and disjoint. */
+const byRow = (a: Range, b: Range): number => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0);
+
+/**
+ * The span of some collections, as the index's span keeps it at a period
+ * (#1438): from the first period any of them touches across the record's rows
+ * to the end of the last — one batch of searches, and one read of each
+ * collection's first tile and its last.
+ *
+ * @param binding - The binding the rows are read through
+ * @param places - The collections' places, each by its field names from the row down
+ * @param period - The period: the finest the index keeps the record's totals at
+ * @returns `[from, to)`, in ms; {@link SPAN_READING} while a read is in flight; undefined where none holds an item
+ */
+function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): PlanNestedSpan | typeof SPAN_READING | undefined {
+    if (places.length === 0) return undefined;
+    const runs = spanRuns(binding, places, period);
+    if (runs === SPAN_READING) return SPAN_READING;
+    const ends = runs.filter((run) => run.count > 0n).sort(byRow).flatMap((run): Range[] => {
+        const first = { found: true, row: run.row, count: 1n };
+        return run.count > 1n ? [first, { found: true, row: run.row + run.count - 1n, count: 1n }] : [first];
+    });
+    if (ends.length === 0) return undefined;
+    const read = binding.batches.runsAll(nestedSpanName(binding.nested!.index), ends);
+    if (read.type !== "some") return SPAN_READING;
+    let first = Infinity;
+    let last = -Infinity;
+    for (const entry of read.value as readonly SpanEntry[]) {
+        const at = entry.ik.value.tile.getTime();
+        first = Math.min(first, at);
+        last = Math.max(last, at);
+    }
+    return [first, tileNext(period, new Date(last)).getTime()];
+}
+
+/**
+ * A collection's periods' counts, as the index's span keeps them at a period: each period's start, in ms, and the items
+ * and values touching it across the rows, in order.
+ */
+type SpanCounts = readonly (readonly [number, number])[];
+
+/**
+ * How much each collection holds in each period, as the index's span keeps it
+ * at the period (#1438): one batch of searches, and one read of their entries,
+ * each collection's the next of them in the window that read answers.
+ *
+ * @param binding - The binding the rows are read through
+ * @param places - The collections' places, each by its field names from the row down
+ * @param period - The period: one the index keeps the record's totals at
+ * @returns Each collection holding an item's periods' counts, by its place's key; {@link SPAN_READING} while a read is in flight
+ */
+function spanCounts(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): ReadonlyMap<string, SpanCounts> | typeof SPAN_READING {
+    const byPlace = new Map<string, SpanCounts>();
+    if (places.length === 0) return byPlace;
+    const runs = spanRuns(binding, places, period);
+    if (runs === SPAN_READING) return SPAN_READING;
+    const held = runs.map((run, i) => ({ run, key: placeKey(places[i]!) })).filter(({ run }) => run.count > 0n).sort((a, b) => byRow(a.run, b.run));
+    if (held.length === 0) return byPlace;
+    const read = binding.batches.runsAll(nestedSpanName(binding.nested!.index), held.map(({ run }) => ({ found: true, row: run.row, count: run.count })));
     if (read.type !== "some") return SPAN_READING;
     const entries = read.value as readonly SpanEntry[];
-    const byPlace = new Map<string, PlanNestedMonths>();
     let at = 0;
-    for (const { range, key } of held) {
-        const n = Number(range.count);
+    for (const { run, key } of held) {
+        const n = Number(run.count);
         byPlace.set(key, entries.slice(at, at + n).map((entry) => [entry.ik.value.tile.getTime(), entry.value.type === "some" ? Number(entry.value.value.count) : 0] as const));
         at += n;
     }
     return byPlace;
 }
 
-/**
- * The span of every collection, and the months' counts of those shown (#1438,
- * #1440): from the first month any touches to the end of the last, and each
- * month's count summed across the shown ones' places.
- *
- * @param byPlace - Each collection's months, by its place's key
- * @param shown - The keys of the places the series shown read
- * @returns The span's read; undefined where no collection holds an item
- */
-function spanRead(byPlace: ReadonlyMap<string, PlanNestedMonths>, shown: ReadonlySet<string>): PlanNestedSpanRead | undefined {
-    let first = Infinity;
-    let last = -Infinity;
-    const counts = new Map<number, number>();
-    for (const [key, months] of byPlace) {
-        for (const [at, n] of months) {
-            first = Math.min(first, at);
-            last = Math.max(last, at);
-            if (shown.has(key)) counts.set(at, (counts.get(at) ?? 0) + n);
-        }
-    }
-    if (!Number.isFinite(first)) return undefined;
-    return { span: [first, tileNext("month", new Date(last)).getTime()], months: [...counts].sort((a, b) => a[0] - b[0]) };
-}
-
-/** Whether two reads of a span say the same: its ends, and each month's count. */
+/** Whether two reads of a span say the same: its ends, the periods its bars may count by, and the read of their counts. */
 function sameSpanRead(a: PlanNestedSpanRead, b: PlanNestedSpanRead): boolean {
-    return a.span[0] === b.span[0] && a.span[1] === b.span[1] && a.months.length === b.months.length
-        && a.months.every(([at, n], i) => at === b.months[i]![0] && n === b.months[i]![1]);
+    return a.span[0] === b.span[0] && a.span[1] === b.span[1] && a.totals === b.totals
+        && a.periods.length === b.periods.length && a.periods.every((period, i) => period === b.periods[i]);
 }
 
 /**
  * The span of what every series the canvas lays out reads — the horizon,
- * whichever are shown — and the months' counts of what the series shown read
- * (#1438, #1440), read again at each revision. Every series' collections are
- * read once, so switching a series asks nothing: its collections leave the
- * bars, and with none shown the strip still spans what they hold, its bars
- * empty, where it once fell back to the window alone and moved with every
- * drag. While a read again is in flight it is the last read, so the horizon
- * and its bars hold still until the new counts land.
+ * whichever are shown — and the read of what the series shown hold in each
+ * period (#1438, #1440), read again at each revision. The span is read by the
+ * finest period the index keeps the record's totals at, each collection's
+ * first tile and its last; the counts by the period the horizon draws its bars
+ * by, every series' collections together, so switching a series asks nothing:
+ * its collections leave the bars, and with none shown the strip still spans
+ * what they hold, its bars empty, where it once fell back to the window alone
+ * and moved with every drag. While a read again is in flight it is the last
+ * read, so the horizon and its bars hold still until the new one lands.
  *
  * @param seam - The root's seam
  * @param index - Every row the canvas holds: its rows' series are the ones shown
- * @returns The span and its months; {@link SPAN_READING} while the first read is in flight; undefined where no collection holds an item
+ * @returns The span's read; {@link SPAN_READING} while the first read is in flight; undefined where no collection holds
+ *   an item, or the index keeps the record's totals at no period
  */
 export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): PlanNestedSpanRead | typeof SPAN_READING | undefined {
     // Every place a series reads: one read for them all, whichever series are shown.
@@ -1141,20 +1262,41 @@ export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): P
         }
         return keys.join("\u0002");
     }, [seam, index]);
+    const shown = useMemo(() => new Set(shownKey === "" ? [] : shownKey.split("\u0002")), [shownKey]);
+    // The periods the index keeps the record's totals at, finest first: the span is read by the finest.
+    const periods = useMemo(() => {
+        const kept = new Set(seam.totals.map((period) => period.type as RecordTile));
+        return TILES.filter((tile) => kept.has(tile));
+    }, [seam]);
+    const finest = periods[0];
     const read = useCallback(() => {
         const binding = indexedBindingOf(seam.source);
-        return binding?.nested === undefined ? undefined : spanOf(binding, places);
-    }, [seam.source, places]);
+        return binding?.nested === undefined || finest === undefined ? undefined : spanOf(binding, places, finest);
+    }, [seam.source, places, finest]);
     const { result } = useTrackedEvaluation(read);
+    // What the series shown hold in each period, as the horizon asks it: the last read stands while one again is in flight.
+    const counted = useRef<PlanNestedTotals | undefined>(undefined);
+    const totals = useCallback((period: RecordTile): PlanNestedTotals | typeof SPAN_READING => {
+        const binding = indexedBindingOf(seam.source);
+        // No binding to read through holds nothing to count, as it holds no span.
+        const byPlace = binding?.nested === undefined ? new Map<string, SpanCounts>() : spanCounts(binding, places, period);
+        if (byPlace === SPAN_READING) return counted.current ?? SPAN_READING;
+        const tiles = new Map<number, number>();
+        for (const [key, counts] of byPlace) {
+            if (!shown.has(key)) continue;
+            for (const [at, n] of counts) tiles.set(at, (tiles.get(at) ?? 0) + n);
+        }
+        counted.current = { unit: period, tiles };
+        return counted.current;
+    }, [seam.source, places, shown]);
     const last = useRef<PlanNestedSpanRead | typeof SPAN_READING | undefined>(SPAN_READING);
     return useMemo(() => {
         if (!result.ok) {
             console.error("[Plan] the span of the rows' nested series could not be read:", result.error);
             return undefined;
         }
-        const byPlace = result.value;
-        const next = byPlace === SPAN_READING || byPlace === undefined ? byPlace
-            : spanRead(byPlace, new Set(shownKey === "" ? [] : shownKey.split("\u0002")));
+        const span = result.value;
+        const next = span === SPAN_READING || span === undefined ? span : { span, periods, totals };
         const was = last.current;
         // Read again, the last read holds until the new one lands; the same read as the last is the last, so a reader of
         // it draws once.
@@ -1162,7 +1304,7 @@ export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): P
         if (next !== SPAN_READING && next !== undefined && was !== SPAN_READING && was !== undefined && sameSpanRead(was, next)) return was;
         last.current = next;
         return next;
-    }, [result, shownKey]);
+    }, [result, periods, totals]);
 }
 
 // ============================================================================
@@ -1257,11 +1399,10 @@ export function usePlanWholeRows(seam: PlanNestedValue | undefined): PlanWholeRo
 const NOTHING_DRAFTED = { drafts: new Map<string, Uint8Array>(), version: 0 };
 /** No rows read whole for their links. */
 const NO_ROWS_WHOLE: ReadonlyMap<string, Uint8Array> = new Map();
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /**
  * The root with its paged rows drawn through the seam (#1438): ONE wrapper per
- * source, as the event kinds' is, each window its lean rows filled with the
+ * source, as the event kinds' is (`wrapped-source.ts`), each window its lean rows filled with the
  * cells read and the series run over them, the shading in place — its
  * revision naming the reader's version beside the source's own, so the driver
  * reads its windows again when what was read moves, the rows it holds
@@ -1287,47 +1428,23 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
     const whole = useMemo(() => [...readWhole.keys()].join("|"), [readWhole]);
     // A pick's series switched on or off names it too: the window function reads which are on as it draws a window.
     const picked = useSliceReactivity(data.pick.type === "some" ? data.pick.value.key : undefined);
-    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version, whole, picked });
-    latest.current = { src: paged, lead, seam, rows, version: drafted.version, whole, picked };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
-            page: (offset, limit) => {
-                const l = latest.current;
-                if (l.seam === undefined || l.lead === undefined) return none;
-                const read = l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading);
-                // A window of lean rows carries no entry: none of them is a row whole, and an edit reads its row whole by key.
-                return read.type === "some" ? some({ rows: read.value, entries: [] }) : none;
-            },
-            total: () => latest.current.src?.total() ?? none,
-            // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.
-            revision: () => {
-                const l = latest.current;
-                const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}-${l.picked}`);
-            },
-            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
-            // The snapshot of the rows themselves, which what is read of them leaves.
-            snapshot: () => {
-                const src = latest.current.src;
-                return src === undefined ? none : snapshotOf(src) ?? none;
-            },
-            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
-        };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged]);
-    const shownData = useMemo(() => (wrapped === undefined ? data : { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, data]);
-    const shownValue = useMemo(() => (wrapped === undefined ? value : { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, value]);
-    return { value: shownValue, data: shownData };
+    const wrapped = usePagedWrapper(paged, { lead, seam, rows, version: drafted.version, whole, picked }, (_source, latest) => ({
+        page: (offset, limit) => {
+            const l = latest();
+            if (l.seam === undefined || l.lead === undefined) return none;
+            const read = l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading);
+            // A window of lean rows carries no entry: none of them is a row whole, and an edit reads its row whole by key.
+            return read.type === "some" ? some({ rows: read.value, entries: [] }) : none;
+        },
+        // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.
+        revision: () => {
+            const l = latest();
+            const r = l.src?.revision?.() ?? none;
+            return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}-${l.picked}`);
+        },
+        refresh: ownRefresh(latest),
+        // The snapshot of the rows themselves, which what is read of them leaves.
+        snapshot: ownSnapshot(latest),
+    }));
+    return usePagedRoots(value, data, wrapped);
 }

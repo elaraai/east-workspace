@@ -15,28 +15,34 @@
  * the events of a kind over rows read whole — are read over the window:
  * whole, or through their interval index alone.
  *
- * - The cells around the rows in view are read in two requests: every cell's
+ * - The cells of the rows in view are read in two requests: every cell's
  *   searches in one, which counts its entries before one is read, then the
  *   entries of the cells it does not hold in one more. The bars are those a
  *   Plan reading the jobs whole draws, and the interval index serves the
  *   rail's count, its range's bounds and the backlog — never a window of jobs.
+ *   No search asks for the jobs on no press: over paged rows a Plan draws no
+ *   Unassigned row (#1541), so it reads none of them (#1710).
  * - A pan within the tiles held reads nothing, and one into a new week reads
  *   that week alone, a range a press; a zoom reads only the tiles it does not
  *   hold, at each level whose run it grows; a scroll into presses further
- *   down reads their blocks' cells.
+ *   down reads their blocks' cells and the next block's, the way it went
+ *   (#1797); back up to the presses it left it reads nothing, their cells
+ *   kept — the most recently wanted, while they fit: past that the least
+ *   recently wanted are read again, taken from the read that brought them
+ *   while the paging holds it, e3 asked nothing.
  * - A Save reads the cells in view again at the revision it committed.
  * - A link's end the cells do not hold is read by its key, so the link finds
  *   its row; a backlog job a draft schedules draws where it is dropped.
- * - Past the budget, with no summary that shades the day, the rows are
- *   hatched and the banner names how many events there are and the
- *   resolution that shades them; at that resolution, each press's share of
- *   each month booked draws, from the summary.
- * - A press selected while the reader holds none of its cells — before its
- *   first read lands, or scrolled out of the blocks read — shows its figures
- *   in the inspector as placeholders, never 0, until they land.
+ * - Past the budget, with no summary that shades the day, the columns take
+ *   the month by themselves, the range as it is, and nothing is said (#1799):
+ *   each press's share of each month booked draws, from the summary.
+ * - A press selected while no read holds its cells — before its first read
+ *   lands, or scrolled out of the blocks read — shows its figures in the
+ *   inspector as placeholders, never 0, until one does.
  * - A kind hidden in the Series tab, read by its cells, is in no figure — the
  *   footer's, the pane's, a row's — none of its cells is read, and nothing
- *   says so.
+ *   says so. The presses hidden there take their rows off the paged canvas,
+ *   though the events' new revision reads its window again (#1712).
  * - A series and a summary index led by a field the rail chooses read its
  *   cells exactly: the field is asked of no event, and past the budget the
  *   summary it leads shades (#1432).
@@ -54,11 +60,12 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import { PrintPress, type PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { setPagedRuntimeProbe } from "../../platform/paged-runtime.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot, tabs, toggleSeries } from "./harness.test-utils.js";
 import { evaluatesAgain } from "../../e3-web-mount.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
@@ -98,9 +105,8 @@ const through = (index: RecordIndex) => (request: E3Request) =>
 const askedOf = (index: RecordIndex, since = 0) => h.requests().filter(through(index)).slice(since)
     .map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
 
-/** How many of a level's cells' searches the canvas asks for each block of fifty presses — a range a press — and with the jobs on none. */
+/** How many of a level's cells' searches the canvas asks for each block of fifty presses: a range a press, and none for the jobs on no press. */
 const BLOCK = 50;
-const BLOCK_AND_NONE = BLOCK + 1;
 /** The levels a week series index files at, a run each (#1433): the week, the month, the quarter and the year. */
 const LEVELS = 4;
 
@@ -362,6 +368,10 @@ async function drawnByWindow(gestures: (c: HTMLElement) => Promise<void>): Promi
 
 /** The footer's count of the events in the window. */
 const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="events"]')?.textContent ?? null;
+/** The period the columns take, as the toolbar's segment shows it pressed. */
+const periodShown = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
+/** Any banner the frame draws: none, while the columns show what the rows hold. */
+const anyBanner = (c: HTMLElement) => slot(c, "banners")?.querySelector("[data-plan-banner]") ?? null;
 /** The footer's count of the changes waiting on Save. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
 /** The inspector's gesture button. */
@@ -428,8 +438,8 @@ describe("the jobs read a cell at a time (#1039)", () => {
         const { container } = await h.mount(seriesPlan);
         await settle();
         // A run of each level over the canvas's range, Saturday 3 to Wednesday 21 October — a range a press — by the first
-        // fifty presses, and by no press (#1433).
-        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`, "runs"]);
+        // fifty presses (#1433), and none by no press, whose jobs no row draws (#1710).
+        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(askedOf(SUMMARY)).toEqual([]);
         // The window's events counted exactly, from the source, as the rail counts them.
         expect(counted(container)).toBe("13 events");
@@ -451,10 +461,12 @@ describe("the jobs read a cell at a time (#1039)", () => {
         // A day on: Sunday 4 to Thursday 22 October moves no level's run.
         await pan(container, "]");
         expect(askedOf(SERIES, opened)).toEqual([]);
-        // Six days more: the range runs into the week of 26 October, so the week after it is wanted — a range a press over
-        // that week alone, which holds no job: counted, and nothing read of it. No other level's run moves.
+        // Six days more: the range runs into the week of 26 October, which no run holds — a run ends at the tile holding
+        // the range's last instant (#1797) — so that week alone is read, a range a press: counted, then its one job on
+        // these presses, the wall calendars on Press 1002. No other level's run grows.
         await pan(container, "]", 6);
-        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK_AND_NONE}`]);
+        await waitFor(() => expect(named(bar(container, "W-0015", "P-1002"))).toMatch(/^Wall calendars, Oct 26, 2026/));
+        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK}`, "runs"]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => pan(c, "]", 7)));
     });
 
@@ -462,38 +474,110 @@ describe("the jobs read a cell at a time (#1039)", () => {
         const { container } = await h.mount(seriesPlan);
         await settle();
         const opened = askedOf(SERIES).length;
-        // At a week the canvas lays out two weeks either side of the fortnight — 21 September to 2 November — so the week's
-        // run grows a week either way, the month's a month either way and the quarter's a quarter back, the year's not at
-        // all: five parts not held, a range a press over each, counted, and holding no job (#1433).
+        // The week pressed is its preset from the fortnight's start (#1740), on into the next year, and the canvas lays out
+        // two weeks either side of it, from 21 September: the week's run grows a week back and on to the range's end, the
+        // month's a month back and on, the quarter's a quarter back and on, and the year's a year on — seven parts not
+        // held, a range a press over each, counted (#1433). One holds a job on these presses, the week's on from 26
+        // October, which no run held before (#1797): the wall calendars on Press 1002, read in one request more.
         await zoomTo(container, "week");
-        expect(askedOf(SERIES, opened)).toEqual([`find ${5 * BLOCK_AND_NONE}`]);
+        await waitFor(() => expect(bar(container, "W-0015", "P-1002")).not.toBeNull());
+        expect(askedOf(SERIES, opened)).toEqual([`find ${7 * BLOCK}`, "runs"]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 
-    test("a scroll into presses further down reads their blocks' cells, two requests; back up, the first block's entries are read again — never its counts", async () => {
+    test("a scroll into presses further down reads their blocks' cells and the next block's, two requests; back up to the presses it left, nothing is read — their cells are kept (#1797)", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container } = await h.mount(seriesPlan);
             await settle();
             const opened = askedOf(SERIES).length;
-            // Down to Press 1141: the blocks of the presses from 1101 to 1200, which hold the seed catalogue on Press 1150 and
-            // the tour brochure on Press 1200.
+            // Down to Press 1141: the two blocks its rows meet, of the presses from 1101 to 1200 — which hold the seed
+            // catalogue on Press 1150 and the tour brochure on Press 1200 — and the next one down, to Press 1250, the way
+            // the view went (#1797): none of the block above them.
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(bar(container, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
             await settle();
-            expect(askedOf(SERIES, opened)).toEqual([`find ${LEVELS * 2 * BLOCK}`, "runs"]);
+            expect(askedOf(SERIES, opened)).toEqual([`find ${LEVELS * 3 * BLOCK}`, "runs"]);
             const series = drawn(container);
             expect(series.some((line) => line.includes("Seed catalogue"))).toBe(true);
             const { container: windows } = await h.mount(windowsPlan, { storageKey: "windows" });
             await waitFor(() => expect(bar(windows, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
             await settle();
             expect(series).toEqual(drawn(windows));
-            // Back to the top: the first block's counts are held, its entries — let go once no longer wanted — read again.
+            // Back to the top: the first block's cells, wanted no more below, were kept — neither its counts nor its
+            // entries are read again, and its jobs draw as they did.
             const below = askedOf(SERIES).length;
             act(() => { window.scrollTo({ top: 0 }); });
             await waitFor(() => expect(bar(container, "W-0001", "P-1001")).not.toBeNull(), { timeout: 10_000 });
             await settle();
-            expect(askedOf(SERIES, below)).toEqual(["runs"]);
+            expect(askedOf(SERIES, below)).toEqual([]);
+            expect(named(bar(container, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 6, 2026, 06:00/);
+        } finally {
+            restore();
+        }
+    });
+
+    test("what a view has left is kept while it fits: past that the least recently wanted — a block's week of jobs — is read again, taken from the read that brought it, and what was left after it is not (#1797)", async () => {
+        // The runs each read of runs takes from the landed reads that hold them, which e3 is not asked for (#1797).
+        let taken = 0;
+        setPagedRuntimeProbe({ took: (runs) => { taken += runs; } });
+        onTestFinished(() => setPagedRuntimeProbe(undefined));
+        // Another planner books 5,100 hour-long proofs on twenty presses of the first block, from Press 1031, and as many on
+        // twenty of the third, from Press 1101: either block's jobs are fewer than the Plan draws, and the two together
+        // more than a reader keeps of what its view has left. None of those presses is among the rows the views below show.
+        // And an annual report, ten days on Press 1001 from the fortnight's start: longer than a week, so the series index
+        // files it at the month — a cell of its own, beside the first block's week of jobs.
+        const jobs = new Map(await readJobs());
+        const proof = jobs.get("W-0001")!;
+        for (const [n, first] of [1031, 1101].entries()) {
+            for (let i = 0; i < 5_100; i++) {
+                const start = new Date(FIRST.getTime() + Math.floor(i / 20) * HOUR);
+                jobs.set(`X-${n}-${String(i).padStart(4, "0")}`, {
+                    ...proof, title: `Proof ${i}`, press: some(`P-${first + (i % 20)}`), start: some(start), end: some(new Date(start.getTime() + HOUR)),
+                });
+            }
+        }
+        jobs.set("L-0001", { ...proof, title: "Annual report", press: some("P-1001"), start: some(FIRST), end: some(new Date(FIRST.getTime() + 240 * HOUR)) });
+        await h.patch(ex.planWindowJobs, jobs);
+        const restore = emulateWindowScroll();
+        try {
+            const { container } = await h.mount(seriesPlan);
+            await settle();
+            expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
+            expect(named(bar(container, "L-0001", "P-1001"))).toMatch(/^Annual report, Oct 5, 2026/);
+            // Down to Press 1141, the third and fourth blocks and the next one down read: the first block's jobs are kept.
+            act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
+            await waitFor(() => expect(bar(container, "W-0007", "P-1150")).not.toBeNull(), { timeout: 20_000 });
+            await settle();
+            // On down to Press 1541, whose blocks — the presses from 1501 to 1650 — hold no job, so are counted and no
+            // more: the blocks left at Press 1141 are the most recently wanted, and with theirs kept the first block's week
+            // of jobs fits no more — it is let go.
+            const far = askedOf(SERIES).length;
+            act(() => { window.scrollTo({ top: 540 * ROW_PX }); });
+            await waitFor(() => expect(askedOf(SERIES, far).length).toBeGreaterThan(0), { timeout: 20_000 });
+            await settle();
+            expect(askedOf(SERIES, far).every((asked) => asked.startsWith("find "))).toBe(true);
+            // Back up to Press 1141: its two blocks' cells were kept, and are read no more — the block before them, the next
+            // the way the view now goes and never read, is counted, and holds no job.
+            const back = askedOf(SERIES).length;
+            const takenBack = taken;
+            act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
+            await waitFor(() => expect(bar(container, "W-0007", "P-1150")).not.toBeNull(), { timeout: 20_000 });
+            await settle();
+            expect(askedOf(SERIES, back)).toEqual([`find ${LEVELS * BLOCK}`]);
+            expect(taken).toBe(takenBack);
+            // Back to the top: the first block's week of jobs, let go, is read again — its counts are held, and its runs
+            // the read the Plan opened on holds whole, the week's beside the month's, which the paging still holds: they
+            // are taken from it, and e3 is asked nothing (#1797). The month's cell, as long left and small enough to keep,
+            // was kept, and the report it holds draws beside the week's jobs.
+            const top = askedOf(SERIES).length;
+            const takenTop = taken;
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(bar(container, "W-0001", "P-1001")).not.toBeNull(), { timeout: 20_000 });
+            await settle();
+            expect(askedOf(SERIES, top)).toEqual([]);
+            expect(taken).toBeGreaterThan(takenTop);
+            expect(named(bar(container, "L-0001", "P-1001"))).toMatch(/^Annual report, Oct 5, 2026/);
         } finally {
             restore();
         }
@@ -511,7 +595,7 @@ describe("the jobs read a cell at a time (#1039)", () => {
         await press(save(c));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
         await settle();
-        expect(askedOf(SERIES, before)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`, "runs"]);
+        expect(askedOf(SERIES, before)).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
         expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
         expect(drawn(c)).toEqual(await drawnWhole());
@@ -690,34 +774,37 @@ describe("what the cells do not hold (#1039)", () => {
 // ============================================================================
 
 describe("the cells on their way (#1398, CL2)", () => {
-    test("while the cells of the rows in view are on their way, each press's row is washed under what it holds and busy, the footer's line says the jobs are read and main is busy — never an empty row; landed, the bars draw and nothing waits", async () => {
+    test("while the cells of the rows in view are on their way, each press's row draws one skeleton bar across its plot under what it holds and is busy, the footer's line says the jobs are read and main is busy — never an empty row, nor a washed one (#1764); landed, the bars draw and nothing waits", async () => {
         // The cells' jobs held on the wire: their counts land, their entries do not.
         const entries = h.e3.hold((request) => through(SERIES)(request) && request.kind === "runs");
         const { container: c } = await h.mount(seriesPlan);
         await entries.holding;
         await settle();
         const plot = (press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} [data-plan-plot]`);
-        // Each press's row holds its place, its plot washed and busy, no bar drawn: nothing says it is empty.
-        await waitFor(() => expect(plot("P-1001")?.querySelector("[data-loading-wash]")).not.toBeNull());
+        // Each press's row holds its place, one skeleton bar across its plot and busy, no job's bar drawn and nothing
+        // washed: nothing says it is empty.
+        await waitFor(() => expect(plot("P-1001")?.querySelector("[data-loading-bar]")).not.toBeNull());
+        expect(plot("P-1001")!.querySelectorAll("[data-loading-bar]")).toHaveLength(1);
+        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
         expect(plot("P-1001")!.getAttribute("aria-busy")).toBe("true");
         expect(plot("P-1001")!.querySelectorAll("[data-run]")).toHaveLength(0);
         // On the Plan's one reveal clock: shown once the wait has passed its delay.
-        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-wash]")!.hasAttribute("data-unrevealed")).toBe(false));
+        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-bar]")!.hasAttribute("data-unrevealed")).toBe(false));
         // The footer's line says what is read, in the jobs' words; main is busy.
         const line = slot(c, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
         await waitFor(() => expect(line.querySelector("[data-line-text]")?.textContent).toBe("Loading print job events…"));
         expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
-        // Landed: the bars draw, no row is washed or busy, and nothing waits.
+        // Landed: the jobs' bars draw, no row holds its skeleton bar or is busy, and nothing waits.
         await act(async () => { entries.release(); });
         await settle();
         await waitFor(() => expect(bar(c, "W-0001", "P-1001")).not.toBeNull());
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull();
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
         await waitFor(() => expect(line.hasAttribute("data-idle")).toBe(true));
         expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true");
     });
 
-    test("read again over the range it was read over — another planner's commit — each press's row stands as it was, its bars drawn and nothing washed, while main is busy; over a range it was not — a pan into a new week — the rows read again there are washed until their cells land", async () => {
+    test("read again over the range it was read over — another planner's commit — each press's row stands as it was, its bars drawn and no skeleton bar, while main is busy; over a range it was not — a pan into a new week — the rows read again there draw their skeleton bar until their cells land", async () => {
         const { container: c } = await h.mount(seriesPlan);
         await settle();
         const plot = (press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} [data-plan-plot]`);
@@ -729,26 +816,28 @@ describe("the cells on their way (#1398, CL2)", () => {
         await h.patch(ex.planWindowJobs, jobs);
         await entries.holding;
         await settle();
-        // Retained, never unread: the bars stand in, no row is washed or busy of its own, and main is busy.
+        // Retained, never unread: the bars stand in, no row holds a skeleton bar or is busy of its own, and main is busy.
         expect(bar(c, "W-0001", "P-1001")).not.toBeNull();
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull();
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
         expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
         await act(async () => { entries.release(); });
         await settle();
         await waitFor(() => expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true"));
-        // A pan into the week of 26 October, its cells' counts held: the rows read again there are washed and busy.
+        // A pan into the week of 26 October, its cells' counts held: the rows read again there draw their skeleton bar and are busy.
         const counts = h.e3.hold((request) => through(SERIES)(request) && request.kind === "find");
         await pan(c, "]", 7);
         await counts.holding;
         await settle();
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).not.toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).not.toBeNull();
         expect(plot("P-1001")!.getAttribute("aria-busy")).toBe("true");
-        // Counted, the week holds no job: nothing more is read, and no row is washed.
+        // Counted, and the week's one job on these presses read — the wall calendars, on Press 1002: it draws, and no row
+        // holds its skeleton bar.
         await act(async () => { counts.release(); });
         await settle();
-        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull());
+        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull());
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
+        await waitFor(() => expect(bar(c, "W-0015", "P-1002")).not.toBeNull());
     });
 
     test("a press selected before its first cells land shows its figures as placeholders in the inspector, never 0; landed, its figures", async () => {
@@ -770,7 +859,7 @@ describe("the cells on their way (#1398, CL2)", () => {
         expect(placeholder(c, "events")).toBeNull();
     });
 
-    test("a press selected, then scrolled out of the blocks read — its cells let go — shows its figures as placeholders, never 0; scrolled back, its figures once its cells land again", async () => {
+    test("a press selected, then scrolled out of the blocks read — its cells none of the read's — shows its figures as placeholders, never 0; scrolled back, its figures again", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container: c } = await h.mount(seriesPlan);
@@ -778,7 +867,8 @@ describe("the cells on their way (#1398, CL2)", () => {
             await selectPress(c, "P-1003");
             expect(fact(c, "events")).toBe("1");
             expect(fact(c, "hours")).toBe("60");
-            // Down to Press 1141: the blocks of the presses from 1101 to 1200 read, the first block's cells let go.
+            // Down to Press 1141: the blocks of the presses from 1101 to 1250 read, the first block's cells none of the
+            // read's — kept, for a view going back, and no figure's (#1797).
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(bar(c, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
             await settle();
@@ -786,7 +876,7 @@ describe("the cells on their way (#1398, CL2)", () => {
             expect(placeholder(c, "hours")).not.toBeNull();
             expect(fact(c, "events")).toBe("");
             expect(fact(c, "hours")).toBe("");
-            // Back to the top: the first block's entries read again, and the press's figures with them.
+            // Back to the top: the first block's cells are the read's again, and the press's figures with them.
             act(() => { window.scrollTo({ top: 0 }); });
             await waitFor(() => expect(fact(c, "events")).toBe("1"), { timeout: 10_000 });
             expect(fact(c, "hours")).toBe("60");
@@ -825,6 +915,17 @@ describe("a kind hidden in the Series tab (#1039)", () => {
         // Hidden, the jobs draw nothing: none of their cells is read.
         expect(askedOf(SERIES)).toEqual([]);
     });
+
+    test("the presses switched off take every press's row off the paged canvas, though new events read its window again; switched on, they draw again with their bars (#1712)", async () => {
+        const { container: c } = await h.mount(checkedPlan);
+        await settle();
+        expect(bar(c, "W-0001", "P-1001")).not.toBeNull();
+        await toggleSeries(c, "Presses");
+        await waitFor(() => expect(c.querySelector(rowAt(pressRow("P-1001")))).toBeNull());
+        expect(slot(c, "main")!.querySelectorAll("[data-plan-row]")).toHaveLength(0);
+        await toggleSeries(c, "Presses");
+        await waitFor(() => expect(bar(c, "W-0001", "P-1001")).not.toBeNull(), { timeout: 10_000 });
+    });
 });
 
 // ============================================================================
@@ -832,7 +933,7 @@ describe("a kind hidden in the Series tab (#1039)", () => {
 // ============================================================================
 
 describe("past the budget (#1039)", () => {
-    test("with no summary that shades the day, the rows are hatched and the banner names how many events there are and the resolution that shades them; at a month, each press's share booked, from the summary", async () => {
+    test("with no summary that shades the day, the columns take the month by themselves — the fortnight as it is, nothing said — and each press's share booked shades from the summary (#1799)", async () => {
         // Another planner books 10,001 hour-long proofs on the first fifty presses over the fortnight, each press's an hour
         // apart: more than the Plan draws.
         const jobs = new Map(await readJobs());
@@ -846,25 +947,20 @@ describe("past the budget (#1039)", () => {
         await h.patch(ex.planWindowJobs, jobs);
         const { container: c } = await h.mount(seriesPlan);
         await settle();
-        // Counted past the budget: no entry of a cell read, and no summary that divides a day.
-        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`]);
-        expect(askedOf(SUMMARY)).toEqual([]);
-        const banner = slot(c, "banners")!.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]');
-        expect(banner?.textContent).toContain("10,014 print job events in view");
-        expect(banner?.textContent).toContain("switch to month to see where they fall");
-        const press1001 = () => c.querySelector(rowAt(pressRow("P-1001")))!;
-        expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
-        expect(press1001().querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
-        // At a month: the summary's cells, two requests, and each press's share of each month booked.
-        await zoomTo(c, "month");
+        // Counted past the budget at the fortnight's days, which a month's summary shades none of: no entry of a cell read,
+        // and the columns take the month — the summary's cells, two requests, and no banner.
         await waitFor(() => expect(askedOf(SUMMARY).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
         await settle();
-        expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
+        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`]);
+        expect(periodShown(c)).toBe("MONTH");
+        expect(anyBanner(c)).toBeNull();
         // Press 1001 in October: 201 proofs, the brochure run's eight hours, the night catalogue's eight and the ticket
         // books' two — 219 of October's 744 hours.
+        const press1001 = () => c.querySelector(rowAt(pressRow("P-1001")))!;
         const october = [...press1001().querySelectorAll<HTMLElement>("[data-cell]")].find((cell) => named(cell)?.startsWith("Oct"));
         expect(named(october ?? null)).toMatch(/29% booked/);
         expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
+        expect(press1001().querySelectorAll("[data-nodata]")).toHaveLength(0);
     });
 });
 
@@ -878,7 +974,7 @@ describe("a series and a summary index led by a field (#1432)", () => {
     const STOCK_JOBS = pathText(ex.planStockJobs.path as TreePath);
     const withins = () => h.requests().filter((request) => request.dataset === STOCK_JOBS && request.kind === "within");
 
-    test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget, at a month, the summary it leads shades", async () => {
+    test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget the columns take the month by themselves, and the summary it leads shades", async () => {
         const { container: c } = await h.mount(stockPlan);
         await settle();
         // The coated jobs' cells, through the index the stock leads: their searches, then their entries — nothing asked of them after.
@@ -898,11 +994,12 @@ describe("a series and a summary index led by a field (#1432)", () => {
         }
         await h.patch(ex.planStockJobs, jobs);
         await settle();
-        await zoomTo(c, "month");
-        // At a month, the coated jobs' totals, from the summary the stock leads: each press's share of each month booked.
+        // At the month the columns take, the coated jobs' totals, from the summary the stock leads: each press's share of
+        // each month booked — and nothing said.
         await waitFor(() => expect(askedOf(BY_STOCK_TOTALS).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
         await settle();
-        expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
+        expect(periodShown(c)).toBe("MONTH");
+        expect(anyBanner(c)).toBeNull();
         const october = [...c.querySelector(rowAt(pressRow("P-1001")))!.querySelectorAll<HTMLElement>("[data-cell]")]
             .find((cell) => named(cell)?.startsWith("Oct"));
         expect(named(october ?? null)).toMatch(/% booked/);

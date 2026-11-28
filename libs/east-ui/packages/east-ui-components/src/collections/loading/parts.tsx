@@ -6,8 +6,10 @@
 /**
  * The shared loading parts every builder draws a read in flight, or one that
  * failed, with (#1398): the placeholder shapes, each in the slot its value
- * will fill ({@link PlaceholderShape}); the region wash over a region whose
- * items have no known position yet ({@link LoadingWash}); a failure said once
+ * will fill ({@link PlaceholderShape}); one skeleton bar across a row's plot
+ * waiting for its read ({@link LoadingRowBar}, #1764); the region wash over a
+ * region whose items have no known position yet that is not a row
+ * ({@link LoadingWash}); a failure said once
  * — a line in a row grid's first row in view ({@link LoadingFailedLine}), or
  * the message box at the top-left of a region with no row to hold one
  * ({@link LoadingFailedBox}); a region its read found empty, said once in the
@@ -15,7 +17,7 @@
  * layouts' placeholder card ({@link PlaceholderCard}). Every placeholder is
  * `aria-hidden` (CL12) and states no value; the `loading` slot recipe owns
  * every style, and these set data attributes and geometry only. Inside a
- * builder's `LoadingReveal` a shape and a wash keep their footprint
+ * builder's `LoadingReveal` a shape, a row's bar and a wash keep their footprint
  * unseen until the reveal says so (`data-unrevealed`, CL4), each reading the
  * clock itself, so its flip renders them again and never their builder.
  *
@@ -51,12 +53,12 @@ type Styles = Record<string, SystemStyleObject>;
  * - `rowNumber`: a flat sheet's real row number — its place in the collection, plus one;
  * - `fill`: its host's own box, filled — a shape whose size and corners are its host's: a card's meter track, a
  *   status's dot (the Schematic's cards);
- * - `wash`: the region wash, over a region whose items have no known position;
+ * - `rowBar`: a row's plot waiting for its read — one skeleton bar across it, which implies no time (#1764);
  * - `blank`: nothing — the cell's rules alone.
  */
 export type PlaceholderKind =
     | "text" | "number" | "date" | "boolean" | "chip" | "link" | "enum" | "label" | "label2" | "aggregate" | "count" | "check"
-    | "rowNumber" | "fill" | "wash" | "blank";
+    | "rowNumber" | "fill" | "rowBar" | "blank";
 
 /** How a kind aligns its shape when its column says nothing: a number's at the end, a boolean's and a count's in the middle. */
 export function placeholderAlign(kind: PlaceholderKind): "start" | "end" | "center" {
@@ -90,7 +92,7 @@ export interface PlaceholderShapeProps {
     readonly index: number;
     /** A real row number for `rowNumber`; absent, a short bar (a grouped sheet's lines, whose numbers are not known yet). */
     readonly number?: string | undefined;
-    /** What a `wash` cell draws over it, the same in every row: a plot's grid and its now line. */
+    /** What a `rowBar` cell draws over it, the same in every row: a plot's grid and its now line. */
     readonly overlay?: ReactNode;
     /** The `loading` recipe's styles, when the caller has them. */
     readonly styles?: Styles | undefined;
@@ -157,9 +159,9 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
             return number !== undefined
                 ? <Box as="span" css={styles.number} aria-hidden="true" data-shape={kind}>{number}</Box>
                 : <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="rowNumber" data-unrevealed={hidden} />;
-        case "wash":
+        case "rowBar":
             return <>
-                <Box as="span" css={styles.wash} aria-hidden="true" data-shape={kind} data-loading-wash="" data-unrevealed={hidden} />
+                <Box as="span" css={styles.rowBar} aria-hidden="true" data-shape={kind} data-loading-bar="" data-unrevealed={hidden} />
                 {overlay}
             </>;
         case "blank":
@@ -176,13 +178,34 @@ export interface LoadingWashProps {
 }
 
 /**
+ * A row's plot waiting for its read (#1764): one skeleton bar across it — the
+ * placeholder shapes' fill, a body value bar's height, square-ended, centred
+ * in the row's height, a small inset at either end. It spans the whole window,
+ * so, as the region wash does, it implies no time and no place; and it reads
+ * as the skeletons every other part draws while it reads, where a washed plot
+ * read as a broken one — a Plan row's plot, a phone card's, a timeline row's.
+ * It lies under what the plot draws after it — the rules and the now line — so
+ * place it before them. `aria-hidden`; the plot it lies in is `aria-busy`.
+ * Inside a builder's `LoadingReveal` it is unseen until the reveal says so
+ * (`data-unrevealed`).
+ *
+ * @returns The bar
+ */
+export function LoadingRowBar() {
+    const styles = useLoadingStyles();
+    const hidden = useRevealed() === false ? "" : undefined;
+    return <Box as="span" css={styles.rowBar} aria-hidden="true" data-loading-bar="" data-unrevealed={hidden} />;
+}
+
+/**
  * The region wash (#1398; the design's `.wash`): `--ink` at 6% over a region
- * whose items have no known position yet — a time grid's day column, a month
- * cell below its date, a timeline row's plot, a lane-hour cell, a Plan row's
- * plot, a canvas's unread area. Edge to edge between the region's real rules,
- * with nothing drawn in it: no item's shape implies a time or a place. It
- * paints under whatever its region draws after it — the rules, the off-hours
- * shading's copy over it, the now line — so place it before them.
+ * whose items have no known position yet and that is not a row — a time grid's
+ * day column, a month cell below its date, a lane-hour cell, a canvas's unread
+ * area; a row's plot takes {@link LoadingRowBar} (#1764). Edge to edge between
+ * the region's real rules, with nothing drawn in it: no item's shape implies a
+ * time or a place. It paints under whatever its region draws after it — the
+ * rules, the off-hours shading's copy over it, the now line — so place it
+ * before them.
  * `aria-hidden`; the region it washes is `aria-busy`. Inside a builder's
  * `LoadingReveal` it is unseen until the reveal says so (`data-unrevealed`).
  *

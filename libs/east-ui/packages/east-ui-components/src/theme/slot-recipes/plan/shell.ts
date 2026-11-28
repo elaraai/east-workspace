@@ -340,11 +340,11 @@ export const shellBase = {
         borderLeftColor: "fg.muted",
         pointerEvents: "none",
         zIndex: 6,
-        // Driven by the canvas body's ONE `--plan-cursor-x` variable and
-        // shown only while the pointer is over a plot (#609) — a
-        // pointermove writes a style on the body, renders nothing.
+        // Shown only while the pointer is over a plot (#609), by the canvas
+        // body's ONE attribute. Its place is the cursor's to write, on the
+        // line itself: a variable on the body for every line to read would
+        // leave every element of the canvas to be styled again on each move.
         display: "none",
-        left: "calc(var(--plan-cursor-x, 0) * 100%)",
         "[data-plan-cursor] &": { display: "block" },
     },
     cursorChip: {

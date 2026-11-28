@@ -7,9 +7,9 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
     equalFor, isTypeEqual, printFor, some, variant,
-    type ExprType, type FunctionType, type VariantType,
+    type ExprType, type VariantType,
 } from "@elaraai/east";
 import { randomStream } from "@elaraai/east/internal";
 import {
@@ -441,6 +441,8 @@ const metadataOf = (source: unknown, index: string) => {
     const [kind, marker] = Object.entries((entry.kind as VariantType).cases)[0]!;
     return { fields: Object.keys((entry.fields as StructType).fields), kind, marker: marker!.type === "Struct" ? Object.keys(marker!.fields) : null };
 };
+/** A series index's copy of each event, as its metadata carries its type (#1725): an empty Array of it; `undefined` for an index carrying none. */
+const copyOf = (source: unknown, index: string) => ((typeOf(source).fields.indexes as StructType).fields[index] as StructType).fields.copy;
 /** The projection a binding's entries carry: the `some` of their `value`. */
 const projectionOf = (source: unknown) => {
     const page = typeOf(source).fields.page as FunctionType;
@@ -506,13 +508,19 @@ describe("Data.bindPaged over an area index", () => {
 // binding's own.
 describe("Data.bindPaged over a series and a summary index", () => {
     const Job = StructType({ press: StringType, state: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
+    /** What a tile draws of a job: its press, and when it runs. */
+    const Tile = StructType({ press: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
     const jobs = e3.record("series_jobs", DictType(StringType, Job), {
         initial: new Map(),
         indexes: (index) => ({
             by_time: index.interval({ from: "start", to: "end" }),
             by_state: index.on(["state"]),
-            by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
-            by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+            by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
+            tiles_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }, {
+                value: East.function([StringType, Job], Tile, (_$, _key, job) => ({ press: job.press, start: job.start, end: job.end })),
+            }),
+            by_state_press_week: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+            by_state_week: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
             by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         }),
     });
@@ -524,7 +532,8 @@ describe("Data.bindPaged over a series and a summary index", () => {
             "its leading fields its own");
         assert.deepEqual(metadataOf(source, "by_press_month"),
             { fields: [], kind: "summary", marker: ["key=press", "from=start", "to=end", "tile=month", "__summary"] });
-        assert.deepEqual(readTileMarker(metadataOf(source, "by_press_month").marker!), { key: "press", from: "start", to: "end", tile: "month", summary: true });
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_press_month").marker!),
+            { key: "press", from: "start", to: "end", tile: "month", summary: true, order: "key", copy: false });
         assert.deepEqual(metadataOf(source, "by_time"), { fields: [], kind: "interval", marker: ["from=start", "to=end"] }, "its start a field of the rail, by its role");
     });
 
@@ -532,6 +541,49 @@ describe("Data.bindPaged over a series and a summary index", () => {
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })), Job), "a series beside a summary: the row");
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })), NullType),
             "beside an index that carries nothing: Null");
+    });
+
+    hostTest("a series index declared with a value carries a copy of each event, its own: it is listed beside any index, counts for none of the binding's projection, and names its copy (#1725)", () => {
+        // Its copies are its own, as a summary's totals are: the binding's projection is the other indexes'.
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_time", "tiles_by_press_week"] })), NullType), "beside an index that carries nothing: Null");
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "tiles_by_press_week"] })), Job), "beside a series index carrying its rows: the row");
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["tiles_by_press_week", "by_press_month"] })), NullType),
+            "beside a summary alone, no index carries the binding's projection");
+        // Its marker says its entries are copies, which a record Slice reads back; its metadata carries the copy's type.
+        const source = Data.bindPaged(jobs, { indexes: ["by_time", "tiles_by_press_week", "by_press_week", "by_press_month"] });
+        assert.deepEqual(metadataOf(source, "tiles_by_press_week"), { fields: [], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week", "__copy"] });
+        assert.deepEqual(readTileMarker(metadataOf(source, "tiles_by_press_week").marker!),
+            { key: "press", from: "start", to: "end", tile: "week", summary: false, order: "key", copy: true });
+        assert.ok(isTypeEqual(copyOf(source, "tiles_by_press_week")!, ArrayType(Tile)), "its copy's type, as an empty Array of it");
+        assert.deepEqual(metadataOf(source, "by_press_week").marker, ["key=press", "from=start", "to=end", "tile=week"], "a series index carrying its rows names no copy");
+        assert.equal(copyOf(source, "by_press_week"), undefined);
+        // A record Slice lists it for a reader of its cells, and offers the rail no field of it.
+        assert.doesNotThrow(() => bindRecord("tiles", source, { fields: { start: {} }, range: "start" }));
+    });
+
+    hostTest("carries each listed series index's value function by its name, typed as its declaration's, and none where it lists none (#1725)", () => {
+        // A Plan draws a drafted row as the copy its index would hold of it once saved: the binding carries the
+        // function that makes it, as it carries a summary's maintenance.
+        const copies = typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "tiles_by_press_week", "by_press_week", "by_press_month"] })).fields.copies as VariantType;
+        const carried = (copies.cases.some as StructType).fields;
+        assert.deepEqual(Object.keys(carried), ["tiles_by_press_week"], "the copy index's alone: a series index carrying its rows makes none");
+        assert.ok(isTypeEqual(carried.tiles_by_press_week!, FunctionType([StringType, Job], Tile)), "(key, row) → its copy");
+        assert.ok(isTypeEqual(typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })).fields.copies!, OptionType(StructType({}))),
+            "none listed: none");
+    });
+
+    hostTest("a series index in time order is listed as one in key order is, its marker naming its order, which a record Slice reads back (#1710)", () => {
+        const source = Data.bindPaged(jobs, { indexes: ["by_state", "by_state_press_week", "by_state_week", "by_press_month"] });
+        assert.deepEqual(metadataOf(source, "by_state_week"),
+            { fields: ["state"], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week", "order=time"] }, "its leading fields its own, its order by its role");
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_state_week").marker!),
+            { key: "press", from: "start", to: "end", tile: "week", summary: false, order: "time", copy: false });
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_state_press_week").marker!),
+            { key: "press", from: "start", to: "end", tile: "week", summary: false, order: "key", copy: false }, "an index in key order names none");
+        // It carries its rows, as a series index in key order does, and is read without a join.
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_state_week", "by_press_month"] })), Job));
+        // A record Slice lists it for a reader of its cells, and offers the rail no field of it.
+        assert.doesNotThrow(() => bindRecord("in-time", source, { fields: { state: { hints: ["late"] } } }));
     });
 
     hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {
@@ -554,7 +606,7 @@ describe("Data.bindPaged over a series and a summary index", () => {
         const named = e3.record("named_jobs", DictType(StringType, Named), {
             initial: new Map(),
             indexes: (index) => ({
-                by_named_week: index.series({ on: ["tile", "__tile"], key: "press", from: "start", to: "end", tile: "week" }),
+                by_named_week: index.flatSeries({ on: ["tile", "__tile"], key: "press", from: "start", to: "end", tile: "week" }),
                 by_tile: index.on(["tile", "__tile"]),
             }),
         });

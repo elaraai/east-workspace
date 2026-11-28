@@ -69,24 +69,44 @@ export const PLAN_STATUS_OPEN_RING = `inset 0 0 0 1.5px ${PLAN_STATUS_COLOR}`;
 /** An item drawn open, as a rule's condition that adds no weight: its drafts have not changed it. */
 const NOT_DRAFTED = ":where(:not([data-draft]))";
 
+/** An observed box that keeps an inset ring, as a rule's condition that adds no weight: done, its drafts not changing it
+ *  — one in progress draws the committed fill and no ring (a tile, #1735). */
+const DONE_NOT_DRAFTED = ":where(:not([data-draft], [data-progress]))";
+
+/**
+ * The rule an observed box with an inset ring of its own keeps it by, inside the ring that rides over it — as a
+ * confirmed box keeps its own; nothing for a box whose observed look draws none.
+ *
+ * @param observed - The inset ring the box's observed look draws, if any
+ * @param condition - What else the rule asks of the box, its weight included
+ * @param ring - The ring over it
+ * @returns The rule, or none
+ */
+function keepObserved(observed: string | undefined, condition: string, ring: string, after = ""): Readonly<Record<string, { readonly boxShadow: string }>> {
+    return observed === undefined ? {} : { [`&${condition}[data-state='obs']${after}${DONE_NOT_DRAFTED}`]: { boxShadow: `${observed}, ${ring}` } };
+}
+
 /**
  * What a box an item draws — a run's bar, a tile, a chip — draws of its
- * status: its tone's ring, a confirmed box keeping its inset ring inside it,
- * and the open ring.
+ * status: its tone's ring, a confirmed box keeping its inset ring inside it —
+ * an observed one too, where its look draws one (a tile's, #1735) — and the
+ * open ring.
  *
  * Spread AFTER the lifecycle states and the drafted look, whose box shadow it
  * takes the place of, and BEFORE {@link planElementOverlap}, the context
  * strip's rule, the selection, the focus and {@link planElementConflicts}.
  *
  * @param confirmed - The inset ring the box's confirmed look draws
+ * @param observed - The inset ring the box's observed look draws, if it draws one
  * @returns The `data-tone` and `data-ring` rules
  */
-export function planElementStatus(confirmed: string) {
+export function planElementStatus(confirmed: string, observed?: string) {
     return {
         ...planStatusTones,
         "&[data-tone]": { boxShadow: PLAN_STATUS_RING },
         // A drafted box keeps the drafted look's own border, and the tone's ring alone round it.
         [`&[data-tone][data-state='appr']${NOT_DRAFTED}`]: { boxShadow: `${confirmed}, ${PLAN_STATUS_RING}` },
+        ...keepObserved(observed, "[data-tone]", PLAN_STATUS_RING),
         // An open box's words are in the ink — one attribute strong, so a context strip's rule, which hides them, still does.
         "&[data-ring]:where([data-tone]:not([data-draft]))": { color: "fg.default" },
         // No border of its lifecycle's: the ring stands at the box's own edge, whatever its state.
@@ -102,22 +122,26 @@ export function planElementStatus(confirmed: string) {
  * A box in an overlap pair (#1198): the warn ring just outside it, in its
  * status's place — a confirmed box keeps its inset ring inside it, an open one
  * its own, and a danger status, the worse, keeps its ring (the worst wins, as
- * a cell's marker does, #615), inside a confirmed box's too. A danger rule is
- * as strong as the overlap rule it follows, its tone held in `:where`, so the
- * conflict ring after it still takes its place.
+ * a cell's marker does, #615), inside a confirmed box's too — and inside an
+ * observed box's, where its look draws one. A danger rule is as strong as the
+ * overlap rule it follows, its tone held in `:where`, so the conflict ring
+ * after it still takes its place.
  *
  * Spread AFTER {@link planElementStatus}.
  *
  * @param confirmed - The inset ring the box's confirmed look draws
+ * @param observed - The inset ring the box's observed look draws, if it draws one
  * @returns The `data-overlap` rules
  */
-export function planElementOverlap(confirmed: string) {
+export function planElementOverlap(confirmed: string, observed?: string) {
     return {
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         "&[data-overlap][data-state='appr']": { boxShadow: `${confirmed}, ${PLAN_OVERLAP_RING}` },
+        ...keepObserved(observed, "[data-overlap]", PLAN_OVERLAP_RING),
         "&[data-overlap][data-ring]:where([data-tone]:not([data-draft]))": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}` },
         "&[data-overlap]:where([data-tone='danger'])": { boxShadow: PLAN_STATUS_RING },
         "&[data-overlap][data-state='appr']:where([data-tone='danger'])": { boxShadow: `${confirmed}, ${PLAN_STATUS_RING}` },
+        ...keepObserved(observed, "[data-overlap]", PLAN_STATUS_RING, ":where([data-tone='danger'])"),
         "&[data-overlap][data-ring]:where([data-tone='danger']:not([data-draft]))": { boxShadow: PLAN_STATUS_OPEN_RING },
     } satisfies SystemStyleObject;
 }
@@ -125,17 +149,20 @@ export function planElementOverlap(confirmed: string) {
 /**
  * A box holding a conflict not yet chosen, or a number outside its field's
  * bounds (#1585): the conflict ring at its edge, in every other ring's place —
- * a confirmed box keeps its inset ring inside it, and an open one its own.
+ * a confirmed box keeps its inset ring inside it, an observed one too where its
+ * look draws one, and an open one its own.
  *
  * Spread LAST among a box's rings.
  *
  * @param confirmed - The inset ring the box's confirmed look draws
+ * @param observed - The inset ring the box's observed look draws, if it draws one
  * @returns The `data-conflict` and `data-bounds` rules
  */
-export function planElementConflicts(confirmed: string) {
+export function planElementConflicts(confirmed: string, observed?: string) {
     return {
         ...planElementConflict,
         "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `${confirmed}, ${CONFLICT_RING}` },
+        ...keepObserved(observed, ":is([data-conflict], [data-bounds])", CONFLICT_RING),
         "&:is([data-conflict], [data-bounds])[data-ring]:where([data-tone]:not([data-draft]))": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${CONFLICT_RING}` },
     } satisfies SystemStyleObject;
 }

@@ -12,16 +12,16 @@
  * #949), across the examples, in both themes. Every visual bug found by eye
  * lands here first, as a failing invariant, and is fixed against it.
  *
- * Grid alignment is measured from DOM geometry and computed gradient stops.
- * Browser rasterization can round a border and a gradient to different pixels
- * at the same fractional coordinate, so this suite never captures images.
+ * Grid alignment is measured from DOM geometry and the rules the rows draw: a
+ * day's rule is its last whole pixel (#1735), in the ruler as in the plot, so
+ * both are read as pixel columns. This suite never captures images.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test visual-invariants --project desktop`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EXAMPLES, clickRowControl, openExample, planBox, rowSel, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
 /** The Plan examples that draw a ruler over rows. */
@@ -30,9 +30,14 @@ const RULED = ["planTargetState", "planMeasures", "planRowDrop", "planNumberAxis
 /** The row kinds whose plots carry the shared grid. */
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
-/** The ruler and body share bucket edges, the gutter boundary and NOW.
- * Read the rendered boxes and the computed gradient's repeat interval;
- * subpixel layout is preserved rather than rounded through a screenshot. */
+/** A chart column in the first series' ink (#1753): its layer's name the first to appear (`data-series` 0), or its
+ *  layer given no name and no colour of its own (no `--mark-ink` set on it), which draws in its mark's own ink — the
+ *  first series' too. */
+const FIRST_INK = "[data-plan-mark='column']:is([data-series='0'], :not([data-series]):not([style*='--mark-ink']))";
+
+/** The ruler and body share the gutter boundary, NOW and each bucket's rule — its last whole pixel (#1735): the
+ * ruler's tick draws it as its right border, the row's grid as a line of its SVG. Read as pixel columns from the
+ * plot's left, each one whole and the same in both. */
 async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
     return entry.evaluate((root, kinds) => {
         const body = root.querySelector("[data-plan-body]")!;
@@ -49,22 +54,21 @@ async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
         const p = plot.getBoundingClientRect();
         close(t.left, p.left, "gutter edge");
         close(t.right, p.right, "plot end");
-        const ticks = [...track.children].slice(1).map(el => el.getBoundingClientRect().left);
-        const gradient = plot.querySelector("[data-plan-gridsep]");
-        let edges: number[];
-        if (gradient !== null) {
-            const bounds = gradient.getBoundingClientRect();
-            const image = getComputedStyle(gradient).backgroundImage;
-            const percent = image.match(/([\d.]+)%\)/)?.[1];
-            if (!image.startsWith("repeating-linear-gradient(") || percent === undefined) return ["no computed grid repeat interval"];
-            const fraction = Number(percent) / 100;
-            if (!(fraction > 0 && fraction <= 1)) return ["invalid grid repeat interval"];
-            edges = Array.from({ length: Math.round(1 / fraction) }, (_, i) => bounds.left + i * bounds.width * fraction);
-        } else {
-            edges = [...plot.querySelectorAll("[data-plan-axisline]:not([data-plan-now])")].map(el => el.getBoundingClientRect().left);
-        }
-        if (ticks.length === 0 || ticks.length !== edges.length) bad.push(`${ticks.length} ruler edges, ${edges.length} row edges`);
-        ticks.forEach((x, i) => { if (edges[i] !== undefined) close(x, edges[i]!, `bucket edge ${i + 1}`); });
+        // The ruler's rules: each tick's right border, but the last's, which the track's edge is.
+        const ticks = [...track.children].map(el => ({ box: el.getBoundingClientRect(), border: Number.parseFloat(getComputedStyle(el).borderRightWidth) }));
+        const rulerColumns = ticks.filter(tick => tick.border > 0).map(tick => tick.box.right - tick.border - p.left);
+        if (ticks.at(-1) !== undefined && ticks.at(-1)!.border > 0) bad.push("the ruler's last tick draws a rule at the plot's edge");
+        // The row's rules: its grid's day rules, a vertical line of one pixel each, drawn through its centre.
+        const grid = plot.querySelector("[data-plan-gridsep] svg");
+        const days = grid?.querySelector("[data-plan-day-rules]")?.getAttribute("d");
+        if (grid === null || grid === undefined || days === null || days === undefined) return [...bad, "no day rules in the row's grid"];
+        const g = grid.getBoundingClientRect();
+        const rowColumns = [...days.matchAll(/M([\d.]+) /g)].map(m => Number(m[1]) - 0.5 + g.left - p.left);
+        if (rulerColumns.length === 0 || rulerColumns.length !== rowColumns.length) bad.push(`${rulerColumns.length} ruler rules, ${rowColumns.length} row rules`);
+        rulerColumns.forEach((x, i) => {
+            if (Math.abs(x - Math.round(x)) > 0.01) bad.push(`ruler rule ${i + 1} off a whole pixel: ${x.toFixed(3)}px`);
+            if (rowColumns[i] !== undefined) close(x, rowColumns[i]!, `bucket rule ${i + 1}`);
+        });
         const rulerNow = ruler.querySelector("[data-plan-now]");
         const rowNow = plot.querySelector("[data-plan-now]");
         if ((rulerNow === null) !== (rowNow === null)) bad.push("NOW missing from ruler or row");
@@ -78,7 +82,7 @@ async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
  * page — each as a line saying what, where and by how much.
  */
 async function violations(entry: Locator): Promise<string[]> {
-    return entry.evaluate((root) => {
+    return entry.evaluate((root, firstInk) => {
         const bad: string[] = [];
         const body = root.querySelector("[data-plan-body]")!;
         const cs = (el: Element) => getComputedStyle(el);
@@ -99,6 +103,7 @@ async function violations(entry: Locator): Promise<string[]> {
             series1: token("--chakra-colors-brand-solid"),
             tint: token("--chakra-colors-brand-tint"),
             strong: token("--chakra-colors-border-strong"),
+            paper3: token("--chakra-colors-bg-subtle"),
         };
         /** Any colour the page computes — `rgb()`, `color(srgb …)`, the
          *  `oklch(…)` a mix in oklch (the heat ramp) computes to — as sRGB
@@ -157,6 +162,10 @@ async function violations(entry: Locator): Promise<string[]> {
         };
         const mono = (el: Element) => /mono/i.test(cs(el).fontFamily);
         const name = (el: Element) => (el.textContent ?? "").trim().slice(0, 24);
+        /** The least plot height, px, at which a chart prints its numbers — the renderer's `CHART_TALL_PX` (#1750). */
+        const TALL = 48;
+        /** A chart's plot height as it is drawn: its marks' viewBox, which the renderer draws in plot px. */
+        const plotHeight = (svg: Element) => Number(svg.getAttribute("viewBox")!.split(" ")[3]);
         const type = (el: Element, what: string, want: { size?: number; weight?: string; mono?: boolean; upper?: boolean; color?: string; tnum?: boolean; minSize?: number }) => {
             const s = cs(el);
             if (want.size !== undefined && Math.abs(px(s.fontSize) - want.size) > 0.05) bad.push(`${what} "${name(el)}": ${s.fontSize}, want ${want.size}px`);
@@ -174,8 +183,9 @@ async function violations(entry: Locator): Promise<string[]> {
         for (const el of body.querySelectorAll("[data-plan-row] :is([data-plan-gutter='name'], [data-plan-gutter='lane'])")) {
             type(el, "row name", { size: 11, weight: "500", mono: true, upper: false, color: T.ink, tnum: true });
         }
+        // A value is the name's size, semibold (#1749) — a row's, and a band's, which never takes the band's capitals.
         for (const el of body.querySelectorAll("[data-plan-gutter='value']")) {
-            type(el, "gutter value", { size: 11.5, weight: "600", mono: true, tnum: true });
+            type(el, "gutter value", { size: 11, weight: "600", mono: true, upper: false, color: T.ink, tnum: true });
         }
         for (const el of body.querySelectorAll("[data-plan-gutter='sub'], [data-plan-gutter='meta']")) {
             type(el, "gutter unit", { size: 10, weight: "400", mono: true, color: T.ink4 });
@@ -238,8 +248,15 @@ async function violations(entry: Locator): Promise<string[]> {
             }
         }
         // ── 10–11 · One committed fill; tint only for selected or dirty ──
-        for (const el of body.querySelectorAll("[data-run][data-state='obs'], [data-chip][data-state='obs'], [data-event][data-state='obs']")) {
+        // A bucket tile in progress keeps the committed fill; one done is the third paper in the strong rule (#1735).
+        for (const el of body.querySelectorAll("[data-run][data-state='obs'], [data-chip][data-state='obs'], [data-event][data-state='obs'][data-progress]")) {
             if (cs(el).backgroundColor !== T.committed) bad.push(`committed "${name(el)}": ${cs(el).backgroundColor}, want ${T.committed}`);
+        }
+        for (const el of body.querySelectorAll("[data-event][data-state='obs']:not([data-progress], [data-draft], [data-selected])")) {
+            const s = cs(el);
+            if (s.backgroundColor !== T.paper3 || !s.boxShadow.startsWith(`${T.strong} 0px 0px 0px 1px inset`)) {
+                bad.push(`done tile "${el.getAttribute("data-event")}": ${s.backgroundColor} ${s.boxShadow}, want ${T.paper3} in an inset ${T.strong}`);
+            }
         }
         for (const el of body.querySelectorAll("[data-plan-nowchip]")) {
             if (cs(el).backgroundColor !== T.committed) bad.push(`now chip: ${cs(el).backgroundColor}, want ${T.committed}`);
@@ -252,18 +269,61 @@ async function violations(entry: Locator): Promise<string[]> {
             const columns = [...row.querySelectorAll("[data-plan-mark='column']")];
             if (columns.length === 0) continue;
             for (const c of columns) {
-                if (c.getAttribute("data-series") !== "0") continue;
+                if (!c.matches(firstInk)) continue;
                 const fill = cs(c).fill;
                 if (!c.hasAttribute("data-planned") && fill !== T.series1) bad.push(`column (actual): ${fill}, want ${T.series1}`);
                 if (c.hasAttribute("data-planned") && fill === T.series1) bad.push("column (forecast): drawn as an actual");
             }
-            if (row.querySelectorAll("[data-plan-tickpx]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no scale`);
+            // A number to read the bars against — on a chart taller than a row's own lines, where its first line is
+            // free to hold it: its value, its status or a pressed control there leaves the scale its gridline alone,
+            // and a chart at a row's own height reads its scale by its gridlines alone (#1750).
+            const marks = row.querySelector("[data-plan-chart] svg");
+            const tall = marks !== null && plotHeight(marks) >= TALL;
+            const taken = (row.querySelector("[data-plan-gutter='value']")?.textContent ?? "") !== ""
+                || row.querySelector("[role='rowheader'] [role='img'][data-tone]") !== null
+                || row.querySelector("[data-plan-control][aria-pressed='true']") !== null;
+            if (tall && !taken && row.querySelectorAll("[data-plan-tickpx]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no scale`);
+            if (row.querySelectorAll("[data-plan-gridline]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no gridline`);
             const now = row.querySelector("[data-plan-now]");
             if (now !== null) {
                 const x = now.getBoundingClientRect().left;
                 for (const c of columns) {
                     if (!c.hasAttribute("data-planned") && c.getBoundingClientRect().left >= x - 0.5) bad.push("column at or after now drawn as actual");
                 }
+            }
+        }
+        // ── 14 · A chart row's axes (#1750): no tick label in its plot; each of the left axis's in the gutter's value
+        // slot, its end 12 from the gutter's rule, its middle on its gridline; every number inside its plot's band,
+        // clear of the row's top and of its rule, and none on a chart at a row's own height; and a chart taller than
+        // its gutter's lines stands its name where a one-line row's stands ──
+        const lineTop = (row: Element) => row.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect().top - row.getBoundingClientRect().top;
+        const oneLine = [...body.querySelectorAll("[data-plan-row][data-plan-h='32']:not([data-plan-kind='chart'], [data-plan-kind='buckets'], [data-ctx], [data-expanded])")]
+            .find((row) => row.querySelector("[data-plan-gutter='sub']") === null);
+        for (const row of body.querySelectorAll("[data-plan-row][data-plan-kind='chart']:not([data-ctx])")) {
+            const plot = row.querySelector("[data-plan-plot]")!;
+            if (plot.querySelector("[data-plan-tickpx]") !== null) bad.push(`chart "${name(row.children[0]!)}": a tick label in its plot`);
+            const head = row.querySelector("[role='rowheader']")!;
+            if (oneLine !== undefined && head.getAttribute("data-plan-gutter-top") === "" && Math.abs(lineTop(row) - lineTop(oneLine)) > 0.5) {
+                bad.push(`chart "${name(row.children[0]!)}": its name's line ${lineTop(row).toFixed(1)}px down its row, a one-line row's ${lineTop(oneLine).toFixed(1)}px`);
+            }
+            const svg = plot.querySelector("[data-plan-chart] svg");
+            if (svg === null) continue;
+            const s = svg.getBoundingClientRect();
+            const down = s.height / plotHeight(svg);
+            const lines = [...svg.querySelectorAll("[data-plan-gridline]")].map((g) => s.top + Number(g.getAttribute("y1")) * down);
+            const numbers = [...row.querySelectorAll("[data-plan-tickpx], [data-plan-tick-right]")];
+            if (plotHeight(svg) < TALL && numbers.length > 0) bad.push(`chart "${name(row.children[0]!)}": a number on a chart at a row's own height`);
+            for (const n of numbers) {
+                const b = n.getBoundingClientRect();
+                if (b.top - s.top < 2 || s.bottom - b.bottom < 2) {
+                    bad.push(`chart "${name(row.children[0]!)}": "${n.textContent}" ${(b.top - s.top).toFixed(1)}px under its plot's top and ${(s.bottom - b.bottom).toFixed(1)}px over its foot, want 2 or more`);
+                }
+            }
+            const edge = head.getBoundingClientRect().right - px(cs(head).borderRightWidth);
+            for (const tick of row.querySelectorAll("[data-plan-tickpx]")) {
+                const b = tick.getBoundingClientRect();
+                if (!lines.some((y) => Math.abs(y - (b.top + b.height / 2)) <= 0.5)) bad.push(`chart "${name(row.children[0]!)}": tick "${tick.textContent}" off its gridline`);
+                if (Math.abs(edge - b.right - 12) > 0.5) bad.push(`chart "${name(row.children[0]!)}": tick "${tick.textContent}" ends ${(edge - b.right).toFixed(1)}px from the gutter's rule, want 12`);
             }
         }
         // ── 16 · Group hierarchy ──
@@ -275,8 +335,9 @@ async function violations(entry: Locator): Promise<string[]> {
             let j = gi + 1;
             for (; j < rows.length && Number(rows[j]!.getAttribute("aria-level")) > level; j++) last = rows[j];
             if (last === undefined) return;
-            // A member's line starts one level in from its group's: 8px (#1680's review). A row that folds has its
-            // caret's 14px cell and the line's 6px gap before its name; a leaf none, its name where its line starts.
+            // A member's line starts one level in from its group's: a caret's 14px cell and the line's 6px gap, so its
+            // words start where its group's do (#1749). A row that folds has its own caret's cell and gap before its
+            // name; a leaf none, its name where its line starts.
             const first = rows[gi + 1]!;
             const lineOf = (row: Element) => {
                 const head = row.querySelector("[role='rowheader']");
@@ -284,7 +345,7 @@ async function violations(entry: Locator): Promise<string[]> {
             };
             const gs = lineOf(g);
             const ms = lineOf(first);
-            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 8) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 8`);
+            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 20) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 20`);
             const ml = first.querySelector("[data-plan-gutter='title']")?.getBoundingClientRect().left;
             const caret = first.querySelector("[role='rowheader'] [data-leaf]") === null ? 20 : 0;
             if (ms !== undefined && ml !== undefined && Math.abs(ml - ms - caret) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - ms).toFixed(1)}px past its line, want ${caret}`);
@@ -313,7 +374,7 @@ async function violations(entry: Locator): Promise<string[]> {
             if (Math.abs(hh - sh) > 0.5) bad.push(`heat row "${name(heat)}" ${hh}px beside a ${sh}px span row, both laid out at ${h}px`);
         }
         return bad;
-    });
+    }, FIRST_INK);
 }
 
 test.describe("Visual invariants — the Plan", () => {
@@ -334,7 +395,7 @@ test.describe("Visual invariants — the Plan", () => {
 
         test(`planNumberAxis (${theme}): the horizon is an overview with a lens and no histogram; the window is the orders' range, its eight days counted in the rail's summary; the range chip in mono; the footer says plain summaries`, async ({ page }) => {
             const entry = await openExample(page, "planNumberAxis", PLAN_EXAMPLES, theme);
-            const read = await entry.evaluate((root) => {
+            const read = await entry.evaluate((root, firstInk) => {
                 const body = root.querySelector("[data-plan-body]")!;
                 const plot = body.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
                 const lens = body.querySelector("[data-slot='horizon'] [data-plan-lens]");
@@ -357,8 +418,9 @@ test.describe("Visual invariants — the Plan", () => {
                         heatLabels: count("[data-plan-heat-label]"),
                         spans: count("[data-run]"),
                         committed: count("[data-run][data-state='obs']"),
-                        columns: count("[data-plan-row][data-plan-kind='chart'] [data-plan-mark='column'][data-series='0']"),
-                        scale: count("[data-plan-row][data-plan-kind='chart'] [data-plan-tickpx]"),
+                        columns: count(`[data-plan-row][data-plan-kind='chart'] ${firstInk}`),
+                        // Its output chart shows its value on its first line, so its scale is its gridline (#1750).
+                        scale: count("[data-plan-row][data-plan-kind='chart'] [data-plan-gridline]"),
                         now: count("[data-plan-row] [data-plan-now]"),
                         nowChip: count("[data-plan-nowchip]"),
                         tableCells: count("[data-plan-kind='table'] [data-plan-bucket]"),
@@ -372,7 +434,7 @@ test.describe("Visual invariants — the Plan", () => {
                     footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-footer-more]):not([data-footer-line])")].map((el) => (el as HTMLElement).innerText),
                     summary: (root.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='record-summary'] [data-record-slices-summary]") as HTMLElement | null)?.innerText ?? null,
                 };
-            });
+            }, FIRST_INK);
             for (const [hook, n] of Object.entries(read.seen)) expect(n, `the ${hook} hook`).toBeGreaterThan(0);
             // The lens meets the plot's own edges: its connectors end where the grid does.
             expect(read.lens).toEqual({ left: 0, width: 0 });
@@ -390,7 +452,7 @@ test.describe("Visual invariants — the Plan", () => {
 
         test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, its role bands — a group band's paper and caption, the band the others fold into the only one with a hand — and its pressed control in their tokens (#1258, #1680's review)`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES, theme);
-            await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
+            await clickRowControl(entry.locator(rowSel("detail", "H1-P09")), "links");
             await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
             await page.mouse.move(0, 0);
             const T = {
@@ -838,10 +900,11 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * Every host with a slice rail (#952) or a toolbar row of its own, by an
  * example that mounts it, and the viewport widths it is swept across — each
  * host's own range: the flagship's wide layout holds down to 886px, its record
- * rail (#1344) folding first, its summary gone by 1000 and its date navigator
- * compact by 900 — narrower, its library's 44px rail leaves main under the
- * 480px the narrow layout takes over at, so the sweep stops at 900; its narrow
- * layout is `planTargetState`'s in a 360px box, as a phone's;
+ * rail (#1344) folding first, its summary gone by 1000 and its date
+ * navigator's label short there, between its arrows still at 900 (#1740) —
+ * narrower, its library's 44px rail leaves main under the 480px the narrow
+ * layout takes over at, so the sweep stops at 900; its narrow layout is
+ * `planTargetState`'s in a 360px box, as a phone's;
  * a Plan with editing over a keyed paged source, its palette its library
  * (#1193, #1259), is swept through its narrow layout, which its library's rail
  * brings on at 800px, and the items that stay fold no less than they did
@@ -885,18 +948,20 @@ type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 /** The Plan's own order (the user's decision, #952; its frame's toolbar,
  *  #1193, PB21), after its record rail (#1344): the rail's summary first,
  *  after every step of the rail and before the Plan's own (ruled 18 Oct,
- *  #1340); then the date navigator compacts, the resolution folds into its
- *  menu, the fold toggle to its icon and the key search to its icon; then,
- *  where the Plan navigates its dates, the toggle, the navigator and the
- *  resolution fold into the navigator's View, one move; and the history item
- *  folds last, to its buttons — each step where its item has it to take. */
+ *  #1340); then the date navigator's label shortens, between its arrows
+ *  still, the resolution folds into its menu, the fold toggle to its icon and
+ *  the key search to its icon; then, where the Plan navigates its dates, the
+ *  navigator's arrows go — the last of its own the row gives up (#1740) — and
+ *  the toggle, the navigator and the resolution fold into the navigator's
+ *  View, one move; and the history item folds last, to its buttons — each
+ *  step where its item has it to take. */
 function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const navigates = state.has("time-navigation");
     return [
         ["record-summary", 1],
         ["time-navigation", 1], ["resolution", 1], ["groups", 1],
         ["seek", 1],
-        ...(navigates ? [["groups", 2] as const, ["time-navigation", 2] as const, ["resolution", 2] as const] : []),
+        ...(navigates ? [["time-navigation", 2] as const, ["groups", 2] as const, ["time-navigation", 3] as const, ["resolution", 2] as const] : []),
         ["history", 1],
     ];
 }

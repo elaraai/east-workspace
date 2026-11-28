@@ -767,6 +767,43 @@ describe("paging driver — bounded retention", () => {
     });
 });
 
+describe("paging driver — what it holds is said to its source (#1712)", () => {
+    /** {@link source}, recording what the driver says it holds — each window by its place — beside each window it asks. */
+    function keeping(windows: number, rowsPer = 2) {
+        const { value } = source(windows, rowsPer);
+        const said: number[][] = [];
+        const log: string[] = [];
+        const kept = {
+            ...value,
+            page: (offset: bigint, limit: bigint) => { log.push(`page ${Number(offset) / PLAN_PAGE_SIZE}`); return value.page(offset, limit); },
+            retain: (offsets: readonly bigint[]) => { said.push(offsets.map((offset) => Number(offset) / PLAN_PAGE_SIZE)); log.push("retain"); },
+        } as unknown as PlanPagedSourceValue;
+        return { value: kept, said, log };
+    }
+
+    test("it says which windows it holds before it reads them, each by its offset, and again as its run moves: a window that left the run is named no more", () => {
+        const { value, said, log } = keeping(250, 100);
+        const { snap, report } = drive(value);
+        // The first paint's run: said before a window of it is asked.
+        expect(said[said.length - 1]).toEqual([0, 1, 2]);
+        expect(log.indexOf("retain")).toBeLessThan(log.indexOf("page 0"));
+        expect(log.lastIndexOf("retain")).toBeGreaterThan(log.indexOf("page 0"));
+        // Walked far on, its head evicted: what it holds is the run it draws, and the first window is in it no more.
+        for (let i = 0; i < 60; i++) report(band("tail"));
+        const [from, to] = span(snap());
+        expect(from).toBeGreaterThan(0);
+        const run = Array.from({ length: (to - from) / PLAN_PAGE_SIZE }, (_x, i) => from / PLAN_PAGE_SIZE + i);
+        expect(said[said.length - 1]).toEqual(run);
+    });
+
+    test("a source that keeps nothing is asked nothing of it", () => {
+        const { value, asked } = source(50);
+        expect((value as { retain?: unknown }).retain).toBeUndefined();
+        drive(value);
+        expect([...asked].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    });
+});
+
 describe("paging driver — a derived source whose rows change (#590)", () => {
     /** A source whose id and row-label are independent, so the two can be
      *  varied separately — which is the whole question here. */
@@ -1081,6 +1118,230 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
         expect(snap().replacing).toBe(false);
         expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
         expect(rowKeys(snap())[0]).toBe("w0000r000");
+    });
+});
+
+describe("paging driver — windows of the root's size (#1714)", () => {
+    /** `entries` entries, each a group of `rows` rows — a hall and its presses — served for whatever window is asked:
+     *  records every read by its offset and its limit. */
+    function groups(entries: number, rows = 10) {
+        const asked: { offset: number; limit: number }[] = [];
+        const value = {
+            id: "groups",
+            page: (offset: bigint, limit: bigint) => {
+                asked.push({ offset: Number(offset), limit: Number(limit) });
+                const out: PlanWireRow[] = [];
+                for (let e = Number(offset); e < Math.min(entries, Number(offset + limit)); e++) {
+                    for (let r = 0; r < rows; r++) out.push(wire(`g${String(e).padStart(3, "0")}r${String(r).padStart(3, "0")}`));
+                }
+                return served([paged(out)]);
+            },
+            total: () => some(BigInt(entries)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        return { value, asked };
+    }
+    /** The entries the reads asked for, each once, ascending. */
+    const offsets = (asked: readonly { offset: number }[]) => [...new Set(asked.map((a) => a.offset))].sort((a, b) => a - b);
+
+    test("forty entries in windows of one: the open reads the first window and its read-ahead alone, and the band stands for the rest in entries; a jump to entry 30 reads its window and the ones beside it alone", () => {
+        const { value, asked } = groups(40);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value, false, 1);
+        // Every read is one entry long: the first window and the two read ahead of it.
+        expect(asked.every((a) => a.limit === 1)).toBe(true);
+        expect(offsets(asked)).toEqual([0, 1, 2]);
+        expect(d.getSnapshot().windowEntries).toBe(1);
+        expect(residentText(d.getSnapshot())).toBe("0-3");
+        expect(rowKeys(d.getSnapshot())).toHaveLength(30);
+        // The rest stand as one band, its elements entries.
+        expect(bandText(tail(d.getSnapshot()))).toBe("3-39");
+        // A jump to entry 30 reads its window and the ring around it, and nothing between.
+        const before = asked.length;
+        d.jumpToElement(30);
+        const jumped = offsets(asked.slice(before));
+        expect(jumped).toContain(30);
+        for (const offset of jumped) expect(offset).toBeGreaterThanOrEqual(29);
+        expect(asked.slice(before).every((a) => a.limit === 1)).toBe(true);
+        const [from, to] = span(d.getSnapshot());
+        expect(from).toBeLessThanOrEqual(30);
+        expect(to).toBeGreaterThan(30);
+        expect(bandText(head(d.getSnapshot()))).toBe(`0-${from - 1}`);
+        expect(rowKeys(d.getSnapshot())).toContain("g030r000");
+    });
+
+    test("windows of another size are a new result: the windows held go, and the source is read again from its first, at the new size", () => {
+        const { value, asked } = groups(40);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value, false, 1);
+        const before = asked.length;
+        // The same source, its windows two entries long now.
+        d.setSource(value, false, 2);
+        expect(asked.slice(before).every((a) => a.limit === 2)).toBe(true);
+        expect(offsets(asked.slice(before))).toEqual([0, 2, 4]);
+        expect(d.getSnapshot().windowEntries).toBe(2);
+        expect(residentText(d.getSnapshot())).toBe("0-6");
+        expect(bandText(tail(d.getSnapshot()))).toBe("6-39");
+        // Handed the same size again, nothing is read.
+        const after = asked.length;
+        d.setSource(value, false, 2);
+        expect(asked.length).toBe(after);
+    });
+
+    test("left out, a window is 200 entries, as the root's default is", () => {
+        const { value, asked } = groups(450, 1);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value);
+        expect(d.getSnapshot().windowEntries).toBe(PLAN_PAGE_SIZE);
+        expect(asked.every((a) => a.limit === PLAN_PAGE_SIZE)).toBe(true);
+        expect(offsets(asked)).toEqual([0, 200, 400]);
+    });
+});
+
+describe("paging driver — a band's pixels are read once a window has landed (#1794)", () => {
+    /** Entries a window: a Plan whose entry is a group nesting its rows pages a few of them at a time. */
+    const ENTRIES = 2;
+    /** Forty halls, each its band and a hundred presses, two halls a window. A window is on the wire until the test
+     *  lands it, and throws while it is failing; every window asked is recorded. `total` is the count it says. */
+    function halls() {
+        const state = { total: 40 };
+        const landed = new Set<number>();
+        const failing = new Set<number>();
+        const asked: number[] = [];
+        const value = {
+            id: "halls",
+            page: (offset: bigint, limit: bigint) => {
+                const w = Number(offset) / ENTRIES;
+                asked.push(w);
+                if (failing.has(w)) throw new Error("fetch failed: 503");
+                if (!landed.has(w)) return none;
+                const out: PlanWireRow[] = [];
+                for (let e = Number(offset); e < Math.min(state.total, Number(offset + limit)); e++) {
+                    const hall = `h${String(e).padStart(2, "0")}`;
+                    out.push(wire(hall));
+                    for (let r = 0; r < 100; r++) out.push(wire(`${hall}p${String(r).padStart(3, "0")}`));
+                }
+                return served([paged(out)]);
+            },
+            total: () => some(BigInt(state.total)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        return { value, state, landed, failing, asked };
+    }
+    /** A driver over the halls, its windows two entries long. */
+    function open(value: PlanPagedSourceValue) {
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value, false, ENTRIES);
+        return d;
+    }
+    /** The windows asked, each once, ascending. */
+    const windowsOf = (asked: readonly number[]) => [...new Set(asked)].sort((a, b) => a - b);
+    /** What two halls draw: a window's height once it has landed. */
+    const WINDOW_PX = ENTRIES * 101 * ROW_PX;
+    /** The view's report as it mounts over a band, no row in it yet: its middle `px` down the band. */
+    const overBand = (at: "head" | "tail", px: number, shows: number[]): PlanViewport => ({ kind: "band", block: 0, at, px, shows, beside: [], viewPx: 0 });
+
+    test("an open reads its first window and what is read ahead of it, whatever the view's first report says of a band sized before any window landed", () => {
+        const { value, landed, asked } = halls();
+        const d = open(value);
+        // The count is in and no window is: the block is one band, each hall sized at a row until one lands.
+        expect(windowsOf(asked)).toEqual([0, 1, 2]);
+        expect(d.getSnapshot().rows).toEqual([]);
+        expect(bandText(tail(d.getSnapshot()))).toBe("0-39");
+        expect(tail(d.getSnapshot())!.px).toBe(40 * 32);
+        // The view mounts, its middle 360 px down that band — the twelfth hall's place in it, the sixth window's, where
+        // the first hall alone fills the view. Read so, the open asked every window to the eighth.
+        d.reportViewport(overBand("tail", 360, [0]), false);
+        expect(windowsOf(asked)).toEqual([0, 1, 2]);
+        // They land: three windows' rows, and the band is what the rest draw at the rate the first drew.
+        landed.add(0).add(1).add(2);
+        d.refresh();
+        expect(residentText(d.getSnapshot())).toBe("0-6");
+        expect(d.getSnapshot().rows).toHaveLength(3 * ENTRIES * 101);
+        expect(tail(d.getSnapshot())!.px).toBe(17 * WINDOW_PX);
+        // The view reports its rows, a view's height of them: the three windows hold it, and nothing more is read.
+        d.reportViewport({ kind: "row", key: d.getSnapshot().rows[0]!.key, shows: [0], beside: [], viewPx: 788 }, false);
+        expect(windowsOf(asked)).toEqual([0, 1, 2]);
+        expect(d.getSnapshot().loading).toBe(false);
+    });
+
+    test("once a window has landed the pixels are read by what it drew: a far drag rebases to the window under the thumb", () => {
+        const { value, landed, asked } = halls();
+        for (const w of [0, 1, 2, 12, 13, 14, 15]) landed.add(w);
+        const d = open(value);
+        expect(residentText(d.getSnapshot())).toBe("0-6");
+        const before = new Set(asked);
+        // Ten windows and a little down the band, which starts at the fourth: the fourteenth window is under the view.
+        d.reportViewport(overBand("tail", 10 * WINDOW_PX + 100, [13]), false);
+        expect(windowsOf(asked.filter((w) => !before.has(w)))).toEqual([12, 13, 14, 15]);
+        expect(residentText(d.getSnapshot())).toBe("24-32");
+        expect(bandText(head(d.getSnapshot()))).toBe("0-23");
+    });
+
+    test("every window read so far failed, so none is measured: a report over the band past them walks on beside them, never to a window its pixels name", () => {
+        const { value, landed, failing, asked } = halls();
+        for (const w of [0, 1, 2]) failing.add(w);
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const d = open(value);
+            expect(d.getSnapshot().failures.map((f) => f.w)).toEqual([0, 1, 2]);
+            expect(bandText(tail(d.getSnapshot()))).toBe("6-39");
+            // The view's middle is in the band below the three failures: the window beside them is the one it names,
+            // and the demand reads ahead from there — a source whose first windows fail is no dead end.
+            d.reportViewport(overBand("tail", 200, [0, 1, 2, 3]), false);
+            expect(windowsOf(asked)).toEqual([0, 1, 2, 3, 4, 5]);
+            // The windows past the failures land, and their rows are drawn after them.
+            landed.add(3).add(4).add(5);
+            d.refresh();
+            expect(residentText(d.getSnapshot())).toBe("6-12");
+            expect(rowKeys(d.getSnapshot())[0]).toBe("h06");
+            expect(d.getSnapshot().failures.map((f) => f.w)).toEqual([0, 1, 2]);
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("a count that moves starts the geometry again: until a window lands at it the view keeps its window, whatever a report's pixels say", () => {
+        const { value, state, landed, asked } = halls();
+        for (const w of [0, 1, 2, 12, 13, 14, 15]) landed.add(w);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const d = open(value);
+            d.reportViewport(overBand("tail", 10 * WINDOW_PX + 100, [13]), false);
+            expect(residentText(d.getSnapshot())).toBe("24-32");
+            // The source counts four more halls under the same id: its windows are read again, none landed yet.
+            state.total = 44;
+            landed.clear();
+            d.refresh();
+            expect(d.getSnapshot().rows).toEqual([]);
+            const before = new Set(asked);
+            // The view reports from the band it stands over now, sized at a row a hall again: its window stays.
+            d.reportViewport(overBand("head", 360, [13]), false);
+            d.reportViewport(overBand("tail", 360, [13]), false);
+            expect(windowsOf(asked.filter((w) => !before.has(w)))).toEqual([]);
+            for (const w of [12, 13, 14, 15]) landed.add(w);
+            d.refresh();
+            expect(residentText(d.getSnapshot())).toBe("24-32");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test("a place over rows not read is kept by its entry once a window has landed, and by none before: a band sized at a row an entry says nothing of which entry a place in it is", () => {
+        const { value, landed } = halls();
+        const d = open(value);
+        expect(d.unreadPlace(tail(d.getSnapshot())!, 360)).toBeUndefined();
+        landed.add(0).add(1).add(2);
+        d.refresh();
+        const below = tail(d.getSnapshot())!;
+        expect(bandText(below)).toBe("6-39");
+        // A hundred px into the band: the seventh hall, as far into its window. A window and a half further: the tenth.
+        expect(d.unreadPlace(below, 100)).toEqual({ element: 6, px: 100 });
+        expect(d.unreadPlace(below, WINDOW_PX + WINDOW_PX / 2 + 10)).toEqual({ element: 9, px: WINDOW_PX / 2 + 10 });
     });
 });
 

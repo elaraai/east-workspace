@@ -488,17 +488,15 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             </Box>,
         );
     }
-    // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
-    // hatched, and this — how many there are, or that they are not counted where its count is no number of them (a day
-    // index's), and the resolution its summary shades at.
-    for (const notice of chrome?.cells?.notices ?? []) {
-        const kind = notice.name.toLocaleLowerCase(words.locale);
+    // What the Plan can show at no period it offers (#1039, #1739, #1799): the event kinds with more events in view than it
+    // draws and the rows' own collections with more items, that no summary shades at any period — their rows hatched, and
+    // one plain line naming them all. Where a coarser period shows them, the columns take it themselves and nothing is
+    // said (`../root/fallback.ts`).
+    const over = chrome?.over;
+    if (over !== undefined && (over.kinds.length > 0 || over.items.length > 0)) {
         bannerNodes.push(
-            <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
-                <BannerView status="info"
-                    title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
-                        : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
-                    description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
+            <Box key="over" data-plan-banner="over">
+                <BannerView status="info" title={m.tooManyToShow({ kinds: over.kinds.map((notice) => lowerWord(notice.name)), items: over.items.length > 0 })} />
             </Box>,
         );
     }
@@ -546,7 +544,7 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }} {...optimiseLanding?.attributes}>
             {kinds.length > 0 && (
                 <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
-                    hidden={hidden} onRead={setKindsRead} />
+                    hidden={hidden} placings={chrome?.placings} onRead={setKindsRead} />
             )}
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}

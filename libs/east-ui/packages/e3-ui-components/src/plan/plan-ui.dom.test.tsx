@@ -199,9 +199,9 @@ describe("a bound ui state (#824)", () => {
         expect(container.querySelector(sel(PRESS(1, 1)))).toBeNull();
         expect(container.querySelector(sel(HALL(1), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
         expect(container.querySelector(sel(PRESS(3, 1)))).toBeTruthy();
-        // The chart at its expanded height — 88px, where the spark is 32.
+        // The chart at its expanded height — 88px, where the spark is 32: its plot the row less its rule.
         expect(container.querySelector(`${sel(KPI)} [data-plan-mark="line"]`)!.closest("svg")!.getAttribute("viewBox"))
-            .toBe("0 0 1000 88");
+            .toBe("0 0 1000 87");
         // The canvas took the host's state as it is: no write-back, no echo.
         await act(async () => { await Promise.resolve(); });
         expect(uiEqual(held(), written)).toBe(true);

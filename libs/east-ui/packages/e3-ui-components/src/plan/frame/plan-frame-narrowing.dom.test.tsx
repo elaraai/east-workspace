@@ -12,7 +12,8 @@
  * — are read whole, and no source narrows them: the bulk edit's Chooser offers
  * every press the canvas holds. The window is every event
  * source's range: the toolbar's navigation writes them all, a range written to
- * the leading one is written to the others, and the resolution goes to each.
+ * the leading one is written to the others, and a period pressed writes its
+ * preset to each.
  * Each source narrows every place its records appear: the jobs' choices their
  * events and their backlog, the Backlog tab counting `N of M` and its Clear
  * filters keeping the window; a templates record's the Events
@@ -46,6 +47,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
@@ -137,6 +139,11 @@ const bar = (c: HTMLElement, key: string, hall: Hall, press: string) => c.queryS
 const chip = (c: HTMLElement, key: string, hall: Hall, crew: string) => c.querySelector<HTMLElement>(`${rowAt(crewRow(hall, crew))} ${el("data-chip", "shift", key)}`);
 /** Whether the canvas draws a row. */
 const draws = (c: HTMLElement, id: PlanRowId) => slot(c, "main")!.querySelector(rowAt(id)) !== null;
+/** Pans the canvas a day on, as `]` does: the window's next day, where the date navigator's Next steps its whole length. */
+async function panOn(c: HTMLElement) {
+    await act(async () => { fireEvent.keyDown(c.querySelector(rowAt(pressRow("Hall A", "a1")))!, { key: "]" }); });
+    await settle();
+}
 /** Whether the canvas draws a group's strip, by the group's key. */
 const drawsStrip = (c: HTMLElement, group: string) =>
     slot(c, "main")!.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("groups", group)))}]`) !== null;
@@ -195,16 +202,16 @@ const JOBS = `records.${ex.planPrintJobs.name}`;
 // ============================================================================
 
 describe("the Plan's one window (#1344)", () => {
-    test("every event source's range holds the window: the toolbar's navigation writes both, a range written to the leading one is followed, and the resolution goes to each — no range is a chip of the rail", async () => {
+    test("every event source's range holds the window: the toolbar's navigation writes both, a range written to the leading one is followed, and a period pressed writes its preset to each — no range is a chip of the rail", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         // The axis's four weeks, in the jobs' optional start and the shifts' start alike.
         expect(narrowing("job").get("start")).toEqual(range(FIRST, LAST, true));
         expect(narrowing("shift").get("start")).toEqual(range(FIRST, LAST, false));
-        // A day on: both move, keeping the window's twenty-eight days.
-        await press(toolbar(container).getByRole("button", { name: "Next day" }));
-        expect(narrowing("job").get("start")).toEqual(range(day("10-06"), day("11-03"), true));
-        expect(narrowing("shift").get("start")).toEqual(range(day("10-06"), day("11-03"), false));
+        // Its own length on: both move, to the twenty-eight days after.
+        await press(toolbar(container).getByRole("button", { name: "Next 28 days" }));
+        expect(narrowing("job").get("start")).toEqual(range(day("11-02"), day("11-30"), true));
+        expect(narrowing("shift").get("start")).toEqual(range(day("11-02"), day("11-30"), false));
         // The range editor writes the leading source's range — here, as the rail writes it; the shifts follow, and
         // the canvas draws those days: the magazine run on the 12th and Crew 1's late shift on the 13th, and neither
         // the first week's jobs nor its shifts.
@@ -221,11 +228,14 @@ describe("the Plan's one window (#1344)", () => {
         expect(screen.getByRole("dialog").querySelector('[data-record-slice-editor="start"][data-record-slice-source="job"]')).not.toBeNull();
         await act(async () => { fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" }); });
         await settle();
-        // The resolution, written to each source holding the window; the window stands.
+        // A period pressed is its preset (#1740), written to each source holding the window: as many weeks as fill the
+        // plot at the preset width — one not laid out, in a DOM with no layout — from the window's own start, the 12th,
+        // which never moves (ruled 23 Nov 2026). Nothing of the period is written: the columns take it from the range.
         await press(toolbar(container).getByText("WEEK"));
-        expect(state("job").resolution).toEqual(some(variant("week", null)));
-        expect(state("shift").resolution).toEqual(some(variant("week", null)));
-        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), day("10-19"), false));
+        const weeksOn = new Date(Date.UTC(2026, 9, 12 + 7 * Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset)));
+        expect(narrowing("job").get("start")).toEqual(range(day("10-12"), weeksOn, true));
+        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), weeksOn, false));
+        expect([state("job").resolution, state("shift").resolution]).toEqual([none, none]);
     });
 });
 
@@ -436,9 +446,9 @@ describe("a window read through interval indexes re-renders its readers, never t
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
             expect(bar(container, "J-1001", "Hall A", "a1")).not.toBeNull();
-            // With a job selected, the next window's searches render nothing until they have all landed either.
+            // With a job selected, the next window's searches — a day on — render nothing until they have all landed either.
             await pick(bar(container, "J-1001", "Hall A", "a1"));
-            await press(toolbar(container).getByRole("button", { name: "Next day" }));
+            await panOn(container);
             const next = searches.windowFrom(day("10-06"));
             expect(next.map(([index]) => index)).toEqual(["plan_print_jobs_by_time", "plan_print_shifts_by_time"]);
             expect(next.every(([, count]) => isWindow(count))).toBe(true);
@@ -477,9 +487,9 @@ describe("a filter change rebuilds no builder (#1354)", () => {
             expect(bar(container, "J-1005", "Hall A", "a1")).not.toBeNull();
             expect(bar(container, "J-1001", "Hall A", "a1")).toBeNull();
             expect(tabs(pane(container))[1]).toBe("Backlog 1 of 8");
-            // The window, written into every event source's range.
-            await press(toolbar(container).getByRole("button", { name: "Next day" }));
-            expect(narrowing("shift").get("start")).toEqual(range(day("10-06"), day("11-03"), false));
+            // The window, written into every event source's range: its own length on.
+            await press(toolbar(container).getByRole("button", { name: "Next 28 days" }));
+            expect(narrowing("shift").get("start")).toEqual(range(day("11-02"), day("11-30"), false));
             expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
         } finally {
             builds.restore();
@@ -622,14 +632,14 @@ describe("drafts the window leaves out ask e3 nothing (#1409, R24; #1599)", () =
         await act(async () => { fireEvent.keyDown(bar(container, first.key, first.on[0], first.on[1])!, { key: "Delete" }); });
         await settle();
         expect(added.every(({ key, on }) => bar(container, key, on[0], on[1]) === null)).toBe(true);
-        // A day on: the window leaves the first day, and every draft's row with it. The window's read once sought each such
+        // The window's own length on: it leaves the first day, and every draft's row with it. The window's read once sought each such
         // draft's key, to tell an event the record holds from a new one — a search and a one-row page apiece, at every step
         // of the dates; the reader that keeps the window's rows tells them by the row each draft's session began from, and
         // asks nothing. Every paged read is held on its way to e3 and let land a round at a time, so a read asked again is
         // counted, never run on.
         const reads = h.e3.hold(pagedRead);
         const from = h.requests().length;
-        await press(toolbar(container).getByRole("button", { name: "Next day" }));
+        await press(toolbar(container).getByRole("button", { name: "Next 28 days" }));
         for (let round = 0; round < 16 && reads.held > 0; round++) {
             await act(async () => { for (let n = reads.held; n > 0; n--) reads.releaseOne(); });
             await settle();

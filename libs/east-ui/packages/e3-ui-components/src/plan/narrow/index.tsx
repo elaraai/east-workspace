@@ -61,6 +61,10 @@
  * the row's group on the Rows tab, pages to it, and scrolls its card into
  * view, as the desktop canvas scrolls to the row. A row a search found is
  * selected too and stands in the list's middle.
+ *
+ * The list's cards, headers and lines are plain elements of their slots'
+ * classes, made once a theme (`useSlotClass`, #1780), as the canvas's rows
+ * are; its root is the tab strip's own, whose look it merges with.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
@@ -76,7 +80,7 @@ import { GridSeparators } from "../rows/RowShell.js";
 import { HeatCells } from "../rows/HeatRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
-import { LoadingFailedLine, PlaceholderCard, PlaceholderShape, loadingLineText, useSurfaceGestures } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderCard, PlaceholderShape, loadingLineText, useSlotClass, useSurfaceGestures } from "@elaraai/east-ui-components/internal";
 import { bandElements } from "../use-plan-paging.js";
 import {
     rowHeight, spansWindows,
@@ -179,6 +183,9 @@ export interface PlanNarrowProps {
     /** Where the rows the cards draw go, in order, as they change (#1438): the canvas reads the rows' nested series for
      *  them while the list shows, where the desktop's rows read theirs for the rows laid out. */
     onShown?: ((rows: readonly PlanRowValue[]) => void) | undefined;
+    /** Where the width the cards' columns share goes, as the list is laid out and as it changes (#1740): the plot the
+     *  canvas weighs its window's period on while the list shows. */
+    onPlot?: ((plot: number) => void) | undefined;
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
@@ -196,16 +203,17 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
     onLoadMore: () => void;
     styles: Styles;
 }) {
+    const slot = useSlotClass();
     useEffect(() => {
         if (watch === undefined) onLoadMore();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- shown once at each place the run ends (its key)
     }, []);
     return (
-        <Box ref={watch} css={styles.narrowPending} data-plan-more="source" data-plan-elements={bandElements(tail)}
+        <div ref={watch} className={slot(styles.narrowPending)} data-plan-more="source" data-plan-elements={bandElements(tail)}
             aria-busy={tail.loading !== undefined ? "true" : undefined}>
             <PlaceholderCard height={PENDING_CARD_PX} index={tail.from} />
             <PlaceholderCard height={PENDING_CARD_PX} index={tail.from + 1} />
-        </Box>
+        </div>
     );
 }
 
@@ -213,12 +221,13 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
     expandBody, expandGutterBody, canExpand, partial, pagedCount, pagedMeasures, fill,
-    failures, onRetry, paging, marks, noun, unread, onShown,
+    failures, onRetry, paging, marks, noun, unread, onShown, onPlot,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
+    const slot = useSlotClass();
     // A member count as a group's meta (#820) — a short bar while it covers only the loaded windows: never a count
     // the read has not finished (#1398, CL13).
     const membersText = (count: number): string => words.m.groupMeta({ n: count, count: words.number(count) });
@@ -388,6 +397,18 @@ export function PlanNarrow({
         const w = listRef.current?.clientWidth ?? 0;
         return w > 0 ? (w - 2 * BODY_INSET_PX) / scale.n : 0;
     };
+    // The width the cards' columns share (#1740), told as the list is laid out and as it changes — never held in state:
+    // the canvas's window takes its period from it. Each tab mounts its own list, so the one shown is followed.
+    useLayoutEffect(() => {
+        const el = listRef.current;
+        if (el === null || onPlot === undefined) return;
+        const tell = () => onPlot(el.clientWidth - 2 * BODY_INSET_PX);
+        tell();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(tell);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [activeTab, onPlot]);
     const listGestures = useSurfaceGestures(
         twoFingerPan(panning, periodPx, (periods) => dispatch({ t: "pan", buckets: periods })),
         { accepts: fingersOnly, capture: false });
@@ -419,9 +440,9 @@ export function PlanNarrow({
     const revealMore = (key: NarrowTab) =>
         setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }));
     const more = (key: NarrowTab, label: string, then?: () => void) => (
-        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => { revealMore(key); then?.(); }}>
+        <button type="button" className={slot(styles.narrowMore)} data-plan-more={key} onClick={() => { revealMore(key); then?.(); }}>
             {label}
-        </Box>
+        </button>
     );
     // A list that shows every resident row while the source holds more
     // (#812): the canvas's tail band in list form — placeholder cards at a
@@ -451,19 +472,19 @@ export function PlanNarrow({
                     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
                     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
                     return (
-                        <Box key={row.key} css={styles.narrowCard} data-plan-groupcard={row.key}
+                        <div key={row.key} className={slot(styles.narrowCard)} data-plan-groupcard={row.key}
                             onClick={() => openGroup(row.key)}>
-                            <Box css={styles.narrowCardHead}>
-                                <Box css={styles.narrowCardTitle} data-group="">{row.gutter.label}</Box>
-                                {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                                <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                            <div className={slot(styles.narrowCardHead)}>
+                                <div className={slot(styles.narrowCardTitle)} data-group="">{row.gutter.label}</div>
+                                {meta !== undefined && <span className={slot(styles.gutterMeta)}>{meta}</span>}
+                                <div className={slot(styles.narrowCardEnd)}>
+                                    {statusTone !== undefined && <span className={slot(styles.statusDot)} data-tone={statusTone}
                                         role="img" aria-label={statusText(statusTone, words)} />}
-                                    {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
-                                </Box>
-                            </Box>
+                                    {value !== undefined && <span className={slot(styles.gutterValue)}>{value}</span>}
+                                </div>
+                            </div>
                             {arm !== undefined && (
-                                <Box css={styles.narrowCardBody} style={{ height: `${geometry.narrowStrip}px` }} data-plan-cardbody="group">
+                                <div className={slot(styles.narrowCardBody)} style={{ height: `${geometry.narrowStrip}px` }} data-plan-cardbody="group">
                                     <GridSeparators styles={styles} />
                                     {derived.diagnostics.has(row.key) ? (
                                         <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />
@@ -473,9 +494,9 @@ export function PlanNarrow({
                                         </PlanPartBoundary>
                                     )}
                                     {nowLine}
-                                </Box>
+                                </div>
                             )}
-                        </Box>
+                        </div>
                     );
                 })}
                 {hidden.length > 0 ? more("groups", words.m.moreGroups({
@@ -484,12 +505,12 @@ export function PlanNarrow({
                     members: hiddenRs > 0 ? membersText(hiddenRs) : undefined,
                 })) : loadMore()}
                 {ungrouped.length > 0 && (
-                    <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
-                        <Box css={styles.narrowCardHead}>
-                            <Box css={styles.narrowCardTitle} data-group="">{words.m.otherRows()}</Box>
-                            <Box as="span" css={styles.gutterMeta}>{membersMeta(ungrouped.length, false)}</Box>
-                        </Box>
-                    </Box>
+                    <div className={slot(styles.narrowCard)} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
+                        <div className={slot(styles.narrowCardHead)}>
+                            <div className={slot(styles.narrowCardTitle)} data-group="">{words.m.otherRows()}</div>
+                            <span className={slot(styles.gutterMeta)}>{membersMeta(ungrouped.length, false)}</span>
+                        </div>
+                    </div>
                 )}
             </>
         );
@@ -508,17 +529,17 @@ export function PlanNarrow({
             if (s.header !== undefined && shown.length > 0) {
                 const h = s.header;
                 body.push(
-                    <Box key={`section-${s.key}`} css={styles.narrowSection} data-plan-section={s.key}
+                    <div key={`section-${s.key}`} className={slot(styles.narrowSection)} data-plan-section={s.key}
                         onClick={() => openGroup(h.scope)}>
-                        <Box css={styles.narrowSectionTitle}>{h.label}</Box>
-                        {h.meta !== undefined && <Box as="span" css={styles.gutterMeta}>{h.meta}</Box>}
-                        <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone}
+                        <div className={slot(styles.narrowSectionTitle)}>{h.label}</div>
+                        {h.meta !== undefined && <span className={slot(styles.gutterMeta)}>{h.meta}</span>}
+                        <div className={slot(styles.narrowCardEnd)}>
+                            {h.tone !== undefined && <span className={slot(styles.statusDot)} data-tone={h.tone}
                                 role="img" aria-label={statusText(h.tone, words)} />}
-                            {h.value !== undefined && <Box as="span" css={styles.gutterValue}>{h.value}</Box>}
-                            <Box as="span" css={styles.narrowSectionGo} aria-hidden><FontAwesomeIcon icon={faChevronRight} /></Box>
-                        </Box>
-                    </Box>,
+                            {h.value !== undefined && <span className={slot(styles.gutterValue)}>{h.value}</span>}
+                            <span className={slot(styles.narrowSectionGo)} aria-hidden><FontAwesomeIcon icon={faChevronRight} /></span>
+                        </div>
+                    </div>,
                 );
             }
             for (const row of shown) body.push(renderRowCard(row, false));
@@ -544,21 +565,21 @@ export function PlanNarrow({
         list = (
             <>
                 {(scopeGroup !== undefined || scope === OTHER_SCOPE) && (
-                    <Box css={styles.narrowScope} data-slot="narrowScope" data-plan-scope={scopeGroup?.key}>
+                    <div className={slot(styles.narrowScope)} data-slot="narrowScope" data-plan-scope={scopeGroup?.key}>
                         {hasGroups && (
-                            <Box as="button" css={styles.narrowBack} data-plan-back=""
+                            <button type="button" className={slot(styles.narrowBack)} data-plan-back=""
                                 onClick={() => { setScope(null); setTab(groupsIndex ? "groups" : "rows"); }}>
                                 {groupsIndex ? words.m.backToGroups() : words.m.backToAllRows()}
-                            </Box>
+                            </button>
                         )}
-                        <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : words.m.otherRows()}</Box>
-                        <Box css={styles.narrowScopeMeta}>
+                        <div className={slot(styles.narrowScopeTitle)}>{scopeGroup !== undefined ? scopeGroup.gutter.label : words.m.otherRows()}</div>
+                        <div className={slot(styles.narrowScopeMeta)}>
                             {[members !== undefined && members > 0 ? membersText(members) : undefined, scopeValue].filter(Boolean).join(" · ")}
-                        </Box>
-                    </Box>
+                        </div>
+                    </div>
                 )}
                 {/* "No rows" only once a completed read says so (#1398, CL13): never while the source holds more. */}
-                {total === 0 && paging?.tail === undefined && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
+                {total === 0 && paging?.tail === undefined && <div className={slot(styles.narrowEmpty)}>{words.m.noRows()}</div>}
                 {body}
                 {unreadLeft ? <>{pastRead && loadMore()}{moreRows}</> : moreRows ?? loadMore()}
             </>
@@ -603,10 +624,10 @@ export function PlanNarrow({
                             {t.label}
                             {/* "…" while it counts only what has landed: never a count the read has not finished (#1398, CL13);
                                 words where the source's entries make no fixed number of what it counts. */}
-                            <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
+                            <span className={slot(styles.narrowTabCount)} data-plan-tabcount={t.count}>
                                 {typeof t.count === "number" ? words.m.tabCount({ n: t.count, count: words.number(t.count) })
                                     : t.count === "notCounted" ? words.m.tabNotCounted() : "…"}
-                            </Box>
+                            </span>
                         </Tabs.Trigger>
                     ))}
                 </Tabs.List>
@@ -621,12 +642,12 @@ export function PlanNarrow({
                         {(failures ?? []).map((f) => {
                             const range = { from: words.number(f.from + 1), to: words.number(f.to + 1) };
                             return (
-                                <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w}>
-                                    <Box css={styles.narrowCardHead}>
+                                <div key={`failed-${f.w}`} className={slot(styles.narrowCard)} data-plan-failed={f.w}>
+                                    <div className={slot(styles.narrowCardHead)}>
                                         <LoadingFailedLine message={loadingLineText(words.m.lineFailed({ noun, ...range }))}
                                             retry={{ onRetry: () => onRetry?.(f.w), label: words.m.retry(), name: words.m.retryRange({ noun, ...range }) }} />
-                                    </Box>
-                                </Box>
+                                    </div>
+                                </div>
                             );
                         })}
                         {list}

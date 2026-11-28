@@ -10,6 +10,8 @@
  * scrolling ancestor) and the geometry it WRITES is read back from the DOM:
  * the extent (`data-virtual-extent`) and the one translated column the fixed
  * rows ride in, whose offset is the virtualizer's start for its first row.
+ * And a chart row folds its layers as the frame mounts it (#1798): one the
+ * frame does not mount folds nothing.
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
@@ -22,9 +24,12 @@ import { setVirtualRowsMeasureProbe } from "@elaraai/east-ui-components/testing"
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
+import type { ChartKindValue } from "./rows/chart-geometry.js";
+import { setChartFoldProbe } from "./derive.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, keySurface, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 // Every re-measure the row frame makes is counted, through its probe: the
 // frame and the TanStack it drives are east-ui-components' bundle, which no
@@ -117,7 +122,7 @@ const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("no
 /** A spark chart its expand control toggles to expanded (32px ↔ 88px, #1680's review). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
-    height: variant("spark", null), expandedHeight: none, expandable: true,
+    height: variant("spark", null), expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
 });
 const expandable = (px: string) => ({ height: some(px), axis: variant("keep", null) });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
@@ -125,6 +130,7 @@ const pad = (i: number, width: number) => String(i).padStart(width, "0");
 function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknown; expandRender?: boolean; links?: unknown[] }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts?.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -281,6 +287,51 @@ describe("Plan re-measures on heights, never on selection (#812)", () => {
         // The control: a height that moves IS re-measured — exactly once.
         fireEvent.click(container.querySelector(`${rowSel("chart")} [data-plan-control="expand"]`)!);
         expect(counted.measure).toBe(1);
+    });
+});
+
+describe("a chart row folds as the frame mounts it (#1798)", () => {
+    const DAY = 86_400_000;
+    /** A line of a point a day across the window, in a layer named for its row: what its folds are told apart by. */
+    const daily = (name: string) => variant("chart", {
+        layers: [variant("line", {
+            points: Array.from({ length: 84 }, (_u, d) => ({ t: t(new Date(W27.getTime() + d * DAY)), y: d % 7 })),
+            axis: variant("left", null), breach: none, fold: variant("mean", null),
+            style: { label: some(name), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+        })],
+        left: none, right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+        grid: true, legend: true, tooltip: true,
+    });
+    /** The row a fold was made for: its line's name. */
+    const rowOf = (chart: ChartKindValue): string => {
+        const layer = chart.layers[0];
+        return layer !== undefined && layer.type === "line" && layer.value.style.label.type === "some" ? layer.value.style.label.value : "";
+    };
+    const mounted = (c: HTMLElement) => [...c.querySelectorAll("[data-plan-row]")].map((row) => testKeyOf(row.getAttribute("data-plan-row")!));
+
+    test("sixty-one chart rows of daily points in a 400px frame, a week a column: the rows it mounts fold, each once, and no other — a scroll folds the rows it brings in, and back, nothing", () => {
+        const folded: string[] = [];
+        setChartFoldProbe((chart) => folded.push(rowOf(chart)));
+        try {
+            const rows = Array.from({ length: 61 }, (_u, i) => planRow(`c${pad(i, 2)}`, daily(`c${pad(i, 2)}`)));
+            const { container } = renderPlan(planRoot(rows, { height: "400px" }), "plan-1798-mount");
+            const first = mounted(container);
+            expect(first.length).toBeGreaterThan(0);
+            expect(first.length).toBeLessThan(61);
+            expect([...folded].sort()).toEqual([...first].sort());
+            // Deep in the frame, the rows it brings in fold, each once.
+            scrollFrame(container, 40 * 88);
+            const deep = mounted(container);
+            expect(deep.some((key) => !first.includes(key))).toBe(true);
+            expect([...folded].sort()).toEqual([...new Set([...first, ...deep])].sort());
+            // Back at the top, every row it shows folded there before: nothing folds again.
+            const before = folded.length;
+            scrollFrame(container, 0);
+            expect(mounted(container).every((key) => first.includes(key))).toBe(true);
+            expect(folded).toHaveLength(before);
+        } finally {
+            setChartFoldProbe(undefined);
+        }
     });
 });
 

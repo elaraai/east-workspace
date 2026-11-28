@@ -4,14 +4,16 @@
  */
 
 /**
- * The nested series index, `index.nested` (#1434): what TypeScript checks
+ * The nested series index, `index.nestedSeries` (#1434): what TypeScript checks
  * of a declaration from the record's type alone; the refusals, in their
- * words; a row's entries — its items filed by #1433's levels, its totals, its
- * items rolled up under every ancestor, and every parent's subtotals, checked
- * by hand; the lean rows the record's other indexes carry beside it; and how
- * a write keeps it — by its patch where the patch can say what it touched,
- * whole where it cannot, both one delta, and maintained equals rebuilt, byte
- * for byte. That every runtime files a row alike is e3-core's series spec.
+ * words; a row's entries — its items filed by #1433's levels, its totals at
+ * each period its summary names (#1739), its items rolled up under every
+ * ancestor, and every parent's subtotals, checked by hand; its span, the
+ * record's totals at each period it names (#1739); the lean rows the record's
+ * other indexes carry beside it; and how a write keeps it and its span — by
+ * its patch where the patch can say what it touched, whole where it cannot,
+ * both one delta, and maintained equals rebuilt, byte for byte. That every
+ * runtime files a row alike is e3-core's series spec.
  *
  * Rows and entries are written as East prints them, and read by East's parser.
  */
@@ -20,18 +22,21 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   ArrayType, DateTimeType, DictType, East, FloatType, IRType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
-  StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, isTypeEqual, printFor, printType,
+  StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, equalFor, isTypeEqual, printFor, printType,
   variant, walkIR, type EastType, type IR, type ValueTypeOf,
 } from '@elaraai/east';
-import { NestedEntryKeyType, NestedEntryType, NestedIdType, RecordNestedDeclType } from '@elaraai/e3-types';
+import {
+  NestedEntryKeyType, NestedEntryType, NestedIdType, NestedSpanKeyType, RecordNestedDeclType, RecordSummaryOpType, RecordSummaryTotalsType,
+  type RecordSummaryOp, type RecordSummaryTotals,
+} from '@elaraai/e3-types';
 import { record } from './record.js';
 import type { NestedSeriesIndexSpec } from './record-index.js';
 import type { IndexBuilder } from './record-builders.js';
 import { items, recursive, rows, values } from './record-nested.js';
-import { buildMutationProgram, builtIndex, indexBuildProgram } from './record-programs.js';
+import { buildMutationProgram, builtIndex, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { bundleOf, functionAt } from './record-guards.js';
 import { package_ } from './package.js';
-import { NestedPatchedType } from './record-nested-programs.js';
+import { NestedPatchedType, NestedTouchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import { TILE_FNS } from './record-tiles.js';
 import { assertEast, parsed } from './test-helpers.js';
@@ -39,11 +44,11 @@ import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
  * The nested series index a record like `rec` — its name and type — declares under `name`, as `e3.record` builds it;
- * and the builders of the collections it files, `index.nested`'s.
+ * and the builders of the collections it files, `index.nestedSeries`'s.
  */
 const series = Object.assign(
   <T extends EastType, const S extends NestedSeriesIndexSpec<T>>(name: string, rec: RecordDef<T>, spec: S): RecordIndexDef =>
-    record(rec.name, rec.type, { indexes: (index) => ({ [name]: index.nested(spec) }) }).indexes[name]!,
+    record(rec.name, rec.type, { indexes: (index) => ({ [name]: index.nestedSeries(spec) }) }).indexes[name]!,
   { items, values, rows, recursive },
 );
 
@@ -63,16 +68,16 @@ const Machine = StructType({
 });
 const Machines = DictType(StringType, Machine);
 /** The machines' nested series index: every collection a machine nests, filed from a week up and totalled a month at a time. */
-const machinesNested = (index: IndexBuilder<typeof Machines>) => index.nested({
+const machinesNested = (index: IndexBuilder<typeof Machines>) => index.nestedSeries({
   collections: {
-    jobs: index.nested.items({ from: 'start', to: 'end' }),
-    stops: index.nested.items({ from: 'start', to: 'end' }),
-    alarms: index.nested.items({ at: 'at' }),
-    load: index.nested.values(),
-    output: index.nested.values(),
+    jobs: index.nestedSeries.items({ from: 'start', to: 'end' }),
+    stops: index.nestedSeries.items({ from: 'start', to: 'end' }),
+    alarms: index.nestedSeries.items({ at: 'at' }),
+    load: index.nestedSeries.values(),
+    output: index.nestedSeries.values(),
   },
   tile: 'week',
-  summary: 'month',
+  summary: ['month'],
 });
 /** The machines, declaring their nested series index and their patch. */
 const machines = () => record('machines', Machines, {
@@ -89,10 +94,10 @@ const Halls = DictType(StringType, Hall);
 const halls = () => record('halls', Halls, {
   initial: new Map(),
   indexes: (index) => ({
-    halls_in_time: index.nested({
-      collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) },
+    halls_in_time: index.nestedSeries({
+      collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) },
       tile: 'day',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -111,10 +116,10 @@ const Crews = DictType(StringType, Crew);
 const crews = () => record('crews', Crews, {
   initial: new Map(),
   indexes: (index) => ({
-    crews_in_time: index.nested({
-      collections: { hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }) },
+    crews_in_time: index.nestedSeries({
+      collections: { hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: 'sum' }), shifts: index.nestedSeries.items({ at: 'at' }) }) },
       tile: 'week',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -128,17 +133,53 @@ const Assemblies = DictType(StringType, Assembly);
 const assemblies = () => record('assemblies', Assemblies, {
   initial: new Map(),
   indexes: (index) => ({
-    assemblies_in_time: index.nested({
+    assemblies_in_time: index.nestedSeries({
       collections: {
-        parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }),
+        parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }),
       },
       tile: 'week',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 const assembliesInTime = (rec: ReturnType<typeof assemblies>) => rec.indexes.assemblies_in_time;
+
+/**
+ * The lines (#1739): a line's jobs and its load, filed from a day up, each
+ * line's totals kept a week and a month, and the record's a week and a
+ * quarter — its periods written out of order, as a declaration may.
+ */
+const lines = () => record('lines', Machines, {
+  initial: new Map(),
+  indexes: (index) => ({
+    lines_in_time: index.nestedSeries({
+      collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() },
+      tile: 'day',
+      summary: ['month', 'week'],
+      totals: ['quarter', 'week'],
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const linesInTime = (rec: ReturnType<typeof lines>) => rec.indexes.lines_in_time;
+
+/** The works (#1739): an assembly's parts' jobs, rolled up, each part's totals and its subtree's kept a week and a month. */
+const works = () => record('works', Assemblies, {
+  initial: new Map(),
+  indexes: (index) => ({
+    works_in_time: index.nestedSeries({
+      collections: {
+        parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }),
+      },
+      tile: 'week',
+      summary: ['week', 'month'],
+      totals: ['month'],
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const worksInTime = (rec: ReturnType<typeof works>) => rec.indexes.works_in_time;
 
 /** A ledger's measures, each with more beneath, to any depth. */
 const Measure = RecursiveType((self) => StructType({
@@ -149,12 +190,12 @@ const Ledgers = DictType(StringType, Ledger);
 const ledgers = () => record('ledgers', Ledgers, {
   initial: new Map(),
   indexes: (index) => ({
-    ledgers_in_time: index.nested({
+    ledgers_in_time: index.nestedSeries({
       collections: {
-        measures: index.nested.rows({
-          readings: index.nested.values({ rollup: ['sum', 'mean', 'count'] }),
-          stock: index.nested.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
-          children: index.nested.recursive(),
+        measures: index.nestedSeries.rows({
+          readings: index.nestedSeries.values({ rollup: ['sum', 'mean', 'count'] }),
+          stock: index.nestedSeries.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
+          children: index.nestedSeries.recursive(),
         }),
       },
       tile: 'day',
@@ -216,8 +257,8 @@ function state<T extends EastType>(type: T, rows: Readonly<Record<string, string
 
 // ── The declaration ──────────────────────────────────────────────────────────
 
-describe('index.nested — its declaration', () => {
-  it('types its entries from the record and the declaration, and carries the declaration, its tile and its summary', () => {
+describe('index.nestedSeries — its declaration', () => {
+  it('types its entries from the record and the declaration, and carries the declaration, its tile, its summary and its totals', () => {
     const def = machinesInTime(machines());
     // Its ids: a case for each collection keyed by an id, by its place, holding its Dict's key type (#1540).
     const ids = NestedIdType({ alarms: StringType, jobs: StringType, stops: StringType });
@@ -227,11 +268,25 @@ describe('index.nested — its declaration', () => {
     assert.deepEqual(def.on, []);
     assert.equal(def.multi, true);
     assert.equal(def.nested.tile, 'week');
-    assert.equal(def.nested.summary, 'month');
+    assert.deepEqual(def.nested.summary, ['month']);
+    assert.deepEqual(def.nested.totals, ['month', 'quarter', 'year'], 'the record\'s totals, where it names none');
     assertEast(RecordNestedDeclType, def.nested.declaration, parsed(RecordNestedDeclType,
       '{"alarms":.items (times=.at "at", rollup=false), "jobs":.items (times=.span (from="start", to="end"), rollup=false), ' +
       '"load":.values (rollups=[]), "output":.values (rollups=[]), "stops":.items (times=.span (from="start", to="end"), rollup=false)}'),
     'the declaration it carries');
+  });
+
+  it('carries the periods its summary and its totals name, finest first whatever order they are written in; no summary where it names none (#1739)', () => {
+    const named = linesInTime(lines());
+    // As its type says them: the periods a reader may ask its totals at.
+    const summary: readonly ('week' | 'month')[] = named.nested.summary;
+    const totals: readonly ('week' | 'quarter')[] = named.nested.totals;
+    assert.deepEqual(summary, ['week', 'month']);
+    assert.deepEqual(totals, ['week', 'quarter']);
+    assert.deepEqual(named.nested.span.span.tiles, ['week', 'quarter'], 'its span keeps the record\'s totals at them');
+    const none: readonly never[] = ledgersInTime(ledgers()).nested.summary;
+    assert.deepEqual(none, [], 'no node\'s totals kept');
+    assert.deepEqual(ledgersInTime(ledgers()).nested.totals, ['month', 'quarter', 'year'], 'and the record\'s, a month, a quarter and a year');
   });
 
   it('nests the items\' variant as the declaration nests: child rows a variant of their own, a recursive field none', () => {
@@ -245,16 +300,16 @@ describe('index.nested — its declaration', () => {
     const rec = machines();
     // @ts-expect-error — the jobs have no field 'begin'
     const misnamed = () => series('t', rec, { collections: { jobs: series.items({ from: 'begin', to: 'end' }) }, tile: 'week' });
-    assert.throws(misnamed, /^Error: e3\.record 'machines': index\.nested 't' collections.jobs times from 'begin', which is no field of the jobs$/);
+    assert.throws(misnamed, /^Error: e3\.record 'machines': index\.nestedSeries 't' collections.jobs times from 'begin', which is no field of the jobs$/);
     // @ts-expect-error — the alarms are keyed by an id: values() fits no such field
     const alarmsAsValues = () => series('t', rec, { collections: { alarms: series.values() }, tile: 'week' });
-    assert.throws(alarmsAsValues, /^Error: e3\.record 'machines': index\.nested 't' collections.alarms is values\(\), and 'alarms' is keyed by \.String — values are keyed by their instant: declare it with items\(\{ from, to \}\) or items\(\{ at \}\)$/);
+    assert.throws(alarmsAsValues, /^Error: e3\.record 'machines': index\.nestedSeries 't' collections.alarms is values\(\), and 'alarms' is keyed by \.String — values are keyed by their instant: declare it with items\(\{ from, to \}\) or items\(\{ at \}\)$/);
     // @ts-expect-error — the load is keyed by its instant: items(…) fits no such field
     const loadAsItems = () => series('t', rec, { collections: { load: series.items({ at: 'at' }) }, tile: 'week' });
-    assert.throws(loadAsItems, /^Error: e3\.record 'machines': index\.nested 't' collections.load is items\(…\), and 'load' is keyed by \.DateTime — a collection keyed by its instant holds values: declare it with values\(\)$/);
+    assert.throws(loadAsItems, /^Error: e3\.record 'machines': index\.nestedSeries 't' collections.load is items\(…\), and 'load' is keyed by \.DateTime — a collection keyed by its instant holds values: declare it with values\(\)$/);
     // @ts-expect-error — a machine holds no more machines
     const jobsAsRecursive = () => series('t', rec, { collections: { jobs: series.recursive() }, tile: 'week' });
-    assert.throws(jobsAsRecursive, /^Error: e3\.record 'machines': index\.nested 't' collections.jobs is recursive\(\), and holds .+, not .+ — a recursive field holds more rows like the one listing it$/);
+    assert.throws(jobsAsRecursive, /^Error: e3\.record 'machines': index\.nestedSeries 't' collections.jobs is recursive\(\), and holds .+, not .+ — a recursive field holds more rows like the one listing it$/);
     // @ts-expect-error — no rollup is called median
     const median = () => series('t', halls(), { collections: { members: series.rows({ load: series.values({ rollup: 'median' }) }) }, tile: 'day' });
     assert.throws(median, /rolls up by "median", which is no rollup/);
@@ -263,14 +318,14 @@ describe('index.nested — its declaration', () => {
     assert.throws(foldAlone, /rolls up by \{ fold: "last" \}, which is no rollup/);
     // @ts-expect-error — the row has no field 'job'
     const unknown = () => series('t', rec, { collections: { job: series.items({ from: 'start', to: 'end' }) }, tile: 'week' });
-    assert.throws(unknown, /^Error: e3\.record 'machines': index\.nested 't' collections names unknown row field 'job'$/);
+    assert.throws(unknown, /^Error: e3\.record 'machines': index\.nestedSeries 't' collections names unknown row field 'job'$/);
   });
 
   describe('refuses, at definition time, in its words', () => {
     const refused = (spec: object, words: string, rec: RecordDef = machines()) =>
       assert.throws(() => series('machines_in_time', rec as never, spec as never), (error: unknown) => {
         assert.ok(error instanceof Error);
-        assert.equal(error.message, `e3.record '${rec.name}': index.nested 'machines_in_time' ${words}`);
+        assert.equal(error.message, `e3.record '${rec.name}': index.nestedSeries 'machines_in_time' ${words}`);
         return true;
       });
     const jobs = series.items({ from: 'start', to: 'end' });
@@ -278,7 +333,7 @@ describe('index.nested — its declaration', () => {
     it('collections declaring none, or a field no builder made', () => {
       refused({ collections: {}, tile: 'week' }, 'collections declares no collection');
       refused({ collections: { jobs: { from: 'start' } }, tile: 'week' },
-        'collections.jobs is no declaration — declare it with index.nested.items(times), values(), rows(collections) or recursive()');
+        'collections.jobs is no declaration — declare it with index.nestedSeries.items(times), values(), rows(collections) or recursive()');
     });
 
     it('a field that is not a Dict, or not one of the row\'s', () => {
@@ -291,7 +346,7 @@ describe('index.nested — its declaration', () => {
       const Bay = StructType({ name: StringType, loads: DictType(StringType, FloatType) });
       const bays = record('bays', DictType(StringType, Bay), { initial: new Map() });
       assert.throws(() => series('halls_in_time', bays, { collections: { loads: series.rows({}) } as never, tile: 'day' }),
-        /^Error: e3\.record 'bays': index\.nested 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<K, Struct> keyed by an id$/);
+        /^Error: e3\.record 'bays': index\.nestedSeries 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<K, Struct> keyed by an id$/);
     });
 
     it('a time of another type', () => {
@@ -307,26 +362,53 @@ describe('index.nested — its declaration', () => {
         collections: { measures: series.rows({ readings: series.values({ rollup } as never), children: series.recursive() }) }, tile: 'day',
       });
       assert.throws(() => series('ledgers_in_time', ledgers(), ledgerSpec({ fold: 'sum', aggregate: 'count' }) as never),
-        /^Error: e3\.record 'ledgers': index\.nested 'ledgers_in_time' collections.measures.readings rolls up by \{ fold: 'sum', aggregate: 'count' \} — a count counts the leaf rows with a value, whatever they fold to: write rollup: "count"$/);
+        /^Error: e3\.record 'ledgers': index\.nestedSeries 'ledgers_in_time' collections.measures.readings rolls up by \{ fold: 'sum', aggregate: 'count' \} — a count counts the leaf rows with a value, whatever they fold to: write rollup: "count"$/);
       assert.throws(() => series('ledgers_in_time', ledgers(), ledgerSpec(['sum', 'sum']) as never),
-        /^Error: e3\.record 'ledgers': index\.nested 'ledgers_in_time' collections.measures.readings rolls up by sum twice — name each rollup once$/);
+        /^Error: e3\.record 'ledgers': index\.nestedSeries 'ledgers_in_time' collections.measures.readings rolls up by sum twice — name each rollup once$/);
     });
 
     it('the key form, on or a value beside collections, and a tile of none of the five', () => {
       const collections = { jobs };
       refused({ collections, key: 'site', from: 'installed', to: 'retired', tile: 'week' },
-        'takes collections, tile and summary — key, from and to file the record\'s own events: index.series({ key, from, to, tile })');
+        'takes collections, tile, summary and totals — key, from and to file the record\'s own events: index.flatSeries({ key, from, to, tile })');
       refused({ collections, on: ['site'], tile: 'week' },
         'takes no on with collections — a nested collection is read by its row\'s key, which the rail\'s indexes page');
       refused({ collections, value: () => null, tile: 'week' }, 'takes no value — each entry carries its own item, totals or subtotal');
       assert.throws(() => series('machines_in_time', machines(), { collections, tile: 'fortnight' } as never), /tile/);
+    });
+
+    it('a summary or totals that is no list of periods, a period named twice, totals naming none, and an option it does not take (#1739)', () => {
+      const collections = { jobs };
+      // Its periods in lists, the declaration is taken, by TypeScript and at definition time.
+      const taken = series('machines_in_time', machines(), {
+        collections: { jobs: series.items({ from: 'start', to: 'end' }) }, tile: 'week', summary: ['month'], totals: ['year'],
+      });
+      assert.deepEqual([taken.nested?.summary, taken.nested?.totals], [['month'], ['year']]);
+      // @ts-expect-error — a summary is a list of periods
+      const onePeriod = () => series('machines_in_time', machines(), { collections: { jobs: series.items({ from: 'start', to: 'end' }) }, tile: 'week', summary: 'month' });
+      assert.throws(onePeriod, /summary takes a list of periods/);
+      // @ts-expect-error — a period is one of the five
+      const noPeriod = () => series('machines_in_time', machines(), { collections: { jobs: series.items({ from: 'start', to: 'end' }) }, tile: 'week', totals: ['fortnight'] });
+      assert.throws(noPeriod, /totals takes periods/);
+      refused({ collections, tile: 'week', summary: 'month' },
+        'summary takes a list of periods, each of "day", "week", "month", "quarter", "year", as summary: ["month"] — got "month"');
+      refused({ collections, tile: 'week', totals: 'quarter' },
+        'totals takes a list of periods, each of "day", "week", "month", "quarter", "year", as totals: ["month"] — got "quarter"');
+      refused({ collections, tile: 'week', summary: ['month', 'fortnight'] },
+        'summary takes periods: "day", "week", "month", "quarter", "year" — got "fortnight"');
+      refused({ collections, tile: 'week', totals: ['month', 7] }, 'totals takes periods: "day", "week", "month", "quarter", "year" — got 7');
+      refused({ collections, tile: 'week', summary: ['month', 'week', 'month'] }, 'summary names "month" twice — name each period once');
+      refused({ collections, tile: 'week', totals: ['year', 'year'] }, 'totals names "year" twice — name each period once');
+      refused({ collections, tile: 'week', totals: [] },
+        'totals names no period — the record\'s totals are kept at one period at least: leave totals out to keep a month, a quarter and a year');
+      refused({ collections, tile: 'week', total: ['month'] }, 'takes collections, tile, summary, totals, not total');
     });
   });
 });
 
 // ── A row's entries ──────────────────────────────────────────────────────────
 
-describe('index.nested — a row\'s entries', () => {
+describe('index.nestedSeries — a row\'s entries', () => {
   it('files a job once under the week its length fits, a value at its instant, and keeps their month totals', () => {
     const def = machinesInTime(machines());
     const row = parsed(Machine, machine({ 'j-0042': job('2026-10-02T06:00:00.000', '2026-10-06T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.82 }));
@@ -341,6 +423,56 @@ describe('index.nested — a row\'s entries', () => {
       (collection=.step (key="load", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
         .totals (count=1, ms=0, values=.some (sum=0.82, min=0.82, max=0.82, last=0.82))
     }`), 'M-7\'s entries');
+  });
+
+  it('keeps a node\'s totals at each period its summary names, an item counted once in each tile of a period it touches (#1739)', () => {
+    const def = linesInTime(lines());
+    // A job a week long from Tuesday 29 September 06:00: 138 hours of its first week and 30 of the next, 42 of September and 126 of October.
+    const row = parsed(Machine, machine(
+      { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000') },
+      { '2026-10-05T00:00:00.000': 0.5, '2026-10-12T00:00:00.000': 0.25 },
+    ));
+    const JOBS = '(collection=.step (key="jobs", rest=.end), row="L-1", path=.end';
+    const LOAD = '(collection=.step (key="load", rest=.end), row="L-1", path=.end';
+    assertEast(DictType(def.keyType, def.valueType), entries(def, 'L-1', row), parsed(DictType(def.keyType, def.valueType), `{
+      ${JOBS}, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id .jobs "j-1"):
+        .item .jobs ${job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000')},
+      ${JOBS}, run=.totals, level=.week, tile=2026-09-28T00:00:00.000, item=.none): .totals (count=1, ms=496800000, values=.none),
+      ${JOBS}, run=.totals, level=.week, tile=2026-10-05T00:00:00.000, item=.none): .totals (count=1, ms=108000000, values=.none),
+      ${JOBS}, run=.totals, level=.month, tile=2026-09-01T00:00:00.000, item=.none): .totals (count=1, ms=151200000, values=.none),
+      ${JOBS}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none): .totals (count=1, ms=453600000, values=.none),
+      ${LOAD}, run=.items, level=.day, tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000): .item .load 0.5,
+      ${LOAD}, run=.items, level=.day, tile=2026-10-12T00:00:00.000, item=.at 2026-10-12T00:00:00.000): .item .load 0.25,
+      ${LOAD}, run=.totals, level=.week, tile=2026-10-05T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=0.5, min=0.5, max=0.5, last=0.5)),
+      ${LOAD}, run=.totals, level=.week, tile=2026-10-12T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=0.25, min=0.25, max=0.25, last=0.25)),
+      ${LOAD}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=2, ms=0, values=.some (sum=0.75, min=0.25, max=0.5, last=0.25))
+    }`), 'L-1\'s entries');
+  });
+
+  it('keeps a part\'s totals, and each ancestor\'s of its subtree, at each period its summary names (#1739)', () => {
+    const def = worksInTime(works());
+    // One job, 24 hours across the end of September, in the week of the 28th: two months, one week.
+    const row = parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={"p1.2":(name="p1.2", ` +
+      `jobs={"j-9":${job('2026-09-30T12:00:00.000', '2026-10-01T12:00:00.000')}}, parts={:})})})`);
+    const all = entries(def, 'A-1', row);
+    const where = '(collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), row="A-1"';
+    const P1 = '.step (key=.parts "p1", rest=.end)';
+    const P12 = '.step (key=.parts "p1", rest=.step (key=.parts "p1.2", rest=.end))';
+    const HALF = '.totals (count=1, ms=43200000, values=.none)';
+    const WHOLE = '.totals (count=1, ms=86400000, values=.none)';
+    assertEntry(def, all, `${where}, path=${P12}, run=.totals, level=.week, tile=2026-09-28T00:00:00.000, item=.none)`, WHOLE);
+    assertEntry(def, all, `${where}, path=${P12}, run=.totals, level=.month, tile=2026-09-01T00:00:00.000, item=.none)`, HALF);
+    assertEntry(def, all, `${where}, path=${P12}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none)`, HALF);
+    for (const ancestor of ['.end', P1]) {
+      assertEntry(def, all, `${where}, path=${ancestor}, run=.subtreeTotals, level=.week, tile=2026-09-28T00:00:00.000, item=.none)`, WHOLE);
+      assertEntry(def, all, `${where}, path=${ancestor}, run=.subtreeTotals, level=.month, tile=2026-09-01T00:00:00.000, item=.none)`, HALF);
+      assertEntry(def, all, `${where}, path=${ancestor}, run=.subtreeTotals, level=.month, tile=2026-10-01T00:00:00.000, item=.none)`, HALF);
+    }
+    const totals = [...all.keys()].filter((key) => /^(totals|subtreeTotals)$/.test((key as { run: variant<string, unknown> }).run.type));
+    assert.equal(totals.length, 9, 'three a node holding or above the job, and no other');
   });
 
   it('files an item with no start nowhere, and counts it in no total', () => {
@@ -417,26 +549,58 @@ describe('index.nested — a row\'s entries', () => {
 
 // ── Its span (#1438) ─────────────────────────────────────────────────────────
 
-describe('index.nested — its span, beside it (#1438)', () => {
-  it('keeps each collection\'s months beside it, `<name>_span`, with how many items or values touch each and the milliseconds its items cover, summed across rows as a summary\'s totals are', () => {
+describe('index.nestedSeries — its span, beside it (#1438)', () => {
+  it('keeps each collection\'s tiles beside it, `<name>_span`, a month, a quarter and a year where it names no period, with how many items or values touch each and the milliseconds its items cover, summed across rows as a summary\'s totals are', () => {
     const rec = machines();
     const span = rec.indexes.machines_in_time.nested!.span;
     assert.equal((rec.indexes as Readonly<Record<string, RecordIndexDef>>).machines_in_time_span, span, 'the span beside the nested series index');
-    assert.deepEqual(span.span, { of: 'machines_in_time', tile: 'month' });
+    assert.equal(span.span.of, 'machines_in_time');
+    assert.deepEqual(span.span.tiles, ['month', 'quarter', 'year']);
+    assert.ok(isTypeEqual(span.keyType, NestedSpanKeyType), `its key is ${printType(span.keyType)}`);
     assert.ok(span.mergeFn !== undefined && span.multi, 'its rows\' totals summed under each key');
-    // A job across a month's end counts in both months, with its milliseconds in each; a month counts every job in it,
-    // and every value: 42h of j-1 in September, its other 126h and j-2's 24h in October, two values in November.
+    // A job across a tile's end counts in both tiles, with its milliseconds in each, and once in the tile of a coarser
+    // period holding both: 42h of j-1 in September and its other 126h in October; 48h of j-2 in October and its other
+    // 24h in November. October's quarter counts j-2 once, where its months' counts added up would count it twice.
     const row = parsed(Machine, machine(
-      { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000'), 'j-2': job('2026-10-12T06:00:00.000', '2026-10-13T06:00:00.000') },
+      { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000'), 'j-2': job('2026-10-30T00:00:00.000', '2026-11-02T00:00:00.000') },
       { '2026-11-02T00:00:00.000': 0.5, '2026-11-09T00:00:00.000': 0.7 },
     ));
+    const JOBS = '(collection=.step (key="jobs", rest=.end)';
+    const LOAD = '(collection=.step (key="load", rest=.end)';
     const all = entries(span, 'M-7', row);
     assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
-      (collection=.step (key="jobs", rest=.end), tile=2026-09-01T00:00:00.000): (count=1, ms=151200000),
-      (collection=.step (key="jobs", rest=.end), tile=2026-10-01T00:00:00.000): (count=2, ms=540000000),
-      (collection=.step (key="load", rest=.end), tile=2026-11-01T00:00:00.000): (count=2, ms=0)
-    }`), 'M-7\'s months');
-    assert.equal(entries(span, 'M-7', parsed(Machine, machine({ 'j-1': job(undefined) }))).size, 0, 'an item with no start touches no month');
+      ${JOBS}, level=.month, tile=2026-09-01T00:00:00.000): (count=1, ms=151200000),
+      ${JOBS}, level=.month, tile=2026-10-01T00:00:00.000): (count=2, ms=626400000),
+      ${JOBS}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.quarter, tile=2026-07-01T00:00:00.000): (count=1, ms=151200000),
+      ${JOBS}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=2, ms=712800000),
+      ${JOBS}, level=.year, tile=2026-01-01T00:00:00.000): (count=2, ms=864000000),
+      ${LOAD}, level=.month, tile=2026-11-01T00:00:00.000): (count=2, ms=0),
+      ${LOAD}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=2, ms=0),
+      ${LOAD}, level=.year, tile=2026-01-01T00:00:00.000): (count=2, ms=0)
+    }`), 'M-7\'s months, quarters and year');
+    assert.equal(entries(span, 'M-7', parsed(Machine, machine({ 'j-1': job(undefined) }))).size, 0, 'an item with no start touches no tile');
+  });
+
+  it('keeps the record\'s totals at the periods `totals` names, and at no other (#1739)', () => {
+    const span = linesInTime(lines()).nested.span;
+    assert.deepEqual(span.span.tiles, ['week', 'quarter']);
+    // A job a week long from Tuesday 29 September 06:00: two weeks, and the two quarters either side of October.
+    const row = parsed(Machine, machine(
+      { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000') },
+      { '2026-10-05T00:00:00.000': 0.5, '2026-10-12T00:00:00.000': 0.25 },
+    ));
+    const JOBS = '(collection=.step (key="jobs", rest=.end)';
+    const LOAD = '(collection=.step (key="load", rest=.end)';
+    assertEast(DictType(span.keyType, span.valueType), entries(span, 'L-1', row), parsed(DictType(span.keyType, span.valueType), `{
+      ${JOBS}, level=.week, tile=2026-09-28T00:00:00.000): (count=1, ms=496800000),
+      ${JOBS}, level=.week, tile=2026-10-05T00:00:00.000): (count=1, ms=108000000),
+      ${JOBS}, level=.quarter, tile=2026-07-01T00:00:00.000): (count=1, ms=151200000),
+      ${JOBS}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=1, ms=453600000),
+      ${LOAD}, level=.week, tile=2026-10-05T00:00:00.000): (count=1, ms=0),
+      ${LOAD}, level=.week, tile=2026-10-12T00:00:00.000): (count=1, ms=0),
+      ${LOAD}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=2, ms=0)
+    }`), 'L-1\'s weeks and quarters');
   });
 
   it('counts a part\'s jobs at every depth under their collection, and a member\'s values under theirs', () => {
@@ -444,17 +608,25 @@ describe('index.nested — its span, beside it (#1438)', () => {
     const deep = `(name="p2", jobs={"j-9":${job('2027-03-02T00:00:00.000', '2027-03-03T00:00:00.000')}}, parts={:})`;
     const top = `(name="p1", jobs={"j-1":${job('2026-10-02T00:00:00.000', '2026-10-03T00:00:00.000')}}, parts={"p2":${deep}})`;
     const all = entries(span, 'A-1', parsed(Assembly, `(name="Assembly 1", parts={"p1":${top}})`));
+    const JOBS = '(collection=.step (key="parts", rest=.step (key="jobs", rest=.end))';
     assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
-      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2026-10-01T00:00:00.000): (count=1, ms=86400000),
-      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2027-03-01T00:00:00.000): (count=1, ms=86400000)
-    }`), 'the parts\' months');
+      ${JOBS}, level=.month, tile=2026-10-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.month, tile=2027-03-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.quarter, tile=2027-01-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.year, tile=2026-01-01T00:00:00.000): (count=1, ms=86400000),
+      ${JOBS}, level=.year, tile=2027-01-01T00:00:00.000): (count=1, ms=86400000)
+    }`), 'the parts\' months, quarters and years');
     const hall = halls().indexes.halls_in_time.nested!.span;
     const members = entries(hall, 'H-1', parsed(Hall,
       '(name="Hall 1", site="North", members={"a":(name="a", load={2026-01-05T00:00:00.000:0.5}), "b":(name="b", load={2026-02-02T00:00:00.000:0.5})})'));
+    const LOAD = '(collection=.step (key="members", rest=.step (key="load", rest=.end))';
     assertEast(DictType(hall.keyType, hall.valueType), members, parsed(DictType(hall.keyType, hall.valueType), `{
-      (collection=.step (key="members", rest=.step (key="load", rest=.end)), tile=2026-01-01T00:00:00.000): (count=1, ms=0),
-      (collection=.step (key="members", rest=.step (key="load", rest=.end)), tile=2026-02-01T00:00:00.000): (count=1, ms=0)
-    }`), 'the members\' months');
+      ${LOAD}, level=.month, tile=2026-01-01T00:00:00.000): (count=1, ms=0),
+      ${LOAD}, level=.month, tile=2026-02-01T00:00:00.000): (count=1, ms=0),
+      ${LOAD}, level=.quarter, tile=2026-01-01T00:00:00.000): (count=2, ms=0),
+      ${LOAD}, level=.year, tile=2026-01-01T00:00:00.000): (count=2, ms=0)
+    }`), 'the members\' months, quarter and year');
   });
 
   it('refuses an index named as a nested series index\'s span', () => {
@@ -467,7 +639,7 @@ describe('index.nested — its span, beside it (#1438)', () => {
 
 // ── Parents' subtotals ───────────────────────────────────────────────────────
 
-describe('index.nested — every parent\'s subtotals, by hand', () => {
+describe('index.nestedSeries — every parent\'s subtotals, by hand', () => {
   // m1 holds m11 and m12; m2 holds readings alone; m3 holds readings of its
   // own, and m31, whose stock it derives.
   const ledger = `(name="Ledger 1", site="North", measures={
@@ -536,7 +708,7 @@ describe('index.nested — every parent\'s subtotals, by hand', () => {
 
 // ── The lean rows ────────────────────────────────────────────────────────────
 
-describe('index.nested — the record\'s other indexes carry its lean rows', () => {
+describe('index.nestedSeries — the record\'s other indexes carry its lean rows', () => {
   const rec = record('machines', Machines, {
     initial: new Map(),
     indexes: (index) => ({
@@ -544,7 +716,7 @@ describe('index.nested — the record\'s other indexes carry its lean rows', () 
       machines_by_site_status: index.on(['site', 'status']),
       machines_in_service: index.interval({ from: 'installed', to: 'retired' }),
       machines_on_floor: index.area({ x: 'x', y: 'y', cell: 1 }),
-      machines_by_site_week: index.series({ key: 'site', from: 'installed', to: 'retired', tile: 'week' }),
+      machines_by_site_week: index.flatSeries({ key: 'site', from: 'installed', to: 'retired', tile: 'week' }),
       machines_by_name: index.on(['name'], { value: East.function([StringType, Machine], StringType, (_$, _key, row) => row.name) }),
     }),
   });
@@ -602,7 +774,7 @@ function filled(def: RecordIndexDef, key: string, lean: unknown, read: readonly 
   return fill(key, lean, read.map(([ik, value]) => ({ ik, value })));
 }
 
-describe('index.nested — child rows and items keyed by any type (#1540)', () => {
+describe('index.nestedSeries — child rows and items keyed by any type (#1540)', () => {
   const def = crewsInTime(crews());
   const crew = parsed(Crew, '(name="Crew 1", hours={' +
     '.assistant:(hours={2026-10-05T00:00:00.000:4.0}, shifts={:}), ' +
@@ -646,7 +818,7 @@ describe('index.nested — child rows and items keyed by any type (#1540)', () =
     const presses = record('presses', DictType(StringType, Press), {
       initial: new Map(),
       indexes: (index) => ({
-        presses_in_time: index.nested({ collections: { load: index.nested.values(), kinds: index.nested.rows({}) }, tile: 'day', summary: 'month' }),
+        presses_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values(), kinds: index.nestedSeries.rows({}) }, tile: 'day', summary: ['month'] }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
@@ -663,24 +835,24 @@ describe('index.nested — child rows and items keyed by any type (#1540)', () =
     assertEast(Press, filled(kinds, 'P1', lean, [...filed]), press as never, 'the row filled whole');
     // The index itself declares one at least, and a tree of bare rows is still refused.
     assert.throws(() => series('bare_in_time', presses, { collections: {} as never, tile: 'day' }),
-      /^Error: e3\.record 'presses': index\.nested 'bare_in_time' collections declares no collection$/);
+      /^Error: e3\.record 'presses': index\.nestedSeries 'bare_in_time' collections declares no collection$/);
   });
 
   it('refuses a collection whose field\'s name holds a dot, and rows that recurse keyed by another type than the rows listing them', () => {
     const Dotted = StructType({ name: StringType, 'a.b': DictType(StringType, Job) });
     const dotted = record('dotted', DictType(StringType, Dotted), { initial: new Map() });
     assert.throws(() => series('dotted_in_time', dotted, { collections: { 'a.b': series.items({ from: 'start', to: 'end' }) } as never, tile: 'week' }),
-      /^Error: e3\.record 'dotted': index\.nested 'dotted_in_time' collections\.a\.b is 'a\.b' — an index names its child rows and items by their place, its field names joined by '\.': name the field without one$/);
+      /^Error: e3\.record 'dotted': index\.nestedSeries 'dotted_in_time' collections\.a\.b is 'a\.b' — an index names its child rows and items by their place, its field names joined by '\.': name the field without one$/);
     const Node = RecursiveType((self) => StructType({ name: StringType, load: DictType(DateTimeType, FloatType), children: DictType(IntegerType, self) }));
     const Tree = StructType({ name: StringType, nodes: DictType(StringType, Node) });
     const trees = record('trees', DictType(StringType, Tree), { initial: new Map() });
     assert.throws(() => series('trees_in_time', trees, {
       collections: { nodes: series.rows({ load: series.values(), children: series.recursive() }) } as never, tile: 'week',
-    }), /^Error: e3\.record 'trees': index\.nested 'trees_in_time' collections\.nodes\.children is recursive\(\), and 'children' is keyed by \.Integer, where the rows listing it are keyed by \.String — rows that recurse are keyed by one type all the way down$/);
+    }), /^Error: e3\.record 'trees': index\.nestedSeries 'trees_in_time' collections\.nodes\.children is recursive\(\), and 'children' is keyed by \.Integer, where the rows listing it are keyed by \.String — rows that recurse are keyed by one type all the way down$/);
   });
 });
 
-describe('index.nested — a lean row filled with the entries read of it (#1438)', () => {
+describe('index.nestedSeries — a lean row filled with the entries read of it (#1438)', () => {
   const [machinesIndex, hallsIndex, assembliesIndex, ledgersIndex] =
     [machinesInTime(machines()), hallsInTime(halls()), assembliesInTime(assemblies()), ledgersInTime(ledgers())];
   // Past a year long: filed once a year it touches (#1433).
@@ -855,7 +1027,7 @@ function rowOpsTable(ops: SortedMap<unknown, variant<string, unknown>>): string[
   return words.sort();
 }
 
-describe('index.nested — through a write and a rebuild', () => {
+describe('index.nestedSeries — through a write and a rebuild', () => {
   const OCT_2 = '2026-10-02T06:00:00.000';
   const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
 
@@ -1045,7 +1217,7 @@ function assertCompared(index: RecordIndexDef, compared: variant<string, unknown
   assertEast(entriesType, both.after, parsed(entriesType, after), 'the entries after');
 }
 
-describe('index.nested — a write by its patch', () => {
+describe('index.nestedSeries — a write by its patch', () => {
   const OCT_2 = '2026-10-02T06:00:00.000';
   const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
   const NOV_3 = '2026-11-03T06:00:00.000';
@@ -1157,6 +1329,267 @@ describe('index.nested — a write by its patch', () => {
   });
 });
 
+// ── Its span through a write (#1739) ─────────────────────────────────────────
+
+/** A nested series index's span: the record's totals, beside it. */
+function spanOf(index: RecordIndexDef): RecordIndexDef {
+  if (index.nested === undefined) throw new Error(`'${index.name}' is no nested series index`);
+  return index.nested.span;
+}
+
+/** A span's totals as its build sums them: each row's tiles, equal keys folded by the span's own merge. */
+function spanTotals(span: RecordIndexDef, recordType: EastType, rows: unknown): SortedMap<unknown, RecordSummaryTotals> {
+  const merge = summaryMergeProgram(span).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals;
+  const totals = new SortedMap<unknown, RecordSummaryTotals>(undefined, compareFor(StructType({ ik: span.keyType, k: NullType })) as never);
+  for (const [entry, add] of emitted(span, recordType, rows)) {
+    const held = totals.get(entry);
+    totals.set(entry, held === undefined ? add as RecordSummaryTotals : merge(entry, held, add as RecordSummaryTotals));
+  }
+  return totals;
+}
+
+/**
+ * Asserts a write keeps a nested series index's span as a rebuild sums it:
+ * the write's changes, added to the totals held, are the totals a rebuild
+ * sums, byte for byte — a total never below none, and a tile nothing touches
+ * let go; and the same write with each row it updates replaced whole, which
+ * the span reads whole, gives the same changes — and returns them, each its
+ * key and what it adds as East prints them.
+ */
+function spanKeptIsRebuilt(rec: RecordDef, index: RecordIndexDef, before: unknown, after: unknown, what: string): string[] {
+  const patch = rec.mutations.patch;
+  if (patch === undefined) throw new Error(`record '${rec.name}' declares no patch for a write to go through`);
+  const assembled = package_('nested', '1.0.0', rec).records[rec.name]!;
+  const span = spanOf(index);
+  const entryType = StructType({ ik: span.keyType, k: NullType });
+  const collection = DictType(entryType, RecordSummaryTotalsType);
+  const addsOf = (sent: unknown) => new SortedMap(written(assembled, patch, before, sent)
+    .filter((change) => change.target === span.name).map((change) => [change.key, change.op]) as never, compareFor(entryType));
+  const adds = addsOf(diffOf(rec, before, after)) as SortedMap<unknown, RecordSummaryOp>;
+  const sameInteger = equalFor(IntegerType);
+  const integerOrder = compareFor(IntegerType);
+  const maintained = spanTotals(span, rec.type, before);
+  for (const [key, add] of adds) {
+    assert.equal(add.type, 'add', `${what}: every op adds to a total`);
+    assert.ok(!(sameInteger(add.value.count, 0n) && sameInteger(add.value.ms, 0n)), `${what}: no change by nothing`);
+    const held = maintained.get(key);
+    const count = (held?.count ?? 0n) + add.value.count;
+    const ms = (held?.ms ?? 0n) + add.value.ms;
+    assert.ok(integerOrder(count, 0n) >= 0 && integerOrder(ms, 0n) >= 0, `${what}: a total never falls below none`);
+    if (sameInteger(count, 0n)) {
+      assert.ok(sameInteger(ms, 0n), `${what}: a tile nothing touches covers no time`);
+      maintained.delete(key);
+    } else {
+      maintained.set(key, { count, ms });
+    }
+  }
+  const encode = encodeBeast2PagedFor(collection);
+  assert.deepEqual(encode(maintained as never), encode(spanTotals(span, rec.type, after) as never), `${what}: the totals held plus the write's changes are the rebuild's`);
+  const print = printFor(DictType(entryType, RecordSummaryOpType));
+  assert.equal(print(addsOf(replacingRows(rec, before, after)) as never), print(adds as never), `${what}: by the patch, the changes its rows read whole give`);
+  const printKey = printFor(span.keyType);
+  const printTotals = printFor(RecordSummaryTotalsType);
+  return [...adds].map(([key, add]) => `${printKey((key as { ik: never }).ik)}: ${printTotals(add.value)}`);
+}
+
+/** What a row's patch touched of it, as its index's span is kept by ({@link NestedTouchedType}); the patch East's own diff where none is given. */
+function touchedOf(index: RecordIndexDef, held: unknown, next: unknown, patch?: unknown): variant<string, unknown> {
+  const { rowType } = entryOf(index.record);
+  const span = spanOf(index).span;
+  if (span === undefined) throw new Error(`'${index.name}' keeps no span`);
+  const walk = East.compile(functionAt(span.touched, [rowType, rowType, patchTypeOf(rowType)], NestedTouchedType(rowType)), []);
+  const sent = patch ?? East.compile(East.patchesFor(rowType).diff, [])(held as never, next as never);
+  return walk(held, next, sent) as variant<string, unknown>;
+}
+
+describe('index.nestedSeries — its span, through a write and a rebuild (#1739)', () => {
+  const OCT_2 = '2026-10-02T06:00:00.000';
+  const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
+  const NOV_3 = '2026-11-03T06:00:00.000';
+  const NOV_3_NIGHT = '2026-11-03T14:00:00.000';
+  const JOBS = '(collection=.step (key="jobs", rest=.end)';
+  const LOAD = '(collection=.step (key="load", rest=.end)';
+  // Jobs no write here touches: a row's patch names the job it moves beside them.
+  const others = { 'j-7': job('2026-08-03T06:00:00.000', '2026-08-04T06:00:00.000'), 'j-8': job('2026-12-07T06:00:00.000') };
+
+  it('reads of a row only what its patch names: the row before and after holding those items alone, a child row inserted whole', () => {
+    const index = machinesInTime(machines());
+    const load = { '2026-10-05T00:00:00.000': 0.82 };
+    const held = parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }, load));
+    const next = parsed(Machine, machine({ 'j-1': job(NOV_3, NOV_3_NIGHT), ...others }, load));
+    const moved = touchedOf(index, held, next);
+    assert.equal(moved.type, 'touched', 'a job moved');
+    const rows = moved.value as { held: unknown; next: unknown };
+    assertEast(Machine, rows.held, parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) })), 'the machine before, holding the job moved alone');
+    assertEast(Machine, rows.next, parsed(Machine, machine({ 'j-1': job(NOV_3, NOV_3_NIGHT) })), 'the machine after, holding it alone');
+
+    // A change of what the index files nothing of: both rows holding none of their collections.
+    const stopped = touchedOf(index, held, parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }, load, 'down')));
+    assert.equal(stopped.type, 'touched', 'its status changed');
+    const neither = stopped.value as { held: unknown; next: unknown };
+    assertEast(Machine, neither.held, parsed(Machine, machine({})), 'the machine before, holding nothing');
+    assertEast(Machine, neither.next, parsed(Machine, machine({}, {}, 'down')), 'the machine after, holding nothing');
+
+    // Child rows: one updated holds what its own patch names, one inserted is whole, one untouched is not there.
+    const hallsIndex = hallsInTime(halls());
+    const hall = (members: string) => parsed(Hall, `(name="Hall 1", site="North", members={${members}})`);
+    const ADA = (load: string) => `"m-3":(name="Ada", load={2026-10-05T00:00:00.000:${load}, 2026-10-06T00:00:00.000:0.4})`;
+    const BO = '"m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})';
+    const CY = '"m-9":(name="Cy", load={2026-11-05T00:00:00.000:0.2})';
+    const crewed = touchedOf(hallsIndex, hall(`${ADA('0.82')}, ${BO}`), hall(`${ADA('0.7')}, ${BO}, ${CY}`));
+    assert.equal(crewed.type, 'touched', 'a member\'s load changed, and a member added');
+    const halves = crewed.value as { held: unknown; next: unknown };
+    assertEast(Hall, halves.held, hall('"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.82})'), 'the hall before: the load changed, as it was');
+    assertEast(Hall, halves.next, hall(`"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.7}), ${CY}`), 'the hall after: the load as it is, and the member added');
+  });
+
+  it('leaves a row to be read whole where a replace is on the way, as a recursive child row\'s change always is', () => {
+    const index = machinesInTime(machines());
+    const one = parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }));
+    const other = parsed(Machine, machine({ 'j-2': job(NOV_3, NOV_3_NIGHT) }));
+    assert.equal(touchedOf(index, one, other, variant('replace', { before: one, after: other })).type, 'replaced', 'the row replaced');
+    assert.equal(touchedOf(index, one, other).type, 'replaced', 'its jobs replaced, none of their keys kept');
+    const assembly = (start: string, end: string) =>
+      parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={"p1.2":(name="p1.2", jobs={"j-9":${job(start, end)}}, parts={:})})})`);
+    assert.equal(touchedOf(assembliesInTime(assemblies()), assembly(OCT_2, OCT_2_NIGHT), assembly(NOV_3, NOV_3_NIGHT)).type, 'replaced',
+      'a part\'s job moved: East patches a part only whole');
+  });
+
+  it('a job moved within its month changes no total', () => {
+    const rec = machines();
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }) });
+    const after = state(Machines, { 'M-7': machine({ 'j-1': job('2026-10-03T06:00:00.000', '2026-10-03T14:00:00.000'), ...others }) });
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, after, 'moved within its month'), []);
+  });
+
+  it('a job moved into November: October\'s total and November\'s changed — their quarter\'s and their year\'s, which it never left, not at all', () => {
+    const rec = machines();
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }) });
+    const after = state(Machines, { 'M-7': machine({ 'j-1': job(NOV_3, NOV_3_NIGHT), ...others }) });
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, after, 'moved into November'), [
+      `${JOBS}, level=.month, tile=2026-10-01T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${JOBS}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=28800000)`,
+    ]);
+  });
+
+  it('a job stretched from 8 hours to 40 days: the time it covers added to each period it was in, and November counting it', () => {
+    const rec = machines();
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }) });
+    const after = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, '2026-11-11T06:00:00.000'), ...others }) });
+    // 714 hours of October in place of 8, 246 of November, and 960 of the quarter and the year in place of 8.
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, after, 'stretched to 40 days'), [
+      `${JOBS}, level=.month, tile=2026-10-01T00:00:00.000): (count=0, ms=2541600000)`,
+      `${JOBS}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=885600000)`,
+      `${JOBS}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=0, ms=3427200000)`,
+      `${JOBS}, level=.year, tile=2026-01-01T00:00:00.000): (count=0, ms=3427200000)`,
+    ]);
+  });
+
+  it('a job moved from M-7 to M-9 changes no total: what one row took away the other gives', () => {
+    const rec = machines();
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }), 'M-9': machine({}) });
+    const after = state(Machines, { 'M-7': machine(others), 'M-9': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }) });
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, after, 'moved to another machine'), []);
+  });
+
+  it('a day\'s load changed changes no total, and a day\'s load added is counted in each period', () => {
+    const rec = machines();
+    const jobs = { 'j-1': job(OCT_2, OCT_2_NIGHT) };
+    const before = state(Machines, { 'M-7': machine(jobs, { '2026-10-05T00:00:00.000': 0.82, '2026-10-06T00:00:00.000': 0.5 }) });
+    const changed = state(Machines, { 'M-7': machine(jobs, { '2026-10-05T00:00:00.000': 0.9, '2026-10-06T00:00:00.000': 0.5 }) });
+    const added = state(Machines, { 'M-7': machine(jobs, { '2026-10-05T00:00:00.000': 0.9, '2026-10-06T00:00:00.000': 0.5, '2026-11-09T00:00:00.000': 0.4 }) });
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, changed, 'a load changed'), []);
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), changed, added, 'a load added'), [
+      `${LOAD}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=0)`,
+      `${LOAD}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=1, ms=0)`,
+      `${LOAD}, level=.year, tile=2026-01-01T00:00:00.000): (count=1, ms=0)`,
+    ]);
+  });
+
+  it('a machine deleted: what its items and values gave each period, taken away; its status changed: nothing', () => {
+    const rec = machines();
+    const kept = machine({ 'j-5': job('2026-09-01T00:00:00.000', '2026-09-30T00:00:00.000') });
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }, { '2026-10-05T00:00:00.000': 0.82 }), 'M-8': kept });
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), before, state(Machines, { 'M-8': kept }), 'a machine deleted'), [
+      `${JOBS}, level=.month, tile=2026-10-01T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${JOBS}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${JOBS}, level=.year, tile=2026-01-01T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${LOAD}, level=.month, tile=2026-10-01T00:00:00.000): (count=-1, ms=0)`,
+      `${LOAD}, level=.quarter, tile=2026-10-01T00:00:00.000): (count=-1, ms=0)`,
+      `${LOAD}, level=.year, tile=2026-01-01T00:00:00.000): (count=-1, ms=0)`,
+    ]);
+    const jobs = { 'j-1': job(OCT_2, OCT_2_NIGHT) };
+    assert.deepEqual(spanKeptIsRebuilt(rec, machinesInTime(rec), state(Machines, { 'M-7': machine(jobs) }), state(Machines, { 'M-7': machine(jobs, {}, 'down') }), 'status'), []);
+  });
+
+  it('at the periods its totals name: a job moved a week on changes its two weeks, and not their quarter', () => {
+    const rec = lines();
+    const before = state(Machines, { 'L-1': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }) });
+    const after = state(Machines, { 'L-1': machine({ 'j-1': job('2026-10-09T06:00:00.000', '2026-10-09T14:00:00.000'), ...others }) });
+    assert.deepEqual(spanKeptIsRebuilt(rec, linesInTime(rec), before, after, 'moved a week on'), [
+      `${JOBS}, level=.week, tile=2026-09-28T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${JOBS}, level=.week, tile=2026-10-05T00:00:00.000): (count=1, ms=28800000)`,
+    ]);
+  });
+
+  it('a job moved to another machine, one inserted and one deleted, a day\'s load changed, a machine replaced and one deleted', () => {
+    const rec = machines();
+    const before = state(Machines, {
+      'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), 'j-2': job('2026-10-12T06:00:00.000', '2026-10-14T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.82 }),
+      'M-8': machine({ 'j-5': job('2026-09-01T00:00:00.000', '2026-09-30T00:00:00.000') }),
+      'M-9': machine({}),
+    });
+    const after = state(Machines, {
+      'M-7': machine({ 'j-3': job('2026-10-20T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.9 }),
+      'M-9': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }, { '2026-12-01T00:00:00.000': 0.4 }, 'down'),
+    });
+    assert.ok(spanKeptIsRebuilt(rec, machinesInTime(rec), before, after, 'moved, inserted, deleted, changed, replaced').length > 0);
+  });
+
+  it('a member\'s load changed, a member added and one removed; a part\'s job moved, which its row is read whole for; a measure added beneath another', () => {
+    const hallsRec = halls();
+    const hall = (members: string) => `(name="Hall 1", site="North", members={${members}})`;
+    const crewed = state(Halls, { H1: hall('"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.82}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})') });
+    const changed = state(Halls, { H1: hall('"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.7}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})') });
+    const moved = state(Halls, { H1: hall('"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.7}), "m-9":(name="Cy", load={2026-11-05T00:00:00.000:0.2})') });
+    const MEMBERS = '(collection=.step (key="members", rest=.step (key="load", rest=.end))';
+    assert.deepEqual(spanKeptIsRebuilt(hallsRec, hallsInTime(hallsRec), crewed, changed, 'a load changed'), []);
+    // Bo's value in October gone and Cy's in November come: the quarter and the year hold as many as they did.
+    assert.deepEqual(spanKeptIsRebuilt(hallsRec, hallsInTime(hallsRec), changed, moved, 'a member added and one removed'), [
+      `${MEMBERS}, level=.month, tile=2026-10-01T00:00:00.000): (count=-1, ms=0)`,
+      `${MEMBERS}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=0)`,
+    ]);
+
+    const assembliesRec = assemblies();
+    const assembly = (start: string, end: string) =>
+      `(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={"p1.2":(name="p1.2", jobs={"j-9":${job(start, end)}}, parts={:})})})`;
+    const PARTS = '(collection=.step (key="parts", rest=.step (key="jobs", rest=.end))';
+    assert.deepEqual(spanKeptIsRebuilt(assembliesRec, assembliesInTime(assembliesRec),
+      state(Assemblies, { 'A-1': assembly(OCT_2, OCT_2_NIGHT) }), state(Assemblies, { 'A-1': assembly(NOV_3, NOV_3_NIGHT) }), 'a part\'s job moved'), [
+      `${PARTS}, level=.month, tile=2026-10-01T00:00:00.000): (count=-1, ms=-28800000)`,
+      `${PARTS}, level=.month, tile=2026-11-01T00:00:00.000): (count=1, ms=28800000)`,
+    ]);
+
+    const ledgersRec = ledgers();
+    const measure = (label: string, readings: string, children = '') =>
+      `(label="${label}", readings={${readings === '' ? ':' : readings}}, stock={:}, children={${children === '' ? ':' : children}})`;
+    const ledger = (m11: string, more = '') => `(name="Ledger 1", site="North", measures={"m1":${measure('Plant', '', `"m11":${m11}${more}`)}})`;
+    const read = state(Ledgers, { L1: ledger(measure('Press', '2026-10-05T00:00:00.000:2.0')) });
+    const deeper = state(Ledgers, { L1: ledger(measure('Press', '2026-10-06T00:00:00.000:1.0'), `, "m12":${measure('Folder', '', `"m121":${measure('Belt', '2026-11-07T00:00:00.000:5.0')}`)}`) });
+    assert.ok(spanKeptIsRebuilt(ledgersRec, ledgersInTime(ledgersRec), read, deeper, 'a reading moved a day, and a measure added beneath another').length > 0);
+  });
+
+  it('a collection replaced whole, and every row inserted from none and deleted to none', () => {
+    const rec = machines();
+    const index = machinesInTime(rec);
+    const one = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), 'j-2': job('2026-10-12T06:00:00.000') }) });
+    const other = state(Machines, { 'M-7': machine({ 'j-8': job('2026-12-12T06:00:00.000'), 'j-9': job('2027-01-12T06:00:00.000') }) });
+    assert.ok(spanKeptIsRebuilt(rec, index, one, other, 'the jobs replaced').length > 0);
+    assert.ok(spanKeptIsRebuilt(rec, index, state(Machines, {}), one, 'inserted from none').length > 0);
+    assert.ok(spanKeptIsRebuilt(rec, index, one, state(Machines, {}), 'deleted to none').length > 0);
+  });
+});
+
 // ── Its programs ─────────────────────────────────────────────────────────────
 
 const encodeIR = encodeBeast2For(IRType);
@@ -1241,13 +1674,16 @@ function copiesIn(program: IR, fn: { toIR(): { ir: IR } }): number {
   return copies;
 }
 
-describe('index.nested — its programs', () => {
+describe('index.nestedSeries — its programs', () => {
   it('write each function once: none of 50 nodes or more twice in a row\'s entries, a write\'s, the fill, the lean row or the span', () => {
     const declared: ReadonlyArray<readonly [string, RecordIndexDef]> = [
       ['machines', machinesInTime(machines())],
       ['halls', hallsInTime(halls())],
       ['assemblies', assembliesInTime(assemblies())],
       ['ledgers', ledgersInTime(ledgers())],
+      // Totals kept at more than one period (#1739): a period more is no function written again.
+      ['lines', linesInTime(lines())],
+      ['works', worksInTime(works())],
     ];
     for (const [name, index] of declared) {
       for (const [program, fn] of Object.entries(programsOf(index))) {
@@ -1262,8 +1698,12 @@ describe('index.nested — its programs', () => {
       assert.equal(copiesIn(machinesPrograms[program], TILE_FNS.placedFilingsOver), 1, `the machines' ${program} file their five collections by one function`);
       assert.equal(copiesIn(machinesPrograms[program], TILE_FNS.placedSharesOver), 1, `the machines' ${program} share their three of items out by one`);
     }
-    assert.equal(copiesIn(machinesPrograms.span, TILE_FNS.placedSharesOver), 1, 'the machines\' span shares their items out over the months');
+    assert.equal(copiesIn(machinesPrograms.span, TILE_FNS.placedSharesOver), 1, 'the machines\' span shares their items out over each period by one function');
     assert.equal(copiesIn(machinesPrograms.span, TILE_FNS.placedFilingsOver), 0, 'the machines\' span files nothing');
+    const linesPrograms = programsOf(linesInTime(lines()));
+    for (const program of ['entries', 'byPatch', 'span'] as const) {
+      assert.equal(copiesIn(linesPrograms[program], TILE_FNS.placedSharesOver), 1, `the lines' ${program} share their jobs out over each period they name by one function`);
+    }
     const ledgersPrograms = programsOf(ledgersInTime(ledgers()));
     for (const program of ['entries', 'byPatch', 'span'] as const) {
       assert.equal(copiesIn(ledgersPrograms[program], TILE_FNS.placedSharesOver), 0, `the ledgers' ${program}: values, and no summary, so nothing shared out`);

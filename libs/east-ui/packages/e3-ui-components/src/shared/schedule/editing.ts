@@ -13,7 +13,9 @@
  * what each Save lands of them, as the Save left them, for that reader to draw
  * over cells read before the commit until it has read them again (`landed`,
  * `shown`): a Save's confirmation reads its events by their keys, never the
- * cells.
+ * cells. Kinds over one record — the kinds of its cases (#1769) — share its
+ * one session: the history is given the record once, and each kind's drafts,
+ * its rows and its keys are the record's.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -206,10 +208,25 @@ export function useScheduleEditing<I extends Item = Item>({
             },
         };
     }), [parts]);
-    // Each kind's source and each record's: its closed editing; a kind's author's check over drafted events; and, for
-    // one read a window at a time (#1199), its record read by key — its revision the session's base, and an entry read
-    // by its key, decoded.
-    const sources = useMemo(() => parts.map((kind, i): EditHistorySource<ScheduleEntryRef> => {
+    // Kinds over one record share its session (#1769): its history key is the record's, the same for each. For each part,
+    // the first part over its record, the parts over its record, and where its record's source stands among those the
+    // history is given — each record's once, its first part's.
+    const shared = useMemo(() => {
+        const keyOf = parts.map((part) => historyKeyOf(storageKey, part.editing));
+        const first = keyOf.map((key) => keyOf.findIndex((other) => stringEqual(other, key)));
+        const firsts = first.filter((f, i) => f === i);
+        return {
+            first,
+            of: keyOf.map((key) => keyOf.flatMap((other, j) => (stringEqual(other, key) ? [j] : []))),
+            at: first.map((f) => firsts.indexOf(f)),
+        };
+    }, [parts, storageKey]);
+    // Each record's source, once: its closed editing; a kind's author's check over drafted events; and, for one read a
+    // window at a time (#1199), its record read by key — its revision the session's base, and an entry read by its key,
+    // decoded. A record several kinds are over is given its first kind's, which knows the rows of every one of them.
+    const sources = useMemo(() => parts.flatMap((kind, i): EditHistorySource<ScheduleEntryRef>[] => {
+        if (shared.first[i] !== i) return [];
+        const group = shared.of[i]!.map((j) => parts[j]!);
         const editing = kind.editing;
         // The Slice over this kind's own record, if one narrows it: its Save notice counts what leaves it.
         const prepare = prepareRecordSliceSave(recordSlices?.find(slice => stringEqual(slice.sourceId, editing.sourceId)),
@@ -219,8 +236,9 @@ export function useScheduleEditing<I extends Item = Item>({
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
         // An event's start and end read as one, its dates: a conflict at either is one card of the popover, settled with the
         // fields that place it with them — a duty's shift and group, a bin's bay. So do a quantity and its split across
-        // resources, which change together.
-        const roles = kind.kind?.schedule;
+        // resources, which change together. A record whose kinds are its cases' reads them as a kind of it that runs from
+        // a start to an end does, where one does (#1769).
+        const roles = (group.find((part) => part.kind !== undefined && !stringEqual(part.kind.schedule.start, part.kind.schedule.end)) ?? kind).kind?.schedule;
         const ranges = roles === undefined ? undefined
             : [{ start: roles.start, end: roles.end, ...(roles.withTimes.length === 0 ? {} : { with: roles.withTimes }) }];
         const together = roles !== undefined && roles.quantity.type === "some" && roles.parts.type === "some"
@@ -267,18 +285,20 @@ export function useScheduleEditing<I extends Item = Item>({
         // past those its builder shows a row under — what it draws, what its own reads and its cells hold — so a new row
         // is never drawn over one on the page; and its rule is told them beside those its session holds, as the Sheet's is
         // told the rows it has read, so the app's own rule makes its key from every key the page shows, never only from
-        // those it runs into. One the record holds out of view is refused at Save, and made another.
-        const shows = (id: string): boolean => {
-            if (standing?.current?.[kind.key]?.row(id) !== undefined) return true;
-            const own = kind.read?.row(id);
+        // those it runs into. One the record holds out of view is refused at Save, and made another. A record several kinds
+        // are over shows the rows each of them does (#1769).
+        const shows = (id: string): boolean => group.some((part) => {
+            if (standing?.current?.[part.key]?.row(id) !== undefined) return true;
+            const own = part.read?.row(id);
             if (own !== undefined && own.type === "some" && own.value.type === "some") return true;
-            const held = heldRowOf(cellRows?.current, kind.key, id);
-            return held.type === "some" && held.value.type === "some";
-        };
+            return cellRows?.current?.get(part.key)?.has(id) === true;
+        });
         const shown = function* (): Iterable<string> {
-            yield* standing?.current?.[kind.key]?.ids() ?? [];
-            yield* kind.read?.ids() ?? [];
-            for (const [id] of cellRows?.current?.get(kind.key) ?? []) yield id;
+            for (const part of group) {
+                yield* standing?.current?.[part.key]?.ids() ?? [];
+                yield* part.read?.ids() ?? [];
+                yield* cellRows?.current?.get(part.key)?.ids() ?? [];
+            }
         };
         const made = once === undefined || !windowed ? once : pastKeys({
             make: (known, from, taken) => once.make({ has: (id) => known.has(id), ids: function* () { yield* shown(); yield* known.ids(); } }, from, taken),
@@ -289,16 +309,20 @@ export function useScheduleEditing<I extends Item = Item>({
             const row = rowOf(entry);
             return { ...entry, draft: row === undefined ? entry.draft : variant("value", codecs[i]!.underKey(id, row)), wire: { id } };
         };
-        if (!windowed) return { editing, ready, prepare, wireType: EntryRefType, ranges, together, keys: made, underKey };
+        if (!windowed) return [{ editing, ready, prepare, wireType: EntryRefType, ranges, together, keys: made, underKey }];
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;
-        const own = kind.read;
+        // The builder's own reads of the record: each kind's over it (#1769).
+        const owns = group.flatMap((part) => (part.read === undefined ? [] : [part.read]));
         // Where the builder's own reads hold an entry, at the revision every read of the record is pinned to: read with no
         // request, so a Save's confirmation judges every one of them at once.
-        const heldRow = own === undefined ? undefined : (id: string): option<option<unknown>> | undefined => {
-            const held = own.row(id);
-            if (held === undefined) return undefined;
-            return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
+        const heldRow = owns.length === 0 ? undefined : (id: string): option<option<unknown>> | undefined => {
+            for (const own of owns) {
+                const held = own.row(id);
+                if (held === undefined) continue;
+                return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
+            }
+            return undefined;
         };
         const paged: EditHistoryPaged = {
             revision: () => seam.revision(),
@@ -321,8 +345,8 @@ export function useScheduleEditing<I extends Item = Item>({
             // that comes after the record's pages have moved on never puts them back at the revision it names (#1599).
             followed: readSinceAnswerOf(seam.paged),
         };
-        return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together, drawsLanded: kind.drawsLanded, keys: made, underKey };
-    }), [parts, codecs, storageKey, recordSlices, quantityLabel, standing, cellRows]);
+        return [{ editing, ready, paged, prepare, wireType: EntryRefType, ranges, together, drawsLanded: kind.drawsLanded, keys: made, underKey }];
+    }), [parts, shared, codecs, storageKey, recordSlices, quantityLabel, standing, cellRows]);
     // Each kind's record read by several keys at once (#1596), where it is read a window at a time: what an optimiser's
     // answer reads the rows the page does not hold through (east-workspace#1622, rule 8).
     const byKeys = useMemo(() => parts.map((kind) => (kind.entries.type !== "some" || kind.editing.keyType.type !== "some" ? undefined
@@ -331,7 +355,10 @@ export function useScheduleEditing<I extends Item = Item>({
     const historyOptions = useMemo(() => ({ autosave }), [autosave]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined, historyOptions);
     historyRef.current = state.history;
-    const { history, keys, version } = state;
+    const { history, version } = state;
+    // Each part's session's key, in the parts' order: its record's, which the kinds over one record share (#1769).
+    const sourceKeys = state.keys;
+    const keys = useMemo(() => parts.map((_part, i) => sourceKeys[shared.at[i]!]!), [parts, shared, sourceKeys]);
     const indexOf = useCallback((kind: string) => parts.findIndex((k) => stringEqual(k.key, kind)), [parts]);
     // The latest range the canvas reads (#1199): where a gesture's event is read.
     const rangeRef = useRef(range);
@@ -362,14 +389,21 @@ export function useScheduleEditing<I extends Item = Item>({
     // ── The drafts, as the seams read them ─────────────────────────────────
     const fresh = useMemo(() => {
         const out = new SortedMap<string, ScheduleKindDraftsValue>([], compareString);
+        // Each session's drafts encoded once: the kinds over one record each read all of them, and draw their case's (#1769).
+        const bySession = new Map<string, ScheduleKindDraftsValue>();
         parts.forEach((kind, i) => {
             const session = history.session(keys[i]!);
             const codec = codecs[i]!;
             if (session === undefined) return;
-            const byId = new SortedMap<string, Uint8Array>([], compareString);
-            for (const [id, entry] of session.entries) {
-                if (codec.sameDraft(session.originals.get(id), entry)) continue;
-                byId.set(id, codec.encodeDraft(entry.draft === undefined ? MISSING : entry.draft));
+            let byId = bySession.get(keys[i]!);
+            if (byId === undefined) {
+                const made = new SortedMap<string, Uint8Array>([], compareString);
+                for (const [id, entry] of session.entries) {
+                    if (codec.sameDraft(session.originals.get(id), entry)) continue;
+                    made.set(id, codec.encodeDraft(entry.draft === undefined ? MISSING : entry.draft));
+                }
+                byId = made;
+                bySession.set(keys[i]!, byId);
             }
             if (byId.size > 0) out.set(kind.key, byId);
         });
@@ -409,7 +443,10 @@ export function useScheduleEditing<I extends Item = Item>({
                 if (row === undefined) {
                     // A deleted event is none, its draft `missing`, as a draft deleting it is.
                     const saved = rowOf(entry.after);
-                    row = { draft: codec.encodeDraft(entry.after.draft === undefined ? MISSING : entry.after.draft), row: saved === undefined ? undefined : codec.encodeRow(saved) };
+                    row = {
+                        draft: codec.encodeDraft(entry.after.draft === undefined ? MISSING : entry.after.draft),
+                        row: saved === undefined ? undefined : codec.encodeRow(saved), value: saved,
+                    };
                     was.encoded.set(entry, row);
                 }
                 if (before?.rows.get(id) !== row) same = false;
@@ -703,11 +740,13 @@ export function useScheduleEditing<I extends Item = Item>({
                         const row = heldRow(part.key, id);
                         return row === undefined ? undefined : { draft: variant("value", row), wire: undefined, place: KEY_ORDER };
                     },
-                    // One its builder shows, of a record read a window at a time.
+                    // One its builder shows, of a record read a window at a time — through any kind over it (#1769).
                     shown: (id) => {
                         if (part.entries.type !== "some") return false;
-                        const cell = heldRowOf(cellRows?.current, part.key, id);
-                        return standing?.current?.[part.key]?.row(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
+                        return shared.of[i]!.some((j) => {
+                            const over = parts[j]!.key;
+                            return standing?.current?.[over]?.row(id) !== undefined || cellRows?.current?.get(over)?.has(id) === true;
+                        });
                     },
                     underKey: (id, version) => ({ draft: variant("value", codec.underKey(id, rowOf(version))), wire: { id }, place: KEY_ORDER }),
                 });
@@ -717,8 +756,11 @@ export function useScheduleEditing<I extends Item = Item>({
                     return undefined;
                 }
                 if (settled.all.size === 0) continue;
-                now.set(part.key, settled.all);
-                if (settled.held.size > 0) held.set(part.key, settled.held);
+                // The rows moved under each kind over the record (#1769): what a builder follows them by, kind by kind.
+                for (const j of shared.of[i]!) {
+                    now.set(parts[j]!.key, settled.all);
+                    if (settled.held.size > 0) held.set(parts[j]!.key, settled.held);
+                }
             }
             return { all: now, held };
         };
@@ -837,8 +879,9 @@ export function useScheduleEditing<I extends Item = Item>({
                 if (own.type !== "some") return undefined;
                 return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;
             }
-            const cell = heldRowOf(cellRows?.current, part.key, id);
-            if (cell.type === "some" && cell.value.type === "some") return some(codec.decodeRow(cell.value.value));
+            // Where its cells hold it, as the page unpacked it (#1771): no row packed and unpacked for it.
+            const cell = cellRows?.current?.get(part.key);
+            if (cell?.has(id) === true) return some(cell.value(id));
             // Not held: read by its key ({@link ScheduleEditing.rowsByKey}). A text no key prints as names no row the
             // record holds (#1549).
             return codec.keyOf(id) === undefined ? none : undefined;

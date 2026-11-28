@@ -40,6 +40,10 @@ export interface PageEntry {
      *  entries sit in it — a read inside one of its runs is answered from it,
      *  as from a window's span. */
     runSpans?: RunSpans;
+    /** Where a runs read in flight asks (#1797): its family, and where each
+     *  run's entries will sit in it — a read of runs wanting some of them
+     *  waits on it, as a window read waits on a window in flight (#1596). */
+    askingRuns?: RunSpans;
     /** Total elements in the source, learned from any landed window. */
     total?: number;
     /** Where a key query landed — the answer on a seek channel. */

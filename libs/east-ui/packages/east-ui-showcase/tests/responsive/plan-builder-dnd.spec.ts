@@ -11,8 +11,10 @@
  * - at the desktop width, its library opened over main from its rail — which
  *   it slides off while a card is carried — and pinned beside main: a template
  *   from the Events tab, picked up past 4px and dropped on a press, makes its
- *   job at the day under the pointer, selected and drafted, the ghost saying
- *   what lands where; and a bar's end dragged a day on resizes it;
+ *   job at the start of the column under the pointer, selected and drafted,
+ *   the ghost saying what lands where; and a bar's end dragged a column on
+ *   resizes it. The works' four weeks draw a week a column at these widths
+ *   (#1740): a day of them would be narrower than a column may be;
  * - a drafted bar wears the brand tint in a 1.5px brand border (§8), in both
  *   themes, and so does a drafted tile: a delivery of the links example
  *   (`planEventLinks`) dragged a week back;
@@ -65,7 +67,7 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
     for (const placement of ["overlay", "pinned"] as const) {
         test(`planPrintWorks, its library ${placement === "overlay"
             ? "opened over main from its rail, which it slides off while the card is carried"
-            : "pinned beside main, where it stays"}: a template dropped on a press makes its job on the day under the pointer, selected and drafted; a bar's end dragged a day on resizes it`, async ({ page }) => {
+            : "pinned beside main, where it stays"}: a template dropped on a press makes its job at the start of the week under the pointer, selected and drafted; a bar's end dragged a week on resizes it`, async ({ page }) => {
             const entry = await open(page, placement);
             const pane = libraryOf(entry);
             const card = openCards(pane).filter({ hasText: "Brochure run" });
@@ -75,8 +77,8 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
             // Over main, the library slides off it while the card is carried; pinned, it stays where it is.
             await expect.poll(() => regionAt(page, from)).toBe(placement === "overlay" ? "main" : "start");
             const plot = entry.locator(`${A1} [data-plan-plot]`);
-            // Monday 12 October, the second week's first day.
-            const on = await dayOf(plot, 7);
+            // Wednesday 14 October, in the second week's column: the job lands on that week's Monday.
+            const on = await dayOf(plot, 9);
             await page.mouse.move(on.x, on.y, { steps: 8 });
             await expect(plot).toHaveAttribute("data-drop-active", "");
             await expect(page.locator("[data-drag-caption]")).toHaveText("Brochure run · Press A1 · Mon, Oct 12, 2026");
@@ -97,17 +99,19 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
                 await expect(pane).toHaveAttribute("data-collapsed", "");
                 await settled(page);
             }
-            // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a day on.
+            // The course handbook runs 06:00–18:00 on Monday 19 October: its end, carried a week on — drawn while the bar
+            // is in hand (#1780), so the pointer comes over it first, as it does reaching for the end.
             const handbook = entry.locator(`${A1} [data-run]`, { hasText: "Course handbook" });
+            await handbook.hover();
             const end = await centre(handbook.locator("[data-plan-edge='end']"));
-            const day = (await boxOf(plot)).width / DAYS;
+            const week = (await boxOf(plot)).width / (DAYS / 7);
             await page.mouse.move(end.x, end.y);
             await page.mouse.down();
-            await page.mouse.move(end.x + day, end.y, { steps: 8 });
+            await page.mouse.move(end.x + week, end.y, { steps: 8 });
             await expect(plot).toHaveAttribute("data-drop-active", "");
             await expect(page.locator("[data-drag-caption]")).toHaveText("Course handbook · Press A1 · Mon, Oct 19, 2026 · 06:00");
             await page.mouse.up();
-            await expect(handbook).toHaveAttribute("aria-label", /^Course handbook, Oct 19, 2026, 06:00 – Oct 20, 2026, 18:00/);
+            await expect(handbook).toHaveAttribute("aria-label", /^Course handbook, Oct 19, 2026, 06:00 – Oct 26, 2026, 18:00/);
             await expect(handbook).toHaveAttribute("data-draft", "");
         });
     }

@@ -13,10 +13,18 @@
  * - a scroll, a pan and a zoom move nothing as their cells land: every row in
  *   view — on a phone, every card — keeps its place and its height, and the
  *   scroll stays where it was put; while the cells are in flight the rows
- *   waiting on them are washed and busy, on the reveal clock, and no other;
+ *   waiting on them draw one skeleton bar across their plot and are busy, on
+ *   the reveal clock, and no other (#1764);
  * - past the cap, the rows shading the works' jobs are the height of the rows
- *   they stand in for, hatched at a week, which no summary divides, and
- *   shaded from their totals at a month;
+ *   they stand in for, and shade from the totals e3 keeps for the period
+ *   their columns are — a week's at a week, a month's at a month — hatched at
+ *   neither, the columns keeping that period, and under no banner (#1739,
+ *   #1799);
+ * - at 1440, the horizon counts an item once in each period it draws
+ *   (#1739): by the quarter, each bar the jobs and alarms touching its
+ *   quarter — fewer than its months' added up, a job that crosses a month's
+ *   end being one item — and, widened until a month's bar has room, each bar
+ *   its month's own;
  * - a works draws its crews' hours as e3 keeps their sums, folded as opened:
  *   each week its crews' hours added up, in their columns, at the height its
  *   crews' rows draw at;
@@ -24,16 +32,23 @@
  *   row's height, its text in the table's numerals — on a phone, a popover
  *   anchored to the cell, inside the frame — and its works' sum moving by it.
  *
+ * The window is thirteen weeks, which the plot at 1440 draws by the week. A
+ * phone's plot is too narrow for a week's column at its floor, so there they
+ * open as months (#1740), and a check of a week's cells first sets WEEK's
+ * range: the weeks the plot holds, from the window's start.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-nested`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { East, PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, variant } from "@elaraai/east";
-import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
+import {
+    DateTimeType, East, PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, lessFor, printFor, variant, type ValueTypeOf,
+} from "@elaraai/east";
+import { Plan, SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { e3Requests, heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
-import { drawnSel, openExample } from "./plan-page";
+import { drawnSel, openExample, sizePlanFrame } from "./plan-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 
@@ -54,6 +69,16 @@ const SHOWN = ["Jobs", "Load", "Crew hours", "Parts"] as const;
 /** The first works, and its two crews. */
 const WORKS = "W-10001";
 const CREWS = ["C-10001-1", "C-10001-2"] as const;
+
+/** The week {@link crowd} fills past the cap, the week before it, and the month it is in: each by the instant its column starts at. */
+const CROWDED_WEEK = new Date(Date.UTC(2026, 9, 5));
+const WEEK_BEFORE = new Date(Date.UTC(2026, 8, 28));
+const CROWDED_MONTH = new Date(Date.UTC(2026, 9, 1));
+
+/** A frame wide enough for the horizon's track to hold a bar a month of the works' ten years. */
+const MONTHS_FRAME = 1100;
+/** The months from January 2022 the horizon's periods are counted over: the works' ten years, and a year past them. */
+const COUNTED_MONTHS = 11 * 12;
 
 /** The canvas's scroller at 1440 — its bounded rows — and on a phone, the list of cards. */
 const SCROLLER = "[data-frame-slot='main'] [data-virtual-rows='bounded']";
@@ -80,6 +105,32 @@ async function cellsOf(row: Locator): Promise<Map<string, { readonly text: strin
         return [[el.getAttribute("data-cell") ?? "", el.textContent ?? "", Math.round(box.left * 10) / 10, Math.round(box.width * 10) / 10] as const];
     }));
     return new Map(cells.map(([at, text, left, width]) => [at, { text, left, width }]));
+}
+
+/** A row's or a card's cell, by the instant its column starts at: its `data-cell`, the instant as East prints it. */
+const cellAt = (start: Date): string => `[data-cell=${JSON.stringify(printFor(Plan.Types.Instant)(variant("time", start)))}]`;
+
+/** Whether one instant is earlier than another, as East orders them. */
+const earlier = lessFor(DateTimeType);
+
+/**
+ * How many of the works' jobs and alarms each period of `months` months holds, from January 2022, as e3 counts them:
+ * a job once in each period it touches — one that ends as a period starts is outside it — and an alarm in the period it
+ * is raised in. The periods holding none are left out, as the horizon draws no bar for them.
+ */
+function counted(works: ValueTypeOf<typeof ex.WorksByKey>, months: number): number[] {
+    const counts: number[] = [];
+    for (let month = 0; month < COUNTED_MONTHS; month += months) {
+        const from = new Date(Date.UTC(2022, month, 1));
+        const to = new Date(Date.UTC(2022, month + months, 1));
+        let count = 0;
+        for (const one of works.values()) {
+            for (const job of one.jobs.values()) if (earlier(job.start, to) && earlier(from, job.end)) count += 1;
+            for (const alarm of one.alarms.values()) if (!earlier(alarm.at, from) && earlier(alarm.at, to)) count += 1;
+        }
+        if (count > 0) counts.push(count);
+    }
+    return counts;
 }
 
 /** Every cell of a row or card in sight that draws a number, by its bucket. */
@@ -185,33 +236,45 @@ function movedIn(frames: readonly Frame[]): string[] {
     return bad;
 }
 
-/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of a week, a zoom to a month. */
+/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of the dates, a zoom to a month — or to another period named. */
 const GESTURES = {
     // At 1440 the canvas scrolled to its 76th row; on a phone, the list's next cards shown.
     scroll: async (_page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) await entry.locator("[data-plan-more='rows']").click();
         else await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 75 * 32; });
     },
-    // A week on: at 1440 the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a phone, the date
-    // navigator's popover's Next week — the View its toolbar folds the navigator into, the window's weeks named whole
-    // (#1680's review).
+    // The dates moved on: at 1440 a week, the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a
+    // phone the window's own length, its thirteen weeks drawn there as four months (#1740), the date navigator's
+    // popover's Next — the View its toolbar folds the navigator into, the window's columns named whole (#1680's review).
     pan: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
             await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
-            await page.getByRole("button", { name: "Next week", exact: true }).click();
+            await page.getByRole("button", { name: "Next 4 months", exact: true }).click();
             await page.keyboard.press("Escape");
         } else {
             await entry.locator("[data-plan-row]").first().focus();
             await page.keyboard.press("]");
         }
     },
-    // To a month: the toolbar's resolution, at 1440; on a phone, the View's resolution, which the navigator holds there.
-    zoom: async (page: Page, entry: Locator, narrow: boolean) => {
+    // To a month, or the period named: the toolbar's resolution, at 1440 — its strip, or the menu its button opens where
+    // the toolbar folds it, as it does beside a navigator that keeps its arrows (#1740); on a phone, the View's
+    // resolution, which the navigator holds there. A period pressed sets its range from the window's start.
+    zoom: async (page: Page, entry: Locator, narrow: boolean, to: "week" | "month" = "month") => {
+        const toolbar = entry.locator("[data-frame-slot='toolbar']");
+        const named = new RegExp(`^${to}$`, "i");
         if (narrow) {
-            await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
-            await page.getByRole("radio", { name: /^month$/i }).click();
+            await toolbar.getByRole("button", { name: "View", exact: true }).click();
+            await page.getByRole("radio", { name: named }).click();
             await page.keyboard.press("Escape");
-        } else await entry.locator("[data-frame-slot='toolbar']").getByRole("radio", { name: /^month$/i }).click();
+            return;
+        }
+        const folded = toolbar.getByRole("button", { name: "Resolution", exact: true });
+        if (await folded.count() === 0) {
+            await toolbar.getByRole("radio", { name: named }).click();
+            return;
+        }
+        await folded.click();
+        await page.getByRole("menuitem", { name: named }).click();
     },
 } as const;
 
@@ -254,6 +317,11 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         expect(took).toBeLessThan(START_BUDGET_MS);
         const narrow = narrowOf(page);
         await onlySeries(page, entry, ["Crew hours"]);
+        // A crew's hours are typed a week at a time: on a phone, where the window opens as months, WEEK's range.
+        if (narrow) {
+            await GESTURES.zoom(page, entry, narrow, "week");
+            await settled(page);
+        }
         const works = entry.locator(drawnSel("crews", WORKS));
         const crews = CREWS.map((crew) => entry.locator(drawnSel("crew", WORKS, crew)));
         const folded = await numbersOf(works);
@@ -339,7 +407,7 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
     });
 
     for (const gesture of ["scroll", "pan", "zoom"] as const) {
-        test(`a ${gesture} moves nothing as its cells land: while they are in flight the rows waiting on them are washed and busy, and no other; landed, every row in view keeps its place and its height`, { tag }, async ({ page }) => {
+        test(`a ${gesture} moves nothing as its cells land: while they are in flight the rows waiting on them draw one skeleton bar across their plot and are busy, and no other; landed, every row in view keeps its place and its height`, { tag }, async ({ page }) => {
             await installE3Faults(page);
             const entry = await openExample(page, ALL, NESTED, theme);
             const narrow = narrowOf(page);
@@ -350,23 +418,27 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
             await settled(page, { holding: true });
             const waiting = entry.locator(narrow ? "[data-plan-cardbody][data-plan-unread]" : "[data-plan-plot][data-plan-unread]");
             await expect(waiting.first()).toBeVisible();
-            const washes = entry.locator("[data-loading-wash]");
-            await expect(washes).toHaveCount(await waiting.count());
-            await expect(washes.first()).not.toHaveAttribute("data-unrevealed", "");
-            // Across each one's plot, painted, busy.
+            const skeletons = entry.locator("[data-loading-bar]");
+            await expect(skeletons).toHaveCount(await waiting.count());
+            await expect(skeletons.first()).not.toHaveAttribute("data-unrevealed", "");
+            // No wash: a waiting row draws its bar alone.
+            await expect(entry.locator("[data-frame-slot='main'] [data-loading-wash]")).toHaveCount(0);
+            // Across each one's plot, a small inset at either end, a body value bar's height in its middle, painted, busy.
             for (const plot of await waiting.all()) {
                 const drawn = await plot.evaluate((el) => {
-                    const wash = el.querySelector<HTMLElement>(":scope > [data-loading-wash]")!;
-                    const style = getComputedStyle(wash);
-                    const p = el.getBoundingClientRect(), b = wash.getBoundingClientRect();
+                    const bar = el.querySelector<HTMLElement>(":scope > [data-loading-bar]")!;
+                    const style = getComputedStyle(bar);
+                    const p = el.getBoundingClientRect(), b = bar.getBoundingClientRect();
+                    const start = b.left - p.left, end = p.right - b.right;
                     return {
-                        visibility: style.visibility, covers: Math.abs(b.width - p.width) <= 1 && Math.abs(b.height - p.height) <= 1,
+                        visibility: style.visibility, height: b.height, centred: Math.abs(b.top + b.height / 2 - (p.top + p.height / 2)) <= 1,
+                        inset: Math.abs(start - end) <= 1 && start > 0 && start <= 16,
                         painted: style.backgroundColor !== "rgba(0, 0, 0, 0)", busy: el.getAttribute("aria-busy"),
                     };
                 });
-                expect(drawn).toEqual({ visibility: "visible", covers: true, painted: true, busy: "true" });
+                expect(drawn).toEqual({ visibility: "visible", height: 12, centred: true, inset: true, painted: true, busy: "true" });
             }
-            // Landed, nothing in view moves, and nothing is washed.
+            // Landed, nothing in view moves, and no skeleton bar is left.
             await watch(entry, narrow);
             await releaseE3(page, held);
             await expect(waiting).toHaveCount(0);
@@ -374,15 +446,20 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
             const frames = await framesOf(page);
             expect(Object.keys(frames[0]!.rows).length).toBeGreaterThan(0);
             expect(movedIn(frames)).toEqual([]);
-            await expect(washes).toHaveCount(0);
+            await expect(skeletons).toHaveCount(0);
         });
     }
 
-    test("past the cap, the rows shading the works' jobs are the height of the rows they stand in for: hatched at a week, shaded from their totals at a month", { tag }, async ({ page }) => {
+    test("past the cap, the rows shading the works' jobs are the height of the rows they stand in for, and shade from their totals for the period their columns are: a week's at a week, a month's at a month, hatched at neither", { tag }, async ({ page }) => {
         await installE3Faults(page);
         const entry = await openExample(page, ALL, NESTED, theme);
         const narrow = narrowOf(page);
         await onlySeries(page, entry, ["Jobs"]);
+        // By the week first: on a phone, where the window opens as months, WEEK's range, which holds both weeks read below.
+        if (narrow) {
+            await GESTURES.zoom(page, entry, narrow, "week");
+            await settled(page);
+        }
         const kind = (key: string) => {
             const row = entry.locator(drawnSel("works", key));
             return narrow ? row.locator("[data-plan-cardbody]") : row;
@@ -398,17 +475,54 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         await expect.poll(cellReads).toBeGreaterThan(readBefore);
         // Every row in view read again: the page at rest once none is still reading its cells.
         await settled(page, { reading: true });
-        // Hatched at a week: every works row in view shades, each at its place and its height.
+        // At a week, every works row in view shades, each at its place and its height…
         for (const id of Object.keys(before.rows)) {
             const row = entry.locator(`[${narrow ? "data-plan-card" : "data-plan-row"}=${JSON.stringify(id)}]`);
             await expect(narrow ? row.locator("[data-plan-cardbody]") : row).toHaveAttribute(kindOf, "heat");
         }
         await settled(page);
         expect(await inView(entry, narrow)).toEqual(before);
-        // At a month, shaded from their totals: the same.
+        // …from the totals the index keeps a week: no cell hatched and no banner over them, the crowded week booked whole
+        // and the week before it not at all — its cell a week's, so the columns kept their period.
+        const hatched = entry.locator("[data-cell][data-nodata]");
+        const notice = entry.locator("[data-plan-banner]");
+        await expect(hatched).toHaveCount(0);
+        await expect(notice).toHaveCount(0);
+        await expect(kind(WORKS).locator(cellAt(CROWDED_WEEK))).toHaveAttribute("aria-label", /\b100% booked/);
+        await expect(kind(WORKS).locator(cellAt(WEEK_BEFORE))).toHaveAttribute("aria-label", /\b0% booked/);
+        // At a month, from the totals it keeps a month: the same, the crowded week's month booked whole.
         await GESTURES.zoom(page, entry, narrow);
         await settled(page);
         await expect(kind(WORKS)).toHaveAttribute(kindOf, "heat");
         expect((await inView(entry, narrow)).rows).toEqual(before.rows);
+        await expect(hatched).toHaveCount(0);
+        await expect(notice).toHaveCount(0);
+        await expect(kind(WORKS).locator(cellAt(CROWDED_MONTH))).toHaveAttribute("aria-label", /\b100% booked/);
     });
+
+    // The horizon is the wide layout's: on a phone the Plan draws none.
+    if (tag === "@desktop") {
+        test("the horizon counts an item once in each period it draws: by the quarter, each bar the jobs and alarms touching its quarter, fewer than its months' added up; widened to a bar a month, each its month's own", { tag }, async ({ page }) => {
+            const entry = await openExample(page, ALL, NESTED, theme);
+            // The series left on read the works' jobs and alarms alone, so the horizon counts those.
+            await onlySeries(page, entry, ["Jobs"]);
+            const horizon = entry.locator("[data-slot='horizon']");
+            const said = horizon.locator("[data-plan-horizon-meta]");
+            const drawn = () => horizon.locator("[data-brush-bars=''] > [data-brush-bar]")
+                .evaluateAll((bars) => bars.map((bar) => Number(bar.getAttribute("data-count"))));
+            const works = East.compile(ex.generateWorksAll, [])(100n, 522n);
+            const months = counted(works, 1);
+            const quarters = counted(works, 3);
+            // At the example's width its track has no room for a bar a month, so it counts by the quarter: each bar what e3
+            // keeps for its quarter…
+            await expect(said).toHaveText(`max ${Math.max(...quarters)} items / q`);
+            expect(await drawn()).toEqual(quarters);
+            // …where a job that crosses a month's end is one item, and two in its months' counts.
+            expect(quarters.reduce((sum, count) => sum + count, 0)).toBeLessThan(months.reduce((sum, count) => sum + count, 0));
+            // Widened until a month's bar has room, it counts by the month: each bar its month's own.
+            await sizePlanFrame(page, entry, MONTHS_FRAME);
+            await expect(said).toHaveText(`max ${Math.max(...months)} items / mo`);
+            expect(await drawn()).toEqual(months);
+        });
+    }
 }

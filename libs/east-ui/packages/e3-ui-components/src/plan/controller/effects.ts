@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The Plan's effects (#815) — what a state transition asks of the world: the
- * window and the resolution written into the sources of its slice (#1344),
- * and the author's callbacks. The controller runs them INSIDE the action that
- * produced them, right after the transition.
+ * window written into the sources of its slice (#1344), and the author's
+ * callbacks. The controller runs them INSIDE the action that produced them,
+ * right after the transition.
  *
  * # One window across the sources
  *
@@ -21,51 +21,62 @@
  *
  * # Every window write reads the CURRENT window
  *
- * A pan, the now rung and the resolution zoom are all arithmetic on the window
+ * A pan, the now rung and a period's preset are all arithmetic on the window
  * shown — the one the sources hold, or the canvas's own. They resolve the
  * scale from a fresh read rather than from the one the last render drew with,
  * so two effectful actions in one handler compose: two `]` presses pan two
  * periods, where the second one used to be computed from the window the first
  * had already moved.
  *
- * # A resolution only re-buckets
+ * # A period pressed is a range
  *
- * A record's resolution is presentation: switching WEEK → DAY re-buckets the
- * window shown, and fetches nothing — it is no part of a source's narrowing.
- * It is written to each source holding the window, else to every source — a
- * slice with no window holds it there.
+ * The columns' period follows the window's range and the plot's width (#1740,
+ * `shared/time/period.ts`), and nothing stores it. A period pressed in the
+ * toolbar's segment is a preset: it sets the range that period fills on the
+ * plot at the preset width, from the window's own start — the start date
+ * never moves (ruled 23 Nov 2026) — and the period that follows is the one
+ * pressed. A zoom to a table cell's period (#1438) sets as many of it about
+ * the middle the cell names instead, inside the data. Either is written as
+ * every window is, and the sources holding the window read the range it lands
+ * on. Where the canvas had fallen back from the period its range takes to a
+ * coarser one (#1799, `root/window.ts`), a period pressed is tried again: the
+ * hold picks it on the plot anew, whether the preset's range is a new one or
+ * the one held.
  *
  * @packageDocumentation
  */
 
-import { some, variant } from "@elaraai/east";
+import { variant } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
-import { axisNow, resolveScale } from "../axis.js";
+import { axisNow, axisPeriods, resolveScale } from "../axis.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
 import type { PlanScale } from "../scale.js";
 import { instantOrder, type PlanInstantValue } from "../instant.js";
 import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 import { planSlices, planWindowParts } from "../root/sources.js";
-import { leadingWindow, slicedResolution, statedWindow, zoomedWindow, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
+import { leadingWindow, statedWindow, windowPartsDomain, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
+import { presetAround, presetWindow } from "../../shared/time/period.js";
 
 /**
- * The scale as the window is held NOW — the same resolution the canvas
- * renders with (`resolveScale` over the leading source's window and the
- * resolution, else the window last shown — the canvas's own, while no source
- * holds one — and the axis's stated window).
+ * The scale as the window is held NOW — the same period the canvas renders
+ * with (`resolveScale` over the leading source's window, else the window last
+ * shown — the canvas's own, while no source holds one — and the axis's stated
+ * window, at the period the hold picks for it).
  *
  * @param value - The latest root
- * @param hold - The canvas's window hold: the window last shown, and the sources whose ranges never hold it
+ * @param hold - The canvas's window hold: the window last shown, its columns' period, and the sources whose ranges never hold it
  * @returns The scale, or `undefined` when no window resolves
  */
 export function currentScale(value: PlanRootValue, hold?: PlanWindowHold): PlanScale | undefined {
     const chrome = planSlices(value);
     const parts = planWindowParts(chrome, value.axis.type, hold?.rows);
-    const lead = leadingWindow(parts, value.axis.type);
-    // The slice's zoom, else — the canvas holding its own window — the zoom that window was kept at (#1438).
-    const resolution = slicedResolution(chrome, parts) ?? (lead === undefined ? hold?.resolution : undefined);
-    return resolveScale({ axis: value.axis, sliceWindow: lead ?? hold?.last, sliceResolution: resolution });
+    const window = leadingWindow(parts, value.axis.type) ?? hold?.last;
+    const shown = window ?? statedWindow(value.axis);
+    const period = hold === undefined || value.axis.type !== "time" || shown === undefined
+        ? undefined : hold.periodFor(shown[0], shown[1], axisPeriods(value.axis));
+    return resolveScale({ axis: value.axis, sliceWindow: window, period });
 }
 
 /**
@@ -116,21 +127,33 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 if (writable && stated !== undefined) writePlanWindow(parts, stated[0], stated[1], hold);
                 break;
             }
-            case "slice.setResolution": {
-                // A resolution is a TIME-axis fact — the segment only mounts there (a number axis has `step`; an
-                // ordinal list no unit). Where a source holds the window it is the source's narrowing, and a zoom only
-                // re-buckets; a canvas holding its own zooms with it (#1438): as many buckets of the new resolution as
-                // it showed of the old, about the same middle — or the middle the zoom names — inside the span of what
-                // its series read.
-                if (chrome === undefined || value.axis.type !== "time") break;
-                const holders = bound ? parts.map(({ part }) => part) : chrome.slice.parts.map(({ slice }) => slice);
-                const shown = !bound && hold !== undefined ? currentScale(value, hold) : undefined;
-                const resolution = some(variant(eff.resolution, null)) as Parameters<(typeof holders)[number]["setResolution"]>[0];
-                for (const part of holders) part.setResolution(resolution);
-                if (shown?.resolution !== undefined && hold !== undefined) {
-                    const zoomed = zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, hold.span, eff.about);
-                    if (zoomed !== undefined) hold.move(zoomed[0], zoomed[1]);
-                }
+            case "window.preset": {
+                // A period is a TIME-axis fact — the segment only mounts there (a number axis has `step`; an ordinal
+                // list no unit) — and pressing one sets a range (#1740): as many of it as the plot holds at the preset
+                // width, from the window's own start (ruled 23 Nov 2026) — or, a zoom to a cell's period (#1438),
+                // about the middle the cell names, inside the data: the sources' domain where they hold the window,
+                // the span of what its series read where the canvas holds its own. Written as every window is — into
+                // the sources holding it, or the canvas's own — and the period that follows is the one pressed.
+                const period = axisPeriods(value.axis).find((offered) => offered === eff.period);
+                const shown = writable && period !== undefined ? currentScale(value, hold) : undefined;
+                if (period === undefined || shown === undefined) break;
+                const held = bound ? leadingWindow(parts, value.axis.type) : hold?.last;
+                // The window as it is held, never the scale's whole periods around it: a month's scale draws from the
+                // 1st, and a preset from there moved the start date. The scale's, while none is held yet — the axis's
+                // stated window.
+                const from = held ?? [shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)] as const;
+                const plot = hold?.plot ?? PLAN_UNLAID_PLOT;
+                const domain = bound ? windowPartsDomain(parts) : undefined;
+                const span = domain !== undefined ? [domain.min, domain.max] as const : hold?.span;
+                const preset = eff.about === undefined
+                    ? presetWindow(from[0], period, plot, PLAN_COLUMN_WIDTHS)
+                    // Inside the data, and over the window shown too where it lies outside it.
+                    : presetAround(eff.about, period, plot, PLAN_COLUMN_WIDTHS,
+                        span === undefined ? undefined : [Math.min(span[0], from[0]), Math.max(span[1], from[1])]);
+                // A period pressed is tried again where the canvas had fallen back from it — also where the preset's
+                // range is the one held, which is written no more.
+                hold?.pickAgain();
+                if (held === undefined || held[0] !== preset[0] || held[1] !== preset[1]) writePlanWindow(parts, preset[0], preset[1], hold);
                 break;
             }
             case "emit.select": {
@@ -154,7 +177,7 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
             case "scroll.toNow": {
                 // The now instant is an AXIS fact, so reaching it means moving the WINDOW — the sources', or the
                 // canvas's own. A canvas with no slice has no writable one, so the rung idles there, like the
-                // resolution segment.
+                // segment's presets.
                 if (!writable) break;
                 const scale = currentScale(value, hold);
                 const nowInstant = axisNow(value.axis);

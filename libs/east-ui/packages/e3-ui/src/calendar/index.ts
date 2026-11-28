@@ -141,7 +141,7 @@ export interface CalendarProps {
      * (`Calendar.resources(Data.bindPaged(record), { … })`, #1424): its resources come a window at a time, the timeline's
      * rows and the Resources view's columns the windows around the view, its Choosers searching it by key. An event kind
      * placed on it is read a cell at a time: its source of the slice lists a series index and a summary index of its
-     * record (`index.series`, `index.summary`, filed by its resource field over its own times) beside
+     * record (`index.flatSeries`, `index.summary`, filed by its resource field over its own times) beside
      * its interval index, or it is refused.
      */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;

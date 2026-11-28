@@ -43,6 +43,11 @@
  * - A standing key search stands while a pan moves the jobs' window over the
  *   same presses, and a new snapshot of the presses asks it again there, its
  *   text kept and its matches the new snapshot's.
+ * - A Plan whose `paging` reads its rows two entries at a time (#1714) reads
+ *   every window two entries long: a gesture on an entry takes it from the
+ *   window the canvas read it in, with no read of its own, and the key search
+ *   reaches an entry far off, reading the window holding it, never those
+ *   between.
  *
  * The handles are bound with `$.let`, as an app binds them. Nothing fails to
  * read, not even for a moment — and where the app's block is evaluated again
@@ -66,17 +71,39 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates } from "@elaraai/e3-ui/examples/plan/plan-events";
+import e3 from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { rowKeysOf, type E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
-import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
+import { W, carry, carryRun, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { conflictCards, evaluatesAgain } from "../../e3-web-mount.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
-const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
+/** A press of this file's own record: its name, and its runs by their ids. */
+const PairedPress = StructType({ label: StringType, jobs: DictType(StringType, StructType({ label: StringType, start: DateTimeType, end: DateTimeType })) });
+
+/** Six presses, M1 to M6, a run each from week 28 to week 30, edited through their patch door: read two at a time (#1714). */
+const pairedPresses = e3.record("plan_paired_presses", DictType(StringType, PairedPress), {
+    initial: new Map(Array.from({ length: 6 }, (_x, i) => [`m${i + 1}`, {
+        label: `M${i + 1}`, jobs: new Map([[`j${i + 1}`, { label: `J${i + 1}`, start: W(28), end: W(30) }]]),
+    }] as const)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** Four hundred presses, M001 to M400 in their keys' order, a run each: read two at a time, far more than the view shows (#1714). */
+const manyPairedPresses = e3.record("plan_many_paired_presses", DictType(StringType, PairedPress), {
+    initial: new Map(Array.from({ length: 400 }, (_x, i) => {
+        const n = `${i + 1}`.padStart(3, "0");
+        return [`m${n}`, { label: `M${n}`, jobs: new Map([[`j${n}`, { label: `J${n}`, start: W(28), end: W(30) }]]) }] as const;
+    })),
+});
+
+const h = planHarness({
+    "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events, "plan/paired-presses": { pairedPresses, manyPairedPresses },
+});
 evaluatesAgain();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
@@ -802,8 +829,10 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await settle();
         expect(bar(c, "W-0001", "P-1001")).toBeNull();
         expect(named(bar(c, "W-0001", "P-1002"))).toMatch(/^Brochure run, Oct 5, 2026, 06:00 – Oct 5, 2026, 14:00/);
-        // A resize: the museum guide (W-0003) a day longer.
+        // A resize: the museum guide (W-0003) a day longer, by its end — drawn while the bar is in hand (#1780): the
+        // pointer comes over the bar first, as it does reaching for the end.
         y = layOutPlots(c, ["P-1001", "P-1002", "P-1003", "P-1004"]);
+        fireEvent.pointerEnter(bar(c, "W-0003", "P-1002")!);
         const end = bar(c, "W-0003", "P-1002")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
         await dragTo(end, { x: xAt(1, 12), y: y("P-1002") }, { x: xAt(2, 12), y: y("P-1002") });
         await settle();
@@ -1216,5 +1245,95 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
         } finally {
             restore();
         }
+    });
+});
+
+// ============================================================================
+// A window of the rows as the Plan's `paging` says (#1714)
+// ============================================================================
+
+/** The weeks the paired presses' Plan shows: week 27 to week 38. */
+const PAIRED_WEEKS = { min: W(27), max: W(39) };
+
+/** The six presses on a Plan read two at a time, each its run, which moves; saved through the record they are read from. */
+const pairedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.let(Data.bindPaged(pairedPresses));
+    const record = $.let(Record.bind(pairedPresses, ["patch"]));
+    return Plan({
+        axis: Plan.axis({ window: PAIRED_WEEKS, resolution: "week" }),
+        data: presses,
+        paging: { entries: 2 },
+        series: [Plan.series.span(PairedPress, {
+            key: "jobs", title: "Jobs", label: (press) => press.label,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: "confirmed" })),
+            edit: true,
+        })],
+        record,
+    });
+}))) };
+
+/** The four hundred presses on a Plan read two at a time, unbounded. */
+const manyPairedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.let(Data.bindPaged(manyPairedPresses));
+    return Plan({
+        axis: Plan.axis({ window: PAIRED_WEEKS, resolution: "week" }),
+        data: presses,
+        paging: { entries: 2 },
+        series: [Plan.series.span(PairedPress, {
+            key: "jobs", title: "Jobs", label: (press) => press.label,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: "confirmed" })),
+        })],
+    });
+}))) };
+
+describe("a window of the rows as the Plan's paging says (#1714)", () => {
+    test("the key search seeks a press by its key in windows of two: the window holding it read and its row drawn, every read two entries long, and the windows between never read", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const path = pathText(manyPairedPresses.path as TreePath);
+            const pages = () => h.requests().filter((request) => request.kind === "page" && request.dataset === path).map(askedOf);
+            const offsetOf = (asked: string) => Number(/^page (\d+)\+/.exec(asked)![1]);
+            const { container } = await h.mount(manyPairedPlan);
+            await settle();
+            // The windows in view and those read ahead of them, two presses each: the first few of two hundred.
+            expect(pages().every((asked) => asked.endsWith("+2") && offsetOf(asked) < 40)).toBe(true);
+            const search = () => slot(container, "toolbar")!.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
+            const input = search().querySelector<HTMLInputElement>("input")!;
+            // Typed as a planner types it, a key at a time: the 371st press.
+            for (const key of "m371") await userEvent.type(input, key);
+            await waitFor(() => expect(search().textContent).toMatch(/\b1 match\b/), { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => expect(container.querySelector(rowAt(entry("jobs", "m371")))).not.toBeNull(), { timeout: 10_000 });
+            // The window holding it, and those the driver keeps beside it — its read-ahead, and the windows the view shows
+            // half a view either side of its row (#1710), a screen of two-press windows; none between them and the first,
+            // where a walk would read every window from the twenty-first on.
+            expect(pages()).toContain("page 370+2");
+            expect(pages().map(offsetOf).filter((offset) => offset >= 40 && offset < 340)).toEqual([]);
+            // The search reads its match alone, a page of one, to name it; every window the canvas reads is two presses.
+            expect(pages().filter((asked) => !asked.endsWith("+2"))).toEqual(["page 370+1"]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a gesture on an entry in a window of two takes the entry from the window the canvas read, with no read of its own — every read two entries long — and Save writes it", async () => {
+        const path = pathText(pairedPresses.path as TreePath);
+        const pages = () => h.requests().filter((request) => request.kind === "page" && request.dataset === path).map(askedOf);
+        const { container } = await h.mount(pairedPlan, DRAG);
+        await settle();
+        // The first window and the two read ahead of it: every press, two at a time.
+        expect([...new Set(pages())].sort()).toEqual(["page 0+2", "page 2+2", "page 4+2"]);
+        const run = (press: string, key: string) => container.querySelector<HTMLElement>(`${rowAt(entry("jobs", press))} [data-run="${key}"]`);
+        // M4's run, in the second window, carried a week on by the keyboard: a draft of its entry.
+        const before = h.requests().length;
+        await carryRun(run("m4", "j4")!, { key: "ArrowRight" });
+        expect(pending(container)).toBe("1 pending");
+        // Its entry came with the window the canvas read it in: nothing was read for it.
+        expect(h.requests().slice(before).filter((request) => request.dataset === path)).toEqual([]);
+        // Save writes it, and every window read on the way was two entries long.
+        await press(historyButton(container, SAVE));
+        await waitFor(() => expect(pending(container)).toBe("0 pending"));
+        expect([...(await h.read(pairedPresses)).get("m4")!.jobs.values()][0]!.start).toEqual(W(29));
+        expect(pages().every((asked) => asked.endsWith("+2"))).toBe(true);
     });
 });

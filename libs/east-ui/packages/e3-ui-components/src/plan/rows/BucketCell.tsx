@@ -4,39 +4,34 @@
  */
 
 /**
- * A bucket cell (#1267): its tiles and its marker — the tiles folded to the
- * room the cell gives them, their own box's (#1266). A lane's caption is its
- * gutter line's, never the cell's (#1680's review).
- * A cell with more than one tile shows the tiles that fit, in their order and
- * each drawn whole, then a `+n` chip that counts the rest: a button whose
- * anchored menu lists them by name. A pick selects the tile, as its click does
- * (#1197), and opens its popover where the root declares one (#816).
+ * A bucket cell (#1267, #1735): a day of a lane, its tiles each at its slot —
+ * the day whole, halves or quarters by how many it holds, from five three and
+ * a `+n` in the last quarter (`bucket-slots.ts`) — and its marker. A lane's
+ * caption is its gutter line's, never the cell's (#1680's review). The `+n`
+ * chip is a button whose anchored menu lists the tiles it holds by name; a pick
+ * selects the tile, as its click does (#1197), and opens its popover where the
+ * root declares one (#816).
  *
- * The cell keeps a tile on its run — the selected one, the one whose popover
- * is open, or the one just picked — so the tile is there to act on, its ring
- * drawn and its popover anchored to it ({@link fitTiles}): shrunk to its floor
- * beside the chip if need be, or alone while the chip waits. A focused tile
- * that folds hands the focus to the chip.
+ * The cell keeps a tile in a slot — the selected one, the one whose popover is
+ * open, or the one just picked — so the tile is there to act on, its ring
+ * drawn and its popover anchored to it; on a day of one slot it stands alone
+ * while the chip waits. A focused tile that folds hands the focus to the chip.
  *
- * The fold is chosen before the browser paints, from widths the cell measured
- * with every tile drawn whole beside a stand-in chip, as a docked pane's tab
- * row folds its tabs (#1210), by the clock every measured fold shares
- * (`useMeasureAgain`): when the cell mounts, when its tiles change, when
- * fonts arrive, and when its room changes — taken in the ResizeObserver's
- * delivery, so no frame paints a fold the cell does not rest on. While it measures again the chip keeps the last fold,
- * so an open menu stays open (#1235). A context strip's cell (R2) never folds.
+ * Where the tiles stand is arithmetic on the day's pitch, never a measure of
+ * what they hold: the row places the cell and measures the pitch
+ * (`BucketsRow`), and each slot is set inline in whole pixels. A day with no
+ * room for one tile draws its lone tile as a mark across itself (#1710), or
+ * several as their chip alone across it (#1276), which lists every tile; a pick
+ * does what the tile's click does — its popover, the tile having no box, hangs
+ * from the chip. Unmeasured (jsdom), a slot is placed by its share of the cell.
+ * A context strip's tiles are marks that never fold: each its share of the day.
  *
- * A cell with no room for one tile, its padding given way (#1276), draws none
- * of them: its chip alone, across the whole cell (`data-no-room`), lists every
- * tile, and a pick does what the tile's click does — its popover, the tile
- * having no box, hangs from the chip.
- *
- * The renderer sets data attributes and nothing else: `data-tile-measure` on
- * the tiles' box while it measures, `data-folded` on a folded tile,
- * `data-tile-more` on the chip, `data-tile-more-count` on its count,
- * `data-cramped` on a chip wider than the room, which shrinks to it and draws
- * no count, and `data-no-room` on a chip a cell with no room for a tile draws
- * across itself. Its styles are the Plan recipe's.
+ * The renderer sets data attributes and geometry alone: `data-folded` on a
+ * folded tile, `data-tile-more` on the chip, `data-tile-more-count` on its
+ * count, and `data-no-room` on a chip a cell with no room for a tile draws
+ * across itself, or on the tiles' box whose lone tile draws as a mark across
+ * the cell. Its styles are the Plan recipe's, each part a plain element of its
+ * slot's class, made once a theme (`useSlotClass`, #1780).
  *
  * @packageDocumentation
  */
@@ -45,24 +40,25 @@ import {
     useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
-import { FrameMenuLayer, useMeasureAgain } from "@elaraai/east-ui-components/internal";
+import { Menu as ChakraMenu } from "@chakra-ui/react";
+import { FrameMenuLayer, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanGeometry } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
+import { PLAN_CELL_INSET } from "../geometry.js";
 import { rowKeyOf } from "../row-key.js";
 import type { PlanWords } from "../words.js";
-import { fitTiles, type TileCellMeasure } from "./tile-fold.js";
+import { BUCKET_SLOT_GAP, bucketSlots } from "./bucket-slots.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** One tile of a cell: its key, its accessible name, and the tile itself, drawn folded or not. */
+/** One tile of a cell: its key, its accessible name, and the tile itself, folded or at its place in the cell. */
 export interface BucketCellTile {
     /** Its event's key — the tile's `data-event`. */
     readonly key: string;
     /** Its accessible name — what the chip's menu lists it by (#819). */
     readonly name: string;
-    /** The tile, folded or not. */
-    readonly draw: (folded: boolean) => ReactNode;
+    /** The tile: folded into the chip, or at its place in the cell — none for a mark across the cell, the recipe's. */
+    readonly draw: (folded: boolean, place: CSSProperties | undefined) => ReactNode;
 }
 
 /** Props of {@link BucketCell}. */
@@ -73,7 +69,7 @@ export interface BucketCellProps {
     readonly rowKey: string;
     /** The cell's key — its `data-plan-cell`. */
     readonly cellKey: string;
-    /** Where the cell sits: its left, width, top and height — inline, as a gesture moves them. */
+    /** Where the cell sits: the day's room in its lane, and where a tile stands down it — inline, as a gesture moves them. */
     readonly place: Readonly<CSSProperties>;
     /** Its marker's status — the ring — when it has one. */
     readonly over: string | undefined;
@@ -81,8 +77,10 @@ export interface BucketCellProps {
     readonly tiles: readonly BucketCellTile[];
     /** Its marker's corner icon, drawn last. */
     readonly marker: ReactNode;
-    /** Whether the cell folds: it holds a tile, and is not a context strip's. */
+    /** Whether its tiles stand in slots and fold: it holds a tile, and is not a context strip's, whose marks never fold. */
     readonly folds: boolean;
+    /** The day's pitch on the plot, in px; `undefined` while its row is unmeasured. */
+    readonly pitch: number | undefined;
     /** The bucket's left edge, as a fraction of the window — the chip's place in the row's walk. */
     readonly frac: number;
     /** The bucket, in words — the chip's name says where it is. */
@@ -93,21 +91,39 @@ export interface BucketCellProps {
     readonly words: PlanWords;
     /** A click on the cell itself: its row selected. */
     readonly onClick: () => void;
-    /** A signature of what sizes the tiles — each one's key and what it draws; the cell measures again when it changes. */
-    readonly signature: string;
 }
 
 const noSubscribe = () => () => undefined;
 
+/** A pitch past any day's, for an unmeasured cell: its slots by its tiles' count alone, never its floor. */
+const UNMEASURED = 1e9;
+
+/**
+ * A slot's place in its cell: in whole pixels from the day's start, or — unmeasured — by its share of the cell, which
+ * is the day less its rule.
+ *
+ * @param k - The slots the day is cut into
+ * @param slot - The slot
+ * @param px - Its left and width in px, where the day is measured
+ * @returns The place
+ */
+function slotPlace(k: number, slot: number, px: { readonly left: number; readonly width: number } | undefined): CSSProperties {
+    // Its width, which a narrow slot's padding gives way to (`--plan-slot-w`, the recipe's).
+    return px !== undefined
+        ? { left: `${px.left}px`, width: `${px.width}px`, "--plan-slot-w": `${px.width}px` } as CSSProperties
+        : { left: `calc(${PLAN_CELL_INSET}px + ${slot} * (100% + 1px) / ${k})`, width: `calc((100% + 1px) / ${k} - ${BUCKET_SLOT_GAP}px)` };
+}
+
 /**
  * A bucket cell — see the module docs.
  *
- * @param props - The cell's place, its tiles and marker, whether it folds, and its words
+ * @param props - The cell's place, its tiles and marker, whether they fold, the day's pitch, and its words
  * @returns The cell
  */
 export function BucketCell(props: BucketCellProps) {
-    const { styles, rowKey, cellKey, place, over, tiles, marker, folds, frac, bucket, lane, words, onClick, signature } = props;
+    const { styles, rowKey, cellKey, place, over, tiles, marker, folds, pitch, frac, bucket, lane, words, onClick } = props;
     const geometry = usePlanGeometry();
+    const slot = useSlotClass();
     const boxRef = useRef<HTMLDivElement | null>(null);
     const chipRef = useRef<HTMLButtonElement | null>(null);
 
@@ -128,44 +144,25 @@ export function BucketCell(props: BucketCellProps) {
     const keptKey = held ?? picked;
     const keptIndex = keptKey === undefined ? -1 : tiles.findIndex((tile) => tile.key === keptKey);
 
-    // ── The fold, measured before paint ──
-    // Other tiles, a cell that folds again, a change of its room and fonts arriving measure again. The box is as wide as
-    // the cell leaves it, whatever it holds, so folding never changes what is observed.
-    const { measuring, measured: tilesMeasured } = useMeasureAgain(boxRef, signature, folds);
-    // What the cell measured, and its own width: a chip it draws across itself has that room (#1276).
-    const [measure, setMeasure] = useState<(TileCellMeasure & { readonly cell: number }) | undefined>(undefined);
-    useLayoutEffect(() => {
-        const box = boxRef.current;
-        if (!measuring || box === null) return;
-        const width = (el: Element | null) => (el === null ? 0 : el.getBoundingClientRect().width);
-        const gap = Number.parseFloat(getComputedStyle(box).columnGap) || 0;
-        // The room is the box's own width, measured, never rounded: a tile a
-        // fraction too wide for it would ellipsize its label.
-        const room = width(box);
-        setMeasure({
-            room,
-            tiles: [...box.querySelectorAll(":scope > [data-event]")].map(width),
-            gap,
-            more: width(box.querySelector(":scope > [data-tile-more-measure]")) + gap,
-            floor: Math.min(geometry.tileMinWidth, room),
-            least: geometry.tileLeastWidth,
-            cell: width(box.parentElement),
-        });
-        tilesMeasured();
-    }, [measuring, tilesMeasured, signature, geometry.tileMinWidth, geometry.tileLeastWidth]);
-    // The fold the last measure gave; the cell draws every tile whole while it
-    // measures again, and the chip keeps that fold meanwhile, so an open menu
-    // stays open (#1235).
-    const measured = !folds || measure === undefined || measure.tiles.length !== tiles.length
-        ? undefined
-        : fitTiles(measure, keptIndex >= 0 ? keptIndex : undefined);
-    const shown = measuring || measured === undefined ? undefined : new Set(measured.shown);
-    const folded = measured === undefined || !measured.chip ? [] : tiles.filter((_, i) => !measured.shown.includes(i));
-    // A room narrower than the chip itself cramps it: it shrinks to the room, its count off its line, its name
-    // still saying what it holds — as a tile's parts go (#1266). Drawn across a cell with no room for a tile, its
-    // room is the cell's (#1276).
-    const noRoom = measured?.noRoom === true;
-    const cramped = measure !== undefined && measure.more - measure.gap > (noRoom ? measure.cell : measure.room) + 0.01;
+    // ── Where each tile stands ──
+    const shown = new Map<number, CSSProperties>();
+    let more: { readonly count: number; readonly place: CSSProperties | undefined } | undefined;
+    let mark = false;
+    if (!folds) {
+        // A context strip's marks: every tile its share of the day.
+        tiles.forEach((_, i) => shown.set(i, slotPlace(tiles.length, i, undefined)));
+    } else {
+        const slots = bucketSlots(pitch ?? UNMEASURED, tiles.length, keptIndex >= 0 ? keptIndex : undefined, geometry.tileMinWidth, geometry.tileLeastWidth);
+        const measured = pitch !== undefined;
+        if (slots.kind === "mark") mark = true;
+        else if (slots.kind === "count") more = { count: slots.count, place: undefined };
+        else {
+            for (const tile of slots.tiles) shown.set(tile.index, slotPlace(slots.k, tile.slot, measured ? tile : undefined));
+            if (slots.more !== undefined) more = { count: slots.more.count, place: slotPlace(slots.k, slots.more.slot, measured ? slots.more : undefined) };
+        }
+    }
+    const noRoom = more !== undefined && more.place === undefined;
+    const folded = more === undefined ? [] : tiles.filter((_, i) => !shown.has(i));
 
     // A focused tile that folds hands the focus to the chip, which holds it now.
     useLayoutEffect(() => {
@@ -175,7 +172,7 @@ export function BucketCell(props: BucketCellProps) {
         chipRef.current?.focus({ preventScroll: true });
     });
 
-    // ── A pick: the tile kept on the run, then focused and clicked as a viewer would ──
+    // ── A pick: the tile kept in a slot, then focused and clicked as a viewer would ──
     // The menu hands focus back to its chip in a microtask after the pick; the
     // tile's focus and click come a frame later, so the popover it opens
     // anchors to it and keeps the focus there. The selection or the open
@@ -197,43 +194,34 @@ export function BucketCell(props: BucketCellProps) {
     const stop = useCallback((e: MouseEvent) => e.stopPropagation(), []);
 
     return (
-        <Box css={styles.cell}
+        <div className={slot(styles.cell)}
             data-plan-cell={cellKey}
             data-over={over}
             style={place}
             onClick={onClick}
         >
-            {/* The tiles, in the room the cell gives them: a tile's floor is that room's (#1266). */}
-            <Box ref={boxRef} css={styles.cellTiles} data-plan-cell-tiles=""
-                data-tile-measure={measuring ? "" : undefined}>
-                {tiles.map((tile, i) => tile.draw(shown !== undefined && !shown.has(i)))}
-                {measuring && (
-                    // The chip's stand-in, measured beside the tiles drawn whole: beside the
-                    // chip, never in its place, so an open menu stays open (#1235).
-                    <Box as="span" css={styles.tileMore} data-tile-more-measure="" aria-hidden>
-                        <span data-tile-more-count="">{words.m.tileMore({ n: tiles.length, count: words.number(tiles.length) })}</span>
-                    </Box>
-                )}
-                {folded.length > 0 && (
+            <div ref={boxRef} className={slot(styles.cellTiles)} data-plan-cell-tiles="" data-no-room={mark ? "" : undefined}>
+                {tiles.map((tile, i) => (mark && i === 0 ? tile.draw(false, undefined) : tile.draw(!shown.has(i), shown.get(i))))}
+                {more !== undefined && (
                     <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={(detail) => pick(detail.value)}>
                         <ChakraMenu.Trigger asChild>
-                            <chakra.button ref={chipRef} type="button" css={styles.tileMore} data-tile-more=""
-                                data-cramped={cramped ? "" : undefined}
+                            <button ref={chipRef} type="button" className={slot(styles.tileMore)} data-tile-more=""
                                 data-no-room={noRoom ? "" : undefined}
+                                style={more.place}
                                 // In the row's walk where the tiles it folds would be (#819).
                                 data-plan-frac={frac.toFixed(4)} tabIndex={-1}
                                 aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane, every: folded.length === tiles.length })}
                                 onClick={stop}>
-                                <span data-tile-more-count="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span>
-                            </chakra.button>
+                                <span data-tile-more-count=""><span data-plan-label="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span></span>
+                            </button>
                         </ChakraMenu.Trigger>
                         <FrameMenuLayer label={bucket} data-tile-more-menu="">
-                                    {folded.map((tile) => <ChakraMenu.Item key={tile.key} value={tile.key}>{tile.name}</ChakraMenu.Item>)}
-                                </FrameMenuLayer>
+                            {folded.map((tile) => <ChakraMenu.Item key={tile.key} value={tile.key}>{tile.name}</ChakraMenu.Item>)}
+                        </FrameMenuLayer>
                     </ChakraMenu.Root>
                 )}
-            </Box>
+            </div>
             {marker}
-        </Box>
+        </div>
     );
 }

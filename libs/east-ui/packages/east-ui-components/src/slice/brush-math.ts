@@ -187,6 +187,25 @@ export function brushDragWindow(drag: BrushDrag): BrushWindowPx {
     return { lo: Math.min(s, x), hi: Math.max(s, x) };
 }
 
+/** An edge of the window a gesture holds in place while the other moves. */
+export type BrushHeld = "lo" | "hi";
+
+/**
+ * The edge a drag holds in place (#1710) — what a host keeping the window
+ * within limits holds, letting the other give way: a resize holds the edge it
+ * does not drag, which is the window's other end once dragged past it; a draw
+ * holds the edge it started at; a move holds neither, its width kept.
+ *
+ * @param drag - The in-flight drag state
+ * @returns The edge it holds; `undefined` for a move
+ */
+export function brushHeld(drag: BrushDrag): BrushHeld | undefined {
+    const { mode, start, current, width, win } = drag;
+    if (mode === "move") return undefined;
+    const fixed = mode === "resize-lo" && win !== undefined ? win.hi : mode === "resize-hi" && win !== undefined ? win.lo : clamp(start, 0, width);
+    return fixed <= clamp(current, 0, width) ? "lo" : "hi";
+}
+
 /** What a completed brush gesture should do. */
 export type BrushRelease =
     | { kind: "commit"; lo: number; hi: number }
@@ -302,6 +321,17 @@ export function brushKey(key: string, shift: boolean, target: BrushKeyTarget, wi
     return undefined;
 }
 
+/**
+ * The edge a key holds in place (#1710), as {@link brushHeld} names a drag's: a handle's key holds the other handle's
+ * edge; the window's moves both, holding neither.
+ *
+ * @param target - What has the focus
+ * @returns The edge it holds; `undefined` for the window
+ */
+export function brushKeyHeld(target: BrushKeyTarget): BrushHeld | undefined {
+    return target === "lo" ? "hi" : target === "hi" ? "lo" : undefined;
+}
+
 // ── The histogram's bars (#1438) ─────────────────────────────────────────────
 
 /** A bucket of the histogram: where it starts and ends on the track, as fractions, and its count. */
@@ -332,7 +362,9 @@ export interface BrushBar {
  * The bars of a histogram on a track (#1438): every bar one width, the
  * narrowest bucket's between its whole-pixel edges less the gap — 1px, 2px
  * from 8px a bucket — at its slot's start; a short slot's bar, or an end bucket the
- * horizon clips, keeps the gap to the next slot's start. Its height is
+ * horizon clips, keeps the gap to the next slot's start. An end bucket sets no
+ * width, as the horizon may clip it to a sliver: with no bucket between the two
+ * ends, the wider end's does (#1732). Its height is
  * linear to the largest bucket, up to `barMax`, a non-zero bucket's at least
  * 2; a zero draws none.
  *
@@ -346,9 +378,13 @@ export function brushBars(buckets: readonly BrushBucketSpan[], trackPx: number, 
     const max = buckets.reduce((m, b) => Math.max(m, b.count), 0);
     if (!(max > 0)) return [];
     // The pitch: the narrowest bucket between its whole-pixel edges, so every bar is one width with its gap kept; an end
-    // bucket the horizon clips sets none.
-    const inner = buckets.length > 2 ? buckets.slice(1, -1) : buckets;
-    const pitch = inner.reduce((least, b) => Math.min(least, Math.round(b.to * trackPx) - Math.round(b.from * trackPx)), Infinity);
+    // bucket, which the horizon may clip, sets none — with no bucket between the two ends, the wider end's, the one it
+    // clips least: four weeks from 5 October by the month are October's 27 days and the 1st of November, whose sliver
+    // would set every bar to a few pixels (#1732).
+    const slot = (b: BrushBucketSpan) => Math.round(b.to * trackPx) - Math.round(b.from * trackPx);
+    const pitch = buckets.length > 2
+        ? buckets.slice(1, -1).reduce((least, b) => Math.min(least, slot(b)), Infinity)
+        : buckets.reduce((most, b) => Math.max(most, slot(b)), 0);
     const gap = pitch >= 8 ? 2 : 1;
     const width = Math.max(0, pitch - gap);
     const bars: BrushBar[] = [];

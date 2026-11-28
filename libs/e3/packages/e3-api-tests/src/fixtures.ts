@@ -785,6 +785,8 @@ export const JobsType = DictType(StringType, JobRowType);
 export const JobPressLevelTileKeyType = StructType({ on: StructType({}), key: StringType, level: RecordLevelType, tile: DateTimeType });
 /** The key of the series fixture's summary index: its `on`, then a press and a week's start (#1433). */
 export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringType, tile: DateTimeType });
+/** The key of the series fixture's summary with no key (#1732): its `on`, empty, then a week's start — the record's totals a week. */
+export const JobWeekKeyType = StructType({ on: StructType({}), tile: DateTimeType });
 
 /**
  * Create a package whose record is read in two dimensions (#1039): a block of
@@ -800,9 +802,11 @@ export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringT
  * - Index: "jobs_by_press_week", each job under its press, filed once at the
  *   level its length fits — a week, a month, a quarter or a year, from the
  *   week up — or once a year past a year, carrying its row, keyed
- *   {@link JobPressLevelTileKeyType}; and "jobs_by_press_week_totals", how many
+ *   {@link JobPressLevelTileKeyType}; "jobs_by_press_week_totals", how many
  *   jobs touch each week on each press and the time of it they cover, keyed
- *   {@link JobPressWeekKeyType}
+ *   {@link JobPressWeekKeyType}; and "jobs_week_totals", a summary with no
+ *   key, how many jobs touch each week on any press and the time of it they
+ *   cover, keyed {@link JobWeekKeyType} (#1732)
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -819,8 +823,9 @@ export async function createSeriesRecordPackageZip(
   const jobs = e3.record('jobs', JobsType, {
     initial: new Map(),
     indexes: (index) => ({
-      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      jobs_week_totals: index.totals({ from: 'start', to: 'end', tile: 'week' }),
     }),
     mutations: (mutation) => ({
       seed: mutation.reduce(East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
@@ -871,8 +876,11 @@ export const AssembliesType = DictType(StringType, AssemblyType);
  * Creates a package with, each record empty and with its patch door:
  * - Record "machines", and its nested series index "machines_in_time": each
  *   machine's jobs, things people drag, and its load, a value a day, filed
- *   from the week up and totalled a month at a time; beside it
- *   "machines_by_site", which carries each machine without them
+ *   from the week up and totalled a month at a time — and, in the span beside
+ *   it, "machines_in_time_span", across every machine a month, a quarter and
+ *   a year at a time, the periods an index keeps the record's totals at when
+ *   it names none (#1739); beside them "machines_by_site", which carries each
+ *   machine without them
  * - Record "halls", and "halls_in_time": each member's load, rolled up by its
  *   mean, so each hall keeps its members' mean at every level from the day up
  * - Record "assemblies", and "assemblies_in_time": each part's jobs, rolled
@@ -893,8 +901,8 @@ export async function createNestedSeriesPackageZip(
   const machines = e3.record('machines', MachinesType, {
     initial: new Map(),
     indexes: (index) => ({
-      machines_in_time: index.nested({
-        collections: { jobs: index.nested.items({ from: 'start', to: 'end' }), load: index.nested.values() }, tile: 'week', summary: 'month',
+      machines_in_time: index.nestedSeries({
+        collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() }, tile: 'week', summary: ['month'],
       }),
       machines_by_site: index.on(['site']),
     }),
@@ -905,8 +913,8 @@ export async function createNestedSeriesPackageZip(
   const halls = e3.record('halls', HallsType, {
     initial: new Map(),
     indexes: (index) => ({
-      halls_in_time: index.nested({
-        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      halls_in_time: index.nestedSeries({
+        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: ['month'],
       }),
     }),
     mutations: (mutation) => ({
@@ -916,10 +924,10 @@ export async function createNestedSeriesPackageZip(
   const assemblies = e3.record('assemblies', AssembliesType, {
     initial: new Map(),
     indexes: (index) => ({
-      assemblies_in_time: index.nested({
-        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
+      assemblies_in_time: index.nestedSeries({
+        collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
         tile: 'week',
-        summary: 'month',
+        summary: ['month'],
       }),
     }),
     mutations: (mutation) => ({

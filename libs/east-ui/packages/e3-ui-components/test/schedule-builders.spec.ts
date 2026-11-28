@@ -395,7 +395,8 @@ describe("Schedule.events — `title`, optional (B3), a field of the row or a fu
     }
     /** Each event of a kind overlapping [from, to), by its key and its title, as every view reads it. */
     async function titles(program: typeof untitled, from: string, to: string): Promise<(readonly [string, string])[]> {
-        const items = (await built(program)).items(at(from), at(to), new SortedMap([], byString), none);
+        // No reader of the kind's cells names it: it reads its window (#1771).
+        const items = (await built(program)).items(at(from), at(to), new SortedMap([], byString), variant("window", null));
         if (items.type !== "some") assert.fail("expected the items");
         return items.value.map((i) => [i.key, i.title] as const);
     }

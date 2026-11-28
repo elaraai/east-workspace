@@ -26,7 +26,7 @@ import {
     SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Schedule } from "@elaraai/e3-ui";
-import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { Plan, PlanPayloadType, planChildRowKey, type PlanEventShadingType } from "@elaraai/e3-ui/internal";
 import { recordHandle } from "../record-handles.js";
 import { entry, ids, labels, parents, readings, rowsOf, sameIds, sameLabels, sameParents } from "./plan-rows.fixtures.js";
 
@@ -603,6 +603,15 @@ describe("an event kind's `child`: its events on the rows beneath its resource (
         assert.notEqual(press.kind.type, "buckets");
     });
 
+    test("each task is filed by its press's key and its kind's as `planChildRowKey` prints the pair: the text its row's list is found by (#1712)", () => {
+        if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+        const placed = payload.seam.value.placed(W27, W28, new Map(), [], new Map());
+        if (placed.type !== "some") assert.fail("expected the tasks read");
+        // A task on a press with no row of its kind beneath it is filed all the same: `place` finds it no row.
+        const filed = [...(placed.value.on.get("kinds")?.get("buckets")?.keys() ?? [])];
+        assert.ok(sameKeys(filed, [planChildRowKey("P03", "ink"), planChildRowKey("P03", "wash"), planChildRowKey("P04", "ink")]), printFor(ArrayType(StringType))(filed));
+    });
+
     test("a variant `lane` draws a lane for every case, empty or not, by name, each tile in its case's", () => {
         const ink = tilesOn(entry("kinds", "P03", "ink"));
         assert.ok(sameKeys(ink.lanes, ["am", "pm"]));
@@ -625,17 +634,37 @@ describe("an event kind's `child`: its events on the rows beneath its resource (
             /^Plan: events\.task's child field "day" holds \.DateTime, the key of a row of "kinds" — and those rows are keyed by \.String$/);
     });
 
-    test("past the cap, a row beneath a press draws its press's shading: the shading is filed by resource (#1660's review)", () => {
+    test("past the cap, each row beneath a press draws its own shading, filed under its series by the pair — never its press's", () => {
         if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+        const seam = payload.seam.value;
         const rows = payload.plan.rows;
         if (rows.type !== "inline") assert.fail("expected the rows read whole");
-        const placed = payload.seam.value.placed(W27, W28, new Map(), [], new Map());
+        const placed = seam.placed(W27, W28, new Map(), [], new Map());
         if (placed.type !== "some") assert.fail("expected the tasks read");
-        // The tasks' shading, by the press its summary files them under: a bucket's share of P03.
-        const shading = new Map([["press.buckets", new Map([["P03", [{ at: W27, value: some(3.0) }]]])]]);
-        const drawn = payload.seam.value.place(rows.value, placed.value, shading, [], true).flatMap((block) => block.rows);
-        const kindOf = (id: ValueTypeOf<typeof Plan.Types.RowId>) => drawn.find((one) => sameIds([one.id], [id]))!.kind.type;
-        assert.deepEqual([kindOf(entry("kinds", "P03", "ink")), kindOf(entry("kinds", "P03", "wash"))], ["heat", "heat"]);
+        const drawnUnder = (shading: ValueTypeOf<PlanEventShadingType>) =>
+            seam.place(rows.value, placed.value, shading, [], true).flatMap((block) => block.rows);
+        const rowOf = (drawn: ReturnType<typeof drawnUnder>, id: ValueTypeOf<typeof Plan.Types.RowId>) => drawn.find((one) => sameIds([one.id], [id]))!;
+        /** A heat row's cells' values, in order. */
+        const heatOf = (row: ReturnType<typeof rowOf>) => {
+            if (row.kind.type !== "heat" || row.kind.value.cells.type !== "heat") assert.fail("expected a row of counts");
+            return row.kind.value.cells.value.cells.map((cell) => cell.value);
+        };
+        const values = equalFor(ArrayType(OptionType(FloatType)));
+        // The tasks' shading by each row beneath a press: the ink row's count, the wash row's none in that bucket.
+        const own = drawnUnder(new Map([["kinds.buckets", new Map([
+            [planChildRowKey("P03", "ink"), [{ at: W27, value: some(2.0) }]],
+            [planChildRowKey("P03", "wash"), [{ at: W27, value: some(0.0) }]],
+        ])]]));
+        assert.ok(values(heatOf(rowOf(own, entry("kinds", "P03", "ink"))), [some(2.0)]));
+        assert.ok(values(heatOf(rowOf(own, entry("kinds", "P03", "wash"))), [some(0.0)]));
+        // A row the shading names none of shades at nothing: never another row's counts.
+        const one = drawnUnder(new Map([["kinds.buckets", new Map([[planChildRowKey("P03", "ink"), [{ at: W27, value: some(2.0) }]]])]]));
+        assert.ok(values(heatOf(rowOf(one, entry("kinds", "P03", "wash"))), []));
+        // A press's shading is no row's beneath it: those rows draw their own tasks.
+        const pressOnly = drawnUnder(new Map([["press.buckets", new Map([["P03", [{ at: W27, value: some(3.0) }]]])]]));
+        const ink = rowOf(pressOnly, entry("kinds", "P03", "ink"));
+        assert.equal(ink.kind.type, "buckets");
+        if (ink.kind.type === "buckets") assert.ok(sameKeys(ink.kind.value.events.map((tile) => tile.key), refs("T-1", "T-3")));
     });
 
     test("a series nested beneath a press's that no kind's `child` names is a resources series in its own right: the wire says it stands beneath none", () => {

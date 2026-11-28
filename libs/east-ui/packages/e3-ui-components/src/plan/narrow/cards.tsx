@@ -5,20 +5,22 @@
 
 /**
  * One data row as a narrow card — the gutter identity as its head, the kind
- * plot as its body (split out of `narrow/index.tsx`, #815).
+ * plot as its body (split out of `narrow/index.tsx`, #815). Its parts are
+ * plain elements of their slots' classes, made once a theme (`useSlotClass`,
+ * #1780), as a canvas row's are.
  *
  * @packageDocumentation
  */
 
 import { memo, useMemo, type ComponentProps } from "react";
-import { Box } from "@chakra-ui/react";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
-import { LoadingWash } from "@elaraai/east-ui-components/internal";
+import { LoadingRowBar, useSlotClass } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
 import { KindPlot } from "../rows/KindPlot.js";
-import { ChartLeftTicks } from "../rows/ChartRow.js";
+import { ChartCardLegend, ChartLeftTicks } from "../rows/ChartRow.js";
+import { CHART_TALL_PX, chartLegend } from "../rows/chart-geometry.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
 import { statusText } from "../a11y.js";
@@ -55,7 +57,8 @@ export interface NarrowRowCardProps {
     watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
     /** The row's draft mark (#880) — the canvas row's, where the draft was made. */
     draft: PlanDraftMark | undefined;
-    /** Its cells are unread (#1398, #1438): the body washes under what it holds, as the canvas's row's plot does. */
+    /** Its cells are unread (#1398, #1438): one skeleton bar lies across the body under what it holds, as across the
+     *  canvas's row's plot (#1764). */
     unread: boolean;
 }
 
@@ -63,8 +66,9 @@ export interface NarrowRowCardProps {
  * Whether a card's facts are unchanged. The derivations are rebuilt whole on
  * every data change and every paged window landing, but a card reads only
  * its own row's entries from them — the ones `KindPlot` draws (bands, the
- * heat arm, table series and chart it draws, #824) and the diagnostic that
- * replaces it. So a
+ * heat arm and the table series it draws, #824; a chart row's chart, which
+ * the period's one fold makes as the card draws, #1798) and the diagnostic
+ * that replaces it. So a
  * reveal that adds cards below, or a window landing elsewhere, re-renders none
  * of the cards already shown (#812): a tap costs the cards it adds.
  */
@@ -79,7 +83,8 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
     return Object.is(a.derived.bands.get(k), b.derived.bands.get(k))
         && Object.is(a.derived.heatArms.get(k), b.derived.heatArms.get(k))
         && Object.is(a.derived.tableSeries.get(k), b.derived.tableSeries.get(k))
-        && Object.is(a.derived.charts.get(k), b.derived.charts.get(k))
+        // A chart row's chart is the period's fold of the chart its row declares: the same while the fold is.
+        && (a.row.kind.type !== "chart" || Object.is(a.derived.chart, b.derived.chart))
         && Object.is(a.derived.diagnostics.get(k), b.derived.diagnostics.get(k));
 }
 
@@ -91,6 +96,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slot = useSlotClass();
     const v = useMemo(() => ({ row, depth: 0, collapsed: false }), [row]);
     const isChart = row.kind.type === "chart";
     const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
@@ -101,13 +107,19 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     const isId = gutter.id;
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
-    const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     // A row that cannot be placed shows its diagnostic in the card body
     // (#811) — no marks, and no value ticks for marks that are not there.
     const diagnostic = derived.diagnostics.get(row.key);
+    // A chart taller than a row's own lines names its series under the card's lines (#1750), in place of its meta,
+    // which stood in for them; a spark, as the canvas's row, names none. What its plot draws, folded as the card draws
+    // (#1798) — a diagnostic card draws none, and folds none.
+    const chart = row.kind.type !== "chart" ? undefined : diagnostic === undefined ? derived.chart(row.kind.value) : row.kind.value;
+    const legend = useMemo(() => (chart === undefined ? undefined : chartLegend(chart)), [chart]);
+    const drawsLegend = legend !== undefined && legend.entries.length > 0 && diagnostic === undefined && h >= CHART_TALL_PX;
+    const meta = gutter.meta.type === "some" && !drawsLegend ? gutter.meta.value : undefined;
     return (
-        <Box ref={watch} css={styles.narrowCard} data-plan-card={row.key}
+        <div ref={watch} className={slot(styles.narrowCard)} data-plan-card={row.key}
             data-selected={selected ? "" : undefined}
             data-expanded={drill !== undefined ? "" : undefined}
             // A drafted row (#880) — the canvas row's marks.
@@ -120,28 +132,30 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 ? { t: "focus.expand", key: row.key }
                 : { t: "row.select", key: row.key })}
         >
-            <Box css={styles.narrowCardHead}>
-                <Box css={styles.narrowCardTitle} data-id={isId ? "" : undefined}>{gutter.label}</Box>
-                {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                    {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
+            <div className={slot(styles.narrowCardHead)}>
+                <div className={slot(styles.narrowCardTitle)} data-id={isId ? "" : undefined}>{gutter.label}</div>
+                {meta !== undefined && <span className={slot(styles.gutterMeta)}>{meta}</span>}
+                <div className={slot(styles.narrowCardEnd)}>
+                    {value !== undefined && <span className={slot(styles.gutterValue)}>{value}</span>}
                     {/* The dot's colour IS the status — its name says it, as the canvas row's does (#819). */}
-                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                    {statusTone !== undefined && <span className={slot(styles.statusDot)} data-tone={statusTone}
                         role="img" aria-label={statusText(statusTone, words)} />}
-                </Box>
-            </Box>
-            {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
+                </div>
+            </div>
+            {sub !== undefined && <div className={slot(styles.narrowCardSub)}>{sub}</div>}
+            {drawsLegend && <ChartCardLegend legend={legend} styles={styles} />}
             {drill !== undefined && drill.gutter !== null && (
-                <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
+                // Inset under the head by the card (`narrowCard`).
+                <div className={slot(styles.expandGutterBody)} data-plan-expandgutter>
                     <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={drill.gutter} styles={styles}>
                         <EastChakraComponent value={drill.gutter} storageKey={`${storageKey}.${row.key}.expandgutter`} />
                     </PlanPartBoundary>
-                </Box>
+                </div>
             )}
-            <Box css={styles.narrowCardBody} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
+            <div className={slot(styles.narrowCardBody)} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
                 aria-busy={unread ? true : undefined} data-plan-unread={unread ? "" : undefined}>
-                {/* Under everything the body draws after it, as the canvas's row's plot washes (#1398, CL2). */}
-                {unread && <LoadingWash />}
+                {/* Under everything the body draws after it, as in the canvas's row's plot (#1398, CL2; #1764). */}
+                {unread && <LoadingRowBar />}
                 {!isChart && <GridSeparators styles={styles} />}
                 {diagnostic !== undefined ? (
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />
@@ -150,20 +164,18 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                         <KindPlot v={v} styles={styles} derived={derived}
                             hasChildren={hasChildren}
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} />
-                        {row.kind.type === "chart" && (
-                            <ChartLeftTicks kind={derived.charts.get(row.key) ?? row.kind.value} styles={styles} height={h} />
-                        )}
+                        {chart !== undefined && <ChartLeftTicks kind={chart} styles={styles} height={h} />}
                     </PlanPartBoundary>
                 )}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline />}
-            </Box>
+            </div>
             {drill !== undefined && (
-                <Box css={styles.narrowRender} data-plan-expandrender style={{ height: `${renderPx}px` }}>
+                <div className={slot(styles.narrowRender)} data-plan-expandrender style={{ height: `${renderPx}px` }}>
                     <PlanPartBoundary part={{ kind: "expandRender" }} resetKey={drill.body} styles={styles}>
                         <EastChakraComponent value={drill.body} storageKey={`${storageKey}.${row.key}.expand`} />
                     </PlanPartBoundary>
-                </Box>
+                </div>
             )}
-        </Box>
+        </div>
     );
 }, sameCard);

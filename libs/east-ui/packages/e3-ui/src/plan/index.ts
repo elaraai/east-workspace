@@ -72,10 +72,12 @@ import {
     PlanContentType,
     PlanAnimationType,
     PlanChartPointType,
+    PlanChartScatterPointType,
     PlanAxisSideType,
     PlanBreachType,
     PlanChartAxisType,
     PlanChartLayerType,
+    PlanChartStyleType,
     PlanChartHeightType,
     PlanHeatCellType,
     PlanWeightCellType,
@@ -110,6 +112,7 @@ import {
     PlanBlockType,
     PlanBlocksType,
     PlanFoldType,
+    PlanLineFoldType,
     PlanQuantityType,
     PlanStatusType,
     PlanHeatScaleType,
@@ -257,8 +260,10 @@ export {
     type PlanAxisSideLiteral,
     PlanBreachType,
     PlanChartBandPointType,
+    PlanChartScatterPointType,
     PlanChartAxisType,
     PlanChartLayerType,
+    PlanChartStyleType,
     PlanChartHeightType,
     type PlanChartHeightLiteral,
     PlanHeatCellType,
@@ -302,6 +307,8 @@ export {
     type PlanBlocksValue,
     PlanFoldType,
     type PlanFoldLiteral,
+    PlanLineFoldType,
+    type PlanLineFoldLiteral,
     PlanQuantityType,
     PlanStatusType,
     PlanHeatScaleType,
@@ -408,6 +415,7 @@ export {
 export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput, type PlanRowFields, type PlanGutterFields } from "./assemble.js";
 export {
     type PlanLayerChannels,
+    type PlanLineFoldInput,
     type PlanWrappedLayer,
     type PlanChartLayerInput,
     type PlanChartAxisInput,
@@ -645,7 +653,7 @@ export interface PlanNamespace extends PlanTagType {
     tableCells: typeof createTableCells;
     /** Builds one table-row value series (per-position style, raw cells). */
     tableSeries: typeof createTableSeries;
-    /** Wraps a Chart layer with the Plan-only channels (axis / breach / series). */
+    /** Wraps a Chart layer with the Plan's channels (axis / breach / fold) and styling of its own to draw it with (#1753). */
     layer: typeof createLayer;
     /** A chart row's line over a row's values (`Plan.values`) — a vertex at each value's instant (#1436). */
     line: typeof createLine;
@@ -717,8 +725,12 @@ export interface PlanNamespace extends PlanTagType {
         Animation: typeof PlanAnimationType;
         /** One data-only chart layer. */
         ChartLayer: typeof PlanChartLayerType;
+        /** How a chart layer draws — its name, colour, line, dots, strengths, stack and order (#1753). */
+        ChartStyle: typeof PlanChartStyleType;
         /** One `{t, y}` chart point. */
         ChartPoint: typeof PlanChartPointType;
+        /** One `{t, y, size}` scatter point — a point with a size a bubble (#1753). */
+        ChartScatterPoint: typeof PlanChartScatterPointType;
         /** A chart y-axis declaration. */
         ChartAxis: typeof PlanChartAxisType;
         /** The chart height mode (spark / expanded / fixed). */
@@ -801,6 +813,8 @@ export interface PlanNamespace extends PlanTagType {
         ElementRef: typeof PlanElementRefType;
         /** How a bucket folds the values that fall in it (#824). */
         Fold: typeof PlanFoldType;
+        /** How a line or an area shows the points in one bucket: a fold, or `none` — every point at its own instant (#1807). */
+        LineFold: typeof PlanLineFoldType;
         /** A quantity — a number, its unit and format (#824). */
         Quantity: typeof PlanQuantityType;
         /** An item's status — its words, its tone and whether it draws as an open ring (#1541): what `Plan.status` builds. */
@@ -917,7 +931,9 @@ const PLAN_MEMBERS = {
         Content: PlanContentType,
         Animation: PlanAnimationType,
         ChartLayer: PlanChartLayerType,
+        ChartStyle: PlanChartStyleType,
         ChartPoint: PlanChartPointType,
+        ChartScatterPoint: PlanChartScatterPointType,
         ChartAxis: PlanChartAxisType,
         ChartHeight: PlanChartHeightType,
         AxisSide: PlanAxisSideType,
@@ -958,6 +974,7 @@ const PLAN_MEMBERS = {
         RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,
         Fold: PlanFoldType,
+        LineFold: PlanLineFoldType,
         Quantity: PlanQuantityType,
         Status: PlanStatusType,
         HeatScale: PlanHeatScaleType,

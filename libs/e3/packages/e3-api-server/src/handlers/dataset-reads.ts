@@ -18,7 +18,7 @@ import {
   DatasetSegments, recordIndexNames, resolveRecordIndex, workspaceGetDatasetStatus, type ResolvedRecordIndex, type StorageBackend,
 } from '@elaraai/e3-core/portable';
 import type { KeySearchTarget } from './key-search.js';
-import { backendIdOf, comparators, decodedSegments, SegmentCorruptError } from './segments.js';
+import { backendIdOf, comparators, decodedSegments, rowUnder, SegmentCorruptError } from './segments.js';
 
 /** Elements returned per page when the request names no limit. */
 export const PAGE_DEFAULT_LIMIT = 1_000;
@@ -228,8 +228,8 @@ export interface RowSpan {
 /**
  * The elements of a collection's rows in some spans, in order — an Array's
  * items, a Set's elements, a Dict's `[key, value]` pairs — every segment the
- * spans touch read once, several at a time, through the kept decoded
- * segments.
+ * spans touch read once, several at a time, through the kept segments, and
+ * the spans' rows alone decoded from them.
  *
  * @param storage - The backend the collection is read through
  * @param repo - The repository it is in
@@ -249,7 +249,6 @@ export async function elementsOf(
     for (let s = segmentOfRow(cumulative, from), last = segmentOfRow(cumulative, to - 1); s <= last; s++) touched.push(s);
   }
   const decoded = await decodedSegments(storage, repo, segments, touched);
-  const kind = segments.typeValue.type;
   const out: unknown[] = [];
   for (const { from, to } of spans) {
     let row = from;
@@ -258,11 +257,7 @@ export async function elementsOf(
       const base = s === 0 ? 0 : cumulative[s - 1]!;
       const end = Math.min(to, cumulative[s]!);
       const segment = decoded.get(s)!;
-      for (let i = row - base; i < end - base; i++) {
-        if (kind === 'Dict') out.push([segment.keys[i], segment.values[i]]);
-        else if (kind === 'Set') out.push(segment.keys[i]);
-        else out.push((segment.value as readonly unknown[])[i]);
-      }
+      for (let i = row - base; i < end - base; i++) out.push(segment.element(i));
       row = end;
     }
   }
@@ -289,7 +284,7 @@ export function collectionOf(typeValue: EastTypeValue, elements: readonly unknow
 /**
  * The rows a Dict holds under some keys — each read from the segment its fence
  * places the key in, every such segment read once, several at a time, through
- * the kept decoded segments.
+ * the kept segments, and searched by bisection.
  *
  * @param storage - The backend the Dict is read through
  * @param repo - The repository it is in
@@ -304,9 +299,10 @@ export async function rowsByKey(
 ): Promise<option<unknown>[]> {
   const owners = await Promise.all(keys.map((key) => segments.segmentFor(key)));
   const decoded = await decodedSegments(storage, repo, segments, owners);
+  const cmp = comparators(segmentKeyTypeOf(segments.typeValue)!);
   return keys.map((key, i) => {
-    const row = (decoded.get(owners[i]!)!.value as ReadonlyMap<unknown, unknown>).get(key);
-    return row === undefined ? none : some(row);
+    const { pair } = rowUnder(decoded.get(owners[i]!)!, cmp, key);
+    return pair === undefined ? none : some(pair[1]);
   });
 }
 

@@ -14,8 +14,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DictType, East, FloatType, IntegerType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
-  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printType, some, variant,
+  DictType, East, FloatType, IntegerType, OptionType, SetType, SortedMap, StringType, StructType,
+  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printType, some,
   type ValueTypeOf,
 } from '@elaraai/east';
 import { record } from './record.js';
@@ -25,9 +25,8 @@ import { functionAt } from './record-guards.js';
 
 /** The cell code each runtime files a box by: `(cx, cy, side, cell)`. */
 const locate = East.compile(AREA_FNS.areaCode, []);
-import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { package_ } from './package.js';
-import { seededStream } from './test-helpers.js';
+import { assertMaintainedIsRebuilt, indexEntries, seededStream } from './test-helpers.js';
 import type { RecordIndexDef } from './types.js';
 
 /** A rack on a floor: placed by its centre, or not yet; and a zone, by its corner. */
@@ -67,18 +66,6 @@ function oracle(cx: number, cy: number, side: number, e: number): bigint {
     code |= ((ay >> bit) & 1n) << (2n * bit + 1n);
   }
   return code * 32n + BigInt(level);
-}
-
-/** The `[entry, projection]` pairs a build program emits for `rows`. */
-function emitted(recordType: typeof RacksType | typeof ZonesType, def: RecordIndexDef, rows: Map<string, unknown>): [unknown, unknown][] {
-  const out: [unknown, unknown][] = [];
-  const run = indexBuildProgram(recordType, def).compile([]) as (
-    slice: unknown, emit: (entry: unknown, value: unknown) => null) => unknown;
-  run(rows, (entry, value) => {
-    out.push([entry, value]);
-    return null;
-  });
-  return out;
 }
 
 describe('index.area — its keys (§11.2)', () => {
@@ -209,7 +196,7 @@ describe('index.area — its declaration', () => {
       ['r1', { hall: 'H1', tags: new Set(), x: some(1.5), y: some(2.5), w: 0.6, h: 1.2, name: 'one' }],
       ['r2', { hall: 'H2', tags: new Set(['a']), x: none, y: none, w: 0.6, h: 1.2, name: 'unplaced' }],
     ], compareFor(StringType));
-    const out = emitted(RacksType, def, rows);
+    const out = indexEntries(RacksType, def, rows);
     assert.equal(out.length, 2);
     for (const [entry, value] of out) {
       const k = (entry as { k: string }).k;
@@ -279,22 +266,6 @@ describe('index.area — through mutation and rebuild', () => {
       ['r1', at(1.001, 2, 0.6, 1.2)], ['r2', at(-400, 900, 12, 3, 'H2', ['b', 'c'])],
       ['r3', { ...at(0, 0), x: none, y: none }], ['r5', at(7, -7, 0.2, 0.2, 'H3', [])],
     ], compareFor(StringType));
-    const diff = East.compile(East.function([RacksType, RacksType], PatchType(RacksType), (_$, a, b) => East.diff(a, b)), []);
-    const changes: Array<{ index: string; key: unknown; op: unknown }> = [];
-    const run = buildMutationProgram(assembled, patch).compile([]);
-    run(before, diff(before, after), (key: { type: string; value: unknown }, op: { value: unknown }) => {
-      changes.push({ index: key.type, key: key.value, op: op.value });
-      return null;
-    });
-    for (const index of indexes) {
-      const keyType = StructType({ ik: index.keyType, k: StringType });
-      const collection = DictType(keyType, index.valueType);
-      const held = new SortedMap(emitted(RacksType, index, before) as never, compareFor(keyType));
-      const rebuilt = new SortedMap(emitted(RacksType, index, after) as never, compareFor(keyType));
-      const ops = new SortedMap(changes.filter((change) => change.index === index.name).map((change) => [change.key, change.op]) as never, compareFor(keyType));
-      const apply = East.compile(East.function([collection, PatchType(collection)], collection, (_$, value, p) => East.applyPatch(value, p)), []);
-      const maintained = apply(held as never, variant('patch', ops) as never);
-      assert.deepEqual(encodeBeast2For(collection)(maintained as never), encodeBeast2For(collection)(rebuilt as never), `${index.name}: maintained is rebuilt, byte for byte`);
-    }
+    assertMaintainedIsRebuilt(assembled, patch, indexes, before, after);
   });
 });

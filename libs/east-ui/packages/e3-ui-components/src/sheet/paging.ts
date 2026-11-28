@@ -640,9 +640,10 @@ export function useSheetPaging(
         // the demand there would move the run back and undo the jump.
         if (jumpingRef.current || replacingRef.current) return;
         // A band's own geometry (`elementInBand`): the head starts at the top, the tail right after the run — not after
-        // the residency, whose last windows may still be loading inside the tail (#876).
+        // the residency, whose last windows may still be loading inside the tail (#876). Before a window has landed the
+        // ledger has no rate to read a band's pixels by, and a report that names no element leaves the view where it stood.
         const next = at.kind === "band"
-            ? elementInBand(ledger, { from: run.from, to: run.to }, at.at, at.px, SHEET_PAGE_SIZE)
+            ? elementInBand(ledger, { from: run.from, to: run.to }, at.at, at.px, SHEET_PAGE_SIZE) ?? centredOn.current
             : at.offset >= 0 ? at.offset : centredOn.current;
         centredOn.current = next;
         // The element held moves only with its window or the anchor it gives.

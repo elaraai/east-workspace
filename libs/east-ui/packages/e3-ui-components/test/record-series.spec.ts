@@ -13,18 +13,19 @@
  * jobs read by their keys in one request, as the Plan reads those it names and
  * has not read. A write is another session's commit through the record's patch
  * door, reported by the next poll of a dataset cache timed by a clock the test
- * drives.
+ * drives. A series index declared with a value carries a copy of each job, its
+ * tile, read at the tile's type and never as a row (#1725).
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
     DateTimeType, East, Expr, NullType, OptionType, StringType, compareFor, equalFor, isValueOf, none, parseFor, printFor, some, variant,
-    type ValueTypeOf,
+    type FunctionType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     RecordSliceWhereType, bindRecord, levelCellQueries, levelRuns, summaryCellQueries, summaryRun, tileIndexFor, tileStart, tileNext,
-    type RecordSliceEntry, type RecordTile, type TileRun,
+    type RecordSliceBindType, type RecordSliceEntry, type RecordTile, type TileRun,
 } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import { recordSliceCellEntries, recordSliceCellRuns, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
@@ -39,6 +40,7 @@ const h = e3Spec({ "bind/data/data": ex });
 
 const jobs = ex.indexedJobs;
 type Job = ValueTypeOf<typeof ex.IndexedJob>;
+type Tile = ValueTypeOf<typeof ex.IndexedJobTile>;
 type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 const source = Data.bindPaged(jobs, {
@@ -55,6 +57,7 @@ const instantOrder = compareFor(DateTimeType);
 const keyOrder = compareFor(StringType);
 const textEqual = equalFor(StringType);
 const jobEqual = equalFor(ex.IndexedJob);
+const tileEqual = equalFor(ex.IndexedJobTile);
 const totalsEqual = equalFor(RecordSummaryTotalsType);
 const HOUR = 3_600_000n;
 
@@ -145,39 +148,72 @@ const keysOf = (entries: readonly RecordSliceEntry[]) => entries.map(keyOf).sort
 
 /**
  * A paging runtime over e3's paging API, following each dataset through a
- * cache's poll timed by the clock it gives, and a record Slice over the jobs
- * bound in a store of its own.
+ * cache's poll timed by the clock it gives, and the record Slice over the jobs
+ * a program gives, bound in a store of its own.
+ *
+ * @param of - The program giving the record Slice
+ * @returns The runtime, the clock and the Slice's handle
  */
-function bind() {
+function bind<O>(of: Expr<FunctionType<[], O>>) {
     const { cache, clock } = h.cache();
     const runtime = new PagedRuntime();
     runtime.initialize(createDefaultPagedApi(h.e3.apiUrl, h.e3.repo, h.options, cache), h.workspace);
     const implementations = [...runtime.indexed.platform(null), ...runtime.buildPrimitives()];
     implementations.push(...createRecordSliceImplementation(() => implementations));
     StateRuntime.initializeStore(new UIStore());
-    const handle = East.compile(program, implementations)();
+    const handle = East.compile(of, implementations)();
     return { runtime, clock, handle };
+}
+
+/**
+ * The cells of the jobs' tiles, read through a record Slice whose source lists their series index (#1725): each entry
+ * a job's tile, at the tile's type, and no row; the runs read without a join.
+ *
+ * @param handle - The record Slice
+ * @param stored - The jobs, as the record holds them
+ */
+async function assertTiles(handle: Pick<ValueTypeOf<typeof RecordSliceBindType>, "key" | "config">, stored: ReadonlyMap<string, Job>): Promise<void> {
+    const index = handle.config.indexes.find(candidate => candidate.name === "job_tiles_by_press_week")!;
+    assert.ok(index.series.type === "some" && index.series.value.copy, "its config says its entries are copies of its jobs");
+    const runs = levelRuns("week", FROM, TO);
+    const cells = runs.map(run => ({ id: run.level, queries: levelCellQueries(index, new Map(), run, PRESSES).queries }));
+    const joined = () => requestsOf("runs").filter(request => request.query.has("join")).length;
+    const joinedBefore = joined();
+    const read = await h.ready(() => recordSliceCellEntries(handle, index.name, cells));
+    for (const run of runs) {
+        const entries = read.get(run.level)!;
+        assert.deepEqual(keysOf(entries), oracleCell(stored, PRESSES, run), run.level);
+        for (const entry of entries) {
+            const job = stored.get(keyOf(entry))!;
+            assert.deepEqual(entry.row, none, `${keyOf(entry)} carries no row`);
+            const tile = entry.value?.type === "some" ? entry.value.value : undefined;
+            assert.ok(isValueOf(tile, ex.IndexedJobTile) && tileEqual(tile as Tile, { press: job.press, start: job.start, end: job.end }), `${keyOf(entry)} carries its tile`);
+        }
+    }
+    assert.equal(joined(), joinedBefore, "its runs are read without a join");
 }
 
 /** The requests of a kind made of the jobs so far. */
 const requestsOf = (kind: Parameters<typeof h.requests>[0]) => h.requests(kind, `records.${jobs.name}`);
 
 test("a record Slice reads its series and summary indexes back, and offers the rail none of their fields", () => {
-    const { runtime, handle } = bind();
+    const { runtime, handle } = bind(program);
     assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["state", "start"]);
     const index = (name: string) => handle.config.indexes.find(candidate => candidate.name === name)!;
-    const filed = { key: "press", from: "start", to: "end" };
+    // Each filed by key, a key's events together: the order a series index declares none of is (#1710); each carrying its rows.
+    const filed = { key: "press", from: "start", to: "end", order: variant("key", null), copy: false };
     assert.deepEqual([index("jobs_by_press_week").series, index("jobs_by_press_week").summary], [some({ ...filed, tile: variant("week", null) }), none]);
     // An index's fields are the row fields it is led by alone, its key's `on`; its kind's parts are its `series` (#1432).
     assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state"], "some"]);
-    assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some({ ...filed, tile: variant("month", null) })]);
+    // A summary filed by key keeps a resource's totals (#1732): the `keyed` case of its filing, never the record's `totals`.
+    assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some(variant("keyed", { ...filed, tile: variant("month", null) }))]);
     assert.deepEqual([index("jobs_by_time").series, index("jobs_by_time").summary], [none, none]);
     runtime.clear();
 });
 
 test("a series index's cells hold exactly their presses' jobs filed in their runs, a range a press a level, each with its row, counted in one request and read in one more", async () => {
     const stored = await h.read(jobs);
-    const { runtime, handle } = bind();
+    const { runtime, handle } = bind(program);
     const where: Where = new Map();
     const index = tileIndexFor(handle.config.indexes, where, "series")!;
     assert.equal(index.name, "jobs_by_press_week");
@@ -220,9 +256,34 @@ test("a series index's cells hold exactly their presses' jobs filed in their run
     runtime.clear();
 });
 
+test("a series index declared with a value carries a copy of each job: listed beside an index that carries nothing, or alone, its cells hold each job's tile and no row, read without a join (#1725)", async () => {
+    const stored = await h.read(jobs);
+    const tiles = Data.bindPaged(jobs, { indexes: ["jobs_by_time", "job_tiles_by_press_week"] });
+    const beside = bindRecord("test.tiles", tiles, { fields: {} });
+    const alone = bindRecord("test.tiles-alone", Data.bindPaged(jobs, { indexes: ["job_tiles_by_press_week"] }), { fields: {} });
+    const first = bind(East.function([], Expr.type(beside), $ => $.return(beside)));
+    await assertTiles(first.handle, stored);
+    // A page of it is refused: its entries are copies, each of its own type, never the binding's projection.
+    const binding = East.compile(East.function([], Expr.type(tiles), $ => $.return(tiles)),
+        [...first.runtime.indexed.platform(null), ...first.runtime.buildPrimitives()])();
+    assert.throws(() => binding.page("job_tiles_by_press_week", 0n, 1n),
+        /'job_tiles_by_press_week' is a series index whose entries are copies of its events, each of its own type: a reader reads its cells/);
+    // The binding carries the index's own value function: what a page draws a drafted job's tile with, the tile the index
+    // holds of the job once it is saved — every job's, filed or not.
+    assert.ok(binding.copies.type === "some", "a copy index listed: its value function");
+    const copy = binding.copies.value.job_tiles_by_press_week;
+    for (const [key, job] of stored) {
+        assert.ok(tileEqual(copy(key, job), { press: job.press, start: job.start, end: job.end }), `${key}'s tile`);
+    }
+    first.runtime.clear();
+    const second = bind(East.function([], Expr.type(alone), $ => $.return(alone)));
+    await assertTiles(second.handle, stored);
+    second.runtime.clear();
+});
+
 test("a summary index's cells are each press's totals in its months over the run — how many jobs touch it and the milliseconds of it they cover — naming no job", async () => {
     const stored = await h.read(jobs);
-    const { runtime, handle } = bind();
+    const { runtime, handle } = bind(program);
     const index = tileIndexFor(handle.config.indexes, new Map(), "summary", tile => tile === "month")!;
     assert.equal(index.name, "jobs_by_press_month");
     // October, and a month either side: a range a press, its totals split by month — every job here in October.
@@ -251,7 +312,7 @@ test("a summary index's cells are each press's totals in its months over the run
 
 test("a narrowing the series index is led by reads its cells exactly; one it is not led by is left to `within`, which the narrowing's own index answers", async () => {
     const stored = await h.read(jobs);
-    const { runtime, handle } = bind();
+    const { runtime, handle } = bind(program);
     const late: Where = new Map([["state", variant("values", [printString("late")])]]);
     const led = tileIndexFor(handle.config.indexes, late, "series")!;
     assert.equal(led.name, "jobs_by_state_press_week");
@@ -276,7 +337,7 @@ test("a narrowing the series index is led by reads its cells exactly; one it is 
 
 test("the rows of several jobs are read by their keys in one request, pinned to the record's revision, a key it lacks none", async () => {
     const stored = await h.read(jobs);
-    const { runtime, handle } = bind();
+    const { runtime, handle } = bind(program);
     const R1 = await h.ready(() => handle.data.revision());
     const keys = ["late", "nobody", "carry"];
     const rows = await h.ready(() => recordSliceRows(handle, keys));
@@ -297,7 +358,7 @@ test("the rows of several jobs are read by their keys in one request, pinned to 
 });
 
 test("another session's write moves the cells and the totals it touches, read again at the record's new revision", async () => {
-    const { runtime, clock, handle } = bind();
+    const { runtime, clock, handle } = bind(program);
     const series = tileIndexFor(handle.config.indexes, new Map(), "series")!;
     const summary = tileIndexFor(handle.config.indexes, new Map(), "summary")!;
     // A cell a press, its run of each level, so each press's jobs are their own.

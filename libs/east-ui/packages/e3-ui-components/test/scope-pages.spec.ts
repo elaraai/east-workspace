@@ -59,6 +59,8 @@ const RUNS = datasetPathToString(ex.pressRuns.path);
 const OCT_1 = new Date("2026-10-01T00:00:00Z");
 const OCT_3 = new Date("2026-10-03T00:00:00Z");
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
+/** What a kind no reader of its cells names reads from: its window (#1771). */
+const OVER_WINDOW = variant("window", null);
 const decodeRun = decodeBeast2For(ex.PressRun);
 const encodeRun = encodeBeast2For(ex.PressRun);
 const runEqual = equalFor(ex.PressRun);
@@ -202,9 +204,9 @@ describe("a press's own page reads that press alone (#1621)", () => {
         for (const [press, scheduled, backlog, crew] of [["P-1", ["r1", "r2", "r3"], ["r6", "r7"], ["c1", "c2"]], ["P-2", ["r4", "r5"], ["r8"], ["c3", "c4"]]] as const) {
             const payload = await calendarFor([press]);
             const kind = payload.events[0]!;
-            const items = await h.ready(() => kind.items(OCT_1, OCT_3, NO_DRAFTS, none));
+            const items = await h.ready(() => kind.items(OCT_1, OCT_3, NO_DRAFTS, OVER_WINDOW));
             assert.deepEqual(items.map((item) => item.key), scheduled, `${press}'s runs in the window`);
-            const waiting = await h.ready(() => kind.unscheduled(OCT_1, OCT_3, NO_DRAFTS, none));
+            const waiting = await h.ready(() => kind.unscheduled(OCT_1, OCT_3, NO_DRAFTS, OVER_WINDOW));
             assert.deepEqual(waiting.map((item) => item.key).sort(compareFor(StringType)), backlog, `${press}'s backlog`);
             assert.deepEqual(await keysOf(payload.narrowed.get("crew")), crew, `${press}'s crew's rows`);
         }
@@ -221,9 +223,9 @@ describe("a press's own page reads that press alone (#1621)", () => {
     test("a Plan: the same, its runs on its crew's rows", async () => {
         const payload = await planFor(["P-2"]);
         const kind = payload.events[0]!;
-        const items = await h.ready(() => kind.items(OCT_1, OCT_3, NO_DRAFTS, none));
+        const items = await h.ready(() => kind.items(OCT_1, OCT_3, NO_DRAFTS, OVER_WINDOW));
         assert.deepEqual(items.map((item) => item.key), ["r4", "r5"]);
-        const waiting = await h.ready(() => kind.unscheduled(OCT_1, OCT_3, NO_DRAFTS, none));
+        const waiting = await h.ready(() => kind.unscheduled(OCT_1, OCT_3, NO_DRAFTS, OVER_WINDOW));
         assert.deepEqual(waiting.map((item) => item.key), ["r8"]);
         assert.deepEqual([...new Set(leadingOf(runReads()))], [`(press=${printString("P-2")})`]);
     });

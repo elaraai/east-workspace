@@ -35,6 +35,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { oneLineBox } from "../one-line-box.js";
+import { ON_TOOLBAR_LINE } from "../toolbar-row.js";
 
 export const sliceFrameSlotRecipe = defineSlotRecipe({
     className: "elara-slice-frame",
@@ -202,11 +203,14 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         railAccordionContent: { paddingX: "{spacing.1}", paddingTop: "{spacing.1}", paddingBottom: "{spacing.3}", minWidth: "0", animation: "none" },
         // A group's caption over its fields (#1339): a source of a Slice over
         // several records, then the presets over them — the small mono caps
-        // under the fields' own, its icon before it.
+        // under the fields' own, its icon before it. In a toolbar's row, where
+        // the name stands before its group's chips with no box of its own, it
+        // takes the row's own line (`toolbar-row.ts`).
         railGroupHead: { display: "flex", alignItems: "center", gap: "{spacing.1.5}", paddingX: "{spacing.1}", paddingTop: "{spacing.3}", paddingBottom: "{spacing.1}",
             color: "fg.subtle", minWidth: "0", "&:first-child": { paddingTop: "{spacing.1}" } },
         railGroupIcon: { ...fontAwesomeSize("10px"), display: "inline-flex", flexShrink: "0" },
-        railGroupLabel: { textStyle: "nav.eyebrow", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        railGroupLabel: { textStyle: "nav.eyebrow", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            ...ON_TOOLBAR_LINE },
         // Its count at the caption's end (#1358), as a Library tab's count is drawn after its name: lighter,
         // near-untracked tabular figures in the caption's quiet ink, kept whole while the name ellipsizes.
         railGroupCount: { textStyle: "nav.eyebrow", fontWeight: "500", letterSpacing: "0.04em", fontVariantNumeric: "tabular-nums",

@@ -12,7 +12,8 @@
  * key order, so each is one or two monotone predicates — false, then true,
  * over the keys in order — and a predicate's boundary row is found by a bisect
  * of the manifest's fences, which reads nothing, then a binary search of the
- * one segment that holds it. A search through an index addresses the index
+ * one segment that holds it, which decodes the keys it compares and no value.
+ * A search through an index addresses the index
  * key, `ik`, and ranges bound the index collection's flattened key.
  *
  * @packageDocumentation
@@ -288,14 +289,15 @@ export function compileKeySearch(query: KeySearchQuery, target: KeySearchTarget)
 /**
  * Where each of many monotone predicates first holds over a stored Set or
  * Dict's keys, in canonical order — each segment the predicates land in read
- * and decoded once, several at a time, and searched in by bisection.
+ * once, several at a time, and searched in by bisection.
  *
  * @remarks
  * A predicate's segment is found by a bisect of the manifest's fences, which
  * reads nothing: the greatest segment whose fence it does not hold at. Every
  * segment so found is read once for all the predicates landing in it, through
- * the kept decoded segments, and each predicate's row is a binary search of
- * that segment's keys. When the boundary is the first row of a later segment,
+ * the kept segments, and each predicate's row is a binary search of that
+ * segment's keys, each decoded as the search compares it — no value is built.
+ * When the boundary is the first row of a later segment,
  * that segment's fence is the key there, and nothing more is read.
  *
  * @param storage - The backend the collection is read through
@@ -339,11 +341,12 @@ export async function locateAll(
       out[p] = entry;
       continue;
     }
-    const keys = decoded.get(entry)!.keys;
-    const at = firstWhere(keys, preds[p]!);
+    const segment = decoded.get(entry)!;
+    const pred = preds[p]!;
+    const at = firstWhere(segment.count, (row) => pred(segment.key(row)));
     const base = entry === 0 ? 0 : segments.cumulative[entry - 1]!;
-    if (at < keys.length) {
-      out[p] = { row: base + at, key: keys[at], hasKey: true };
+    if (at < segment.count) {
+      out[p] = { row: base + at, key: segment.key(at), hasKey: true };
     } else if (entry + 1 < segmentCount) {
       out[p] = { row: segments.cumulative[entry]!, key: await segments.fence(entry + 1), hasKey: true };
     } else {

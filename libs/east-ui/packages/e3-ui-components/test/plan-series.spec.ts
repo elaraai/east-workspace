@@ -12,14 +12,22 @@
  *
  * - The seams a kind read by its cells draws through: the `.east` text its
  *   series and summary file a resource's events under, the type of its cells,
- *   its items and its backlog from what a reader read — the drafts in place,
- *   with no read of the window — one event from the rows the cells hold, and
+ *   its items and its backlog from what a reader read — the rows themselves,
+ *   by their handle (#1771), the drafts in place, with no read of the window —
+ *   one event from the rows the cells hold, and
  *   the presses — the canvas's own rows, read a page at a time (#1541) — a
  *   window of them at a time, shaded past the budget.
  * - The refusals a Plan makes of a source's series and summary indexes as its
  *   payload builds, in the words a build uses — a kind landing on the paged
  *   presses whose source lists no series index, or no summary, among them,
  *   each naming the indexes to declare over the kind's own fields.
+ * - A kind whose source's series index carries a copy of each event in its
+ *   row's place (#1725), drawn from the copies: its cells hold them, its items
+ *   are drawn from them — its title a label only the copy works out, its lock
+ *   given the copy, a draft drawn as the copy its index will hold — its backlog
+ *   from the rows read whole, and one event's row read by its key; refused
+ *   where a role names a field the copy does not hold, a lock reads one, or
+ *   another series index stands beside it.
  *
  * What a reader reads, and when, is the DOM's (`src/plan/frame/plan-series.dom.test.tsx`).
  */
@@ -27,22 +35,24 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, East, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    ArrayType, DateTimeType, East, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
     fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
-import { Data, Plan, PlanEventShadingType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, PlanEventShadingType, PlanPayloadType, Record, Schedule, type ScheduleCellReadType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
+import { ScheduleCellRowsImpl, holdCellRows } from "../src/shared/schedule/cell-rows.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "plan/plan-windows": ex });
 
 type Job = ValueTypeOf<typeof PrintJob>;
+type Tile = ValueTypeOf<typeof ex.PrintJobTile>;
 type Payload = ValueTypeOf<typeof PlanPayloadType>;
 
 const FIRST = new Date("2026-10-05T00:00:00Z");
@@ -63,6 +73,11 @@ const NO_DRAFTS = draftsOf([]);
 /** The jobs as e3 holds them. */
 const heldJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<string, Job>;
 
+/** The `job` source drawing its kind from copies (#1725): the jobs' tiles by press and week, beside their interval index and their monthly summary. */
+const COPIED = ["plan_window_jobs_by_time", "plan_window_job_tiles_by_press_week", "plan_window_jobs_by_press_month"];
+/** A job's tile, as its index holds it: written from the index's `value`. */
+const tileOf = (job: Job): Tile => ({ label: `${job.title} · ${job.customer}`, press: job.press, start: job.start, end: job.end, state: job.state });
+
 /** What the windows Plan's payload is built over: the indexes its `job` source lists, and how its kind and its presses are declared. */
 interface Declared {
     /** The `job` source's indexes, by name; the example's three unless given. */
@@ -75,11 +90,18 @@ interface Declared {
     readonly whole?: boolean;
     /** Whether the indexes are listed for a second kind over the jobs too, placed on no resource — `loose`. */
     readonly loose?: boolean;
+    /** The kind's title: the jobs' `title` unless given — a field's name, or a function of a job. */
+    readonly title?: unknown;
+    /** The kind's lock, a function of a job: none unless given. */
+    readonly locked?: unknown;
 }
 
 /** The windows example's Plan (`planWindows`), its payload declared in East over e3. */
 function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declared = {}): ExprType<typeof PlanPayloadType> {
-    const { indexes = ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"], resource = "press", end = "end", whole = false, loose = false } = declared;
+    const {
+        indexes = ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"], resource = "press", end = "end", whole = false,
+        loose = false, title = "title", locked,
+    } = declared;
     // The presses are the canvas's rows (#1541): read whole, or a page at a time.
     const wholePresses = $.let(Data.bind(ex.planWindowPresses));
     const pagedPresses = $.let(Data.bindPaged(ex.planWindowPresses));
@@ -90,10 +112,11 @@ function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declar
     const slice = $.let(Slice.bindRecords("spec.plan.series", sources as never));
     const kinds = {
         job: Schedule.events(jobs, {
-            name: "Print job", icon: "file-lines", title: "title", start: "start", end, state: "state",
+            name: "Print job", icon: "file-lines", title, start: "start", end, state: "state",
             resource: { field: resource, of: "presses" },
             backlog: { duration: (j: ExprType<typeof PrintJob>) => variant("hours", j.sheets.divide(8000.0)), due: (j: ExprType<typeof PrintJob>) => j.due },
             entries,
+            ...(locked !== undefined && { locked }),
         } as never),
         ...(loose && {
             loose: Schedule.events(jobs, {
@@ -115,7 +138,8 @@ async function payloadOf(declared: Declared = {}): Promise<Payload> {
     const program = East.function([], PlanPayloadType, ($) => seriesPayload($, declared));
     const { platform } = await h.platform(program);
     StateRuntime.initializeStore(new UIStore());
-    const implementations = [...platform];
+    // And the rows a builder's reader holds, which a kind's seams read through `schedule_cell_rows` (#1771).
+    const implementations = [...platform, ...ScheduleCellRowsImpl];
     implementations.push(...createRecordSliceImplementation(() => implementations));
     return East.compile(program, implementations)() as Payload;
 }
@@ -130,10 +154,13 @@ const seamOf = (payload: Payload) => (payload.seam.type === "some" ? payload.sea
 const pressesIn = (blocks: readonly { rows: readonly { id: ValueTypeOf<typeof Plan.Types.RowId> }[] }[]) =>
     blocks.flatMap((b) => b.rows).flatMap((row) => (row.id.type === "entry" ? [row.id.value.path[row.id.value.path.length - 1]!] : []));
 
-/** A kind's cells, encoded as a reader hands them to its seams: each stored job's key beside its row. */
-function cellsOf(payload: Payload, jobs: ReadonlyMap<string, Job>, keys: readonly string[]): Uint8Array {
-    const cellsType = fromEastTypeValue(jobsOf(payload).cellsType);
-    return encodeBeast2For(cellsType)(keys.map((key) => ({ key, row: jobs.get(key)! })) as never);
+/**
+ * A kind's cells as a reader hands them to its seams (#1771): each stored job's key beside its row — or what `drawn`
+ * gives of it, its tile (#1725) — held as they are under a handle its seams read them by, never packed for them.
+ */
+function cellsOf(jobs: ReadonlyMap<string, Job>, keys: readonly string[], drawn: (job: Job) => Job | Tile = (job) => job): ValueTypeOf<typeof ScheduleCellReadType> {
+    const rows = keys.map((key) => ({ key, row: drawn(jobs.get(key)!) }));
+    return variant("rows", holdCellRows(() => rows));
 }
 
 // ============================================================================
@@ -157,8 +184,8 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         const jobs = jobsOf(payload);
         const held = await heldJobs();
         // The first week's cells of the first fifty presses, as a reader read them: the jobs on Presses 1001 to 1004.
-        const cells = cellsOf(payload, held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"]);
-        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, some(cells));
+        const cells = cellsOf(held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"]);
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cells);
         assert.equal(items.type, "some");
         assert.deepEqual(items.value!.map((item) => item.key), ["W-0001", "W-0002", "W-0003", "W-0004"], "the jobs overlapping the range, each once");
         // The museum guide deleted, the brochure run moved out of the range, and the order forms — in the backlog, so in
@@ -170,7 +197,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
             ["W-0001", jobDraft(variant("value", brochure))],
             ["W-0017", jobDraft(variant("value", forms))],
         ]);
-        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, some(cells));
+        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, cells);
         assert.deepEqual(drafted.type === "some" ? drafted.value.map((item) => [item.key, item.resource]) : [], [
             ["W-0002", some({ kind: "presses", key: "P-1001" })],
             ["W-0004", some({ kind: "presses", key: "P-1003" })],
@@ -183,8 +210,8 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         const payload = await payloadOf();
         const jobs = jobsOf(payload);
         const held = await heldJobs();
-        const cells = cellsOf(payload, held, ["W-0001"]);
-        const backlog = await h.ready(() => jobs.planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, some(cells)));
+        const cells = cellsOf(held, ["W-0001"]);
+        const backlog = await h.ready(() => jobs.planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, cells));
         assert.deepEqual(backlog.map((item) => item.key), ["W-0017", "W-0018", "W-0019", "W-0020"]);
         // Read through the interval index under the unset start, never the window.
         const reads = jobReads();
@@ -216,7 +243,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         assert.deepEqual(pressesIn(first.rows), ["P-1001", "P-1002", "P-1003"]);
         assert.deepEqual(pressesIn((await h.ready(() => source.page(1_999n, 5n))).rows), ["P-3000"], "a window past the last press holds what is left");
         const held = await heldJobs();
-        const reads = new SortedMap([["job", cellsOf(payload, held, ["W-0001", "W-0002", "W-0003"])]], compareString);
+        const reads = new SortedMap([["job", cellsOf(held, ["W-0001", "W-0002", "W-0003"])]], compareString);
         const placed = await h.ready(() => seamOf(payload).placed(FIRST, TWO_WEEKS, new SortedMap([], compareString), [], reads));
         const shading: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([["presses.span", new SortedMap([
             ["P-1001", [{ at: FIRST, value: some(0.25) }, { at: at("2026-10-06T00:00:00Z"), value: some(0.5) }]],
@@ -246,7 +273,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
 describe("a source's series and summary indexes, refused as the payload builds (#1039)", () => {
     const refused = (pattern: string, slot = "job") => new RegExp(`^.*Plan: events\\.${slot}'s source lists the ${pattern}`);
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = `index\\.series\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
+    const series = `index\\.flatSeries\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
     const summary = `index\\.summary\\(\\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
     const paged = `, and the kind is placed on the rows of presses, paged — a paged kind's events are read a cell at a time`;
 
@@ -288,5 +315,98 @@ describe("a source's series and summary indexes, refused as the payload builds (
     test("two summaries of one tile over the same fields, each named", async () => {
         await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month", "plan_window_jobs_by_press_month_again"] }),
             refused(`summary indexes "plan_window_jobs_by_press_month" and "plan_window_jobs_by_press_month_again", each by the month over the same fields — list one`));
+    });
+});
+
+// ============================================================================
+// A kind drawn from the copies its series index holds (#1725)
+// ============================================================================
+
+describe("a kind drawn from the copies of its events its series index holds (#1725)", () => {
+    /** The kind over the jobs' tiles, titled by the label each tile works out, which no job holds. */
+    const copied: Declared = { indexes: COPIED, title: "label" };
+    /** The fields the jobs' tile holds, as a refusal lists them. */
+    const tile = String.raw`the series index "plan_window_job_tiles_by_press_week" holds of (each event|it) \(label, press, start, end, state\)`;
+
+    test("its cells are the tiles, each job's key beside its own, and its items are drawn from them — every draft in place drawn as the tile its index will hold — with no read", async () => {
+        const payload = await payloadOf(copied);
+        const jobs = jobsOf(payload);
+        assert.ok(isTypeEqual(fromEastTypeValue(jobs.cellsType), ArrayType(StructType({ key: StringType, row: ex.PrintJobTile }))));
+        const held = await heldJobs();
+        const cells = cellsOf(held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"], tileOf);
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cells);
+        assert.deepEqual(items.type === "some" ? items.value.map((item) => [item.key, item.title]) : [], [
+            ["W-0001", "Brochure run · Alder & Finch"], ["W-0002", "Night catalogue · Larkspur Home"],
+            ["W-0003", "Museum guide · Driftwood Museum"], ["W-0004", "Course handbooks · Elmway College"],
+        ], "the jobs overlapping the range, each titled by its tile's label");
+        // The museum guide deleted, the brochure run moved out of the range, and the order forms — in the backlog, so in no
+        // cell — scheduled on Press 1002: each draft a whole job, drawn through the index's value.
+        const forms = { ...held.get("W-0017")!, start: some(at("2026-10-08T06:00:00Z")), end: some(at("2026-10-08T11:00:00Z")), press: some("P-1002") };
+        const brochure = { ...held.get("W-0001")!, start: some(at("2026-10-12T06:00:00Z")), end: some(at("2026-10-12T14:00:00Z")) };
+        const drafts = draftsOf([
+            ["W-0003", jobDraft(variant("missing", null))],
+            ["W-0001", jobDraft(variant("value", brochure))],
+            ["W-0017", jobDraft(variant("value", forms))],
+        ]);
+        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, cells);
+        assert.deepEqual(drafted.type === "some" ? drafted.value.map((item) => [item.key, item.title, item.resource]) : [], [
+            ["W-0002", "Night catalogue · Larkspur Home", some({ kind: "presses", key: "P-1001" })],
+            ["W-0004", "Course handbooks · Elmway College", some({ kind: "presses", key: "P-1003" })],
+            ["W-0017", "Order forms · Larkspur Home", some({ kind: "presses", key: "P-1002" })],
+        ]);
+        assert.deepEqual(jobReads(), [], "the items are the cells', with no read of the window");
+    });
+
+    test("its backlog is the jobs with no start read whole beside its cells: each drawn as its tile, its duration and its due date its row's", async () => {
+        const payload = await payloadOf(copied);
+        const held = await heldJobs();
+        const backlog = await h.ready(() => jobsOf(payload).planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, cellsOf(held, ["W-0001"], tileOf)));
+        // An hour each 8,000 sheets, which no tile holds.
+        assert.deepEqual(backlog.map((item) => [item.key, item.title, item.minutes]), [
+            ["W-0017", "Order forms · Larkspur Home", 300n], ["W-0018", "Winter brochure · Bluewater Tours", 480n],
+            ["W-0019", "Prospectus · Elmway College", 750n], ["W-0020", "Proof sheets · Alder & Finch", 15n],
+        ]);
+        assert.ok(equalFor(OptionType(DateTimeType))(backlog[0]!.due, some(at("2026-10-16T00:00:00Z"))), "due when its row says");
+        assert.ok(jobReads().every((request) => request.kind !== "runs"), "no window of jobs is read");
+    });
+
+    test("one event's row is read by its key, the tile a reader holds being no row: its item drawn as its tile", async () => {
+        const payload = await payloadOf(copied);
+        const held = await heldJobs();
+        const tileHeld = encodeBeast2For(ex.PrintJobTile)(tileOf(held.get("W-0003")!));
+        const read = await h.ready(() => jobsOf(payload).planEvent("W-0003", NO_DRAFTS, FIRST, TWO_WEEKS, some(some(tileHeld))));
+        assert.equal(read.item.title, "Museum guide · Driftwood Museum");
+        assert.ok(equalFor(PrintJob)(decodeBeast2For(PrintJob)(read.row), held.get("W-0003")!), "its row, whole");
+        assert.ok(jobReads().some((request) => request.kind === "find" && request.query.get("index") === null), "sought among the record's own entries");
+    });
+
+    test("its lock is given each job's tile, as the job is drawn and as a gesture finds its row", async () => {
+        const payload = await payloadOf({ ...copied, locked: (j: ExprType<typeof PrintJob>) => j.state.hasTag("actual") });
+        const jobs = jobsOf(payload);
+        const held = await heldJobs();
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cellsOf(held, ["W-0001", "W-0003", "W-0004"], tileOf));
+        assert.deepEqual(items.type === "some" ? items.value.map((item) => [item.key, item.locked]) : [], [["W-0001", true], ["W-0003", true], ["W-0004", false]]);
+        // A gesture's recorder asks it of each row it finds, drawn as its tile first.
+        const lock = jobs.locked.type === "some" ? jobs.locked.value : assert.fail("expected the kind's lock");
+        const row = encodeBeast2For(PrintJob);
+        assert.deepEqual(lock([{ id: "W-0002", entry: row(held.get("W-0002")!) }, { id: "W-0005", entry: row(held.get("W-0005")!) }]), [true, false]);
+    });
+
+    test("refused where a role names a field its tile does not hold, or a lock reads one, each naming the tile's fields", async () => {
+        await assert.rejects(payloadOf({ indexes: COPIED }),
+            new RegExp(String.raw`^.*\`title\` names "title", and the copy ${tile} has no such field — give it "title" in the index's \`value\`, as the row holds it$`));
+        await assert.rejects(payloadOf({ ...copied, locked: (j: ExprType<typeof PrintJob>) => j.sheets.greater(100000.0) }),
+            new RegExp(String.raw`^.*\`locked\` is given each event's copy, what ${tile}, and reading it failed — read only the fields the copy holds: `));
+    });
+
+    test("refused beside another series index, its cells being of one type: the copies", async () => {
+        await assert.rejects(payloadOf({ ...copied, indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_job_tiles_by_press_week", "plan_window_jobs_by_press_month"] }),
+            new RegExp(String.raw`^.*Plan: events\.job's source lists the series index "plan_window_job_tiles_by_press_week", whose entries are copies of its events, beside ` +
+                String.raw`"plan_window_jobs_by_press_week" — a kind drawn from copies reads every cell through their index: list "plan_window_job_tiles_by_press_week" alone$`));
+    });
+
+    test("a title only the copy holds is refused over the jobs' rows: their own series index carries them", async () => {
+        await assert.rejects(payloadOf({ title: "label" }),
+            /^.*`title` names "label", a field the row does not have \(.+\) — a field only a copy of each event holds is drawn on a Plan whose source for the kind lists the series index declared with the `value` that makes it$/);
     });
 });

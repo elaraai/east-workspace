@@ -8,12 +8,12 @@
  * measured in a real browser: its rows hold still while its dates move. Its
  * rows are its work orders, a resource kind paged through the rail's `orders`
  * source in its index's order, and the dates on screen never decide which are
- * listed (#1344): the window is the operations' source's, and a pan (`]`) and
- * a step of the date navigator each move it a day while the row at the top of
- * the view keeps its key and its place under the canvas's header, in every
- * frame. Read at the desktop width, in a box wide enough that the toolbar's
- * ladder folds nothing of the date navigator; a phone's canvas is its narrow
- * list.
+ * listed (#1344): the window is the operations' source's, and a pan (`]`)
+ * moves it a day and a step of the date navigator its own length, a fortnight
+ * (#1740), while the row at the top of the view keeps its key and its place
+ * under the canvas's header, in every frame. Read at the desktop width, in a
+ * box wide enough that the toolbar's ladder folds nothing of the date
+ * navigator; a phone's canvas is its narrow list.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-records`.
@@ -33,8 +33,10 @@ const SCROLLER = "[data-frame-slot='main'] [data-virtual-rows='bounded']";
 /** The date navigator in the Plan's toolbar. */
 const NAVIGATOR = "[data-toolbar-item='time-navigation'] [data-time-navigation='plan']";
 
-/** A day, in ms: the work orders' resolution, and what a pan and a step move the window by. */
+/** A day, in ms: the work orders' resolution, and what a pan moves the window by. */
 const DAY = 86_400_000;
+/** The days the work orders' window spans: what a step of the date navigator moves it by, a screenful (#1740). */
+const WINDOW_DAYS = 14;
 
 /** The row at the top of the view, under the canvas's sticky header: its id, and its top in the scroller, to a tenth of a px. */
 interface TopRow {
@@ -91,7 +93,7 @@ async function anchorOf(entry: Locator): Promise<number> {
     return Number(await entry.locator(NAVIGATOR).getAttribute("data-time-anchor"));
 }
 
-test("planRecordIndexes: a pan and a step of the date navigator move the window a day, and the row at the top of the view keeps its key and its place in every frame — the dates never decide which rows are listed @desktop", async ({ page }) => {
+test("planRecordIndexes: a pan moves the window a day and a step of the date navigator its own fortnight, and the row at the top of the view keeps its key and its place in every frame — the dates never decide which rows are listed @desktop", async ({ page }) => {
     // A box the toolbar holds whole in: its date navigator with its step buttons, which a narrower toolbar folds into its dates.
     await page.setViewportSize({ width: 1920, height: 1080 });
     const entry = await openExample(page, "planRecordIndexes", RECORDS);
@@ -111,9 +113,9 @@ test("planRecordIndexes: a pan and a step of the date navigator move the window 
                     .evaluate((row) => { (row as HTMLElement).focus({ preventScroll: true }); });
                 await page.keyboard.press("]");
             } else {
-                await entry.locator(NAVIGATOR).getByRole("button", { name: "Next day" }).click();
+                await entry.locator(NAVIGATOR).getByRole("button", { name: `Next ${WINDOW_DAYS} days`, exact: true }).click();
             }
-            await expect.poll(() => anchorOf(entry)).toBe(from + DAY);
+            await expect.poll(() => anchorOf(entry)).toBe(from + (gesture === "a pan" ? 1 : WINDOW_DAYS) * DAY);
             await settled(page);
             expect(movedFrom(await topRowsOf(page))).toEqual([]);
         });

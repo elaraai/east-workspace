@@ -16,6 +16,15 @@
  *   read of their entries; it never reads a machine whole, nor a window of the
  *   record's own rows. Each of the first twelve machines draws what a Plan
  *   over the same machines read whole draws for it.
+ * - A scroll to machines further down reads the cells of the blocks its rows
+ *   meet and of the next the way it went; back to the machines it left it
+ *   reads nothing, their cells kept (#1797).
+ * - A read of the cells on its way is never given up while the next view's
+ *   searches are counted, and no read of their entries is asked twice (#1797).
+ *   Weeks pressed while it is on its way, on a canvas holding its own window,
+ *   take each machine's runs past it: its rows are read through it, e3 is
+ *   asked for the rest alone — no row twice — and each machine draws what the
+ *   same Plan draws with nothing on its way.
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -29,11 +38,12 @@ import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/fixtures/plan/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { SCHEDULE_CELL_BLOCK } from "../../shared/schedule/cells.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
-import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { emulateWindowScroll, scrollStopped } from "../window-scroll.test-utils.js";
+import { act, entry, planHarness, rowAt, settle, slot, toggleSeries } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-nested.fixtures": ex });
 
@@ -158,20 +168,6 @@ async function zoomTo(c: HTMLElement, resolution: "day" | "week" | "month" | "qu
     await settle();
 }
 
-/** The library's Series tab opened, and one of its lines toggled by its name. */
-async function toggleSeries(c: HTMLElement, name: string) {
-    const pane = slot(c, "start")!;
-    const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "));
-    if (tab === undefined) throw new Error("no Series tab");
-    if (tab.getAttribute("aria-selected") !== "true") {
-        fireEvent.click(tab);
-        await settle();
-    }
-    const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
-    fireEvent.click(within(panel).getByRole("button", { name: `Toggle ${name}` }));
-    await settle();
-}
-
 /** What the first twelve machines' presses rows draw: the rows the canvas opens on. */
 const drawnTwelve = (c: HTMLElement) => TWELVE.flatMap((key) => drawnRow(c, "presses", key));
 
@@ -219,14 +215,21 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
         expect(drawnTwelve(container)).toEqual(TWELVE.map((key) => `presses ${key}: no row`));
         expect(askedOf(IN_TIME).slice(before)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]);
-        // Shown again, the presses' cells are read in one batch and one read: the view keeps the load it showed, and the
-        // presses above it draw what they drew.
+        // Shown again, the view keeps the load it showed, whose cells it holds: nothing is read for the presses above it,
+        // out of view (#1797)...
         const shown = askedOf(IN_TIME).length;
         await toggleSeries(container, "Presses");
-        await waitFor(() => expect(askedOf(IN_TIME).slice(shown)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]));
         await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(shown)).toEqual([]);
+        // ...nor once the view is on them: their cells, read as the page opened, were kept while the presses were hidden
+        // and while they stood out of view (#1797), and they draw what they drew.
         act(() => { window.scrollTo({ top: 0 }); });
         await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(whole)), { timeout: 10_000 });
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(shown)).toEqual([]);
     });
 
     test("every series switched off draws no row, and one switched back on draws its rows again", async () => {
@@ -262,41 +265,153 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         expect(drawnTwelve(container)).toEqual(drawnTwelve(whole));
     });
 
-    test("a pan into tiles it does not hold washes the machines waiting on them, their plots busy, until the cells land", async () => {
+    test("a pan into tiles it does not hold draws a skeleton bar across each machine waiting on them, their plots busy, until the cells land", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
         await settle();
-        const washed = () => TWELVE.filter((key) => container.querySelector(`${rowAt(entry("presses", key))} [data-plan-unread]`) !== null);
-        expect(washed()).toEqual([]);
+        const waiting = () => TWELVE.filter((key) => container.querySelector(`${rowAt(entry("presses", key))} [data-plan-unread] > [data-loading-bar]`) !== null);
+        expect(waiting()).toEqual([]);
         // A week on, the new week's tiles are searched: while the search is in flight every machine in view waits on it.
         const read = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
         await pan(container, "]", 7);
         await read.holding;
-        await waitFor(() => expect(washed()).toEqual(TWELVE));
+        await waitFor(() => expect(waiting()).toEqual(TWELVE));
         expect(container.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-plan-unread]`)!.getAttribute("aria-busy")).toBe("true");
         read.release();
         await settle();
-        await waitFor(() => expect(washed()).toEqual([]));
+        await waitFor(() => expect(waiting()).toEqual([]));
     });
 
-    test("a scroll to machines further down reads their blocks' cells alone, two requests", async () => {
+    test("a scroll to machines further down reads the cells of the block its rows meet and of the next one down, two requests; back up, of the block before them, and none on the side it left (#1797)", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(nestedPlan);
         await settle();
+        /** The blocks of machines whose cells were searched since a request, each by its place among the machines' rows, ascending. */
+        const blocksSearched = (since: number) => [...new Set(h.requests().slice(since).filter((request) => request.kind === "find" && through(IN_TIME)(request))
+            .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])[1]!))
+            .map((key) => Math.floor((Number(/M-(\d+)/.exec(key)![1]) - 10_001) / SCHEDULE_CELL_BLOCK)))].sort((a, b) => a - b);
+        // Each machine of a block, five ranges: its jobs at four levels, its alarms at one.
+        const aBlock = `find ${SCHEDULE_CELL_BLOCK * 5}`;
         const opened = askedOf(IN_TIME).length;
-        act(() => { window.scrollTo({ top: 140 * PLAN_GEOMETRY.default.row }); });
-        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10150")))).not.toBeNull(), { timeout: 10_000 });
-        // The view reported as its scroll rests: the blocks around it read.
+        const down = h.requests().length;
+        // Down to the fourth block's first machines: the rows in view meet that block alone.
+        act(() => { window.scrollTo({ top: (3 * SCHEDULE_CELL_BLOCK + 5) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10160")))).not.toBeNull(), { timeout: 10_000 });
+        // The view reported as its scroll rests: the block it meets and the next one down read, and none before it.
         await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
         await settle();
-        const asked = askedOf(IN_TIME).slice(opened);
+        expect(askedOf(IN_TIME).slice(opened)).toEqual([`find ${2 * SCHEDULE_CELL_BLOCK * 5}`, "runs"]);
+        expect(blocksSearched(down)).toEqual([3, 4]);
+        expect(drawnRow(container, "presses", "M-10160").length).toBeGreaterThan(0);
+        // Back up three machines, still within the block: the block before it is read, the way the view now goes.
+        const rested = askedOf(IN_TIME).length;
+        const up = h.requests().length;
+        act(() => { window.scrollTo({ top: (3 * SCHEDULE_CELL_BLOCK + 2) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(rested + 2), { timeout: 10_000 });
+        await settle();
+        expect(askedOf(IN_TIME).slice(rested)).toEqual([aBlock, "runs"]);
+        expect(blocksSearched(up)).toEqual([2]);
+    });
+
+    test("a scroll back to the machines it left reads nothing, and down again to those it left for them: their cells are kept (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(nestedPlan);
+        await settle();
+        const first = drawnTwelve(container);
+        const opened = askedOf(IN_TIME).length;
+        // Down to the fourth block's first machines: that block and the next one down read, the first wanted no more.
+        const below = (3 * SCHEDULE_CELL_BLOCK + 5) * PLAN_GEOMETRY.default.row;
+        act(() => { window.scrollTo({ top: below }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10160")))).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
+        await settle();
+        const fourth = drawnRow(container, "presses", "M-10160");
+        expect(fourth.length).toBeGreaterThan(0);
+        // Back to the top: the first block's cells were kept — nothing is counted, nothing read, and its machines draw
+        // what they drew.
+        const left = askedOf(IN_TIME).length;
+        act(() => { window.scrollTo({ top: 0 }); });
+        await waitFor(() => expect(drawnTwelve(container)).toEqual(first), { timeout: 10_000 });
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(left)).toEqual([]);
+        // Down again: the fourth block's cells and the next one's, wanted no more at the top, were kept too.
+        act(() => { window.scrollTo({ top: below }); });
+        await waitFor(() => expect(drawnRow(container, "presses", "M-10160")).toEqual(fourth), { timeout: 10_000 });
+        await scrollStopped();
+        await settle();
+        expect(askedOf(IN_TIME).slice(left)).toEqual([]);
+    });
+
+    test("a read of the cells on its way is never given up while the next view is counted, nor asked again (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const entriesOf = (request: E3Request) => through(IN_TIME)(request) && request.kind === "runs";
+        // The page opening, the entries of the first block's cells held on their way.
+        const entries = h.e3.hold(entriesOf);
+        const { container } = await h.mount(nestedPlan);
+        await entries.holding;
+        await settle();
+        // Down a few machines, still in the first block: the view went on, so the next block down is wanted beside it, its
+        // searches held as they are counted. The read on its way is still wanted, and asked again as it was — never given up.
+        const counts = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
+        act(() => { window.scrollTo({ top: 5 * PLAN_GEOMETRY.default.row }); });
+        await scrollStopped();
+        await counts.holding;
+        await settle();
+        const givenUp = () => h.requests().filter((request) => entriesOf(request) && request.signal.aborted);
+        expect(givenUp()).toEqual([]);
+        expect(entries.held).toBe(1);
+        // Counted, and landed: the read on its way lands once, the next block's beside it — no read of their entries asked twice.
+        await act(async () => { counts.release(); });
+        await settle();
+        await act(async () => { entries.release(); });
+        await settle();
+        expect(givenUp()).toEqual([]);
+        const asked = h.requests().filter(entriesOf).map((request) => new TextDecoder().decode(request.body));
         expect(asked).toHaveLength(2);
-        expect(asked[1]).toBe("runs");
-        // Each machine of the blocks wanted, five ranges: its jobs at four levels, its alarms at one.
-        const searches = Number(asked[0]!.replace("find ", ""));
-        expect(searches % 5).toBe(0);
-        expect(searches).toBeGreaterThan(0);
-        expect(drawnRow(container, "presses", "M-10150").length).toBeGreaterThan(0);
+        expect(new Set(asked).size).toBe(2);
+        await waitFor(() => expect(drawnRow(container, "presses", "M-10001").length).toBeGreaterThan(0), { timeout: 10_000 });
+    });
+
+    test("weeks pressed while the cells' read is on its way take each machine's runs past it: its rows are read through it, e3 asked for the rest alone, never a row twice, and each machine drawn as the same Plan draws it with nothing on its way (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const entriesOf = (request: E3Request) => through(IN_TIME)(request) && request.kind === "runs";
+        const givenUp = () => h.requests().filter((request) => entriesOf(request) && request.signal.aborted);
+        /** Every row each read of the cells' entries asked, by the runs its body names: the wire's JSON, parsed as the test reads its log. */
+        const rowsAsked = () => h.requests().filter(entriesOf).map((request) =>
+            (JSON.parse(new TextDecoder().decode(request.body)) as { runs: [number, number][] }).runs
+                .flatMap(([row, count]) => Array.from({ length: count }, (_x, i) => row + i)));
+        // The page opening, the entries of the first block's cells held on their way: on a canvas holding its own window,
+        // which a period pressed sets.
+        const entries = h.e3.hold(entriesOf);
+        const { container } = await h.mount(slicePlan);
+        await entries.holding;
+        await settle();
+        // Weeks pressed while they are on their way — as many weeks from the window's start as the plot holds, past the
+        // fortnight read — the weeks' searches held as they are counted: the read on its way is still wanted, never given up.
+        const counts = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
+        await zoomTo(container, "week");
+        await counts.holding;
+        await settle();
+        expect(givenUp()).toEqual([]);
+        expect(entries.held).toBe(1);
+        // Counted, each machine's runs at the weeks take in the fortnight's and rows past them: the fortnight's rows are read
+        // through the read on its way, and e3 is asked for those past them alone.
+        await act(async () => { counts.release(); });
+        await settle();
+        await act(async () => { entries.release(); });
+        await settle();
+        expect(givenUp()).toEqual([]);
+        const [fortnight, rest, ...more] = rowsAsked();
+        expect(more).toEqual([]);
+        expect(rest!.length).toBeGreaterThan(0);
+        const held = new Set(fortnight);
+        expect(rest!.filter((row) => held.has(row))).toEqual([]);
+        // Each of the first twelve machines draws what the same Plan draws at the weeks with nothing on its way.
+        const { container: control } = await h.mount(slicePlan, { storageKey: "control" });
+        await settle();
+        await zoomTo(control, "week");
+        await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(control)), { timeout: 10_000 });
     });
 
     test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {
@@ -338,11 +453,12 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
         await settle();
-        // The view on the second block: the first three blocks wanted, 150 machines, 80 jobs each over the year.
+        // The view down across the second block's end and the third's start: those two and the next one down wanted, 150
+        // machines, 80 jobs each over the year.
         const opened = askedOf(IN_TIME).length;
-        act(() => { window.scrollTo({ top: 70 * PLAN_GEOMETRY.default.row }); });
-        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10075")))).not.toBeNull(), { timeout: 10_000 });
-        // The view reported as its scroll rests: the blocks around it read.
+        act(() => { window.scrollTo({ top: (2 * SCHEDULE_CELL_BLOCK - 15) * PLAN_GEOMETRY.default.row }); });
+        await waitFor(() => expect(container.querySelector(rowAt(entry("presses", "M-10090")))).not.toBeNull(), { timeout: 10_000 });
+        // The view reported as its scroll rests: the blocks it meets and the next one down read.
         await waitFor(() => expect(askedOf(IN_TIME).length).toBeGreaterThanOrEqual(opened + 2), { timeout: 10_000 });
         await settle();
         const before = askedOf(IN_TIME).length;
@@ -352,7 +468,7 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         // view the zoomed rows report at rest is counted after.)
         expect(asked.slice(0, 3).map((kind) => kind.replace(/\d+/, "n"))).toEqual(["find n", "find n", "runs"]);
         // A machine's jobs draw as its months booked: no run, and a weight a bucket.
-        const row = slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", "M-10075")))!;
+        const row = slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", "M-10090")))!;
         expect(row.querySelectorAll("[data-run]")).toHaveLength(0);
         expect(row.querySelectorAll("[data-cell]").length).toBeGreaterThan(0);
     });
@@ -933,6 +1049,66 @@ describe("a gesture drafts its row whole (#1438)", () => {
         const after = await readMachines();
         expect(after.get("M-10001")!.jobs.size).toBe(0);
         expect(after.get("M-10002")!.jobs.get("J-10001-114")).toEqual(only);
+    });
+});
+
+// ── Past the cap: the totals that shade a zoom, and the columns' own period where the zoom's they do not (#1739, #1799) ──
+
+/** The periods the machines' totals were searched at since a request: each search of a row's totals, by its period's literal. */
+const totalsSearched = (since: number) => [...new Set(h.requests().slice(since).filter((request) => request.kind === "find" && through(IN_TIME)(request))
+    .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])))
+    .filter((from) => from[3] === ".totals").map((from) => from[4]!))];
+
+/** Any banner the frame draws: none, while the columns show what the rows hold. */
+const anyBanner = (c: HTMLElement) => slot(c, "banners")?.querySelector("[data-plan-banner]") ?? null;
+/** The period the columns take, as the toolbar's segment shows it pressed. */
+const periodShown = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
+
+describe("past the cap, the rows shade where their totals divide the zoom, and the columns take a period they divide where the zoom's they do not (#1739, #1799)", () => {
+    test("totals kept a month at a time shade no day: the columns take months by themselves, nothing said, each machine's months shaded from their own totals; the quarter from its months'; days pressed are tried again, and come back to months", async () => {
+        onTestFinished(emulateWindowScroll());
+        // 10,500 jobs of an hour on the first machine, across the fortnight in view, beside its own.
+        const start = await readMachines();
+        const first = start.get("M-10001")!;
+        const like = first.jobs.get("J-10001-114")!;
+        const batch = Array.from({ length: 10_500 }, (_, i) => {
+            const at = FROM.getTime() + (i % 300) * 3_600_000;
+            return [`B-${String(i).padStart(5, "0")}`, { ...like, product: "batch", start: new Date(at), end: new Date(at + 3_600_000) }] as const;
+        });
+        await h.patch(ex.machines, withJobs(start, "M-10001", new Map([...batch, ...first.jobs])));
+        const { container } = await h.mount(slicePlan);
+        await settle();
+        const row = (key: string) => slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("presses", key)))!;
+        const cells = (key: string) => [...row(key).querySelectorAll<HTMLElement>("[data-cell]")];
+        // The fortnight gives days, which a month divides not: no job is read or drawn, on any machine in view — the cap
+        // is the collection's — and the columns take months by themselves, the period the totals are kept at, each
+        // machine's months read and shaded: no hatch, and nothing said.
+        await waitFor(() => expect(periodShown(container)).toBe("MONTH"), { timeout: 10_000 });
+        await waitFor(() => expect(cells("M-10001").some((cell) => !cell.hasAttribute("data-nodata"))).toBe(true), { timeout: 10_000 });
+        expect(totalsSearched(0)).toEqual([".month"]);
+        expect(anyBanner(container)).toBeNull();
+        for (const key of ["M-10001", "M-10002"]) {
+            expect(row(key).querySelectorAll("[data-run]")).toHaveLength(0);
+            expect(cells(key).length).toBeGreaterThan(0);
+            expect(cells(key).filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        }
+        // At the quarter, which the index keeps no totals at: its months again — the coarsest it keeps that divide a
+        // quarter — added up into each, and no other period asked for.
+        const atQuarter = h.requests().length;
+        await zoomTo(container, "quarter");
+        await settle();
+        expect(periodShown(container)).toBe("QUARTER");
+        expect(anyBanner(container)).toBeNull();
+        expect(totalsSearched(atQuarter).filter((period) => period !== ".month")).toEqual([]);
+        expect(row("M-10001").querySelectorAll("[data-run]")).toHaveLength(0);
+        expect(cells("M-10001").length).toBeGreaterThan(0);
+        expect(cells("M-10001").filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        // Days pressed are tried again: the batch is in view at days too, so the columns come back to months, with
+        // nothing said.
+        await zoomTo(container, "day");
+        await waitFor(() => expect(periodShown(container)).toBe("MONTH"), { timeout: 10_000 });
+        expect(anyBanner(container)).toBeNull();
+        expect(cells("M-10001").filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
     });
 });
 

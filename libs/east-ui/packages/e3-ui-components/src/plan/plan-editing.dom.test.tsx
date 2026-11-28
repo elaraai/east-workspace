@@ -20,7 +20,8 @@ import { act, cleanup } from "@testing-library/react";
 import { equalFor, variant } from "@elaraai/east";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { UIStore } from "@elaraai/east-ui-components";
-import type { E3Request } from "../e3-web.test-utils.js";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { patchRecord, type E3Request } from "../e3-web.test-utils.js";
 import {
     PRESSES_DATASET, PRESSES_RECORD, Presses, SEED, type PressValue,
     banner, bannerAction, dropCellOf, dropJob, history, historyButton, hoverJob, jobsDrawn, key, markOf, marks,
@@ -240,11 +241,17 @@ describe("paged: a Save's answer that comes late (#1599)", () => {
         await dropJob(canvas, "job-1", "p1");
         // The Save commits, and its answer is held on its way back.
         const answer = h.e3.holdAnswers((request: E3Request) => request.kind === "mutate" && request.record === PRESSES_RECORD);
+        // The canvas hears nothing between the Save's commit and the other writer's, as `E3Harness.late` scripts it: a
+        // poll of its own answered there would tell it of the Save's commit alone, and the read it then made — held as a
+        // read back is — would reach e3 only after the other writer had committed, refused in an order this does not script.
+        const polls = h.e3.hold((request: E3Request) => request.kind === "status");
         await history(canvas, "Save");
         await answer.holding;
         // Another writer puts a job on Press 2, after the Save's commit; the canvas hears of it, and reads it.
         const saved = await canvas.stored();
-        await canvas.move(new Map([...saved, ["p2", { ...saved.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
+        await patchRecord(h.e3, h.workspace, records.planPresses, new Map([...saved, ["p2", { ...saved.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
+        await act(async () => { polls.release(); });
+        await h.poll();
         await canvas.confirm();
         expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
         // Only then the Save's answer: it names the presses as the Save left them, which the canvas has passed.

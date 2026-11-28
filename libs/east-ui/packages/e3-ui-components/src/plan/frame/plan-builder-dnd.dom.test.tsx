@@ -83,6 +83,11 @@ const jobsOn = (c: HTMLElement, row: PlanRowId) => [...c.querySelectorAll(`${row
 const jobsFrom = (c: HTMLElement, template: string, row = A1) => madeFrom(c.querySelector<HTMLElement>(rowAt(row))!, "data-run", "job", template);
 /** An element's name — its title, its times, its state. */
 const named = (node: HTMLElement | null) => node?.getAttribute("aria-label") ?? null;
+/** An element's end handle, drawn while it is in hand (#1780): the pointer comes over the element first, as it does reaching for the end. */
+const endOf = (node: HTMLElement, which: "start" | "end" = "end"): HTMLElement => {
+    fireEvent.pointerEnter(node);
+    return node.querySelector<HTMLElement>(`[data-plan-edge="${which}"]`)!;
+};
 
 // ── Laying the plots out ──────────────────────────────────────────────────────
 
@@ -697,6 +702,8 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         const y = layOutPlots(c, [A1_TILES, A2_TILES]);
         const tile = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`)!;
         expect(tile.hasAttribute("data-draggable")).toBe(true);
+        // No ends, even with the pointer over it.
+        fireEvent.pointerEnter(tile);
         expect(tile.querySelector("[data-plan-edge]")).toBeNull();
         expect(tile.hasAttribute("data-draft")).toBe(false);
         await drop(tile, { x: xAt(2), y: y(A1_TILES) }, { x: xAt(4), y: y(A2_TILES) });
@@ -736,7 +743,7 @@ describe("a bar's or a chip's edge resizes it (PB35)", () => {
         const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1, C1]);
-        const end = () => bar(c, "J-1001")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
+        const end = () => endOf(bar(c, "J-1001")!);
         await drop(end(), { x: xAt(0, 14), y: y(A1) }, { x: xAt(1, 14), y: y(A1) });
         expect(named(bar(c, "J-1001"))).toMatch(/^Spring catalogue, Oct 5, 2026, 06:00 – Oct 6, 2026, 14:00/);
         // Carried back past its start: one snap is all it keeps.
@@ -745,7 +752,7 @@ describe("a bar's or a chip's edge resizes it (PB35)", () => {
         expect(named(bar(c, "J-1001"))).toMatch(/^Spring catalogue, Oct 5, 2026, 06:00 – Oct 6, 2026, 06:00/);
         // A chip's end, a day on.
         y = layOutPlots(c, [A1, C1]);
-        const chipEnd = chip(c, "SH-01")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
+        const chipEnd = endOf(chip(c, "SH-01")!);
         await drop(chipEnd, { x: xAt(0, 14), y: y(C1) }, { x: xAt(1, 14), y: y(C1) });
         expect(named(chip(c, "SH-01"))).toMatch(/^Early, Oct 5, 2026, 06:00 – Oct 6, 2026, 14:00/);
         expect(chip(c, "SH-01")!.hasAttribute("data-draft")).toBe(true);
@@ -896,7 +903,7 @@ describe("every gesture is one step of the Plan's one history", () => {
         y = layOutPlots(c, [A1, A3]);
         await drop(bar(c, "J-1002")!, { x: xAt(2, 9), y: y(A1) }, { x: xAt(3, 9), y: y(A1) });
         y = layOutPlots(c, [A1, A3]);
-        await drop(bar(c, "J-1002")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!, { x: xAt(3, 12), y: y(A1) }, { x: xAt(4, 12), y: y(A1) });
+        await drop(endOf(bar(c, "J-1002")!), { x: xAt(3, 12), y: y(A1) }, { x: xAt(4, 12), y: y(A1) });
         const sink = sinkOf(c);
         y = layOutPlots(c, [A1, A3], [[sink, { left: 0, top: 600, width: 180, height: 300 }]]);
         await drop(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: 90, y: 700 });
@@ -1021,6 +1028,8 @@ describe("an event its kind's `locked` holds where it is (#1541, U9)", () => {
         const posters = bar(c, "J-1003")!;
         expect([posters.hasAttribute("data-locked"), posters.querySelector("[data-plan-lock] svg") !== null]).toEqual([true, true]);
         expect(named(posters)).toMatch(/^Event posters, Oct 14, 2026, 07:00 .*, locked$/);
+        // No ends, even with the pointer over it.
+        fireEvent.pointerEnter(posters);
         expect([posters.hasAttribute("data-draggable"), posters.querySelector("[data-plan-edge]")]).toEqual([false, null]);
         // The spring catalogue, printed, has no lock, and moves as any job does.
         const catalogue = bar(c, "J-1001")!;

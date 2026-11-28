@@ -16,9 +16,10 @@
  * the element (`left` or `top`, and a chip's translation), as every position
  * that follows data is. Their look is the host recipe's `nowLine`, `nowDot`
  * and `nowChip` slots, which every host merges from the one shared part in the
- * theme (east-ui-components' `slot-recipes/time/now.ts`). Data attributes a
- * host gives (`data-plan-now`) land on the element, so its tests and
- * selectors find it.
+ * theme (east-ui-components' `slot-recipes/time/now.ts`): plain elements of
+ * those slots' classes, made once a theme (`useSlotClass`, #1780), since every
+ * row of a Plan draws one as it mounts. Data attributes a host gives
+ * (`data-plan-now`) land on the element, so its tests and selectors find it.
  *
  * Where now is comes from the host: a test or a showcase pins it, and
  * {@link useNow} reads the clock when nothing does.
@@ -27,7 +28,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -56,11 +57,12 @@ export type NowLineProps = DataAttributes & {
  * @returns The line
  */
 export function NowLine({ styles, at, along = "x", dot, ...data }: NowLineProps) {
+    const slot = useSlotClass();
     const position = `${at * 100}%`;
     return (
-        <Box css={styles.nowLine} data-along={along} style={along === "x" ? { left: position } : { top: position }} {...data}>
-            {dot === true && <Box css={styles.nowDot} />}
-        </Box>
+        <div className={slot(styles.nowLine)} data-along={along} style={along === "x" ? { left: position } : { top: position }} {...data}>
+            {dot === true && <div className={slot(styles.nowDot)} />}
+        </div>
     );
 }
 
@@ -89,15 +91,16 @@ export type NowChipProps = DataAttributes & {
  * @returns The chip
  */
 export function NowChip({ styles, at, along = "x", anchor, children, ...data }: NowChipProps) {
+    const slot = useSlotClass();
     const position = `${at * 100}%`;
     return along === "x"
         ? (
-            <Box css={styles.nowChip} data-along="x" {...data}
+            <div className={slot(styles.nowChip)} data-along="x" {...data}
                 style={anchor !== undefined ? { left: position, transform: `translate(${anchor}, -50%)` } : { left: position }}>
                 {children}
-            </Box>
+            </div>
         )
-        : <Box css={styles.nowChip} data-along="y" style={{ top: position }} {...data}>{children}</Box>;
+        : <div className={slot(styles.nowChip)} data-along="y" style={{ top: position }} {...data}>{children}</div>;
 }
 
 /**

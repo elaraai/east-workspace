@@ -51,7 +51,7 @@ describe("the package's root", () => {
         const manifest: DataManifest = { paths: [], functions: [], records: [], pages: [] };
         const platforms = [
             ...StateImpl, ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
-            ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...root.DecisionBindPlatform,
+            ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...root.DecisionBindPlatform, ...root.ScheduleCellRowsImpl,
             ...root.createScopedBindPlatform(manifest),
             ...root.createScopedPagedPlatform(manifest.pages),
             ...root.createScopedFuncPlatform(manifest.functions),

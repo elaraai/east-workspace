@@ -13,7 +13,8 @@
  * (`sum` / `mean` / `min` / `max` / `last` / `count`), never the members piled
  * into one column. Every kind that places values by bucket folds alike: heat,
  * weight and segment cells, table numerals, and a chart's line, area and
- * column layers (scatter and band layers draw every point).
+ * column layers (scatter and band layers draw every point, as does a line or
+ * an area whose fold is `none`).
  *
  * A fold keeps what it does not change. A bucket with ONE member keeps that
  * member as it is — its own instant, label and text — unless the fold is
@@ -44,6 +45,10 @@ type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
 type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
 type ChartLayerValue = ValueTypeOf<typeof Plan.Types.ChartLayer>;
 type ChartPointValue = ValueTypeOf<typeof Plan.Types.ChartPoint>;
+
+/** A line's or an area's fold, as its tag — a fold, or `none`, every point kept (`PlanLineFoldType`, derived from
+ *  the layer's East type, never mirrored). */
+export type PlanLineFold = Extract<ChartLayerValue, { type: "line" }>["value"]["fold"]["type"];
 
 /**
  * The period a canvas buckets by — what a fold groups instants by. The scale
@@ -351,20 +356,22 @@ export function foldTableSeries(
 
 /**
  * Fold a chart layer's points — a bucket's finite values folded (a gap, a
- * non-finite `y`, is no value; a bucket of gaps stays one).
+ * non-finite `y`, is no value; a bucket of gaps stays one). A line or an area
+ * whose fold is `none` keeps every point where it is (#1807).
  *
  * @param points - The points
- * @param fold - The layer's fold
+ * @param fold - The layer's fold — `none` keeps every point
  * @param period - The canvas's period
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
  * @returns The folded points — `points` itself when nothing folds
  */
 export function foldChartPoints(
     points: ChartPointValue[],
-    fold: PlanFold,
+    fold: PlanLineFold,
     period: PlanPeriod | undefined,
     ordinal: ReadonlyMap<string, number> | undefined,
 ): ChartPointValue[] {
+    if (fold === "none") return points;
     const groups = bucketGroups(points, (p) => p.t, period, ordinal);
     if (keepsAll(groups, fold)) return points;
     return groups.map((g): ChartPointValue => {
@@ -376,7 +383,8 @@ export function foldChartPoints(
 
 /**
  * Fold a chart row's layers — its line, area and column layers each by its
- * own fold; scatter, band and reference layers as they are.
+ * own fold, a line or an area whose fold is `none` as it is; scatter, band and
+ * reference layers as they are.
  *
  * @param layers - The layers
  * @param period - The canvas's period

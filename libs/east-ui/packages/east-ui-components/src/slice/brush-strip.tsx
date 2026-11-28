@@ -46,9 +46,9 @@ import { Box, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import { useCoarsePointer, useContainerWidth } from "../contracts/adaptive.js";
 import {
-    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushKey, brushNarrow,
-    brushRelease, brushZones, type BrushZone,
-    type BrushBar, type BrushBucketSpan, type BrushDrag, type BrushKeyTarget,
+    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHeld, brushHitTest, brushKey, brushKeyHeld,
+    brushNarrow, brushRelease, brushZones, type BrushZone,
+    type BrushBar, type BrushBucketSpan, type BrushDrag, type BrushHeld, type BrushKeyTarget,
 } from "./brush-math.js";
 
 /** A bucket of the strip's histogram: its slot on the track, its count, and what its hover says. */
@@ -106,9 +106,13 @@ export interface BrushStripProps {
      * the in-flight draft AND the committed window, so what you see
      * mid-gesture is exactly what releases. The host owns the semantics
      * (e.g. the Plan snaps to resolution-period edges with a one-period
-     * minimum width).
+     * minimum width, and keeps the window within its zoom's most, #1710).
+     * `held` names the edge the gesture holds in place (`brushHeld`,
+     * `brushKeyHeld`) — a resize's other edge, a draw's start — so a host
+     * keeping the window within limits lets the other give way; none for a
+     * slide or the window's keys, its width kept.
      */
-    snapWindow?: ((from: number, to: number) => { from: number; to: number }) | undefined;
+    snapWindow?: ((from: number, to: number, held?: BrushHeld) => { from: number; to: number }) | undefined;
     /**
      * Optional live preview while adjusting an EXISTING window (move /
      * resize — never a fresh draw): fired with the snapped draft fractions
@@ -237,7 +241,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
             if (release.kind === "clear") onClear();
             else if (release.kind === "commit") {
                 const raw = { from: release.lo / next.width, to: release.hi / next.width };
-                const s = snapWindow !== undefined ? snapWindow(raw.from, raw.to) : raw;
+                const s = snapWindow !== undefined ? snapWindow(raw.from, raw.to, brushHeld(next)) : raw;
                 onCommit(s.from, s.to);
             } else restoreOrigin();
             onEnd?.();
@@ -250,7 +254,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         if (onPreview !== undefined && next.mode !== "draw" && next.win !== undefined) {
             const w = brushDragWindow(next);
             const raw = { from: Math.max(0, w.lo / next.width), to: Math.min(1, w.hi / next.width) };
-            const p = snapWindow !== undefined ? snapWindow(raw.from, raw.to) : raw;
+            const p = snapWindow !== undefined ? snapWindow(raw.from, raw.to, brushHeld(next)) : raw;
             if (next.preview === undefined || next.preview.from !== p.from || next.preview.to !== p.to) {
                 next.preview = p;
                 onPreview(p.from, p.to);
@@ -266,8 +270,8 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
     const rawDraft = draft !== undefined && drag !== null
         ? { from: Math.max(0, draft.lo / drag.width), to: Math.min(1, draft.hi / drag.width) }
         : undefined;
-    const shown = rawDraft !== undefined
-        ? (snapWindow !== undefined ? snapWindow(rawDraft.from, rawDraft.to) : rawDraft)
+    const shown = rawDraft !== undefined && drag !== null
+        ? (snapWindow !== undefined ? snapWindow(rawDraft.from, rawDraft.to, brushHeld(drag)) : rawDraft)
         : win;
     // The handle a resize holds — the edge it drags, which a drag past the other edge swaps.
     const pressed = drag === null || drag.win === undefined ? undefined
@@ -293,7 +297,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         e.preventDefault();
         e.stopPropagation();
         if (r.kind === "clear") { onClear(); return; }
-        const s = snapWindow !== undefined ? snapWindow(r.from, r.to) : r;
+        const s = snapWindow !== undefined ? snapWindow(r.from, r.to, brushKeyHeld(target)) : r;
         if (s.from !== win.from || s.to !== win.to) onCommit(s.from, s.to);
     };
     // The hover: a mouse over a bucket, never while a gesture is in hand.

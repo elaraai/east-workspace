@@ -11,7 +11,10 @@
  * — the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
- * through when an arrow key moves between them (`CSS.escape`, #819).
+ * through when an arrow key moves between them (`CSS.escape`, #819). A chart
+ * card taller than a row's own lines names its series under its title, a
+ * band's caption on it stands past the numbers inside its plot, and a card has
+ * no rail: its right numbers stay inside its plot (#1750).
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
@@ -33,6 +36,7 @@ import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { NO_EDITS, blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 e3Harness(RAIL_MODULES, { measure: false });
 
@@ -94,6 +98,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string }) {
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -158,9 +163,10 @@ describe("Plan narrow layout (§10 / #570)", () => {
         layers: [variant("line", {
             points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
             axis: variant("left", null), breach: none, fold: variant("mean", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         })],
-        left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), format: none }),
-        right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+        left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), numTicks: none, format: none, label: none }),
+        right: none, height: variant("spark", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
     });
     type Sent = "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel";
     /** A finger's event on the list: the page's first finger — no other down — is the browser's primary pointer. */
@@ -526,6 +532,80 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(tabCount(container, "measures")).toEqual(["not counted", "notCounted"]);
         // The rows are still the source's own count.
         expect(tabCount(container, "rows")).toEqual(["450", "450"]);
+    });
+
+    test("a chart card taller than a row's own lines names its series on a line under its title — each its stroke and its name — in place of its meta; a spark's card keeps its meta (#1750)", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("tall", variant("chart", {
+                layers: [
+                    variant("column", { points: [{ t: t(W27), y: 4 }], axis: variant("left", null), breach: none, fold: variant("sum", null),
+                        style: { label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("line", { points: [{ t: t(W27), y: 3 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: some("Output"), color: some("red.solid"), curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("refLine", { y: 2, axis: variant("left", null), label: some("CAP"), dash: none, color: none }),
+                ],
+                left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            }), { gutter: gutter("TALL", { meta: "sheets · plan" }) }),
+            planRow("spark", variant("chart", {
+                layers: [variant("line", { points: [{ t: t(W27), y: 3 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            }), { gutter: gutter("SPARK", { meta: "sheets · plan" }) }),
+        ]), "plan-1750-card-legend");
+        const tall = container.querySelector(rowSel("tall", "data-plan-card"))!;
+        // Its names alone, no unit and no axis; each stroke in its series' ink, the reference line's none.
+        expect([...tall.querySelectorAll("[data-plan-legend-item]")].map((item) => item.textContent)).toEqual(["Printed", "Output"]);
+        const [printed, output] = [...tall.querySelectorAll<HTMLElement>("[data-plan-legend-swatch]")];
+        expect([printed!.getAttribute("data-series"), output!.style.getPropertyValue("--mark-ink")]).toEqual(["0", "var(--chakra-colors-red-solid)"]);
+        expect(tall.textContent).not.toContain("sheets · plan");
+        const spark = container.querySelector(rowSel("spark", "data-plan-card"))!;
+        expect([spark.querySelector("[data-plan-legend]"), spark.textContent?.includes("sheets · plan")]).toEqual([null, true]);
+    });
+
+    test("a band's caption on a chart card stands past the numbers inside its plot's left edge: the plot carries the widest of them, in glyphs, and the caption the band's start, which the recipe keeps it no nearer the edge than (#1750, ruled 25 Nov 2026)", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("zone", variant("chart", {
+                layers: [
+                    variant("refBand", { x: none, y: some({ lo: 90, hi: 100 }), axis: variant("left", null), label: some("ON TARGET"), color: none }),
+                    variant("line", { points: [{ t: t(W27), y: 94 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                ],
+                left: some({ domain: some(variant("number", { min: 80, max: 100 })), tickValues: some(variant("number", [80, 90, 100])), numTicks: none, format: none, label: none }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            })),
+        ]), "plan-1750-card-caption");
+        const card = container.querySelector(rowSel("zone", "data-plan-card"))!;
+        // Its numbers inside the plot: 80, 90 and 100, the widest three glyphs.
+        expect([...card.querySelectorAll("[data-plan-tickpx]")].map((tick) => tick.textContent)).toEqual(["80", "90", "100"]);
+        const plot = card.querySelector<HTMLElement>("[data-plan-chart]")!;
+        expect([plot.hasAttribute("data-left-ticks"), plot.style.getPropertyValue("--left-glyphs")]).toEqual([true, "3"]);
+        // The zone runs across the plot, so its caption's start is the plot's left edge.
+        const caption = screen.getByText("ON TARGET");
+        expect([caption.hasAttribute("data-plan-band-caption"), caption.style.getPropertyValue("--caption-at")]).toEqual([true, "0%"]);
+    });
+
+    test("a card has no rail: on a Plan that declares the right axis's rail, a two-axis chart card reads its right numbers inside its plot, as it does without one (#1750, ruled 25 Nov 2026)", () => {
+        const { container } = renderPlan({
+            ...planRoot([
+                planRow("climate", variant("chart", {
+                    layers: [
+                        variant("line", { points: [{ t: t(W27), y: 50 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                            style: { label: some("Load"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                        variant("line", { points: [{ t: t(W27), y: 20 }], axis: variant("right", null), breach: none, fold: variant("mean", null),
+                            style: { label: some("Temp"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    ],
+                    left: some({ domain: some(variant("number", { min: 0, max: 100 })), tickValues: some(variant("number", [0, 50, 100])), numTicks: none, format: none, label: none }),
+                    right: some({ domain: some(variant("number", { min: 0, max: 40 })), tickValues: none, numTicks: none, format: none, label: none }),
+                    height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+                })),
+            ]),
+            rightAxis: true,
+        } as unknown as PlanRootValue, "plan-1750-card-rail");
+        const card = container.querySelector(rowSel("climate", "data-plan-card"))!;
+        // Its right numbers at the left's ticks, inside its plot — and nothing of a rail anywhere on the list.
+        expect([...card.querySelectorAll("[data-plan-cardbody] [data-plan-tick-right]")].map((tick) => tick.textContent)).toEqual(["0", "20", "40"]);
+        expect(container.querySelector("[data-plan-rail]")).toBeNull();
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

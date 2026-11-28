@@ -67,9 +67,6 @@ export interface PlanBreaches {
 /** No event whose row breaks its kind's bounds. */
 export const NO_BREACHES: PlanBreaches = { bounded: new Set(), warnings: [] };
 
-/** No rows held: a kind its cells hold none of. */
-const NO_ROWS: ReadonlyMap<string, { readonly row: Uint8Array }> = new Map();
-
 /** A kind whose form holds a number to bounds, and how its rows are read against them. */
 interface BoundedKind {
     readonly kind: PlanEventKindValue;
@@ -115,9 +112,10 @@ function boundedEvents(kinds: readonly BoundedKind[], editing: PlanEventEditing,
         const breaking: { readonly id: string; readonly breaches: readonly FieldBreach[] }[] = [];
         if (cells.reads.has(kind.key)) {
             // Read by its cells — past the cap, they hold none of its events.
-            for (const [id, { row }] of cells.held.get(kind.key) ?? NO_ROWS) {
+            // Each row as the page unpacked it (#1771): none packed for the check.
+            for (const [id, row] of cells.held.get(kind.key)?.rows() ?? []) {
                 if (drafts.has(id)) continue;
-                const breaches = breachesOf(row);
+                const breaches = fieldBreaches(fields, row);
                 if (breaches.length > 0) breaking.push({ id, breaches });
             }
             for (const id of drafts.keys()) {

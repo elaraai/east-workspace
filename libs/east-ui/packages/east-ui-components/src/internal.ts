@@ -29,6 +29,8 @@ export { debugFlag } from "./platform/debug-flag.js";
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter } from "./charts/spec/tick-format.js";
 export type { TickFormat } from "./charts/spec/context.js";
+// A chart curve's visx curve: the Plan's chart rows draw a layer's curve as a Chart does (#1753).
+export { curveFor } from "./charts/spec/marks.js";
 export { resolveColor, useDensityHeights } from "./collections/shared/helpers.js";
 // The review chrome's foot, its toolbar item, and the decision column's width.
 export {
@@ -40,15 +42,19 @@ export {
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 // A row's measured height on the device-pixel grid the frame places its rows on — what a collection measures its rows'
 // estimates from (#1398, CL8); where the rows a collection draws as runs stand, which the frame anchors on (#1424); and
-// the sections whose first rows stick under the header — the Roster's work requirement over its people (#1568).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport, type StickySection } from "./collections/virtual-rows.js";
+// the sections whose first rows stick under the header — the Roster's work requirement over its people (#1568). And how long
+// a view holds still before the frame says its scroll rests, which a paged reader asks for its rows by: what a test of
+// what a stop reads waits past (#1711).
+export {
+    INTENT_DWELL_MS, VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport, type StickySection,
+} from "./collections/virtual-rows.js";
 // What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view, and
 // which row shows at the top of the view, for the row that says something once there (#1398).
 export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
-    createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
-    offsetOfWindow, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
+    createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, isRated, observeWindow, offsetOfElement,
+    offsetOfWindow, reseed, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
 } from "./collections/window-ledger.js";
 export {
     DEFAULT_RESIDENCY, NO_RESIDENCY, advance, demandRange, isEmpty, leftRun, pin, residentWindows, step, travelOf, trim, unpinAll,
@@ -103,8 +109,9 @@ export { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./editing/l
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
-// The span a brush's track covers: its data, and every window it holds with it — the Plan's horizon's (#1680's review).
-export { brushHorizon } from "./slice/brush-math.js";
+// The span a brush's track covers: its data, and every window it holds with it — the Plan's horizon's (#1680's review);
+// the edge a gesture holds in place, which a host keeping its window within limits holds (#1710).
+export { brushHorizon, type BrushHeld } from "./slice/brush-math.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
@@ -142,6 +149,10 @@ export {
     recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
     recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceBasePlace,
 } from "./platform/slice/record.js";
+// The cells a reader keeps of an index for its record's revision — a builder's shading's, a horizon's — and the record's
+// totals a tile, which a horizon's bars read (#1732), and a Plan's group rows read under a narrowing each (#1716).
+export { RecordSliceKeptCells } from "./platform/slice/kept-cells.js";
+export { recordSliceTotals, recordSliceTotalsOf, type RecordSliceTileTotals } from "./platform/slice/record-totals.js";
 // The UI store, tracked reads, what it keeps under a key read as a type — nothing, where an earlier release kept it under
 // another (#1758) — and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey, decodeStored } from "./platform/state-runtime.js";
@@ -199,15 +210,15 @@ export { SEARCH_DELAY_MS } from "./slice/record/index.js";
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
 
 // One way to show a read in flight or failed (#1398): the unloaded run and its placeholder shapes, the narrow
-// layouts' placeholder card, the region wash, a failure said once — a row grid's line, a region's box — and an
-// empty region said once in the line's slot, the reveal's one clock (CL4) — a builder's, around its frame, which its
-// parts read where they show — their words, and the retained treatment's recipe parts; and the footer's one loading
-// line with the rail's fit (CL3).
+// layouts' placeholder card, a row's skeleton bar (#1764), the region wash, a failure said once — a row grid's line, a
+// region's box — and an empty region said once in the line's slot, the reveal's one clock (CL4) — a builder's, around
+// its frame, which its parts read where they show — their words, and the retained treatment's recipe parts; and the
+// footer's one loading line with the rail's fit (CL3).
 export {
     REVEAL_DELAY_MS, REVEAL_HOLD_MS, revealStep, useLoadingReveal, type RevealState, type RevealStep, type RevealTimings,
     LoadingReveal, useRevealed, type LoadingRevealProps,
     barShare, runRows, runView, type RunGeometry, type RunGroup, type RunSlot, type RunView,
-    LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
+    LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingRowBar, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
     type LoadingEmptyLineProps, type LoadingFailedBoxProps, type LoadingFailedLineProps, type LoadingRetry, type LoadingWashProps, type PlaceholderCardProps,
     type PlaceholderKind, type PlaceholderShapeProps,
     UnloadedRun, type RunCell, type RunFailure, type RunGridCell, type UnloadedRunProps,

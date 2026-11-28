@@ -33,7 +33,7 @@ import { nowSlots, nowBase } from "./time/now.js";
 import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
-import { TOOLBAR_TEXT } from "../toolbar-row.js";
+import { TOOLBAR_TEXT, TOOLBAR_WORDS_LINE } from "../toolbar-row.js";
 
 /**
  * A column of the Resources view over a paged resource kind (#1424), at its own offset: past the hour column, its place
@@ -226,7 +226,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         status: INSPECTOR_STATUS,
         toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" },
-        toolbarText: TOOLBAR_TEXT,
+        // The toolbar's count and what its window holds: the row's small caps, with no box of their own in the row, on the
+        // row's own line (`toolbar-row.ts`).
+        toolbarText: { ...TOOLBAR_TEXT, lineHeight: TOOLBAR_WORDS_LINE },
         form: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { textStyle: "body.sm", padding: "16px", color: "fg.muted" },

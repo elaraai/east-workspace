@@ -83,18 +83,21 @@ type RunnerConfig = PartRunner;
  * The record, its patch door, and its series and summary indexes, on a runner:
  * a series a week by press, one a day led by the state, and one a month led by
  * a Set that fans out; a summary a week by press, beside the week's series, one
- * a quarter led by the Set, and one a year.
+ * a quarter led by the Set, and one a year; and two summaries with no key, the
+ * record's totals (#1732), one a month and one a week led by the Set.
  */
 function declared(runner?: RunnerConfig) {
   return e3.record('jobs', JobsType, {
     initial: new Map(),
     indexes: (index) => ({
-      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      jobs_by_state_press_day: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
-      jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_state_press_day: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
+      jobs_by_crew_press_month: index.flatSeries({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
       jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
       jobs_by_crew_press_quarter_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
       jobs_by_press_year_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
+      jobs_month_totals: index.totals({ from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_crew_week_totals: index.totals({ on: ['crews'], from: 'start', to: 'end', tile: 'week' }, runner),
     }),
     mutations: (mutation) => ({ patch: mutation.patch(runner) }),
   });
@@ -260,7 +263,9 @@ describe('the series and summary indexes on the real runners', () => {
     return total;
   }
 
-  const { jobs_by_press_week: byPressWeek, jobs_by_press_week_totals: weekTotals, jobs_by_press_year_totals: yearTotals } = DECLARED.indexes;
+  const {
+    jobs_by_press_week: byPressWeek, jobs_by_press_week_totals: weekTotals, jobs_by_press_year_totals: yearTotals, jobs_month_totals: monthTotals,
+  } = DECLARED.indexes;
 
   it('files each job once, at the level its length fits — past a year, once a year it touches — carrying it whole, and totals cover every job\'s length, on each runtime', async () => {
     const rows = seeded();
@@ -291,6 +296,13 @@ describe('the series and summary indexes on the real runners', () => {
       let weeks = 0n;
       for (const total of (await summaryTotals(ws, weekTotals)).values()) weeks += total.ms;
       assert.ok(sameInteger(weeks, covered), `${ws}: and the weeks' totals the same`);
+      // The record's totals a month, under no key (#1732): every job's length too, one total a month.
+      const months = await summaryTotals(ws, monthTotals);
+      let monthly = 0n;
+      for (const total of months.values()) monthly += total.ms;
+      assert.ok(sameInteger(monthly, covered), `${ws}: and the record's months' totals the same`);
+      const keyed = new SortedSet([...months.keys()].map((entry) => millisecondsOf(entry.ik.tile)), compareFor(IntegerType));
+      assert.strictEqual(keyed.size, months.size, `${ws}: one total a month, whatever the presses`);
     }
   });
 
@@ -373,7 +385,7 @@ describe('the series and summary indexes on the real runners', () => {
     for (const { ws, runner } of runtimes) {
       const jobs = e3.record('ages', JobsType, {
         initial: new Map(),
-        indexes: (index) => ({ ages_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
+        indexes: (index) => ({ ages_by_press_day: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
         mutations: (mutation) => ({ patch: mutation.patch(runner) }),
       });
       const zip = join(tempDir, `ages-${ws}.zip`);

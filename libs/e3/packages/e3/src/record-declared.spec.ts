@@ -57,11 +57,11 @@ function machines() {
       by_start: index.key(startOf),
       by_statuses: index.keys(statusesOf),
       in_window: index.interval({ from: 'planned_start', to: 'planned_end' }),
-      planned: index.series({ key: 'site', from: 'planned_start', to: 'planned_end', tile: 'week' }),
-      in_time: index.nested({
-        collections: { jobs: index.nested.items({ from: 'start', to: 'end' }), load: index.nested.values() },
+      planned: index.flatSeries({ key: 'site', from: 'planned_start', to: 'planned_end', tile: 'week' }),
+      in_time: index.nestedSeries({
+        collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() },
         tile: 'week',
-        summary: 'month',
+        summary: ['month'],
       }),
       busy: index.summary({ key: 'site', from: 'planned_start', to: 'planned_end', tile: 'day' }),
     }),
@@ -92,7 +92,8 @@ describe('e3.record declared whole', () => {
     assert.equal(rec.indexes.by_statuses.multi, true);
     assert.equal(rec.indexes.in_window.interval.from, 'planned_start');
     assert.equal(rec.indexes.planned.series.tile, 'week');
-    assert.equal(rec.indexes.in_time.nested.summary, 'month');
+    assert.deepEqual(rec.indexes.in_time.nested.summary, ['month']);
+    assert.deepEqual(rec.indexes.in_time.nested.totals, ['month', 'quarter', 'year']);
     assert.equal(rec.indexes.busy.summary.tile, 'day');
   });
 
@@ -168,15 +169,15 @@ describe('e3.record declared whole', () => {
     assert.throws(() => record('typo', Machines, {
       indexes: (index) => ({
         // @ts-expect-error a series index's key is a field of the row
-        planned: index.series({ key: 'sitee', from: 'planned_start', to: 'planned_end', tile: 'week' }),
+        planned: index.flatSeries({ key: 'sitee', from: 'planned_start', to: 'planned_end', tile: 'week' }),
       }),
-    }), /^Error: e3\.record 'typo': index\.series 'planned' key names unknown row field 'sitee'$/);
+    }), /^Error: e3\.record 'typo': index\.flatSeries 'planned' key names unknown row field 'sitee'$/);
     assert.throws(() => record('typo', Machines, {
       indexes: (index) => ({
         // @ts-expect-error 'jobz' is no collection of a machine
-        in_time: index.nested({ collections: { jobz: index.nested.values() }, tile: 'week' }),
+        in_time: index.nestedSeries({ collections: { jobz: index.nestedSeries.values() }, tile: 'week' }),
       }),
-    }), /^Error: e3\.record 'typo': index\.nested 'in_time' collections names unknown row field 'jobz'$/);
+    }), /^Error: e3\.record 'typo': index\.nestedSeries 'in_time' collections names unknown row field 'jobz'$/);
     assert.throws(() => record('typo', Machines, {
       mutations: (mutation) => ({
         // @ts-expect-error a reducer returns the record's type
@@ -201,21 +202,21 @@ describe('e3.record refuses, naming the record and the part', () => {
   it('a second nested series index, naming the first', () => {
     assert.throws(declare({
       indexes: (index) => ({
-        in_time: index.nested({ collections: { load: index.nested.values() }, tile: 'week' }),
-        again: index.nested({ collections: { jobs: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'day' }),
+        in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week' }),
+        again: index.nestedSeries({ collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'day' }),
       }),
-    }), /^Error: e3\.record 'm': index\.nested 'again': record 'm' has a nested series index already, 'in_time' — one declares every collection a record nests$/);
+    }), /^Error: e3\.record 'm': index\.nestedSeries 'again': record 'm' has a nested series index already, 'in_time' — one declares every collection a record nests$/);
   });
 
   it("a series index given collections, and a nested one given a series index's fields, each naming the other", () => {
     assert.throws(declare({
       // @ts-expect-error collections are the nested index's
-      indexes: (index) => ({ in_time: index.series({ collections: { load: index.nested.values() }, tile: 'week' }) }),
-    }), /^Error: e3\.record 'm': index\.series 'in_time' takes key, from, to and tile — collections are a nested series index's: index\.nested\(\{ collections, tile, summary\? \}\)$/);
+      indexes: (index) => ({ in_time: index.flatSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week' }) }),
+    }), /^Error: e3\.record 'm': index\.flatSeries 'in_time' takes key, from, to and tile — collections are a nested series index's: index\.nestedSeries\(\{ collections, tile, summary\?, totals\? \}\)$/);
     assert.throws(declare({
       // @ts-expect-error key, from and to are a series index's
-      indexes: (index) => ({ in_time: index.nested({ collections: { load: index.nested.values() }, key: 'site', from: 'planned_start', to: 'planned_end', tile: 'week' }) }),
-    }), /^Error: e3\.record 'm': index\.nested 'in_time' takes collections, tile and summary — key, from and to file the record's own events: index\.series\(\{ key, from, to, tile \}\)$/);
+      indexes: (index) => ({ in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, key: 'site', from: 'planned_start', to: 'planned_end', tile: 'week' }) }),
+    }), /^Error: e3\.record 'm': index\.nestedSeries 'in_time' takes collections, tile, summary and totals — key, from and to file the record's own events: index\.flatSeries\(\{ key, from, to, tile \}\)$/);
   });
 
   it('an option a builder does not take', () => {

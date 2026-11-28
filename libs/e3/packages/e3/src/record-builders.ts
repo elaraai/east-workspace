@@ -20,11 +20,11 @@ import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './typ
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
   AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
-  ProjectionOf, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf, TimeTileOf,
+  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, SummaryOf, TotalsIndexSpec,
 } from './record-index.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
-import { seriesDefinition, summaryDefinition } from './record-series.js';
+import { seriesDefinition, summaryDefinition, totalsDefinition } from './record-series.js';
 import { nestedDefinition } from './record-nested-programs.js';
 import { items, recursive, rows, values, type DictField, type DictKeyOf, type DictValueOf, type NestedOf } from './record-nested.js';
 import { editDefinition, patchDefinition, reduceDefinition } from './mutation.js';
@@ -48,7 +48,7 @@ export interface PartRunner {
   readonly runner?: FunctionRunner;
 }
 
-/** A plain index's options: the projection its entries carry, and its runner. */
+/** A plain index's options, and a series index's: the projection its entries carry, and its runner. */
 export interface PlainIndexOptions extends PartRunner {
   /** `(K, V) -> P`: what a view renders from the index alone, so it never reads the record's segments. */
   readonly value?: IndexFunction;
@@ -81,7 +81,8 @@ export interface IndexDraft<
 /**
  * What a plain index carries beside a nested series index or an entries index
  * of its record: its own `value`, where it declares one, and else the lean
- * row, typed as the row.
+ * row, typed as the row. And what a series index carries anywhere: its own
+ * `value`, and else the row.
  */
 type PlainLeanOf<O, T> = 'value' extends keyof O ? ProjectionOf<O> : RowOf<T>;
 
@@ -104,7 +105,7 @@ export interface MigrationDraft {
 }
 
 /**
- * The nested series index's builder, `index.nested`, and the builders of the
+ * The nested series index's builder, `index.nestedSeries`, and the builders of the
  * collections it files.
  *
  * @typeParam T - The record's state type
@@ -114,34 +115,49 @@ export interface NestedBuilder<T extends EastType> {
    * A nested series index (#1434): every collection the record's rows nest,
    * filed in time. Each item is filed once (or once a year past a year) by its
    * collection, its row, the node holding it and its time, carrying the item;
-   * each node's totals are kept a `summary` tile at a time; every parent's
-   * subtotals of a collection of values declared with a rollup are kept at every
-   * level from `tile` up; and each item of a collection declared `{ rollup: true }`
-   * is filed under every ancestor too. The record's other indexes then carry its
-   * rows without the listed collections, so a page of rows reads no nested item,
-   * and `Data.bindPaged` asks it beside any of them (#1435). A record has one; no
-   * field leads it, and it takes no `value`.
+   * each node's totals are kept a tile at a time, at each period `summary`
+   * names; every parent's subtotals of a collection of values declared with a
+   * rollup are kept at every level from `tile` up; and each item of a
+   * collection declared `{ rollup: true }` is filed under every ancestor too.
+   *
+   * The record's totals are kept beside it, at each period `totals` names: how
+   * many items or values of a collection touch each tile, on every row, and the
+   * milliseconds of it the items cover — an index of the record's named
+   * `<index>_span` (e3-types' `nestedSpanName`), its key `{ collection, level,
+   * tile }`. A period's totals, a node's or the record's, count an item once
+   * in each tile of the period it touches, so a period is read as it is kept:
+   * a quarter's bar from the quarters, never its months added up, which would
+   * count an item once a month.
+   *
+   * The record's other indexes then carry its rows without the listed
+   * collections, so a page of rows reads no nested item, and `Data.bindPaged`
+   * asks it beside any of them (#1435). A record has one; no field leads it,
+   * and it takes no `value`.
    *
    * @param spec - `collections`, each declared with {@link items}, {@link values}, {@link rows} or {@link recursive};
-   *   `tile`, the finest level an item is filed at; `summary`, the tile each node's totals are kept by
+   *   `tile`, the finest level an item is filed at; `summary`, the periods each node's totals are kept at, none where
+   *   left out; `totals`, the periods the record's totals are kept at, a month, a quarter and a year where left out
    * @param options - Its runner
    * @returns The index, its key e3-types' `NestedEntryKeyType` and its value `NestedEntryType`
    * @throws {Error} Where a collection's declaration does not fit its field, naming the collection and what to write;
-   *   for a tile of none of the five; or for a second nested series index on the record, naming the first
+   *   for a tile of none of the five; for a `summary` or a `totals` that is no list of them, names one twice, or —
+   *   the `totals` — names none; or for a second nested series index on the record, naming the first
    *
    * @example
    * ```ts
    * const machines = e3.record('machines', MachinesType, {
    *   initial: new Map(),
    *   indexes: (index) => ({
-   *     // Every collection a machine nests, filed from a week up and totalled a month at a time:
-   *     machines_in_time: index.nested({
+   *     // Every collection a machine nests, filed from a week up: each machine's totals kept a week and a month at a
+   *     // time, and the record's a month, a quarter and a year.
+   *     machines_in_time: index.nestedSeries({
    *       collections: {
-   *         jobs: index.nested.items({ from: 'start', to: 'end' }),
-   *         load: index.nested.values(),
+   *         jobs: index.nestedSeries.items({ from: 'start', to: 'end' }),
+   *         load: index.nestedSeries.values(),
    *       },
    *       tile: 'week',
-   *       summary: 'month',
+   *       summary: ['week', 'month'],
+   *       totals: ['month', 'quarter', 'year'],
    *     }),
    *   }),
    * });
@@ -174,11 +190,14 @@ export interface NestedBuilder<T extends EastType> {
  * on every commit and in every build, and a maintained index must equal a
  * rebuilt one to the byte. Its name is an identifier, never `primary`.
  *
- * The indexes that answer more than an order — `interval`, `area`, `series`,
- * `summary` and `nested` — have keys the SDK generates: the row's leading
- * fields under `on` (#1432), e3's own parts beside them, so no row field's
- * name is reserved. An `entries` index files a row's Dict field entry by
- * entry, each under its own key (#1521).
+ * The indexes that answer more than an order — `interval`, `area`,
+ * `flatSeries`, `summary`, `totals` and `nestedSeries` — have keys the SDK
+ * generates: the row's leading fields under `on` (#1432), e3's own parts
+ * beside them, so no row field's name is reserved. The two series indexes are
+ * named by the shape of what they file: `flatSeries` the record's rows, each
+ * row one dated thing; `nestedSeries` the dated things a row holds in its
+ * collections. An `entries` index files a row's Dict field entry by entry,
+ * each under its own key (#1521).
  *
  * @typeParam T - The record's state type, a Dict of Struct rows
  *
@@ -288,21 +307,56 @@ export interface IndexBuilder<T extends EastType> {
    * days, 365 days — under that level's tile holding its start; past 365 days,
    * under each year it touches, as many as 4,096. An instant is filed at
    * `tile`; a row with no start is filed nowhere. Each entry carries its row, so
-   * a cell reads the index alone; it takes no `value`.
+   * a cell reads the index alone. Given a `value`, each carries what that gives
+   * of its row instead (#1710): a struct holding the event's start and end
+   * under the row's names for them, which a reader tests a window by, beside
+   * whatever a view draws an event from — so a cell holds a small part of each
+   * event, the rest read by its key where one is opened, and a write that
+   * changes nothing the value gives leaves the index's entries as they are.
+   *
+   * Declared `order: 'time'` (#1710), the same entries are filed with the tile
+   * before the key, `{ on: { …on }, level, tile, key, past }`: a tile's events
+   * together, in their keys' order. One key's events are then no range; the
+   * events of a run of neighbouring keys over a span are one range a level a
+   * tile, however long each key's history — what a board of many rows reads a
+   * screen of them through, where an index in key order reads the part of
+   * itself each row's whole history lies in. Lead it by the group the keys
+   * stand in (`on`), so a group's keys are neighbours. `past` is false in
+   * every entry: a range's end that gives it true lies after every entry of
+   * its key, so a run of keys is read through its last, whatever their type.
    *
    * @param spec - `key`, the field naming what an event is on (any but a Set); `from` and `to`, its DateTime (or
-   *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; and the optional
-   *   exact leading `on` fields
-   * @param options - Its runner
-   * @returns The index, its projection the row
+   *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; the optional
+   *   exact leading `on` fields; and the optional `order`, `'key'` (the default) or `'time'`
+   * @param options - `value`, what each entry carries of its row; its runner
+   * @returns The index, its projection the row, or what `value` gives
    * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the
-   *   tile is not one of the five; when the key is a leading field; or for `collections`, which are
-   *   {@link NestedBuilder | the nested index's}
+   *   tile is not one of the five; when the key is a leading field; for an `order` that is neither; for a `value`
+   *   that is async, calls a platform function, does not take the record's key and row, or gives no struct holding
+   *   the event's start and end; or for `collections`, which are {@link NestedBuilder | the nested index's}
+   *
+   * @example
+   * ```ts
+   * const JobTile = StructType({ press: StringType, title: StringType, start: DateTimeType, end: DateTimeType });
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // Each press's jobs in time, each entry carrying what a tile draws and no more:
+   *     jobs_by_press: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+   *       value: East.function([StringType, JobType], JobTile, ($, id, job) => ({
+   *         press: job.press, title: job.title, start: job.start, end: job.end,
+   *       })),
+   *     }),
+   *     // A hall's jobs a week at a time, in their presses' order: a screen of presses is a range a week.
+   *     jobs_by_hall_week: index.flatSeries({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+   *   }),
+   * });
+   * ```
    */
-  series<const S extends SeriesIndexSpec<T>>(spec: S, options?: PartRunner):
-    IndexDraft<IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>, { readonly series: TimeTileOf<S> }>;
+  flatSeries<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
+    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: SeriesOf<S, O> }>;
   /** The nested series index, and the builders of the collections it files. */
-  readonly nested: NestedBuilder<T>;
+  readonly nestedSeries: NestedBuilder<T>;
   /**
    * A summary index (#1039): under each key and tile of a series index, how many
    * rows touch the tile and the milliseconds of it they cover — what a
@@ -314,14 +368,56 @@ export interface IndexBuilder<T extends EastType> {
    * of it the event overlaps; an instant counts in the tile holding it and
    * covers none of it; a row with no start counts in no tile.
    *
-   * @param spec - `key`, `from`, `to` and `tile`, as {@link series} takes them, and the optional exact leading `on`
-   *   fields
+   * @param spec - `key`, the field naming what an event is on, which files a total a key a tile; `from`, `to` and
+   *   `tile`, as {@link flatSeries} takes them; and the optional exact leading `on` fields
    * @param options - Its runner
    * @returns The index, its value the totals
-   * @throws {Error} As {@link series} does, and for an event touching more than 4,096 tiles where it is written
+   * @throws {Error} As {@link flatSeries} does; for a key left out, naming {@link totals}; and for an event touching
+   *   more than 4,096 tiles where it is written
+   *
+   * @example
+   * ```ts
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // Each press's totals a month: what a board shades a press's row by, zoomed out.
+   *     jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+   *   }),
+   * });
+   * ```
    */
   summary<const S extends SummaryIndexSpec<T>>(spec: S, options?: PartRunner):
-    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: TimeTileOf<S> }>;
+    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: SummaryOf<S> }>;
+  /**
+   * The record's totals a tile (#1732): how many rows touch each tile and the
+   * milliseconds of it they cover, whatever each event is on — a summary under
+   * no key, `{ ik: { on: { …on }, tile }, k: Null }` → `{ count, ms }`, each
+   * event counted once in each tile it touches. One entry a tile however many
+   * resources, so a view of the whole record's density — a horizon's bars —
+   * reads a range of a few entries. Lead it by the fields a view narrows by
+   * exactly (`on`), and its totals are a combination's of them. Kept as a
+   * summary index's are: a write changes them by what its rows took away and
+   * gave.
+   *
+   * @param spec - `from`, `to` and `tile`, as {@link flatSeries} takes them; and the optional exact leading `on` fields
+   * @param options - Its runner
+   * @returns The index, its value the totals
+   * @throws {Error} As {@link summary} does; and for a `key`, naming {@link summary}
+   *
+   * @example
+   * ```ts
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // The record's totals a month, and each hall's: a horizon's bars, one entry a month.
+   *     jobs_month: index.totals({ from: 'start', to: 'end', tile: 'month' }),
+   *     jobs_by_hall_month: index.totals({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
+   *   }),
+   * });
+   * ```
+   */
+  totals<const S extends TotalsIndexSpec<T>>(spec: S, options?: PartRunner):
+    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: SummaryOf<S> }>;
   /**
    * An entries index (#1521): a row's Dict field filed entry by entry — for
    * each key the field holds, one entry under that key and then the row's,
@@ -597,22 +693,28 @@ export const INDEX_BUILDER = {
     intervalDefinition(where, name, record, spec as Parameters<typeof intervalDefinition>[3], runnerOf(options))),
   area: (spec: unknown, options?: unknown) => indexDraft('index.area', options, (where, record, name) =>
     areaDefinition(where, name, record, spec as Parameters<typeof areaDefinition>[3], runnerOf(options))),
-  series: (spec: unknown, options?: unknown) => indexDraft('index.series', options, (where, record, name) => {
+  flatSeries: (spec: unknown, options?: unknown) => indexDraft('index.flatSeries', options, (where, record, name) => {
     if (typeof spec === 'object' && spec !== null && 'collections' in spec) {
-      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nested({ collections, tile, summary? })`);
+      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nestedSeries({ collections, tile, summary?, totals? })`);
     }
-    return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], runnerOf(options));
+    const value = (options as PlainIndexOptions | undefined)?.value;
+    return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], { ...runnerOf(options), ...(value !== undefined && { value }) });
   }),
-  nested: Object.assign(
-    (spec: unknown, options?: unknown) => indexDraft('index.nested', options, (where, record, name) =>
+  nestedSeries: Object.assign(
+    (spec: unknown, options?: unknown) => indexDraft('index.nestedSeries', options, (where, record, name) =>
       nestedDefinition(where, name, record, spec as object, runnerOf(options))),
     { items, values, rows, recursive },
   ),
   summary: (spec: unknown, options?: unknown) => indexDraft('index.summary', options, (where, record, name) =>
     summaryDefinition(where, name, record, spec as Parameters<typeof summaryDefinition>[3], runnerOf(options))),
+  totals: (spec: unknown, options?: unknown) => indexDraft('index.totals', options, (where, record, name) =>
+    totalsDefinition(where, name, record, spec as Parameters<typeof totalsDefinition>[3], runnerOf(options))),
   entries: (field: unknown, options?: unknown) => indexDraft('index.entries', options, (where, record, name) =>
     entriesDefinition(where, name, record, field, runnerOf(options))),
 };
+
+/** The builders whose index carries a `value` its options give: the plain indexes', and a series index's (#1710). */
+const VALUED_BUILDERS: readonly string[] = ['index.on', 'index.key', 'index.keys', 'index.flatSeries'];
 
 /** Why a builder refuses an option, where it says more than that the builder does not take it. */
 const REFUSED_OPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -668,8 +770,7 @@ function indexDraft(
       part: 'index',
       build: (record, name) => {
         const where = wordsOf(record, builder);
-        checkOptions(where, name, options, builder === 'index.on' || builder === 'index.key' || builder === 'index.keys' ? ['value', 'runner'] : ['runner'],
-          REFUSED_OPTIONS[builder]);
+        checkOptions(where, name, options, VALUED_BUILDERS.includes(builder) ? ['value', 'runner'] : ['runner'], REFUSED_OPTIONS[builder]);
         return build(where, record, name);
       },
     },

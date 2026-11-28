@@ -16,8 +16,8 @@
  * Group bands are not a plot: they have their own band component.
  */
 
-import { Box } from "@chakra-ui/react";
 import { optimiseMessages } from "@elaraai/east-ui-components";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { SpanRow } from "./SpanRow.js";
 import { ChartRowPlot } from "./ChartRow.js";
 import { HeatCells } from "./HeatRow.js";
@@ -47,6 +47,9 @@ export interface KindPlotProps {
     plotHeight: number;
     /** Chart rows: render at expanded density (breach rectangles, ref labels). */
     chartExpanded: boolean;
+    /** Chart rows: the canvas reads a right axis's numbers in its rail (#1750), so the plot draws none. A narrow card
+     *  has no rail. */
+    rail?: boolean | undefined;
 }
 
 /**
@@ -54,11 +57,13 @@ export interface KindPlotProps {
  * highlight is on: where an event it removed stood, struck through, and
  * where one it moved stood, dashed — each at its extent on the shared scale,
  * decorative, named for what the run did. Drawn in the row's own bar or tile
- * style, which the `optimise` recipe dashes and tints from `data-op`.
+ * style, which the `optimise` recipe dashes and tints from `data-op`: plain
+ * elements of those slots' classes (`useSlotClass`, #1780).
  */
 function PlanGhosts({ rowKey, styles, ctx }: { rowKey: string; styles: Styles; ctx: boolean }) {
     const ghosts = usePlanRowGhosts(rowKey);
     const scale = usePlanScale();
+    const slot = useSlotClass();
     if (ghosts.length === 0 || ctx) return null;
     return (
         <>
@@ -68,15 +73,15 @@ function PlanGhosts({ rowKey, styles, ctx }: { rowKey: string; styles: Styles; c
                 if (!Number.isFinite(f0) || !Number.isFinite(f1) || f1 < scale.renderMin || f0 > scale.renderMax) return null;
                 const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run });
                 return ghost.shape === "span" ? (
-                    <Box key={`ghost:${ghost.key}`} css={styles.bar} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
+                    <div key={`ghost:${ghost.key}`} className={slot(styles.bar)} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
                         style={{ left: `calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)` }}>
                         {ghost.label}
-                    </Box>
+                    </div>
                 ) : (
-                    <Box key={`ghost:${ghost.key}`} css={styles.tile} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
-                        position="absolute" style={{ left: `${f0 * 100}%` }}>
+                    <div key={`ghost:${ghost.key}`} className={slot(styles.tile)} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
+                        style={{ left: `${f0 * 100}%` }}>
                         {ghost.label}
-                    </Box>
+                    </div>
                 );
             })}
         </>
@@ -96,7 +101,7 @@ export function KindPlot(props: KindPlotProps) {
 }
 
 /** The kind switch: one row kind's own plot content. */
-function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
+function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded, rail }: KindPlotProps) {
     const kind = v.row.kind;
     const rowKey = v.row.key;
     const rowId = v.row.id;
@@ -118,10 +123,11 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             );
         case "chart":
             // What the row DRAWS (#824) — its layers folded to the period
-            // where a bucket holds several of their points.
+            // where a bucket holds several of their points, as it draws and
+            // kept (#1798).
             return (
-                <ChartRowPlot kind={derived.charts.get(rowKey) ?? kind.value} styles={styles} height={plotHeight}
-                    expanded={chartExpanded} rowKey={rowKey} ctx={ctx} />
+                <ChartRowPlot kind={derived.chart(kind.value)} styles={styles} height={plotHeight}
+                    expanded={chartExpanded} rowKey={rowKey} ctx={ctx} railed={rail === true} />
             );
         case "heat":
             // A declared-aggregate parent draws its derived cells, and any row

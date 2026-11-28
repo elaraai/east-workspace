@@ -18,7 +18,7 @@ import { variant } from "@elaraai/east";
 import { chipAnchor } from "./shell/Ruler.js";
 import { startsPeriod } from "./shell/use-ruler-fit.js";
 import { MAX_BUCKETS, timeScale } from "../shared/time/scale.js";
-import { effectiveResolution, planScale, type PlanResolution, type PlanScale } from './scale';
+import { planScale, type PlanResolution, type PlanScale } from './scale';
 import { timeInstant, type PlanInstantValue } from "./instant.js";
 import { planMessages, type PlanMessages } from "./messages.js";
 import { timeAt as t, utcAt } from "./plan.test-utils.js";
@@ -113,19 +113,6 @@ describe('planScale — time axis', () => {
             const quarter = planScale({ kind: "time", window: { min: utcAt("2026-01-01T00:00:00"), max: utcAt("2027-01-01T00:00:00") }, resolution: "quarter", words })!;
             expect(quarter.buckets[2]!.label).toBe("3. Q");
             expect(quarter.bucketText(quarter.buckets[2]!)).toBe("3. Quartal 2026");
-        });
-    });
-
-    describe('effectiveResolution', () => {
-        const w = (days: number) => ({ min: utcAt("2026-06-29T00:00:00"), max: new Date(utcAt("2026-06-29T00:00:00").getTime() + days * 86_400_000) });
-        it('resolves auto by window span', () => {
-            expect(effectiveResolution("auto", w(10))).toBe("day");
-            expect(effectiveResolution("auto", w(120))).toBe("week");
-            expect(effectiveResolution("auto", w(400))).toBe("month");
-            expect(effectiveResolution(undefined, w(10))).toBe("day");
-        });
-        it('an explicit resolution wins', () => {
-            expect(effectiveResolution("month", w(10))).toBe("month");
         });
     });
 });

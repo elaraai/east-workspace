@@ -29,6 +29,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { ON_TOOLBAR_LINE } from "../toolbar-row.js";
 
 /** The mono caps label voice — group heads, the grouping control. */
 const CAPS = {
@@ -147,9 +148,12 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "grid",
             gap: "6px",
         },
-        /* The caption at the toolbar's end. */
+        /* The caption at the toolbar's end. It, the grouping and the secondary fact stand in the toolbar's row with no
+         * box of their own: each on the row's own line (`toolbar-row.ts`), where the label voice's left them a fraction
+         * of a pixel under the row's top. */
         hint: {
             ...CAPS,
+            ...ON_TOOLBAR_LINE,
             letterSpacing: "0.14em",
             color: "fg.subtle",
             whiteSpace: "nowrap",
@@ -250,6 +254,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         },
         groupTrigger: {
             ...CAPS,
+            ...ON_TOOLBAR_LINE,
             display: "inline-flex",
             alignItems: "center",
             /* A phone's: a touch target, its icon — the folded trigger's whole mark — the second row's size (FR6). */
@@ -266,6 +271,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         },
         dimTrigger: {
             ...CAPS,
+            ...ON_TOOLBAR_LINE,
             display: "inline-flex",
             alignItems: "center",
             gap: "6px",

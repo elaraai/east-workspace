@@ -12,7 +12,8 @@
  *
  * - A bar, a tile and a chip wear ONE ring, 1.5px in the tone's colour just
  *   outside the box, whatever their lifecycle look; a confirmed one keeps its
- *   inset brand ring inside it; one with no status wears no such ring.
+ *   inset brand ring inside it, and a done tile its strong rule (#1735); one
+ *   with no status wears no such ring.
  * - A tentative one draws open: no fill, no border of its lifecycle's, its
  *   words in the ink and the ring just inside its edge.
  * - A mark's dot is the tone's colour, a tentative one an open dot.
@@ -49,12 +50,12 @@ const SHOWN = [
 /** Each tone's theme token. */
 const TOKENS = { success: "status-pos", warning: "status-warn", danger: "status-neg", info: "status-info", neutral: "fg-subtle" } as const;
 
-/** The example's boxes: the row each is on, the attribute its items are keyed by, the letter their ids start with, and
- *  the width of a confirmed one's inset brand ring. */
+/** The example's boxes: the row each is on, the attribute its items are keyed by, the letter their ids start with, the
+ *  width of a confirmed one's inset brand ring, and of a done one's strong rule where it draws one (a tile's, #1735). */
 const BOXES = [
-    { name: "a run's bar", series: "jobs", attribute: "data-run", id: "j", confirmed: 1.5 },
-    { name: "a tile", series: "drops", attribute: "data-event", id: "d", confirmed: 1 },
-    { name: "a chip", series: "shifts", attribute: "data-chip", id: "s", confirmed: 1 },
+    { name: "a run's bar", series: "jobs", attribute: "data-run", id: "j", confirmed: 1.5, observed: undefined },
+    { name: "a tile", series: "drops", attribute: "data-event", id: "d", confirmed: 1, observed: 1 },
+    { name: "a chip", series: "shifts", attribute: "data-chip", id: "s", confirmed: 1, observed: undefined },
 ] as const;
 
 /** One shadow of an element, as the browser computes it. */
@@ -63,6 +64,8 @@ interface Shadow { color: string; inset: boolean; blur: number; spread: number }
 /** What an item draws, as the browser computes it. */
 interface Drawn {
     state: string | null;
+    /** Whether it is in progress: an observed item under way, which draws the committed fill and no ring of its own. */
+    progress: boolean;
     shadows: Shadow[];
     background: string;
     color: string;
@@ -95,6 +98,7 @@ async function drawn(entry: Locator, row: string, selector: string, tokens: read
             return {
                 key: at.selector.startsWith("[role") ? item.getAttribute("data-mark") : item.getAttribute(at.selector.slice(1, -1)),
                 state: item.getAttribute("data-state"),
+                progress: item.hasAttribute("data-progress"),
                 shadows: shadowsOf(style.boxShadow),
                 background: style.backgroundColor,
                 color: style.color,
@@ -106,8 +110,8 @@ async function drawn(entry: Locator, row: string, selector: string, tokens: read
     }, { row, selector, tokens, set });
 }
 
-/** The theme's tokens the checks read: each tone's, the brand's edge, the ink and the warn. */
-const READ = [...Object.values(TOKENS), "brand-solid", "fg"] as const;
+/** The theme's tokens the checks read: each tone's, the brand's edge, the strong rule, the ink and the warn. */
+const READ = [...Object.values(TOKENS), "brand-solid", "border-strong", "fg"] as const;
 
 /** A fully transparent colour, as the browser computes one. */
 const CLEAR = "rgba(0, 0, 0, 0)";
@@ -147,8 +151,12 @@ test.describe("An item's status on the Plan (#1541)", () => {
                 if (outside.length !== 1 || outside[0]!.spread !== 1.5 || outside[0]!.color !== tone) {
                     bad.push(`${key}: its ${shown.tone} ring is one 1.5px ${tone} outside it — ${JSON.stringify(outside)}`);
                 }
-                // A confirmed one keeps its inset brand ring inside it; any other state draws none.
-                const kept = item.state === "appr" ? [{ color: tokens["brand-solid"]!, inset: true, blur: 0, spread: box.confirmed }] : [];
+                // A confirmed one keeps its inset brand ring inside it, and a done tile — observed, not under way — its strong
+                // rule (#1735); any other state draws none.
+                const kept = item.state === "appr" ? [{ color: tokens["brand-solid"]!, inset: true, blur: 0, spread: box.confirmed }]
+                    : item.state === "obs" && !item.progress && box.observed !== undefined
+                        ? [{ color: tokens["border-strong"]!, inset: true, blur: 0, spread: box.observed }]
+                        : [];
                 if (JSON.stringify(inside) !== JSON.stringify(kept)) bad.push(`${key} (${item.state}): inside it ${JSON.stringify(inside)}, expected ${JSON.stringify(kept)}`);
             });
             expect(bad).toEqual([]);

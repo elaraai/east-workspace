@@ -11,8 +11,8 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushHorizon, brushKey, brushRelease, brushZones,
-    type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHeld, brushHitTest, brushHorizon, brushKey, brushKeyHeld,
+    brushRelease, brushZones, type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -195,6 +195,22 @@ describe("brushDragWindow — the in-flight window (#192)", () => {
     });
 });
 
+describe("brushHeld / brushKeyHeld — the edge a gesture holds in place (#1710)", () => {
+    test("a resize holds the edge it does not drag — the other, once dragged past it; a draw the edge it started at; a move neither", () => {
+        expect(brushHeld(drag({ mode: "resize-hi", win: WIN, start: 200, current: 320 }))).toBe("lo");
+        expect(brushHeld(drag({ mode: "resize-hi", win: WIN, start: 200, current: 40 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "resize-lo", win: WIN, start: 100, current: 130 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "resize-lo", win: WIN, start: 100, current: 250 }))).toBe("lo");
+        expect(brushHeld(drag({ start: 50, current: 120 }))).toBe("lo");
+        expect(brushHeld(drag({ start: 120, current: 50 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "move", win: WIN, start: 150, current: 190 }))).toBeUndefined();
+    });
+
+    test("a key on a handle holds the other handle's edge; on the window, neither", () => {
+        expect([brushKeyHeld("lo"), brushKeyHeld("hi"), brushKeyHeld("window")]).toEqual(["hi", "lo", undefined]);
+    });
+});
+
 describe("brushRelease — click vs drag, clear vs commit vs noop (#192)", () => {
     test("a real draw commits its window", () => {
         expect(brushRelease(drag({ start: 50, current: 120 })))
@@ -318,6 +334,17 @@ describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
         // A first bucket the horizon clips to 5px of its slot: its slot less the 2px gap, at the track's start.
         const clipped = brushBars([{ from: 0, to: 0.05, count: 5 }, { from: 0.05, to: 0.55, count: 5 }, { from: 0.55, to: 1, count: 5 }], 100, 28);
         expect(clipped.map((b) => [b.x, b.width])).toEqual([[0, 3], [5, 48], [55, 43]]);
+    });
+
+    test("with no bucket between the two ends, an end the horizon clips to a sliver sets no bar's width: the wider end's slot does (#1732)", () => {
+        // Four weeks from 5 October on 280px, by the month: October's 27 days, and the 1st of November.
+        const month = brushBars([{ from: 0, to: 27 / 28, count: 46 }, { from: 27 / 28, to: 1, count: 0 }], 280, 28);
+        expect(month.map((b) => [b.x, b.width])).toEqual([[0, 268]]);
+        // Both counted: the sliver's bar keeps inside its own slot.
+        const both = brushBars([{ from: 0, to: 27 / 28, count: 46 }, { from: 27 / 28, to: 1, count: 3 }], 280, 28);
+        expect(both.map((b) => [b.x, b.width])).toEqual([[0, 268], [270, 8]]);
+        // One bucket alone: its slot, less the gap.
+        expect(brushBars([{ from: 0, to: 1, count: 16 }], 320, 28).map((b) => [b.x, b.width])).toEqual([[0, 318]]);
     });
 
     test("no bars on a track with no width, or with nothing counted", () => {

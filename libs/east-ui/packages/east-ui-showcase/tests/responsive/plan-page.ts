@@ -57,6 +57,18 @@ export const drawnSel = (series: string, ...path: string[]): string => {
     return `:is([data-plan-row=${id}], [data-plan-card=${id}])`;
 };
 
+/**
+ * Clicks one of a row's controls, as a viewer does (#1749): a row draws its controls over its line's value slot while
+ * it is hovered, focused or selected, so the pointer goes onto its gutter first, which shows them.
+ *
+ * @param row - The row
+ * @param kind - Which control: its links focus, or its expand
+ */
+export async function clickRowControl(row: Locator, kind: "links" | "expand"): Promise<void> {
+    await row.locator("[role='rowheader']").hover();
+    await row.locator(`[data-plan-control="${kind}"]`).click();
+}
+
 /** Open one example's page and return its entry (the virtualized doc row
  *  holding its anchor and its live canvas) — a Plan example unless another
  *  examples file is named, in the light theme unless another is named. */
@@ -70,6 +82,32 @@ export async function openExample(page: Page, name: string, file = PLAN_EXAMPLES
     // Charts and collections measure their containers before they settle.
     await settled(page);
     return entry;
+}
+
+/**
+ * Presses one of a Plan's periods (#1740), in whichever form its toolbar draws its resolution at this width: the
+ * segment, the menu the segment folds into, or the View every control folds into. A period pressed sets its range from
+ * the window's start — the columns the plot holds at the preset's width, a week of days at the least where they hold a
+ * column's floor — so an example whose stated window opens coarser than a check reads is one press from the period it
+ * reads.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ * @param period - The period, as its control writes it: `DAY`, `WEEK`, …
+ */
+export async function pressPeriod(page: Page, entry: Locator, period: string): Promise<void> {
+    const strip = entry.locator('[data-plan-seg="resolution"]');
+    const menu = entry.locator('[data-plan-segmenu="resolution"]');
+    if (await strip.isVisible()) await strip.getByRole("radio", { name: period, exact: true }).click();
+    else if (await menu.isVisible()) {
+        await menu.click();
+        await page.getByRole("menuitem", { name: period, exact: true }).click();
+    } else {
+        await entry.getByRole("button", { name: "View", exact: true }).click();
+        await page.getByRole("dialog").getByRole("radio", { name: period, exact: true }).click();
+        await page.keyboard.press("Escape");
+    }
+    await settled(page);
 }
 
 /** The box a Plan's frame fills: its wrapper's host, which the page lays out (the wrapper itself does not). */
@@ -93,6 +131,24 @@ export async function sizePlanFrame(page: Page, entry: Locator, width: number): 
         (box as HTMLElement).style.width = `${w + around}px`;
     }, width);
     await settled(page);
+}
+
+/**
+ * Sizes a Plan's frame so each of its `buckets` is `pitch` px across on its buckets rows (#1735) — the rows the body
+ * scrolls, where a pinned row's plot may be a scroll bar wider: the plot widens as the frame does, so the frame takes
+ * the difference — again, should a pane move with it — until the plot is the buckets' pitch over.
+ */
+export async function sizeBuckets(page: Page, entry: Locator, pitch: number, buckets: number): Promise<void> {
+    const widths = () => entry.evaluate((root) => ({
+        frame: root.querySelector("[data-builder-frame]")!.getBoundingClientRect().width,
+        plot: root.querySelector("[data-plan-row][data-plan-kind='buckets'] [data-plan-plot]")!.getBoundingClientRect().width,
+    }));
+    for (let i = 0; i < 3; i++) {
+        const { frame, plot } = await widths();
+        if (plot === pitch * buckets) return;
+        await sizePlanFrame(page, entry, frame + pitch * buckets - plot);
+    }
+    expect((await widths()).plot, `the plot at ${pitch}px a bucket`).toBe(pitch * buckets);
 }
 
 /**

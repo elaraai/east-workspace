@@ -14,8 +14,10 @@
 
 import {
     ArrayType,
+    BooleanType,
     EastTypeType,
     FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -71,6 +73,10 @@ export const PlanRootType = StructType({
     // and Search Records over the rows reads a key typed into it, and orders the keys it finds, at this type. None
     // where the canvas has no `data`: a Plan of event kinds or `rows` alone.
     rowsKeyType: OptionType(EastTypeType),
+    // How many of the rows' entries a paged canvas reads, and makes rows for, at a time (#1714): its windows are
+    // `w × windowEntries`, and an edit reads its entry back from the very window the canvas read. `PLAN_PAGE_SIZE`
+    // unless the Plan's `paging.entries` says otherwise.
+    windowEntries: IntegerType,
     // The link graph (R1) — run-edge to run-edge quantity links; the
     // links-focus control gathers a row's transitive family over it.
     links: ArrayType(PlanLinkType),
@@ -118,6 +124,9 @@ export const PlanRootType = StructType({
     // The interaction state a host holds — a bound `State.bind` handle (#824).
     ui: OptionType(PlanUiBindType),
     style: OptionType(PlanStyleType),
+    // The right axis's rail (#1750): a column after every row's plot, where a chart row that declares a right axis reads
+    // its numbers — so the plot is one width on every row. Off, a right axis reads them inside its plot's right edge.
+    rightAxis: BooleanType,
 });
 /** Type alias for {@link PlanRootType}. */
 export type PlanRootType = typeof PlanRootType;

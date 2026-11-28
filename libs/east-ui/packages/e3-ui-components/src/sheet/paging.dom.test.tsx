@@ -296,6 +296,29 @@ describe("sheet paging — a window loading beside the run never hides it (#876)
     });
 });
 
+describe("sheet paging — a band's pixels are read once a window has landed (#1794)", () => {
+    test("before one has, a report from the band asks no window past the first and its read-ahead; landed, the same place is read by what the rows drew", async () => {
+        const inFlight = new Set([0, 1, 2]);
+        const { value, asked } = source(50_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(asked).toContain(2));
+        // The count is in and no window is: the sheet is one band, sized before any row was measured.
+        expect(text("rows")).toBe("0+0");
+        expect(text("tail")).toBe("0-49999");
+        // A report from far down that band is left unread: the view stands where it stood.
+        report({ kind: "band", at: "tail", px: 200_000 });
+        await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+        expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+        // They land, and the rows give the rate: the same place in the band is a window of its own, and the run moves there.
+        inFlight.clear();
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        report({ kind: "band", at: "tail", px: 200_000 });
+        await waitFor(() => expect(latest!.rowsOffset).toBeGreaterThanOrEqual(29 * SHEET_PAGE_SIZE));
+        expect(text("head")).toMatch(/^0-/);
+    });
+});
+
 describe("sheet paging — a window is as tall as the body draws its rows (#855)", () => {
     test("the unloaded tail is described at the rate the first window's rows drew, however tall a row draws", async () => {
         const { value } = source(2_000);

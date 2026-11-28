@@ -75,6 +75,7 @@ import {
     CarriedEntryType,
     CarriedRowSourceType,
     CarriedWindowType,
+    ChartCurveType,
     ChartDomainType,
     ChartTickValuesType,
     ColorSchemeType,
@@ -329,6 +330,40 @@ export type PlanFoldType = typeof PlanFoldType;
 
 /** String-literal shorthand for {@link PlanFoldType}. */
 export type PlanFoldLiteral = "sum" | "mean" | "min" | "max" | "last" | "count";
+
+/**
+ * How a line or an area shows the points that fall in one bucket (#1807): as
+ * one vertex, their fold ({@link PlanFoldType} — their `mean` unless it
+ * declares another), or every point at its own instant (`none`).
+ *
+ * @remarks
+ * `none` keeps a series' detail at every resolution: readings taken many times
+ * a bucket each draw where they were taken, so a step line changes at the
+ * instant its value did, and a forecast drawn from its last reading meets it
+ * there. Where a paged canvas shades its rows past the cap, such a line or
+ * area shades by its points' `mean`, the level it draws.
+ *
+ * @property sum - The values added up
+ * @property mean - Their mean
+ * @property min - The least of them
+ * @property max - The greatest of them
+ * @property last - The one at the latest instant
+ * @property count - How many there are
+ * @property none - No fold: every point drawn at its own instant
+ */
+export const PlanLineFoldType = VariantType({
+    sum:   NullType,
+    mean:  NullType,
+    min:   NullType,
+    max:   NullType,
+    last:  NullType,
+    count: NullType,
+    none:  NullType,
+});
+export type PlanLineFoldType = typeof PlanLineFoldType;
+
+/** String-literal shorthand for {@link PlanLineFoldType}. */
+export type PlanLineFoldLiteral = PlanFoldLiteral | "none";
 
 /**
  * A quantity — a number, its unit, and how it prints (#824). Runs and links
@@ -591,20 +626,89 @@ export const PlanChartBandPointType = StructType({ t: PlanInstantType, lo: Float
 export type PlanChartBandPointType = typeof PlanChartBandPointType;
 
 /**
+ * One `{t, y, size}` point of a scatter chart layer (#1753) — a point, and the
+ * magnitude a bubble draws it at.
+ *
+ * @remarks
+ * A point with a `size` is a bubble: its area is in proportion to its size,
+ * against the greatest size among the row's scatter points — a `Chart.Scatter`'s
+ * `size` encoding gives one. A point with none draws its layer's dot. A `y`
+ * that is not finite (`NaN`) draws nothing.
+ *
+ * @property t - The instant on the shared scale
+ * @property y - The measure value (`NaN` ⇒ nothing drawn)
+ * @property size - Its magnitude, which its bubble's area is in proportion to (`none` ⇒ its layer's dot)
+ */
+export const PlanChartScatterPointType = StructType({ t: PlanInstantType, y: FloatType, size: OptionType(FloatType) });
+export type PlanChartScatterPointType = typeof PlanChartScatterPointType;
+
+/**
+ * How a chart layer draws (#1753) — the styling its `Chart.*` builder carries
+ * (east-ui's `MarkStyle`), or a `Plan.layer` / `Plan.line` … channel gives it,
+ * kept for the canvas to draw. Each part left unset draws its mark's own look.
+ *
+ * @remarks
+ * A layer with a `label` is a named SERIES: the legend and the tooltip call it
+ * by it, and layers of one name are one series, which share a colour. A
+ * named series with no `color` takes the next of the chart rules' series
+ * colours — the brand, then teal, purple, blue and orange — in the order its
+ * name first appears in the row; an unnamed layer with none draws in its
+ * mark's own ink.
+ *
+ * A line draws solid up to now and dashed after it, its planned part. A line
+ * with a `dash` of its own keeps it on both sides of now, its planned part
+ * drawn fainter.
+ *
+ * @property label - Its name, which the legend and the tooltip call it by
+ * @property color - Its colour: a theme token (`"teal.solid"`) or a CSS colour
+ * @property curve - How a line, an area or a band joins its points (`none` ⇒ straight): a `stepAfter` holds each value up to its next point, and up to a gap that follows it, where the series breaks (#1807)
+ * @property width - A stroke's width, px
+ * @property dash - A stroke's dash pattern (`"6 4"`); `none` ⇒ solid
+ * @property dots - Whether every point draws a dot — a point with no neighbour to join draws one regardless
+ * @property fillOpacity - An area's or a band's fill strength, 0–1 (`none` ⇒ its mark's light wash)
+ * @property opacity - A stroke's or a dot's strength, 0–1
+ * @property size - A scatter's dot radius, px, for a point with no size of its own
+ * @property stack - The stack it piles on: the columns that share one accumulate, as do the areas that share one; columns that share none stand side by side
+ * @property legend - Whether the legend lists it
+ * @property tooltip - Whether the tooltip reads it
+ * @property order - Where it draws among the row's layers: higher draws later (`none` ⇒ 0, in the order declared)
+ */
+export const PlanChartStyleType = StructType({
+    label:       OptionType(StringType),
+    color:       OptionType(StringType),
+    curve:       OptionType(ChartCurveType),
+    width:       OptionType(FloatType),
+    dash:        OptionType(StringType),
+    dots:        BooleanType,
+    fillOpacity: OptionType(FloatType),
+    opacity:     OptionType(FloatType),
+    size:        OptionType(FloatType),
+    stack:       OptionType(StringType),
+    legend:      BooleanType,
+    tooltip:     BooleanType,
+    order:       OptionType(FloatType),
+});
+export type PlanChartStyleType = typeof PlanChartStyleType;
+
+/**
  * A chart row's y-axis declaration — the Chart axis vocabulary
  * ({@link ChartDomainType} / {@link ChartTickValuesType} /
  * {@link ValueFormatType}), restricted to a value axis: only the `number`
  * arms are meaningful (a Plan chart row's time axis is the shared canvas
  * scale, never per-axis).
  *
- * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, and every column stack's ends)
- * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ no ticks)
+ * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, every stack's ends, and its reference lines' values and target zones' ranges)
+ * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ `numTicks`' round values, else none)
+ * @property numTicks - About how many numbers it prints where it declares no `tickValues` (#1753): round values across its domain, which they never move (`none` ⇒ none)
  * @property format - Optional tick format (the shared {@link ValueFormatType} — `Chart.format.*`)
+ * @property label - Its unit (`"k sheets"`), which a legend names beside each series on the axis (#1753)
  */
 export const PlanChartAxisType = StructType({
     domain:     OptionType(ChartDomainType),
     tickValues: OptionType(ChartTickValuesType),
+    numTicks:   OptionType(FloatType),
     format:     OptionType(ValueFormatType),
+    label:      OptionType(StringType),
 });
 export type PlanChartAxisType = typeof PlanChartAxisType;
 
@@ -616,39 +720,54 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * @remarks
  * Renderer vocabulary (fixed by the spec, not the IR): lines draw solid ≤ now
  * and dashed after; columns observed `ink`, planned brand at half strength,
- * breach warn; stacked columns pair by `series`, each value axis stacking on
- * its own — positive parts up from the baseline, negative parts down;
- * refLines are dotted gridlines with a mono label. Every mark sits at its
- * true instant — a point beyond the window keeps its position and the plot
- * clips it. Hovering a bucket reads each data layer's value there.
+ * breach warn; columns that share a `stack` accumulate, each value axis
+ * stacking on its own — positive parts up from the baseline, negative parts
+ * down — and the columns of a bucket that share no stack stand side by side
+ * in it, a stack in one place; areas that share a `stack` pile up as columns
+ * do; a scatter point with a `size` is a bubble. Each data layer draws as its
+ * `style` says ({@link PlanChartStyleType}, #1753). A refLine is a dotted rule
+ * with a mono caption — or ruled in its own `dash` — in its `color` or the
+ * label ink, its caption in its colour too; a refBand washes a span of
+ * instants (`x`), a range of values on its axis (`y`, a target zone), or the
+ * rectangle where they meet, a bound it is not given reaching the plot's edge,
+ * in its `color` or the paper wash. Every mark sits at its true instant — a
+ * point beyond the window keeps its position and the plot clips it. Hovering
+ * a bucket reads each data layer's value there, where the row's `tooltip` is
+ * on.
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
  * horizontal bars flip the frame the shared axis owns.
  *
  * A line, an area and a column series FOLD what falls in one bucket (#824):
  * at a coarser resolution than its points, a column series draws one column
  * per bucket — the `sum` of its points there by default — and a line or an
- * area one vertex — their `mean` ({@link PlanFoldType}). Scatter points and
- * bands draw every point where it is.
+ * area one vertex — their `mean` ({@link PlanFoldType}). A line or an area
+ * whose fold is `none` draws every point at its own instant instead
+ * ({@link PlanLineFoldType}, #1807). Scatter points and bands draw every point
+ * where it is.
  *
- * @property line - A continuous line series (optional breach threshold; folds by `mean`)
- * @property area - A filled area series (folds by `mean`)
- * @property column - Per-bucket columns (optional stack `series` id + breach; folds by `sum`)
- * @property scatter - Point markers
+ * @property line - A continuous line series (optional breach threshold; folds by `mean`, or keeps every point)
+ * @property area - A filled area series (folds by `mean`, or keeps every point; its style's `stack` piles it)
+ * @property column - Per-bucket columns (optional breach; folds by `sum`; its style's `stack` piles it)
+ * @property scatter - Point markers, a point with a `size` a bubble ({@link PlanChartScatterPointType})
  * @property band - A filled range (lo/hi per instant)
- * @property refLine - A horizontal reference line at a y value (dotted, mono label)
- * @property refBand - A vertical reference band between two instants
+ * @property refLine - A horizontal reference line at a y value: its caption, its `dash` (`none` ⇒ dotted) and its `color` (`none` ⇒ the label ink)
+ * @property refBand - A reference band (#1753): a span of instants (`x`), a range of values on its `axis` (`y` — a target zone), or both; `none` reaches the plot's edge. Its caption and its `color` (`none` ⇒ the paper wash)
  * @property refDot - A reference marker at an instant × y value
  */
 export const PlanChartLayerType = VariantType({
     line:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          breach: OptionType(PlanBreachType), fold: PlanFoldType }),
-    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanFoldType }),
+                          breach: OptionType(PlanBreachType), fold: PlanLineFoldType, style: PlanChartStyleType }),
+    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanLineFoldType,
+                          style: PlanChartStyleType }),
     column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          series: OptionType(StringType), breach: OptionType(PlanBreachType), fold: PlanFoldType }),
-    scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
-    band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType }),
-    refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
-    refBand: StructType({ from: PlanInstantType, to: PlanInstantType, label: OptionType(StringType) }),
+                          breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
+    scatter: StructType({ points: ArrayType(PlanChartScatterPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
+    band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
+    refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType),
+                          dash: OptionType(StringType), color: OptionType(StringType) }),
+    refBand: StructType({ x: OptionType(StructType({ from: PlanInstantType, to: PlanInstantType })),
+                          y: OptionType(StructType({ lo: FloatType, hi: FloatType })), axis: PlanAxisSideType,
+                          label: OptionType(StringType), color: OptionType(StringType) }),
     refDot:  StructType({ t: PlanInstantType, y: FloatType, axis: PlanAxisSideType,
                           label: OptionType(StringType) }),
 });
@@ -1141,9 +1260,10 @@ export const PlanRowEditsType = StructType({
 export type PlanRowEditsType = typeof PlanRowEditsType;
 
 /**
- * The entries in one window a paged canvas reads — it pages its source at
- * `w × PLAN_PAGE_SIZE`, and the editing session takes an entry from the very
- * window it came in, so a gesture never waits on a request (#880, #1599).
+ * The entries in one window a paged canvas reads unless its `paging.entries`
+ * says otherwise (#1714) — it pages its source at `w × entries`, and the
+ * editing session takes an entry from the very window it came in, so a gesture
+ * never waits on a request (#880, #1599).
  */
 export const PLAN_PAGE_SIZE = 200;
 
@@ -1486,7 +1606,10 @@ export type PlanExpandType = typeof PlanExpandType;
  * unit rides each quantity (#824). A heat parent's derived cells paint on the
  * kind's `scale` (#824 — it used to ride an empty cells arm). A chart row's
  * height is its `height` mode (`fixed` is its px), `expandedHeight` what the
- * expanded state opens to, and `expandable` whether the user may toggle it.
+ * expanded state opens to, and `expandable` whether the user may toggle it;
+ * `grid`, `legend` and `tooltip` say whether it draws a gridline at each tick,
+ * lists its series in a legend, and reads its values where the pointer rests
+ * (#1753).
  */
 export const PlanRowKindType = VariantType({
     group: StructType({
@@ -1512,6 +1635,12 @@ export const PlanRowKindType = VariantType({
          *  component height (`"120px"`; `none` ⇒ the 88px default). */
         expandedHeight: OptionType(StringType),
         expandable: BooleanType,
+        /** Whether it draws a gridline at each tick — its numbers print either way (#1753). */
+        grid: BooleanType,
+        /** Whether a legend lists its series (#1753). */
+        legend: BooleanType,
+        /** Whether hovering a bucket reads its values there (#1753). */
+        tooltip: BooleanType,
     }),
     heat: StructType({
         cells: PlanHeatCellsType,

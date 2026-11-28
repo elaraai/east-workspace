@@ -57,6 +57,9 @@ export { crc32 } from './serialization/crc32.js';
 // cache"), the same in every runtime: what e3's API process weighs the decoded
 // segments it keeps by
 export { decodedWeightFor } from './serialization/beast2/v5/weight.js';
+// A segment's rows read from its bytes one at a time (v5/segment-rows.ts): what e3's API process keeps a segment as, and
+// reads a search's bounds and a run's rows from
+export { beast2SegmentRowsFor, type Beast2SegmentRows } from './serialization/beast2/v5/segment-rows.js';
 // What a struct is written as in TypeScript, an object literal: a key range's bound, and e3's index readers' `on`
 export { isObjectLiteral } from './expr/key_range.js';
 // A jq program's nodes walked as East's checker, translator and split planner

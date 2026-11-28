@@ -144,7 +144,7 @@ export type { IndexEntriesOf } from './index-input.js';
 export { NestedUnderType } from './index-read.js';
 export type {
   IndexRead, IndexReadersOf, PlainReaders, IntervalReaders, SeriesReaders, SummaryReaders, AreaReaders, EntriesReaders, NestedReaders,
-  TimeWindow, KeyWindow, AreaWindow, NestedWindow, LeadingOn, LeadingArgs,
+  TimeWindow, KeyWindow, SummaryWindow, AreaWindow, NestedWindow, LeadingOn, LeadingArgs,
 } from './index-read.js';
 export type { FunctionSpec } from './function.js';
 
@@ -174,7 +174,8 @@ export { addObject } from './export.js';
 export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex, indexMaintenance } from './record-programs.js';
 export type { IndexMaintenance } from './record-programs.js';
 export type {
-  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
+  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryOf, TotalsIndexSpec, NestedSeriesIndexSpec,
+  TimeTileOf,
   IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf, EntriesOf,
 } from './record-index.js';
 export type {

@@ -15,8 +15,8 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    createLedger, observeWindow, isObserved, slotHeight, elementsIn,
-    documentHeight, offsetOfWindow, windowAtOffset, elementAtOffset, offsetOfElement, rowsIn,
+    createLedger, observeWindow, isObserved, isRated, slotHeight, elementsIn,
+    documentHeight, offsetOfWindow, windowAtOffset, elementAtOffset, offsetOfElement, rowsIn, reseed,
 } from "./window-ledger.js";
 
 const PAGE = 200;
@@ -73,6 +73,29 @@ describe("window ledger — the frozen slot rate", () => {
         expect(documentHeight(l)).toBe(2_000 * 150);
     });
 
+    test("where what rest is moves, the rate is seeded again from the window that seeded it: every unvisited window follows (#1777)", () => {
+        // Two groups a window, open at rest: 6,452 px. A later window's rest never moves the rate.
+        let l = createLedger(80, 2);
+        l = observeWindow(l, 3, { px: 6_452, rows: 200, restPx: 6_452 });
+        l = observeWindow(l, 5, { px: 6_452, rows: 200, restPx: 9_000 });
+        expect([l.seed, l.slotPx]).toEqual([3, 3_226]);
+        // Collapse all stands: the seeding window's rest is two bands now, 52 px — so is every window not visited.
+        const folded = reseed(l, 52);
+        expect([folded.slotPx, slotHeight(folded, 7)]).toEqual([26, 52]);
+        // A visited window keeps what it measured; the extent is the two visited and 38 unvisited at the new rate.
+        expect([slotHeight(folded, 3), slotHeight(folded, 5)]).toEqual([6_452, 6_452]);
+        expect(documentHeight(folded)).toBe(2 * 6_452 + 38 * 52);
+        // Never under a pixel an element: two hundred elements folded to 52 px describe 200.
+        const wide = reseed(observeWindow(createLedger(2_000, PAGE), 0, { px: 6_452, rows: 400, restPx: 6_452 }), 52);
+        expect([wide.slotPx, slotHeight(wide, 7)]).toEqual([1, 200]);
+        // A rest that holds is the same ledger; so is a declared pitch, and a ledger no window has seeded.
+        expect(reseed(l, 6_452)).toBe(l);
+        const pitched = observeWindow(createLedger(2_000, PAGE, 36), 0, { px: 52, rows: 400, restPx: 52 });
+        expect([pitched.seed, reseed(pitched, 52)]).toEqual([undefined, pitched]);
+        const fresh = createLedger(2_000, PAGE);
+        expect(reseed(fresh, 52)).toBe(fresh);
+    });
+
     test("the rate is clamped so a huge source stays inside the browser's height limit", () => {
         // 4,000,000 elements at a naive 32px/element would be 1.28e8 px — well
         // past Blink's ~3.3e7 element-height clamp, where offsets stop being
@@ -118,6 +141,32 @@ describe("window ledger — a declared pitch (#1398, CL1)", () => {
         const l = createLedger(4_000_000, PAGE, 36);
         expect(l.slotPx * l.total).toBeLessThanOrEqual(8e6);
         expect(l.slotPx).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe("window ledger — a rate to read pixels by (#1794)", () => {
+    test("none before a window lands: the starting rate is a row's height, whatever an element draws; a landing gives one", () => {
+        // Forty groups of a hundred rows, two a window: none landed, each sized at one row.
+        const fresh = createLedger(40, 2);
+        expect(isRated(fresh)).toBe(false);
+        // Read through that, the middle of a view that has not scrolled is the thirteenth group, six windows down.
+        expect([elementAtOffset(fresh, 394), windowAtOffset(fresh, 394)]).toEqual([12, 6]);
+        // The first window lands, two groups and their rows: the rate is what they drew, and the same place is the first group's.
+        const landed = observeWindow(fresh, 0, { px: 2 * 101 * 32, rows: 202 });
+        expect(isRated(landed)).toBe(true);
+        expect([elementAtOffset(landed, 394), windowAtOffset(landed, 394)]).toEqual([0, 0]);
+        // Whichever window lands first gives it, and it holds through a rate seeded again.
+        const later = observeWindow(fresh, 7, { px: 2 * 101 * 32, rows: 202, restPx: 2 * 101 * 32 });
+        expect([isRated(later), isRated(reseed(later, 52))]).toEqual([true, true]);
+    });
+
+    test("a declared pitch is one from the start; a ledger built again for a new count has none until a window lands again", () => {
+        expect(isRated(createLedger(16_667, PAGE, 36))).toBe(true);
+        expect(isRated(createLedger(0, PAGE))).toBe(false);
+        const landed = observeWindow(createLedger(2_000, PAGE), 0, { px: 4_000, rows: 200 });
+        expect(isRated(landed)).toBe(true);
+        // The source's count moved: its geometry starts again, and with it what its pixels can be read by.
+        expect(isRated(createLedger(2_400, PAGE))).toBe(false);
     });
 });
 

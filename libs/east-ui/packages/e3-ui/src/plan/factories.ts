@@ -27,6 +27,7 @@ import {
     Expr,
     ArrayType,
     BooleanType,
+    DictType,
     FloatType,
     OptionType,
     StringType,
@@ -36,12 +37,15 @@ import {
 } from "@elaraai/east";
 
 import {
+    ChartCurveType,
     ChartXType,
     TableAggregateType,
     TickFormatType,
     resolveTag,
     type AxisOptions,
+    type ChartCurveLiteral,
     type ChartLayer,
+    type MarkStyle,
     type RefBandOptions,
     type RefDotOptions,
     type RefLineOptions,
@@ -65,10 +69,15 @@ import {
     PlanCellMarkerType,
     PlanChartPointType,
     PlanChartBandPointType,
+    PlanChartScatterPointType,
     PlanChartLayerType,
+    PlanChartStyleType,
     PlanAxisSideType,
     type PlanAxisSideLiteral,
     PlanBreachType,
+    PlanFoldType,
+    PlanLineFoldType,
+    type PlanLineFoldLiteral,
     PlanRollupType,
     PlanRunType,
     PlanDecisionMarkType,
@@ -104,24 +113,92 @@ import {
 // ============================================================================
 
 /**
- * The Plan-only channels a chart layer can carry via {@link Plan.layer}.
+ * The channels a chart layer carries: the Plan's own (its axis, its breach and its fold), and how it draws (#1753) —
+ * the styling a `Chart.*` layer carries itself (east-ui's `MarkStyle`), under the same names but `label`, its
+ * `key`. A layer over a values read (`Plan.line` …) takes them here; a `Plan.layer` wrap's win over its layer's own.
+ * A reference layer takes its `axis`, and its caption as its `label`; a reference line its `color` and `dash`, and a
+ * reference band its `color` too.
  *
  * @property axis - Which y-axis the layer scales against (default `"left"`)
  * @property breach - Breach threshold (`{ above }` / `{ below }`) — beyond it, marks render warn
- * @property series - Stack series id for column layers (stacked columns pair by it)
- * @property fold - How a line, area or column layer folds the points in one bucket (#824)
+ * @property fold - How a line, area or column layer folds the points in one bucket (#824); `"none"` draws every point of a line or an area at its own instant
+ * @property label - Its name, which the legend and the tooltip call it by; layers of one name share a colour
+ * @property color - Its colour, a theme token (`"teal.solid"`) or a CSS colour; unset, a named layer takes the next series colour
+ * @property curve - How a line, an area or a band joins its points (`"linear"` unless given)
+ * @property width - A stroke's width, px
+ * @property dash - A stroke's dash pattern (`"6 4"`)
+ * @property dots - A dot at every point
+ * @property fillOpacity - An area's or a band's fill strength, 0–1
+ * @property opacity - A stroke's or a dot's strength, 0–1
+ * @property size - A scatter's dot radius, px, for a point with no size of its own
+ * @property stack - The stack it piles on: columns sharing one accumulate, as do areas; columns sharing none stand side by side
+ * @property legend - `false` keeps it out of the legend
+ * @property tooltip - `false` keeps it out of the tooltip
+ * @property order - Where it draws among the row's layers: higher draws later
  */
 export interface PlanLayerChannels {
     /** Which y-axis the layer scales against (default `"left"`; left ticks print in the gutter edge). */
     axis?: PlanAxisSideLiteral;
     /** Breach threshold — marks beyond it render in the warn tone. */
     breach?: { above: SubtypeExprOrValue<FloatType> | number } | { below: SubtypeExprOrValue<FloatType> | number };
-    /** Stack series id for column layers. */
-    series?: SubtypeExprOrValue<StringType>;
     /** How a line, area or column layer folds the points in one bucket at a coarser resolution than
      *  theirs — `"sum"` / `"mean"` / `"min"` / `"max"` / `"last"` / `"count"` (default: a column's
-     *  `"sum"`, a line's or an area's `"mean"`, #824). Scatter and band layers draw every point. */
-    fold?: PlanFoldInput;
+     *  `"sum"`, a line's or an area's `"mean"`, #824) — or, for a line or an area, `"none"` (#1807): every
+     *  point drawn at its own instant, at every resolution. A column, one bar a bucket, refuses `"none"`.
+     *  Scatter and band layers draw every point. */
+    fold?: PlanLineFoldInput;
+    /** Its name, which the legend and the tooltip call it by — a `Chart.*` layer's `key`. Layers of one name are one
+     *  series, which share a colour. */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Its colour — a theme token (`"teal.solid"`) or a CSS colour. Unset, a named layer takes the next of the
+     *  chart rules' series colours, and an unnamed one its mark's own ink. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** How a line, an area or a band joins its points: `"linear"` (the default), `"monotoneX"`, `"natural"`,
+     *  `"step"`, `"stepBefore"` or `"stepAfter"`. */
+    curve?: SubtypeExprOrValue<ChartCurveType> | ChartCurveLiteral;
+    /** A stroke's width, px. */
+    width?: SubtypeExprOrValue<FloatType>;
+    /** A stroke's dash pattern (`"6 4"`); solid unless given. A line with a dash keeps it on both sides of now, its
+     *  planned part drawn fainter. */
+    dash?: SubtypeExprOrValue<StringType>;
+    /** A dot at every point. A point with no neighbour to join draws one regardless. */
+    dots?: SubtypeExprOrValue<BooleanType>;
+    /** An area's or a band's fill strength, 0–1. */
+    fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** A stroke's or a dot's strength, 0–1. */
+    opacity?: SubtypeExprOrValue<FloatType>;
+    /** A scatter's dot radius, px, for a point with no size of its own — a `Chart.Scatter`'s `size` encoding gives each
+     *  point one, and draws it as a bubble. */
+    size?: SubtypeExprOrValue<FloatType>;
+    /** The stack it piles on: the columns that share one accumulate, as do the areas that share one, each value axis
+     *  on its own — positive parts up, negative parts down. The columns of a bucket that share none stand side by side. */
+    stack?: SubtypeExprOrValue<StringType>;
+    /** `false` keeps it out of the legend. */
+    legend?: SubtypeExprOrValue<BooleanType>;
+    /** `false` keeps it out of the tooltip. */
+    tooltip?: SubtypeExprOrValue<BooleanType>;
+    /** Where it draws among the row's layers: higher draws later (default 0, in the order declared). */
+    order?: number;
+}
+
+/** A line's or an area's fold input — a {@link PlanLineFoldLiteral} or a `PlanLineFoldType` value / expression. */
+export type PlanLineFoldInput = PlanLineFoldLiteral | SubtypeExprOrValue<PlanLineFoldType>;
+
+/** Why a column refuses `fold: "none"`. */
+const UNFOLDED_COLUMN = "Plan.chart: a column draws one bar a bucket, so it folds the points in it — `fold: \"none\"` keeps every point of a line or an area";
+
+/**
+ * A column layer's fold — the points in a bucket folded to one column, their
+ * `sum` unless it declares another (#824).
+ *
+ * @param fold - The declared fold, if any
+ * @returns The fold
+ * @throws {Error} When it declares `"none"`: only a line or an area keeps every point
+ */
+function columnFold(fold: PlanLineFoldInput | undefined): ExprType<PlanFoldType> {
+    if (fold === "none") throw new Error(UNFOLDED_COLUMN);
+    // A fold given as an expression of a line's fold type: East refuses one that can be `none`.
+    return resolveTag((fold ?? "sum") as PlanFoldInput, PlanFoldType);
 }
 
 /** A Chart layer wrapped with Plan-only channels — see {@link Plan.layer}. */
@@ -138,11 +215,13 @@ export interface PlanWrappedLayer {
 export type PlanChartLayerInput = ChartLayer | PlanWrappedLayer;
 
 /**
- * Wraps a Chart layer builder result with the Plan-only channels (axis side,
- * breach threshold, stack series, and how a coarser bucket folds its points).
+ * Wraps a Chart layer builder result with the Plan's channels (axis side,
+ * breach threshold, how a coarser bucket folds its points) and any styling to
+ * draw it with in place of its own (#1753) — a reference line's colour and
+ * dash, and a reference band's colour and the axis its range of values is on.
  *
  * @param layer - The `Chart.Line` / `Column` / `Area` / `Scatter` / `Band` / `ref*` builder result
- * @param channels - The Plan-only channels ({@link PlanLayerChannels})
+ * @param channels - The channels ({@link PlanLayerChannels})
  * @returns The wrapped layer for `Plan.chart`'s `layers`
  */
 export function createLayer(layer: ChartLayer, channels: PlanLayerChannels): PlanWrappedLayer {
@@ -161,6 +240,48 @@ function breachOpt(breach: PlanLayerChannels["breach"]): ExprType<OptionType<Pla
         ? variant("above", breach.above)
         : variant("below", breach.below);
     return East.value(some(arm), OptionType(PlanBreachType));
+}
+
+/**
+ * How a layer draws, on the wire (#1753): each part its channels give, else
+ * the layer's own styling.
+ *
+ * @param own - The Chart layer's own styling (`{}` for a layer over a values read)
+ * @param channels - The channels, which win
+ * @param label - Its name as the layer has it — a series' key, `none` where it has none
+ * @param color - The colour its author chose for this series by its value — a split's `colors`
+ * @param size - A scatter layer's own dot radius
+ * @returns The style
+ */
+function chartStyle(
+    own: MarkStyle, channels: PlanLayerChannels,
+    label: SubtypeExprOrValue<OptionType<StringType>>, color: SubtypeExprOrValue<OptionType<StringType>>,
+    size?: SubtypeExprOrValue<FloatType>,
+): ExprType<PlanChartStyleType> {
+    const curve = channels.curve ?? own.curve;
+    const width = channels.width ?? own.width;
+    const dash = channels.dash ?? own.dash;
+    const fillOpacity = channels.fillOpacity ?? own.fillOpacity;
+    const opacity = channels.opacity ?? own.opacity;
+    const radius = channels.size ?? size;
+    const stack = channels.stack ?? own.stack;
+    const order = channels.order ?? own.order;
+    const chosen = channels.color ?? own.color;
+    return East.value({
+        label:       channels.label !== undefined ? East.value(some(channels.label), OptionType(StringType)) : label,
+        color:       chosen !== undefined ? East.value(some(chosen), OptionType(StringType)) : color,
+        curve:       curve !== undefined ? some(resolveTag(curve, ChartCurveType)) : none,
+        width:       width !== undefined ? some(width) : none,
+        dash:        dash !== undefined ? some(dash) : none,
+        dots:        channels.dots ?? own.dots ?? false,
+        fillOpacity: fillOpacity !== undefined ? some(fillOpacity) : none,
+        opacity:     opacity !== undefined ? some(opacity) : none,
+        size:        radius !== undefined ? some(radius) : none,
+        stack:       stack !== undefined ? some(stack) : none,
+        legend:      channels.legend ?? own.legend ?? true,
+        tooltip:     channels.tooltip ?? own.tooltip ?? true,
+        order:       order !== undefined ? some(order) : none,
+    }, PlanChartStyleType);
 }
 
 /**
@@ -194,32 +315,44 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
 
     if (layer.kind === "ref") {
         const side = axisSide(channels.axis);
+        // Its caption and its colour, a channel's over its own (#1753).
+        const caption = (own: SubtypeExprOrValue<StringType> | undefined) => {
+            const words = channels.label ?? own;
+            return words !== undefined ? some(words) : none;
+        };
+        const color = channels.color !== undefined ? some(channels.color) : none;
         if (layer.refKind === "line") {
             const o = layer.refOptions as RefLineOptions;
             if (o.y === undefined) {
                 throw new Error("Plan.chart: vertical (x) refLines are not supported — instants are event marks (Plan.events) or the axis now-line");
             }
+            const dash = channels.dash ?? o.dash;
             return East.value([East.value(variant("refLine", {
-                y: o.y, axis: side,
-                label: o.label !== undefined ? some(o.label) : none,
+                y: o.y, axis: side, label: caption(o.label),
+                dash: dash !== undefined ? some(dash) : none,
+                color,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         if (layer.refKind === "band") {
+            // A span of instants, a range of values — a target zone — or the rectangle where they meet, as a chart
+            // draws it: a bound it is not given reaches the plot's edge.
             const o = layer.refOptions as RefBandOptions;
-            if (o.x === undefined) {
-                throw new Error("Plan.chart: refBand needs x bounds (two instants) — y-range refBands are not supported on chart rows");
-            }
             return East.value([East.value(variant("refBand", {
-                from:  resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
-                to:    resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
-                label: o.label !== undefined ? some(o.label) : none,
+                x: o.x !== undefined
+                    ? some({
+                        from: resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                        to:   resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                    })
+                    : none,
+                y: o.y !== undefined ? some({ lo: o.y[0], hi: o.y[1] }) : none,
+                axis: side, label: caption(o.label), color,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         if (layer.refKind === "dot") {
             const o = layer.refOptions as RefDotOptions;
             return East.value([East.value(variant("refDot", {
                 t: resolveInstant(o.x as SubtypeExprOrValue<PlanInstantLikeType>, "refDot x"), y: o.y, axis: side,
-                label: o.label !== undefined ? some(o.label) : none,
+                label: caption(o.label),
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         throw new Error("Plan.chart: unsupported annotation layer");
@@ -229,56 +362,66 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
         throw new Error("Plan.chart: Chart.Pie is a chart of its own — a chart row draws layers along the shared axis (Chart.Line / Column / Area / Scatter / Band)");
     }
 
+    // A layer's series: each its own name — a split's by its value or its column, a single series by its `key`, which
+    // is empty where it has none — and its colour where its author chose one by its value (#1753). Built fresh per
+    // series, as every shared channel is, so no East expression is spliced twice.
+    const seriesLabel = (key: ExprType<StringType>) => key.equal("").ifElse(
+        () => East.value(none, OptionType(StringType)),
+        () => East.value(some(key), OptionType(StringType)),
+    );
+    const byColors = layer.kind === "series" ? layer.byColors : undefined;
+    const seriesColor = (key: ExprType<StringType>) => byColors !== undefined
+        ? East.value(new Map(Object.entries(byColors)), DictType(StringType, StringType)).tryGet(key)
+        : East.value(none, OptionType(StringType));
+
     if (layer.kind === "band") {
         const xScale = layer.xScale;
-        const side = axisSide(channels.axis ?? layer.style.axis);
         return layer.data.map((_$, s) => East.value(variant("band", {
             points: s.points.map((_$2, p) => East.value({
                 t: pointInstant(p.x, xScale), lo: p.low, hi: p.high,
             }, PlanChartBandPointType)),
-            axis: side,
+            axis: axisSide(channels.axis ?? layer.style.axis),
+            style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
 
-    // Series layer — line / column / area / scatter. The shared channels are
-    // built fresh per use so no East expression is spliced twice.
+    // Series layer — line / column / area / scatter.
     if (layer.orientation === "horizontal") {
         throw new Error("Plan.chart: Chart.Bar (horizontal) flips the frame the shared axis owns — use Chart.Column (vertical)");
     }
     const xScale = layer.xScale;
-    const stacked = layer.style.stack !== undefined;
     if (layer.mark === "line") {
         return layer.data.map((_$, s) => East.value(variant("line", {
             points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis), breach: breachOpt(channels.breach),
-            // A line is a level: a bucket folds its points to their mean (#824).
-            fold: resolveFold(channels.fold, "mean"),
+            // A line is a level: a bucket folds its points to their mean (#824), unless it keeps every point.
+            fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType),
+            style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     if (layer.mark === "area") {
         return layer.data.map((_$, s) => East.value(variant("area", {
             points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
-            fold: resolveFold(channels.fold, "mean"),
+            fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType),
+            style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     if (layer.mark === "scatter") {
         return layer.data.map((_$, s) => East.value(variant("scatter", {
-            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+            // Each point keeps the size its `size` encoding gave it: a bubble's (#1753).
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value, size: p.size }, PlanChartScatterPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
+            style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key), layer.radius),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     return layer.data.map((_$, s) => East.value(variant("column", {
         points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
         axis:   axisSide(channels.axis ?? layer.style.axis),
-        series: channels.series !== undefined
-            ? East.value(some(channels.series), OptionType(StringType))
-            : (stacked
-                ? East.value(some(s.key), OptionType(StringType))
-                : East.value(none, OptionType(StringType))),
         breach: breachOpt(channels.breach),
         // A column is an amount: a bucket folds its points to their sum (#824).
-        fold: resolveFold(channels.fold, "sum"),
+        fold: columnFold(channels.fold),
+        style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
     }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
 }
 
@@ -315,18 +458,27 @@ type PlanValuesMark = "line" | "area" | "column" | "scatter" | "band";
  */
 function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels: PlanLayerChannels): ExprType<ArrayType<PlanChartLayerType>> {
     const axis = axisSide(channels.axis);
+    // How it draws is its channels' alone: a values read carries no styling of its own (#1753).
+    const style = chartStyle({}, channels, East.value(none, OptionType(StringType)), East.value(none, OptionType(StringType)));
     const arm = (() => {
         switch (mark) {
-            case "line":    return variant("line", { points, axis, breach: breachOpt(channels.breach), fold: resolveFold(channels.fold, "mean") });
-            case "area":    return variant("area", { points, axis, fold: resolveFold(channels.fold, "mean") });
+            case "line":    return variant("line", {
+                points, axis, breach: breachOpt(channels.breach), fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType), style,
+            });
+            case "area":    return variant("area", { points, axis, fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType), style });
             case "column":  return variant("column", {
                 points, axis,
-                series: channels.series !== undefined ? East.value(some(channels.series), OptionType(StringType)) : East.value(none, OptionType(StringType)),
                 breach: breachOpt(channels.breach),
-                fold:   resolveFold(channels.fold, "sum"),
+                fold:   columnFold(channels.fold),
+                style,
             });
-            case "scatter": return variant("scatter", { points, axis });
-            case "band":    return variant("band", { points, axis });
+            // A values read gives a point its value alone: each draws the layer's own dot.
+            case "scatter": return variant("scatter", {
+                points: (points as ExprType<ArrayType<PlanChartPointType>>).map((_$, p) => East.value(
+                    { t: p.t, y: p.y, size: East.value(none, OptionType(FloatType)) }, PlanChartScatterPointType)),
+                axis, style,
+            });
+            case "band":    return variant("band", { points, axis, style });
         }
     })();
     return East.value([East.value(arm as SubtypeExprOrValue<PlanChartLayerType>, PlanChartLayerType)], ArrayType(PlanChartLayerType));
@@ -340,7 +492,7 @@ function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels:
  * @param values - The read
  * @param channels - The Plan channels
  * @returns The description
- * @throws {Error} When `values` is not a `Plan.values` read
+ * @throws {Error} When `values` is not a `Plan.values` read, or a column declares `fold: "none"`
  */
 function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: PlanLayerChannels | undefined): T {
     const read = planReadOf(values);
@@ -350,9 +502,12 @@ function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: Plan
     }
     const fold = mark === "line" || mark === "area" ? "mean" : mark === "column" ? "sum" : undefined;
     const declared = channels?.fold;
+    if (mark === "column" && declared === "none") throw new Error(UNFOLDED_COLUMN);
+    // What its rows past the cap shade by: a line or an area that keeps every point, by their mean — the level it draws.
+    const shade = declared === "none" ? "mean" : declared;
     return planUse<T>({
         makes: "layer", read, cell: mark === "band" ? "band" : "point",
-        fold: declared === undefined ? fold : typeof declared === "string" ? declared : undefined,
+        fold: shade === undefined ? fold : typeof shade === "string" ? shade : undefined,
         rollup: false,
         wrap: (points) => valuesLayer(mark, points, channels ?? {}),
     });
@@ -360,14 +515,15 @@ function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: Plan
 
 /**
  * A chart row's line over a row's values — a vertex at each value's instant,
- * its key (#1436). A bucket folds the points in it to their mean by default.
+ * its key (#1436). A bucket folds the points in it to their mean by default;
+ * `fold: "none"` draws every point at its own instant, at every resolution.
  *
  * @typeParam R - The entry type, inferred from where the layer is used
  * @typeParam K - The axis kind the values' key rides
  * @typeParam U - What it reads
  * @typeParam C - The channels, as written
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `breach`, `axis`, `fold` ({@link PlanLayerChannels})
+ * @param channels - `breach`, `axis`, `fold`, and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createLine<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
@@ -378,14 +534,15 @@ export function createLine<R extends EastType, K extends PlanAxisKindLiteral, U,
 
 /**
  * A chart row's filled area over a row's values (#1436). A bucket folds the
- * points in it to their mean by default.
+ * points in it to their mean by default; `fold: "none"` draws every point at
+ * its own instant, at every resolution.
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the values' key rides
  * @typeParam U - What it reads
  * @typeParam C - The channels, as written
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `axis`, `fold` ({@link PlanLayerChannels})
+ * @param channels - `axis`, `fold`, `stack` (the areas sharing one pile up), and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createArea<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
@@ -403,7 +560,7 @@ export function createArea<R extends EastType, K extends PlanAxisKindLiteral, U,
  * @typeParam U - What it reads
  * @typeParam C - The channels, as written
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `breach`, `axis`, `series` (stacked columns pair by it), `fold` ({@link PlanLayerChannels})
+ * @param channels - `breach`, `axis`, `stack` (the columns sharing one pile up; those sharing none stand side by side), `fold`, and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createColumn<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
@@ -414,13 +571,14 @@ export function createColumn<R extends EastType, K extends PlanAxisKindLiteral, 
 
 /**
  * A chart row's point markers over a row's values (#1436): every point drawn
- * where it is.
+ * where it is, at the layer's one dot size — bubbles, a size a point, come
+ * from a `Chart.Scatter`'s `size` encoding.
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the values' key rides
  * @typeParam U - What it reads
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `axis` ({@link PlanLayerChannels})
+ * @param channels - `axis`, and how it draws — its `size` its dots' radius ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createScatter<R extends EastType, K extends PlanAxisKindLiteral, U>(
@@ -437,7 +595,7 @@ export function createScatter<R extends EastType, K extends PlanAxisKindLiteral,
  * @typeParam K - The axis kind the values' key rides
  * @typeParam U - What it reads
  * @param values - `Plan.values(field, (v) => ({ lo, hi }))`
- * @param channels - `axis` ({@link PlanLayerChannels})
+ * @param channels - `axis`, and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createBand<R extends EastType, K extends PlanAxisKindLiteral, U>(
@@ -460,12 +618,14 @@ export function createFixedHeight(size: SubtypeExprOrValue<StringType>): ExprTyp
 /**
  * A chart-row y-axis input — the `Chart.Root` axis vocabulary
  * ({@link AxisOptions}), restricted to the members a Plan chart row's
- * value axis supports: `domain` (`[min, max]`), `tickValues` and `format`.
- * Same names, same types, same guards as a `Chart.Root` y-axis — temporal
- * domains / tick positions are a build-time error (the time axis is the
- * shared canvas scale, `Plan.axis`).
+ * value axis supports: `domain` (`[min, max]`), `tickValues`, `numTicks`
+ * (about how many round values it prints where it declares no `tickValues`,
+ * never moving its domain), `format`, and `label` (its unit, which a legend
+ * names beside each series on the axis) (#1753). Same names, same types, same
+ * guards as a `Chart.Root` y-axis — temporal domains / tick positions are a
+ * build-time error (the time axis is the shared canvas scale, `Plan.axis`).
  */
-export type PlanChartAxisInput = Pick<AxisOptions, "domain" | "tickValues" | "format">;
+export type PlanChartAxisInput = Pick<AxisOptions, "domain" | "tickValues" | "numTicks" | "format" | "label">;
 
 /** Whether a domain bound is temporal — mirrors `Chart.Root`'s `isTemporalBound`. */
 function isTemporalBound(bound: NonNullable<AxisOptions["domain"]>[0]): boolean {
@@ -496,7 +656,9 @@ function buildChartAxis(a: PlanChartAxisInput, side: "left" | "right"): ExprType
         tickValues: a.tickValues !== undefined
             ? some(variant("number", a.tickValues as SubtypeExprOrValue<ArrayType<FloatType>>))
             : none,
+        numTicks: a.numTicks !== undefined ? some(a.numTicks) : none,
         format: a.format !== undefined ? some(a.format) : none,
+        label: a.label !== undefined ? some(a.label) : none,
     }, PlanChartAxisType);
 }
 
@@ -586,6 +748,9 @@ export function bucketsKind(parts: PlanBucketsParts<PlanAxisKindLiteral>): ExprT
  * @property height - The height mode
  * @property expandedHeight - The height the expanded state opens to
  * @property expandable - Spark ↔ expanded toggle
+ * @property grid - Whether it draws a gridline at each tick
+ * @property legend - Whether a legend lists its series
+ * @property tooltip - Whether hovering a bucket reads its values there
  */
 export interface PlanChartParts {
     /** The Chart layer builders, consumed as data. The x accessor's static type picks the
@@ -604,6 +769,13 @@ export interface PlanChartParts {
     expandedHeight?: SubtypeExprOrValue<StringType>;
     /** Spark ↔ expanded toggle (caret; default `false`). */
     expandable?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether it draws a gridline at each tick (default `true`) — `false` leaves its numbers to read its scale by
+     *  (#1753). */
+    grid?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether a legend lists its series (default `true`, #1753). */
+    legend?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether hovering a bucket reads its values there (default `true`, #1753). */
+    tooltip?: SubtypeExprOrValue<BooleanType> | boolean;
 }
 
 /**
@@ -625,6 +797,9 @@ export function chartKind(parts: PlanChartParts): ExprType<PlanRowKindType> {
         height:     heightMode,
         expandedHeight: parts.expandedHeight !== undefined ? some(parts.expandedHeight) : none,
         expandable: parts.expandable ?? false,
+        grid:       parts.grid ?? true,
+        legend:     parts.legend ?? true,
+        tooltip:    parts.tooltip ?? true,
     }), PlanRowKindType);
 }
 
@@ -872,6 +1047,9 @@ export function createBuckets<K extends PlanAxisKindLiteral = never>(input: Plan
  * @property right - The right y-axis (ticks at the plot's right edge)
  * @property height - `"spark"` (32px, default) / `"expanded"` (88px) / `Plan.fixed(px)`
  * @property expandable - Spark ↔ expanded toggle (caret)
+ * @property grid - Whether it draws a gridline at each tick (default `true`)
+ * @property legend - Whether a legend lists its series (default `true`)
+ * @property tooltip - Whether hovering a bucket reads its values there (default `true`)
  */
 export interface PlanChartInput extends Omit<PlanRowBaseInput, "height">, PlanChartParts {}
 

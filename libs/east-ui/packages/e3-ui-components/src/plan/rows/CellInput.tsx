@@ -21,11 +21,16 @@
  * - Below 480px of main it is drawn in a popover anchored to its cell, a
  *   field of its own at a row's height, its keys as above.
  *
+ * Its ring and its refusal are plain elements of their slots' classes, made
+ * once a theme (`useSlotClass`, #1780), as a cell's parts are; the field is the
+ * common number input's.
+ *
  * @packageDocumentation
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { Box, NumberInput as ChakraNumberInput } from "@chakra-ui/react";
+import { NumberInput as ChakraNumberInput } from "@chakra-ui/react";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -82,6 +87,7 @@ const stop = (e: SyntheticEvent) => e.stopPropagation();
 /** Renders the canvas's input over a table cell. */
 export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, onWrite, onCancel, popover }: PlanCellInputProps) {
     const words = usePlanWords();
+    const slot = useSlotClass();
     const [value, setValue] = useState(seed ?? text);
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
     const inputRef = useRef<HTMLInputElement | null>(null);
@@ -159,7 +165,7 @@ export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, o
         };
     }, []);
     return (
-        <Box css={styles.tableCellInput} data-plan-typing="" data-invalid={refusal !== undefined ? "" : undefined}
+        <div className={slot(styles.tableCellInput)} data-plan-typing="" data-invalid={refusal !== undefined ? "" : undefined}
             data-popover={popover === true ? "" : undefined}
             style={{ left: x0 !== undefined ? `${x0 * 100}%` : undefined, width: x0 !== undefined && x1 !== undefined ? `${(x1 - x0) * 100}%` : undefined }}
             onMouseDown={stop} onClick={stop} onDoubleClick={stop}>
@@ -170,7 +176,7 @@ export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, o
                 <ChakraNumberInput.Input ref={inputRef} css={styles.tableCellFieldInput} aria-label={name}
                     aria-invalid={refusal !== undefined} onKeyDown={onKeyDown} onBlur={onBlur} />
             </ChakraNumberInput.Root>
-            {refusal !== undefined && <Box css={styles.tableCellRefusal} role="alert">{refusal}</Box>}
-        </Box>
+            {refusal !== undefined && <div className={slot(styles.tableCellRefusal)} role="alert">{refusal}</div>}
+        </div>
     );
 }

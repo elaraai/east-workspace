@@ -51,24 +51,6 @@ export type PlanResolution = TimeResolution;
 /** A half-open time window `[min, max)`. */
 export type PlanWindow = TimeWindow;
 
-const DAY_MS = 86_400_000;
-
-/**
- * Resolve the declared resolution (`auto` → window-derived): ≤ 14 days ⇒
- * `day`, ≤ ~40 weeks ⇒ `week` (the Plan's home unit), else `month`.
- *
- * @param declared - The IR resolution tag (may be `"auto"` or undefined)
- * @param window - The resolved window the buckets span
- * @returns The concrete resolution
- */
-export function effectiveResolution(declared: string | undefined, window: PlanWindow): PlanResolution {
-    if (declared !== undefined && declared !== "auto") return declared as PlanResolution;
-    const span = window.max.getTime() - window.min.getTime();
-    if (span <= 14 * DAY_MS) return "day";
-    if (span <= 280 * DAY_MS) return "week";
-    return "month";
-}
-
 /** One bucket of the scale. */
 export type PlanBucket = ScaleBucket<PlanInstantValue>;
 

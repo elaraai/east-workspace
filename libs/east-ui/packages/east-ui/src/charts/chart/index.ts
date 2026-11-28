@@ -402,6 +402,9 @@ interface SeriesLayer {
     style: MarkStyle;
     /** Uniform scatter marker radius (scatter layers only). */
     radius?: SubtypeExprOrValue<FloatType>;
+    /** A `by` split's explicit colours by value — consumption metadata for hosts that ingest layers as data (the Plan
+     *  canvas, #1753), which tells a colour its author chose from one the palette gave; `Chart.Root` ignores it. */
+    byColors?: Record<string, string>;
 }
 interface BandLayer {
     kind: "band";
@@ -629,7 +632,10 @@ function bandOptions(style: MarkStyle): { curve?: SubtypeExprOrValue<ChartCurveT
 function createMark<Row extends EastType>(mark: MarkKind, rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer {
     const s = style ?? {};
     const { data, xScale } = buildSeries(rows, encoding, s, false);
-    return { kind: "series", mark, data, xScale, orientation: "vertical", style: s };
+    return {
+        kind: "series", mark, data, xScale, orientation: "vertical", style: s,
+        ...("by" in encoding && encoding.colors !== undefined ? { byColors: encoding.colors } : {}),
+    };
 }
 
 /** Build the horizontal bar layer (#249): the encoding's categorical `y` bands
@@ -676,7 +682,11 @@ function createPie<Row extends EastType>(rows: ChartRows<Row>, encoding: PieEnco
 function createScatter<Row extends EastType>(rows: ChartRows<Row>, encoding: ScatterEncoding<Row>, style?: ScatterStyle): SeriesLayer {
     const s = style ?? {};
     const { data, xScale } = buildSeries(rows, encoding, s, false);
-    return { kind: "series", mark: "scatter", data, xScale, orientation: "vertical", style: s, ...(s.size !== undefined ? { radius: s.size } : {}) };
+    return {
+        kind: "series", mark: "scatter", data, xScale, orientation: "vertical", style: s,
+        ...(s.size !== undefined ? { radius: s.size } : {}),
+        ...("by" in encoding && encoding.colors !== undefined ? { byColors: encoding.colors } : {}),
+    };
 }
 
 // ============================================================================

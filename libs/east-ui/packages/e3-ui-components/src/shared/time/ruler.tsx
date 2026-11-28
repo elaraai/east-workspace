@@ -109,14 +109,21 @@ function bucketAt<I>(scale: RulerScale<I>, at: number | undefined): number {
 /** Nothing to hear: a band that does not stick. */
 const NOTHING = () => () => {};
 
-/** A ruler band's column and its caption: drawn again only as what it shows moves. */
-const RulerTick = memo(function RulerTick({ styles, x0, x1, label, slot, now, marked, periodStart, thinned, align, calendar, sticks }: {
-    styles: Styles; x0: number; x1: number; label: string; slot: string | undefined; now: boolean; marked: boolean; periodStart: boolean;
-    thinned: boolean; align: string | undefined; calendar: boolean; sticks: boolean;
+/**
+ * A ruler band's column and its caption: drawn again only as what it shows moves. On a track laid out in whole pixels
+ * (`whole`, the Plan's, #1735) its column runs from its start, rounded, to its end, rounded — its line its last pixel,
+ * the plot's day rule's column (`shared/time/rules.ts`); elsewhere it is placed by its fractions.
+ */
+const RulerTick = memo(function RulerTick({ styles, x0, x1, whole, label, slot, now, marked, periodStart, thinned, align, calendar, sticks }: {
+    styles: Styles; x0: number; x1: number; whole: number | undefined; label: string; slot: string | undefined; now: boolean; marked: boolean;
+    periodStart: boolean; thinned: boolean; align: string | undefined; calendar: boolean; sticks: boolean;
 }) {
+    const left = whole === undefined ? undefined : Math.round(x0 * whole);
     return <Box css={styles.rulerTick} data-slot={slot} data-now={now ? "" : undefined} data-marked={marked ? "" : undefined}
         data-period-start={periodStart ? "" : undefined} data-thinned={thinned ? "" : undefined} data-align={align}
-        style={{ left: `${x0 * 100}%`, width: `${(x1 - x0) * 100}%` }}>
+        style={whole === undefined || left === undefined
+            ? { left: `${x0 * 100}%`, width: `${(x1 - x0) * 100}%` }
+            : { left: `${left}px`, width: `${Math.round(x1 * whole) - left}px` }}>
         <Box as="span" css={styles.rulerLabel} data-tick-label="" data-calendar-ruler-label={calendar ? "" : undefined} data-sticks={sticks ? "" : undefined}>{label}</Box>
     </Box>;
 });
@@ -142,17 +149,20 @@ interface TimeRulerRowProps<I> {
  */
 function TimeRulerRowOf<I>({ scale, styles, band, owner, sticky, highlight, marked }: TimeRulerRowProps<I>) {
     const trackRef = useRef<HTMLDivElement>(null);
-    const placed = useRulerFit(trackRef, scale, highlight, sticky === undefined);
+    const plan = owner === "plan" || owner === "plan-narrow";
+    // Which labels draw, and the width the track was read at: the Plan's ticks stand on whole pixels of it (#1735), their
+    // lines on the columns of the plot's day rules — the columns its labels were fitted to.
+    const { fit: placed, width } = useRulerFit(trackRef, scale, highlight, sticky === undefined);
+    const whole = plan ? width : undefined;
     // The period the view starts in: drawn again only as that moves, each column only as its own sticking does.
     const startIn = useCallback(() => sticky === undefined ? -1 : bucketAt(scale, sticky.get()), [sticky, scale]);
     const at = useSyncExternalStore(sticky?.subscribe ?? NOTHING, startIn, startIn);
-    const plan = owner === "plan" || owner === "plan-narrow";
     const slot = !plan ? undefined : band === "units" ? "rulerUnit" : owner === "plan" ? "rulerTick" : "narrowRulerTick";
     return <Box ref={trackRef} css={styles.rulerRow} data-time-ruler={band}
         data-calendar-ruler={owner === "calendar" ? band : undefined}
         data-allocation-ruler={owner === "allocation" ? band : undefined}
         data-plan-ruler={plan ? band : undefined}>
-        {scale.buckets.map((bucket, i) => <RulerTick key={bucket.index} styles={styles} x0={bucket.x0} x1={bucket.x1} label={bucket.label} slot={slot}
+        {scale.buckets.map((bucket, i) => <RulerTick key={bucket.index} styles={styles} x0={bucket.x0} x1={bucket.x1} whole={whole} label={bucket.label} slot={slot}
             now={bucket.index === highlight} marked={marked?.(bucket) === true} periodStart={startsPeriod(scale, bucket)}
             thinned={placed !== undefined && !placed.shown[i]} align={placed?.align[i] !== "centre" ? placed?.align[i] : undefined}
             calendar={owner === "calendar"} sticks={at >= 0 && Math.abs(i - at) <= STICK_REACH} />)}

@@ -8,8 +8,9 @@
  * (#1435), reading no e3: the binding pages the record's lean rows through its
  * other indexes, never joining one, and carries how each collection the nested
  * index files is declared — its part's type the structure, its value the
- * index's name, tile and summary beside it. What it refuses, in its words, and
- * what a UI binding it declares it reads.
+ * index's name, its tile, and the periods it keeps each node's totals and the
+ * record's totals at beside it. What it refuses, in its words, and what a UI
+ * binding it declares it reads.
  */
 
 import { describe, test } from "node:test";
@@ -44,9 +45,11 @@ const handleOf = (source: unknown) => East.compile(East.function([], typeOf(sour
 
 /** Each collection's leaf: a role's field, or a kind holding nothing more. */
 const LEAF = NullType;
-/** The machines' tile and summary tile, as a binding carries them. */
+/** The machines' tile, and the period their totals are kept at, as a binding carries them. */
 const WEEK = StructType({ week: LEAF });
 const MONTH = StructType({ month: LEAF });
+/** The periods an index keeps the record's totals at where it names none, finest first, as a binding carries them. */
+const KEPT = StructType({ month: LEAF, quarter: LEAF, year: LEAF });
 /** An item's times from `start` to `end`, as a binding carries them. */
 const Span = { from: StructType({ start: LEAF }), to: StructType({ end: LEAF }) };
 /** How the machines' binding carries each collection the nested index files. */
@@ -74,13 +77,14 @@ describe("Data.bindPaged beside a nested series index", () => {
         assert.ok(isTypeEqual(keys.machines_in_time!, ex.nestedMachines.indexes.machines_in_time.keyType), "a cell of the nested index searched by e3's own key");
     });
 
-    test("carries each collection's declaration as structure, and the index's name, tile and summary as its value", () => {
+    test("carries each collection's declaration as structure, and the index's name, its tile and the periods it keeps its totals at as its value", () => {
         const source = machines();
         const nestedType = typeOf(source).fields.nested!;
-        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections, StructType({ machines_in_time: LEAF }), WEEK, MONTH)),
-            "the index's name, tile and summary, and each collection by its field: what it holds, and its times by role");
+        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections, StructType({ machines_in_time: LEAF }), WEEK, MONTH, KEPT)),
+            "the index's name, its tile, the period it keeps each node's totals at and those it keeps the record's at where it names none, " +
+            "and each collection by its field: what it holds, and its times by role");
         const expected = some({
-            index: { machines_in_time: null }, tile: { week: null }, summary: { month: null },
+            index: { machines_in_time: null }, tile: { week: null }, summary: { month: null }, totals: { month: null, quarter: null, year: null },
             collections: {
                 alarms: { items: { at: { at: null } } }, jobs: { items: { from: { start: null }, to: { end: null } } },
                 load: { values: null }, output: { values: null }, stops: { items: { from: { start: null }, to: { end: null } } },
@@ -92,12 +96,19 @@ describe("Data.bindPaged beside a nested series index", () => {
     test("carries child rows' collections and their rollups, each fold a struct of its aggregates, and a recursive field and a rollup of items", () => {
         const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
         const Readings = StructType({ values: StructType({ rollup: StructType({ sum: StructType({ sum: LEAF }) }) }) });
+        // The ledgers keep each measure's totals a week and a month at a time, and the record's a month and a year: a
+        // field a period, finest first.
         assert.ok(isTypeEqual(typeOf(ledgers).fields.nested!,
-            NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }), WEEK, MONTH)));
+            NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }), WEEK,
+                StructType({ week: LEAF, month: LEAF }), StructType({ month: LEAF, year: LEAF }))));
+        assert.ok(equalFor(typeOf(ledgers).fields.nested!)(handleOf(ledgers).nested, some({
+            index: { ledgers_in_time: null }, tile: { week: null }, summary: { week: null, month: null }, totals: { month: null, year: null },
+            collections: { measures: { rows: { readings: { values: { rollup: { sum: { sum: null } } } } } } },
+        })), "each period its nodes' totals and the record's totals are kept at, as the definition lists them");
         const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
         const Jobs = StructType({ items: StructType({ ...Span, rollup: LEAF }) });
         assert.ok(isTypeEqual(typeOf(assemblies).fields.nested!,
-            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }), WEEK, MONTH)));
+            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }), WEEK, MONTH, KEPT)));
     });
 
     test("carries the nested index's maintenance for one row, e3's own: given a row's patch, the ops its commit writes (#1437)", () => {
@@ -154,7 +165,7 @@ describe("Data.bindPaged beside a nested series index", () => {
         const apart = Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_name"] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
         assert.equal(handleOf(apart).joined, true);
-        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
+        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
         assert.ok(equalFor(typeOf(apart).fields.maintenance!)(handleOf(apart).maintenance, none), "no index to maintain: none");
         assert.equal(handleOf(apart).fill.type, "none", "no nested index to fill rows from: none");

@@ -102,6 +102,11 @@ export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
  * which no printed id can end with — and names the row it repeats in
  * `duplicateOf`, so it renders as a diagnostic in place.
  *
+ * A row read again as the very object it was — a window read again whose rows
+ * its new events left alone (#1712) — is the canvas row it was keyed as, where
+ * it sits in the same block and repeats no row before it: its key is not
+ * printed again, and whatever holds the row by its object holds it still.
+ *
  * @param wire - The rows in stream order
  * @param block - The block they came from (#823)
  * @param seen - The ids keyed so far on the canvas, and how often — shared
@@ -114,18 +119,29 @@ export function toCanvasRows(
     seen: Map<RowKey, number> = new Map(),
 ): PlanRowValue[] {
     return wire.map((row): PlanRowValue => {
-        const text = rowKeyOf(row.id);
+        // A row keyed before was keyed by its id's own text.
+        const known = keyedRows.get(row);
+        const text = known?.key ?? rowKeyOf(row.id);
         const repeats = seen.get(text) ?? 0;
         seen.set(text, repeats + 1);
-        return {
+        if (known !== undefined && repeats === 0 && known.block === block) return known;
+        const keyed: PlanRowValue = {
             ...row,
             key: repeats === 0 ? text : `${text}#${repeats}`,
-            parent: row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none,
+            parent: known?.parent ?? (row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none),
             duplicateOf: repeats === 0 ? undefined : text,
             block,
         };
+        if (repeats === 0) keyedRows.set(row, keyed);
+        return keyed;
     });
 }
+
+/**
+ * Each wire row's canvas row, by the wire row and while it lives (#1712) — only a row keyed by its id's own text: a
+ * repeat's `#n` is its stream's to say.
+ */
+const keyedRows = new WeakMap<PlanWireRow, PlanRowValue>();
 
 /** Each decoded inline canvas's rows — keyed once per decoded block list. */
 const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireBlock>, readonly PlanRowValue[]>();
@@ -326,7 +342,7 @@ export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
 // #817) — the table the recipe reads too, as CSS variables. These names are
 // its default-density entries, kept for the code and tests that name them.
 
-/** Default span/bucket/cards/table row height. Tables share it: numerals need
+/** Default span/cards/table row height — a buckets row is its lanes' (#1735). Tables share it: numerals need
  *  no less room than a bar does, and a table row at the dense height beside
  *  default rows read as a mistake. */
 export const ROW_H = PLAN_GEOMETRY.default.row;
@@ -533,12 +549,10 @@ export function factsHeight(
         case "heat": return floor(g.heatRow);
         case "table":
             return f.kind.lines > 1 ? floor(Math.max(g.row, g.tablePad + f.kind.lines * g.tableLine)) : floor(g.row);
-        case "buckets": {
-            // Laned rows grow — the Planner cell grid: a cell per lane, a gap
-            // between, lane padding above and below (§4·K2).
-            const n = f.kind.lanes;
-            return n > 1 ? floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap) : floor(g.row);
-        }
+        case "buckets":
+            // A lane its tiles stand in (#1735): its 24px room and the 1px rule under it — the last lane's the row's
+            // own — so a row is 25 × its lanes, one lane where it declares none.
+            return floor(Math.max(1, f.kind.lanes) * (g.lane + g.rule));
         case "row": return floor(g.row);
     }
 }
@@ -612,6 +626,10 @@ export interface WindowSkeleton {
     readonly pinned: readonly boolean[];
     /** Whether the row declares itself collapsed. */
     readonly declared: readonly boolean[];
+    /** Whether rows of the window nest under the row: what Collapse all or
+     *  Expand all, left standing, folds or opens as the row lands (#1777).
+     *  Absent, no row of the window has rows under it. */
+    readonly parent?: readonly boolean[];
     /** Each row's height facts. */
     readonly facts: readonly RowHeightFacts[];
 }
@@ -638,12 +656,16 @@ export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxi
     // Rows whose parent is outside the window root the derivation.
     const rooted = rows.map((r) => (r.parent.type === "some" && !at.has(r.parent.value) ? { ...r, parent: none } : r));
     const derived = derivePlan(indexRows(rooted), undefined, axisKind);
+    const parents = rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1));
+    const parent = rows.map(() => false);
+    for (const p of parents) if (p >= 0) parent[p] = true;
     return {
         keys: rows.map((r) => r.key),
-        parents: rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1)),
+        parents,
         top: rows.map((r) => r.parent.type === "none"),
         pinned: rows.map((r) => r.pinned),
         declared: rows.map((r) => r.collapsed),
+        parent,
         facts: rows.map((r) => heightFactsOf(r, derived)),
     };
 }
@@ -652,9 +674,11 @@ export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxi
 export interface SkeletonUi {
     /** The active grain. */
     grain: PlanGrain;
-    /** Whether a row's subtree is collapsed — given its key and whether it
-     *  declares itself collapsed (a paged row may not have been seeded yet). */
-    collapsed: (key: RowKey, declared: boolean) => boolean;
+    /** Whether a row's subtree is collapsed — given its key, whether it
+     *  declares itself collapsed (a paged row may not have been seeded yet),
+     *  and whether rows nest under it (what Collapse all or Expand all left
+     *  standing folds or opens those as they land, #1777). */
+    collapsed: (key: RowKey, declared: boolean, parent: boolean) => boolean;
     /** The chart rows the user expanded. */
     chartsExpanded: ReadonlySet<RowKey>;
 }
@@ -664,13 +688,21 @@ const NO_CHARTS: ReadonlySet<RowKey> = new Set();
 
 /**
  * The UI state a window rests at — its declared collapse, no chart expanded,
- * no focus — under a grain.
+ * no focus — under a grain; and, while Collapse all or Expand all stands
+ * (#1777), every row with rows under it folded or open as it stands, and a row
+ * that declares itself folded open under Expand all: as a window read now
+ * lands ({@link PlanStore.standing}).
  *
  * @param grain - The DECLARED grain
+ * @param standing - What Collapse all (`true`) or Expand all (`false`) left standing; `undefined` for neither
  * @returns The state
  */
-export function restUi(grain: PlanGrain): SkeletonUi {
-    return { grain, collapsed: (_key, declared) => declared, chartsExpanded: NO_CHARTS };
+export function restUi(grain: PlanGrain, standing?: boolean): SkeletonUi {
+    return {
+        grain,
+        collapsed: (_key, declared, parent) => (parent && standing !== undefined ? standing : declared && standing !== false),
+        chartsExpanded: NO_CHARTS,
+    };
 }
 
 /**
@@ -698,7 +730,7 @@ export function skeletonHeight(sk: WindowSkeleton, ui: SkeletonUi, dense: boolea
         }
         const key = sk.keys[i]!;
         const f = sk.facts[i]!;
-        const collapsed = ui.collapsed(key, sk.declared[i]!) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
+        const collapsed = ui.collapsed(key, sk.declared[i]!, sk.parent?.[i] === true) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
         sum += factsHeight(f, key, collapsed, dense, ui.chartsExpanded, focus?.kind === "expand" ? focus : undefined);
         if (collapsed) closed[i] = true;
     }

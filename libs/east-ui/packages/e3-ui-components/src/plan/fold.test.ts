@@ -137,4 +137,9 @@ describe("the per-kind folds", () => {
         const gaps = WEEKS.map((at) => ({ t: at, y: Number.NaN }));
         expect(Number.isNaN(foldChartPoints(gaps, "sum", MONTH, undefined)[0]!.y)).toBe(true);
     });
+
+    test("a line or an area that keeps every point (`none`) hands back the very points at a coarser period — four weeks and a gap in one month, each where it is", () => {
+        const points = [...WEEKS, t("2026-07-29T06:00:00")].map((at, i) => ({ t: at, y: i === 4 ? Number.NaN : i }));
+        expect(foldChartPoints(points, "none", MONTH, undefined)).toBe(points);
+    });
 });

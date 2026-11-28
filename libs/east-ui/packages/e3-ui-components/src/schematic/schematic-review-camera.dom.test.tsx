@@ -46,9 +46,6 @@ const stringEqual = equalFor(StringType);
 /** The rail's key over the floor. */
 const FLOOR = "schematic.review.camera";
 
-/** The racks' record, as its dataset's requests name it. */
-const RACKS = `records.${ex.schematicRacks.name}`;
-
 /** Where the floor's host keeps the whole selection, as `onSelect` hears it. */
 const KEPT = "schematic.review.camera.selected";
 
@@ -164,14 +161,27 @@ async function open(example: { fn: { toIR(): unknown } }) {
     return ui;
 }
 
-/** The racks' runs read through the area index the window reads through: one a window. */
-const windowReads = () => h.requests("runs", RACKS).filter((request) => request.query.get("index") === "schematic_racks_by_area").length;
+/** The cage's left corner, around A01: the window a zoom there reads holds A01 to A04, and no other rack. */
+const CORNER = { minX: 1, minY: 2, maxX: 5, maxY: 4 };
 
-/** Zooms into a world box, and waits until the window it reads has landed. */
-async function zoomAndLand(container: HTMLElement, box: { minX: number; minY: number; maxX: number; maxY: number }) {
-    const before = windowReads();
-    await zoomInto(canvasOf(container), cameraOf(container), box);
-    await waitFor(() => expect(windowReads()).toBeGreaterThan(before), { timeout: 5_000 });
+/** The racks' record, as its dataset's requests name it. */
+const RACKS = `records.${ex.schematicRacks.name}`;
+
+/** The searches of the racks' cells through the area index the window reads through: one a window of cells not yet found. */
+const windowSearches = () => h.requests("find", RACKS).filter((request) => request.query.get("index") === "schematic_racks_by_area").length;
+
+/** Whether the frame's main says a read is in flight (`BuilderFrame.busy`): a window not yet landed. */
+const busy = (c: HTMLElement) => c.querySelector("[data-frame-slot='main']")?.getAttribute("aria-busy") === "true";
+
+/**
+ * Zooms into the cage's left corner, and waits until the window it reads has landed: its cells searched, and main busy
+ * no longer. Its runs say nothing of it: they are rows the window read at Fit holds, cut from that one, and e3 is asked
+ * for none of them (#1797).
+ */
+async function zoomIntoCorner(container: HTMLElement) {
+    const before = windowSearches();
+    await zoomInto(canvasOf(container), cameraOf(container), CORNER);
+    await waitFor(() => expect([windowSearches() > before, busy(container)]).toEqual([true, false]), { timeout: 5_000 });
     await settle();
 }
 
@@ -200,7 +210,7 @@ test("a zoom lets go of nothing selected: a rack read by area that the zoomed wi
     });
     await waitFor(() => expect(selectedCards(container, [["racks", "A05"], ["network", "MMR-1"]])).toEqual([true, true]));
     // A zoom into the cage's left corner, around A01: its window holds neither A05 nor any rack but A01.
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     // Fit again: the floor's window draws A05 once more. Nothing but a camera move happened: both are still selected.
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
@@ -219,7 +229,7 @@ test("a zoom is heard by no onSelect: what the host keeps of the selection stays
     await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
     // A zoom into the cage's left corner, around A01: its window holds no A05.
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect(card(container, "racks", "A05")).toBeNull();
     await settle();
     expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true);
@@ -229,7 +239,7 @@ test("Details shows a rack read by area that the zoomed window no longer holds, 
     const { container } = await open(floor);
     await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect([detailsTitle(container), detailsRead(container)]).toEqual(["A05", true]));
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect(card(container, "racks", "A05")).toBeNull();
     await settle();
     await waitFor(() => expect([detailsTitle(container), detailsRead(container)]).toEqual(["A05", true]));
@@ -239,7 +249,7 @@ test("a rack off the window is let go of once a read proves it gone: another ses
     const { container } = await open(floor);
     await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true);
     // Another session deletes A05: read again by its key at the revision that commit makes, it is gone.
     const racks = await h.read(ex.schematicRacks);
@@ -252,7 +262,7 @@ test("a rack off the window is let go of once a new choice leaves it out — ask
     const { container } = await open(floor);
     await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     // Elmway College's racks chosen: A05 is theirs, and stays selected, Details showing it.
     await narrow(new SortedMap([["owner", variant("values", [printText("Elmway College")])]], compareString));
     expect([keptEqual(readKept(), [{ kind: "racks", key: "A05" }]), detailsTitle(container)]).toEqual([true, "A05"]);
@@ -276,14 +286,15 @@ test("fit flies the camera when the narrowing changes, never as a zoom moves the
         vi.useRealTimers();
     }
     // The viewer zooms in on the cage's left corner, around A01, whose window holds A01 to A04 but not A05. The narrowing
-    // stands as it was: nothing may fly the camera from where they put it. Its window's read is counted from before the
-    // zoom, as `zoomAndLand` counts it: on a busy machine the read starts before the zoom returns.
-    const before = windowReads();
-    await zoomInto(canvasOf(container), cameraOf(container), { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    // stands as it was: nothing may fly the camera from where they put it. Its window's search is counted from before the
+    // zoom: on a busy machine it is asked before the zoom returns.
+    const before = windowSearches();
+    await zoomInto(canvasOf(container), cameraOf(container), CORNER);
     const zoomed = cameraOf(container);
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
-        await waitFor(() => expect(windowReads()).toBeGreaterThan(before), { timeout: 5_000 });
+        // Its window landed, as `zoomIntoCorner` waits for it, and a fly has had its time.
+        await waitFor(() => expect([windowSearches() > before, busy(container)]).toEqual([true, false]), { timeout: 5_000 });
         await settle();
         await act(async () => { vi.advanceTimersByTime(FLY_MS); });
         await settle();
@@ -295,7 +306,7 @@ test("fit flies the camera when the narrowing changes, never as a zoom moves the
 
 test("fit flies to a narrowing's racks read by area as their area index finds them, the window off them: zoomed into A01's corner, Elmway College's A05 chosen (§10.3)", async () => {
     const { container } = await open(fitFloor);
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect(card(container, "racks", "A05")).toBeNull();
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
@@ -317,7 +328,7 @@ test("the drawing's counts, nothing selected, stay as they are while a zoom move
     const { container } = await open(floor);
     const atFit = drawingCounts(container);
     expect(atFit["racks"]).toBe("5");
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect(drawingCounts(container)).toEqual(atFit);
 });
 
@@ -328,7 +339,7 @@ test("the drawing's links, nothing selected, are never counted from the window o
     const { container } = await open(floor);
     const words = ["Links not counted: what they join is read as the view moves"];
     expect([drawingCounts(container)["links"], uncounted(container)]).toEqual([undefined, words]);
-    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    await zoomIntoCorner(container);
     expect([drawingCounts(container)["links"], uncounted(container)]).toEqual([undefined, words]);
 });
 

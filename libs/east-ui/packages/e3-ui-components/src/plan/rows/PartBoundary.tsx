@@ -19,8 +19,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
-import { EastErrorBoundary } from "@elaraai/east-ui-components/internal";
+import { EastErrorBoundary, useSlotClass } from "@elaraai/east-ui-components/internal";
 import type { PlanPart } from "../messages.js";
 import { usePlanWords } from "../words.js";
 
@@ -63,15 +62,17 @@ export interface PlanPartBoundaryProps {
  */
 export function PlanPartBoundary({ part, resetKey, styles, children }: PlanPartBoundaryProps) {
     const words = usePlanWords();
+    // Its failure a plain element of its slot's class, made once a theme (#1780), as the part it stands for is.
+    const slot = useSlotClass();
     const id = planPartId(part);
     return (
         <EastErrorBoundary
             title={`Plan ${id}`}
             resetKey={resetKey}
             fallback={({ message }) => (
-                <Box css={styles.partError} data-plan-error={id} role="alert">
+                <div className={slot(styles.partError)} data-plan-error={id} role="alert">
                     {words.m.partFailed({ part: words.m.partName({ part }), message })}
-                </Box>
+                </div>
             )}
         >
             {children}

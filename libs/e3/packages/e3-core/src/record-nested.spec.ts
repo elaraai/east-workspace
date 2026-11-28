@@ -20,7 +20,11 @@
  * and its kit, child rows that nest nothing and declare no collection)
  * and gauges (a value a day and nothing keyed by an id, so an index whose ids
  * have no case) — each with its patch door, its nested index and an index of
- * its rows. It writes the same rows through the doors, then the issue's writes one
+ * its rows. Between them they keep a node's totals at no period, at one and at
+ * two, and the record's totals at the periods an index names and at those it
+ * keeps when it names none (#1739): the span beside each index is kept from
+ * what a write's patch touched, and is one of the indexes compared.
+ * It writes the same rows through the doors, then the issue's writes one
  * after another, and a reduce over all last, and compares the states hash for
  * hash after each: across the runtimes, against a rebuild in each, and against
  * the same writes with every row they update replaced whole — which the index
@@ -47,7 +51,7 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
-import { RecordNestedPathType } from '@elaraai/e3-types';
+import { NestedSpanKeyType } from '@elaraai/e3-types';
 import { recordMutate, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { DatasetSegments, readManifest } from './dataset-open.js';
 import { packageImport } from './package-files.js';
@@ -102,13 +106,13 @@ function declared(runner?: RunnerConfig) {
   const machines = e3.record('machines', Machines, {
     initial: new Map(),
     indexes: (index) => ({
-      machines_in_time: index.nested({
+      machines_in_time: index.nestedSeries({
         collections: {
-          jobs: index.nested.items({ from: 'start', to: 'end' }), stops: index.nested.items({ from: 'start', to: 'end' }),
-          alarms: index.nested.items({ at: 'at' }), load: index.nested.values(), output: index.nested.values(),
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), stops: index.nestedSeries.items({ from: 'start', to: 'end' }),
+          alarms: index.nestedSeries.items({ at: 'at' }), load: index.nestedSeries.values(), output: index.nestedSeries.values(),
         },
         tile: 'week',
-        summary: 'month',
+        summary: ['week', 'month'],
       }, runner),
       machines_by_site_status: index.on(['site', 'status'], runner),
     }),
@@ -127,8 +131,8 @@ function declared(runner?: RunnerConfig) {
   const halls = e3.record('halls', Halls, {
     initial: new Map(),
     indexes: (index) => ({
-      halls_in_time: index.nested({
-        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      halls_in_time: index.nestedSeries({
+        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: ['month'],
       }, runner),
       halls_by_site: index.on(['site'], runner),
     }),
@@ -137,10 +141,11 @@ function declared(runner?: RunnerConfig) {
   const assemblies = e3.record('assemblies', Assemblies, {
     initial: new Map(),
     indexes: (index) => ({
-      assemblies_in_time: index.nested({
-        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
+      assemblies_in_time: index.nestedSeries({
+        collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
         tile: 'week',
-        summary: 'month',
+        summary: ['month', 'quarter'],
+        totals: ['week', 'year'],
       }, runner),
       assemblies_by_name: index.on(['name'], runner),
     }),
@@ -149,12 +154,12 @@ function declared(runner?: RunnerConfig) {
   const ledgers = e3.record('ledgers', Ledgers, {
     initial: new Map(),
     indexes: (index) => ({
-      ledgers_in_time: index.nested({
+      ledgers_in_time: index.nestedSeries({
         collections: {
-          measures: index.nested.rows({
-            readings: index.nested.values({ rollup: ['sum', 'mean', 'count'] }),
-            stock: index.nested.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
-            children: index.nested.recursive(),
+          measures: index.nestedSeries.rows({
+            readings: index.nestedSeries.values({ rollup: ['sum', 'mean', 'count'] }),
+            stock: index.nestedSeries.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
+            children: index.nestedSeries.recursive(),
           }),
         },
         tile: 'day',
@@ -167,13 +172,13 @@ function declared(runner?: RunnerConfig) {
   const crews = e3.record('crews', Crews, {
     initial: new Map(),
     indexes: (index) => ({
-      crews_in_time: index.nested({
+      crews_in_time: index.nestedSeries({
         collections: {
-          hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }),
-          kit: index.nested.rows({}),
+          hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: 'sum' }), shifts: index.nestedSeries.items({ at: 'at' }) }),
+          kit: index.nestedSeries.rows({}),
         },
         tile: 'week',
-        summary: 'month',
+        summary: ['month'],
       }, runner),
       crews_by_site: index.on(['site'], runner),
     }),
@@ -182,7 +187,7 @@ function declared(runner?: RunnerConfig) {
   const gauges = e3.record('gauges', Gauges, {
     initial: new Map(),
     indexes: (index) => ({
-      gauges_in_time: index.nested({ collections: { level: index.nested.values() }, tile: 'day', summary: 'month' }, runner),
+      gauges_in_time: index.nestedSeries({ collections: { level: index.nestedSeries.values() }, tile: 'day', summary: ['day', 'month'], totals: ['day'] }, runner),
       gauges_by_site: index.on(['site'], runner),
     }),
     mutations: (mutation) => ({ patch: mutation.patch(runner) }),
@@ -665,46 +670,58 @@ describe('the nested series index\'s span beside it (#1438)', () => {
     assert.strictEqual(outcome.kind, 'committed', `machines: ${outcome.kind === 'failed' ? outcome.stderr : outcome.kind}`);
   }
 
-  /** The machines' span as the record holds it: each collection's first and last month, by its place as East prints it. */
-  async function spanOf(): Promise<Record<string, [string, string]>> {
+  /**
+   * The machines' span as the record holds it: under each period it keeps the record's totals at, as East prints the
+   * period, each collection's first and last tile of it, by its place as East prints it.
+   */
+  async function spanOf(): Promise<Record<string, Record<string, [string, string]>>> {
     const ref = await storage.datasets.read(repo, 'span', 'records/machines');
     assert.ok(ref && ref.type === 'value', 'records/machines holds a value');
     const index = await resolveRecordIndex(storage, repo, 'span', 'records/machines', ref.value.hash, 'machines_in_time_span');
     assert.ok(index !== null, 'the record names its nested series index\'s span');
     const segments = await DatasetSegments.open(storage, repo, index.manifest);
-    const out: Record<string, [string, string]> = {};
+    const out: Record<string, Record<string, [string, string]>> = {};
     if (segments.elementCount === 0) return out;
     const entries = decodeBeast2For(fromEastTypeValue(index.collectionType))(await segments.span(0, segments.cumulative.length)) as SortedMap<unknown, unknown>;
-    const SpanKey = StructType({ collection: RecordNestedPathType, tile: DateTimeType });
-    const place = printFor(SpanKey.fields.collection);
-    const month = printFor(DateTimeType);
+    const place = printFor(NestedSpanKeyType.fields.collection);
+    const period = printFor(NestedSpanKeyType.fields.level);
+    const start = printFor(DateTimeType);
     for (const key of entries.keys()) {
-      const { collection, tile } = (key as { ik: ValueTypeOf<typeof SpanKey> }).ik;
+      const { collection, level, tile } = (key as { ik: ValueTypeOf<typeof NestedSpanKeyType> }).ik;
+      const kept = (out[period(level)] ??= {});
       const at = place(collection);
-      out[at] = [out[at]?.[0] ?? month(tile), month(tile)];
+      kept[at] = [kept[at]?.[0] ?? start(tile), start(tile)];
     }
     return out;
   }
 
-  it('holds each collection\'s first and last month across the rows, and keeps them as writes move, add and take items', async () => {
+  it('holds each collection\'s first and last tile of each period across the rows, and keeps them as writes move, add and take items', async () => {
     const empty = new SortedMap([], compareFor(StringType)) as ValueTypeOf<typeof Machines>;
     const jobs = '.step (key="jobs", rest=.end)';
     const load = '.step (key="load", rest=.end)';
     const seeded = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
       `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-06-05T00:00:00.000', '2026-06-07T00:00:00.000'] }))}}`);
     await write(empty, seeded);
+    // The machines name no period for their record's totals: a month, a quarter and a year (#1739).
     assert.deepStrictEqual(await spanOf(), {
-      [jobs]: ['2026-01-01T00:00:00.000', '2026-06-01T00:00:00.000'],
-      [load]: ['2026-03-01T00:00:00.000', '2026-03-01T00:00:00.000'],
-    }, 'the seeded rows\' months');
-    // M-2's job moved to December: the jobs reach December, and June goes.
+      '.month': { [jobs]: ['2026-01-01T00:00:00.000', '2026-06-01T00:00:00.000'], [load]: ['2026-03-01T00:00:00.000', '2026-03-01T00:00:00.000'] },
+      '.quarter': { [jobs]: ['2026-01-01T00:00:00.000', '2026-04-01T00:00:00.000'], [load]: ['2026-01-01T00:00:00.000', '2026-01-01T00:00:00.000'] },
+      '.year': { [jobs]: ['2026-01-01T00:00:00.000', '2026-01-01T00:00:00.000'], [load]: ['2026-01-01T00:00:00.000', '2026-01-01T00:00:00.000'] },
+    }, 'the seeded rows\' months, quarters and year');
+    // M-2's job moved to December: the jobs reach December and its quarter, and June and its quarter go.
     const moved = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
       `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
     await write(seeded, moved);
-    assert.deepStrictEqual((await spanOf())[jobs], ['2026-01-01T00:00:00.000', '2026-12-01T00:00:00.000'], 'a job moved to December');
-    // M-1's job and load taken: the jobs start in December, and the load holds no month.
+    const afterMove = await spanOf();
+    assert.deepStrictEqual(afterMove['.month']?.[jobs], ['2026-01-01T00:00:00.000', '2026-12-01T00:00:00.000'], 'a job moved to December');
+    assert.deepStrictEqual(afterMove['.quarter']?.[jobs], ['2026-01-01T00:00:00.000', '2026-10-01T00:00:00.000'], 'and to its quarter');
+    // M-1's job and load taken: the jobs start in December, and the load holds no tile of any period.
     const taken = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({}))}, "M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
     await write(moved, taken);
-    assert.deepStrictEqual(await spanOf(), { [jobs]: ['2026-12-01T00:00:00.000', '2026-12-01T00:00:00.000'] }, 'January\'s job and March\'s load taken');
+    assert.deepStrictEqual(await spanOf(), {
+      '.month': { [jobs]: ['2026-12-01T00:00:00.000', '2026-12-01T00:00:00.000'] },
+      '.quarter': { [jobs]: ['2026-10-01T00:00:00.000', '2026-10-01T00:00:00.000'] },
+      '.year': { [jobs]: ['2026-01-01T00:00:00.000', '2026-01-01T00:00:00.000'] },
+    }, 'January\'s job and March\'s load taken');
   });
 });

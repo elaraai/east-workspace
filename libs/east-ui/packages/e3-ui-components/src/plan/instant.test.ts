@@ -12,7 +12,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { decodeBeast2For, encodeBeast2For } from "@elaraai/east";
+import { decodeBeast2For, encodeBeast2For, printFor } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { equalInstants, instantKey, instantOfKey, numberInstant, ordinalInstant, timeInstant, type PlanInstantValue } from "./instant.js";
 
@@ -36,17 +36,18 @@ describe("equalInstants", () => {
 });
 
 describe("instantKey / instantOfKey", () => {
-    test("a key spells the value as East prints it", () => {
-        expect(instantKey(timeInstant(new Date(Date.UTC(2026, 0, 5))))).toBe("time:2026-01-05T00:00:00.000");
-        expect(instantKey(numberInstant(3))).toBe("number:3.0");
-        expect(instantKey(ordinalInstant("P1"))).toBe("ordinal:P1");
+    test("a key is the instant as East prints it", () => {
+        const print = printFor(Plan.Types.Instant);
+        for (const t of [timeInstant(new Date(Date.UTC(2026, 0, 5))), numberInstant(3), ordinalInstant("P1")]) {
+            expect(instantKey(stored(t))).toBe(print(t));
+        }
     });
 
-    test("every instant reads back from its key as the same East value", () => {
+    test("every instant reads back from its key as the same East value — an ordinal holding the marks a key is spelled with too", () => {
         const instants = [
             timeInstant(new Date(Date.UTC(2026, 0, 5, 9, 30, 0, 125))),
             numberInstant(-0), numberInstant(NaN), numberInstant(1e21), numberInstant(0.1 + 0.2),
-            ordinalInstant("P:1"),
+            ordinalInstant("P:1"), ordinalInstant("time:2026-01-05T00:00:00.000"), ordinalInstant('.number "3.0"'), ordinalInstant(""),
         ];
         for (const t of instants) {
             const back = instantOfKey(instantKey(stored(t)));
@@ -54,10 +55,17 @@ describe("instantKey / instantOfKey", () => {
         }
     });
 
+    test("two instants share a key only where East calls them equal", () => {
+        expect(instantKey(ordinalInstant("3.0"))).not.toBe(instantKey(numberInstant(3)));
+        expect(instantKey(numberInstant(-0))).not.toBe(instantKey(numberInstant(0)));
+        expect(instantKey(stored(numberInstant(NaN)))).toBe(instantKey(numberInstant(NaN)));
+    });
+
     test("a string no instant produces names none", () => {
-        expect(instantOfKey("time:2026-01-05")).toBeUndefined();
-        expect(instantOfKey("number:")).toBeUndefined();
-        expect(instantOfKey("span:1")).toBeUndefined();
+        expect(instantOfKey(".time 2026-01-05")).toBeUndefined();
+        expect(instantOfKey(".number")).toBeUndefined();
+        expect(instantOfKey(".span 1")).toBeUndefined();
         expect(instantOfKey("plain")).toBeUndefined();
+        expect(instantOfKey("")).toBeUndefined();
     });
 });

@@ -46,6 +46,7 @@ import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { optimiseCases, typeInInspector } from "../shared/func/optimise-cases.test-utils.js";
 import { printEventRef } from "../shared/schedule/event-ref.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "./geometry.js";
 import "./index.js";
 
 /**
@@ -361,12 +362,12 @@ const windowSearches = (request: E3Request): boolean => request.kind === "find" 
     && request.query.get("index") === "plan_print_jobs_by_time";
 /** The requests made of the jobs' record since the request log held `from`. */
 const jobsSince = (from: number): E3Request[] => h.requests().slice(from).filter((request) => request.dataset === JOBS);
-/** The toolbar's step to the next day. */
-const nextDay = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "Next day" });
+/** The toolbar's step to the next window: the four weeks of days after the ones in view. */
+const nextWindow = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "Next 28 days" });
 
 /**
  * The print works' jobs, read a window at a time behind their rail, on a canvas that zooms — the day, the week, the
- * month and the quarter — with the print works' optimiser. A Plan zooms through its rail, which keeps the resolution.
+ * month and the quarter — with the print works' optimiser. A Plan zooms through its rail, which keeps the window.
  */
 const zooming = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Record.bind(events.planPrintPresses, []));
@@ -417,27 +418,31 @@ describe("the period a run is asked of (rule 1)", () => {
             await settle();
             return [request.period.type, instant(request.from), instant(request.to)];
         };
-        // The window the app gave, in days and in weeks: four weeks from Mon 5 Oct.
+        /** How many columns a period's preset shows on a plot not laid out, as a canvas's in a DOM with no layout is (#1740). */
+        const preset = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
+        // The window the app gave, four weeks from Mon 5 Oct: its columns days.
         expect(await asked()).toEqual(["day", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
+        // A period pressed is its preset from the window's start, which never moves: as many weeks from the 5th.
         await zoomTo("week");
-        expect(await asked()).toEqual(["week", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
-        // Zoomed out, the window is whole units of the axis: the months it touches, then their quarter.
+        expect(await asked()).toEqual(["week", "2026-10-05T00:00:00.000", instant(new Date(Date.UTC(2026, 9, 5 + 7 * preset)))]);
+        // Zoomed out, the window is whole units of the axis, from the start of the one the 5th is in: as many months
+        // from October, then as many quarters — past the jobs' own dates.
         await zoomTo("month");
-        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", "2026-12-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", instant(new Date(Date.UTC(2026, 9 + preset, 1)))]);
         await zoomTo("quarter");
-        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", "2027-01-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", instant(new Date(Date.UTC(2026, 9 + 3 * preset, 1)))]);
     });
 });
 
 describe("the eye waits on nothing the canvas reads (rule 6)", () => {
-    test("over jobs read a window at a time, the eye is on while the next day's window is still on its way, and a click asks e3 nothing of the jobs for its request: the call alone", async () => {
+    test("over jobs read a window at a time, the eye is on while the next window is still on its way, and a click asks e3 nothing of the jobs for its request: the call alone", async () => {
         const { container } = await h.mount(windowed);
         await waitFor(() => expect(backlogCount(container)).toBeGreaterThan(0), { timeout: 10_000 });
-        // The next day's reads: the rows' window over the range the canvas reads, held — the canvas waits for it.
-        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        // The next window's reads — the four weeks from 2 November: the rows' window over the range the canvas reads, held — the canvas waits for it.
+        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-31T00:00:00Z")));
         const hold = calls.hold();
         try {
-            await press(nextDay(container));
+            await press(nextWindow(container));
             await waitFor(() => expect(rowsWindow.held).toBeGreaterThan(0));
             // The eye waits for none of it.
             expect(eye(container)!.disabled).toBe(false);
@@ -581,11 +586,11 @@ describe("an event kind's window that fails, on the footer's line (#1398)", () =
         const { container } = await h.mount(twoKinds);
         await settle();
         expect(line(container).hasAttribute("data-idle")).toBe(true);
-        // The shifts' window over the range the canvas reads after a step to the next day: refused.
-        const failing = shiftsFrom(new Date("2026-10-04T00:00:00Z"));
+        // The shifts' window over the range the canvas reads after a step to the next window, the four weeks from 2 November: refused.
+        const failing = shiftsFrom(new Date("2026-10-31T00:00:00Z"));
         const restore = h.e3.fail(failing);
         try {
-            await press(nextDay(container));
+            await press(nextWindow(container));
             expect([line(container).hasAttribute("data-failed"), line(container).querySelector("[data-line-text]")?.textContent])
                 .toEqual([true, "Couldn't read crew shift events"]);
             expect(line(container).getAttribute("title")).toContain(SHIFTS);

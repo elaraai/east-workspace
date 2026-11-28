@@ -14,12 +14,13 @@
  *
  * - It opens on the narrowing's orders a window at a time — the window on
  *   screen and the two read ahead, through the status/due index — and the
- *   operations' cells of the orders around the rows in view: never either
- *   record whole, nor a window of operations.
- * - A scroll reads only the blocks it brings in: within the windows read, the
- *   cells of the orders it brings into view; past them, the windows there and
- *   the cells of the orders around the view then — never of the rows mounted
- *   at the edge of the run it rested in while those windows were read.
+ *   operations' cells of the block of orders the rows in view meet: never
+ *   either record whole, nor a window of operations.
+ * - A scroll reads the block it brings in and the next the way it went
+ *   (#1797): within the windows read, the cells of those orders; past them,
+ *   the windows there and the cells of the two blocks from the view on then —
+ *   never of the rows mounted at the edge of the run it rested in while those
+ *   windows were read.
  * - A rail choice pages the narrowed orders through the index, never a window
  *   of every order filtered by key, and the rail counts them.
  * - A move drafts the operation in the operations kind's session, kept while
@@ -338,8 +339,8 @@ describe("the work orders Plan: the orders its rows, read a window at a time, th
         expect(summary(c)).toContain("2,778 of 50,000 work orders");
         // The operations' cells: the first block — the narrowing's first fifty orders — one range an order at each level
         // the index files at (#1433), over the tiles the canvas reads (those its range, 29 September to 17 October,
-        // touches, one either side and the one before those), their searches in one request and the entries of those
-        // holding any in one more.
+        // touches, and the one before them where an operation filed there can reach it), their searches in one request
+        // and the entries of those holding any in one more.
         expect(seriesAsked()).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(searchedOrders()).toEqual(new Set(ready.slice(0, BLOCK)));
         // The interval index serves the rail's count of the window's operations and the bounds of their dates — searches,
@@ -349,23 +350,25 @@ describe("the work orders Plan: the orders its rows, read a window at a time, th
         expect([h.requests("read", ORDERS), h.requests("read", OPERATIONS)]).toEqual([[], []]);
     });
 
-    test("a scroll reads only the blocks it brings in: to the hundredth order, within the windows read, the cells of the orders from the fifty-first to the hundred-and-fiftieth and no window; to the thousandth, past them, the windows there and the cells of the orders around the view alone — none of the rows mounted at the edge of the run it rested in", async () => {
+    test("a scroll reads the block it brings in and the next one down: to the hundredth order, within the windows read, the cells of the orders from the hundred-and-first to the two-hundredth and no window; to the thousandth, past them, the windows there and the cells of the two blocks from it on alone — none of the rows mounted at the edge of the run it rested in (#1797)", async () => {
         const { container: c } = await h.mount(ex.planRecordIndexes);
         await settle();
         const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
         const start = await placeOf("Ready", FIRST);
-        // Down to the hundredth order, inside the first window: the blocks around the rows in view, the second and the
-        // third — none of the first — and no window of orders, which the first holds.
+        // Down to the hundredth order, inside the first window: the block the rows in view meet, the third, and the next
+        // one down, the fourth, the way the view went — none of the two above them — and no window of orders, which the
+        // first holds.
         const near = h.requests().length;
         await scrollRows(c, 100 * ROW_PX);
         await waitFor(() => expect(searchedOrders(near).size).toBeGreaterThan(0), { timeout: 10_000 });
         await settle();
         expect(seriesAsked(near)).toEqual([`find ${2 * LEVELS * BLOCK}`, "runs"]);
-        expect(searchedOrders(near)).toEqual(new Set(ready.slice(BLOCK, 3 * BLOCK)));
+        expect(searchedOrders(near)).toEqual(new Set(ready.slice(2 * BLOCK, 4 * BLOCK)));
         expect(ordersAsked(near)).toEqual([]);
         // Down to the thousandth order, in the sixth window — past the three read: the windows there, through the index,
-        // then the cells of the blocks around the orders the view shows, the twentieth and the twenty-first, once their
-        // rows are drawn — never those of the rows mounted at the edge of the run it rested in while its windows were read.
+        // then the cells of the block the orders the view shows are in, the twenty-first, and of the next one down, once
+        // their rows are drawn — never those of the rows mounted at the edge of the run it rested in while its windows
+        // were read, nor of the block above them.
         const far = h.requests().length;
         const thousandth = ready[1000]!;
         await scrollRows(c, 1000 * ROW_PX);
@@ -376,7 +379,7 @@ describe("the work orders Plan: the orders its rows, read a window at a time, th
         const windows = pages.map((page) => /^page by_status_due (\d+)\+200$/.exec(page)?.[1]).map((at) => (at === undefined ? NaN : Number(at)));
         expect(windows.every((at) => at >= start + 600 && (at - start) % 200 === 0), pages.join(", ")).toBe(true);
         expect(seriesAsked(far)).toEqual([`find ${2 * LEVELS * BLOCK}`, "runs"]);
-        expect(searchedOrders(far)).toEqual(new Set(ready.slice(19 * BLOCK, 21 * BLOCK)));
+        expect(searchedOrders(far)).toEqual(new Set(ready.slice(20 * BLOCK, 22 * BLOCK)));
         expect([h.requests("read", ORDERS), h.requests("read", OPERATIONS)]).toEqual([[], []]);
     });
 

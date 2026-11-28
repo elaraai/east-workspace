@@ -63,6 +63,7 @@ const without = (rows: PlanWireRow[], key: string) => rows.filter((r) => !rowIdE
 function planRoot(rows: PlanWireRow[], opts: { source?: unknown; links?: unknown[]; popover?: unknown } = {}): PlanRootValue {
     return {
         rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

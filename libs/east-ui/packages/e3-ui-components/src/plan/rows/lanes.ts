@@ -33,6 +33,57 @@ export function laneBand(index: number, count: number, span: number = 1): LaneBa
     return { top: index / lanes, height: span / lanes };
 }
 
+/** A lane of a buckets row in whole pixels (#1735): where its room starts down the row, and how tall it is above its rule. */
+export interface LaneRoom {
+    readonly top: number;
+    readonly room: number;
+}
+
+/**
+ * Where each lane of a buckets row stands in whole pixels (#1735): the row's height in equal shares, each a room and the
+ * 1px rule under it — the last lane's rule the row's own — so a row 25 a lane gives each 24 of room. What the lane
+ * rules are drawn at and what the tiles stand in.
+ *
+ * @param height - The row's height, its own rule included, in px
+ * @param count - How many lanes the row has; a row with none is one
+ * @returns Each lane's top and room, in order
+ */
+export function laneRooms(height: number, count: number): LaneRoom[] {
+    const lanes = Math.max(1, count);
+    const pitch = height / lanes;
+    return Array.from({ length: lanes }, (_, j) => {
+        const top = Math.round(j * pitch);
+        return { top, room: Math.round((j + 1) * pitch) - top - 1 };
+    });
+}
+
+/**
+ * Several lanes' rooms as one band (#1735): from the first's top to the end of the last's room — the rules between them
+ * inside it. Where a cell spanning them draws, and where a link meets it.
+ *
+ * @param lanes - The row's lanes ({@link laneRooms})
+ * @param index - The first lane's place among the row's
+ * @param span - How many lanes the band runs over, at least one
+ * @returns Its top and height, in px from the row's top; `undefined` for a lane the row has not
+ */
+export function laneSpan(lanes: readonly LaneRoom[], index: number, span: number = 1): { readonly top: number; readonly height: number } | undefined {
+    const first = lanes[index];
+    const last = lanes[Math.min(lanes.length, index + Math.max(1, span)) - 1];
+    return first === undefined || last === undefined ? undefined : { top: first.top, height: last.top + last.room - first.top };
+}
+
+/**
+ * The lane rules as one SVG path (#1735): a 1px line across the plot through the pixel row under each lane's room but
+ * the last's, whose rule is the row's own — drawn under the day rules.
+ *
+ * @param lanes - The row's lanes ({@link laneRooms})
+ * @param width - The plot's width, in px
+ * @returns The path's data; empty for a row of one lane
+ */
+export function laneRulesPath(lanes: readonly LaneRoom[], width: number): string {
+    return lanes.slice(0, -1).map((lane) => `M0 ${lane.top + lane.room + 0.5}H${width}`).join("");
+}
+
 /**
  * The lane a point of a row is in, by how far down the row it is.
  *

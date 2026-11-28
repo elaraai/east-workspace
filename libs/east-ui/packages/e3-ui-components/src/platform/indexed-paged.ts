@@ -21,7 +21,7 @@ import { toFindQuery } from "./find-query.js";
 
 type Metadata = Record<string, Record<string, unknown>>;
 /** A binding's nested part (#1435): the nested series index it lists, its name the one field of its `index`, or none. */
-type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType, StructType, StructType>>>;
+type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType, StructType, StructType, StructType>>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };
@@ -33,6 +33,11 @@ type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> }
 export type IndexMaintenance = (key: unknown, held: option<unknown>, next: option<unknown>, patch: option<unknown>) => ReadonlyMap<unknown, unknown>;
 /** Each listed nested series and summary index's maintenance for one row, by its name; none where the binding lists neither. */
 export type IndexMaintenances = option<Readonly<Record<string, IndexMaintenance>>>;
+/**
+ * Each listed series index's value function whose entries are copies of its events (#1725), by its name: given a row's
+ * key and the row, the copy the index holds of it. None where the binding lists no such index.
+ */
+export type IndexCopies = option<Readonly<Record<string, (key: unknown, row: unknown) => unknown>>>;
 /**
  * The listed nested series index's fill of a page (#1438): its lean rows, by key, filled with the entries read of it —
  * a beast2 Array of the index's `{ ik, value }` entries. None where the binding lists none.
@@ -71,9 +76,9 @@ function isNested(nested: Nested, name: string): boolean {
 
 /**
  * Whether an index is the listed nested series index's span (#1438): the index
- * e3 keeps beside it, each collection's months across the record's rows,
- * summed as a summary's totals are — read by its searches and runs, never
- * listed, as the nested series index is.
+ * e3 keeps beside it, each collection's tiles across the record's rows at each
+ * period the record's totals are kept at, summed as a summary's totals are —
+ * read by its searches and runs, never listed, as the nested series index is.
  */
 function isSpan(nested: Nested, name: string): boolean {
     return nested.type === "some" && Object.keys(nested.value.index).some((index) => nestedSpanName(index) === name);
@@ -341,15 +346,27 @@ export class IndexedPagedRuntime {
     }
 
     /**
+     * What a series index's entries carry where each is a copy of its event — what the index's `value` gives of the
+     * row (#1725) — as its metadata names the copy's type, an empty Array of it; `undefined` for any other index.
+     */
+    private copyOf(schema: Schema, name: string): EastType | undefined {
+        const copy = this.metadataOf(schema, name)?.copy;
+        return copy?.type === "Array" ? copy.value as EastType : undefined;
+    }
+
+    /**
      * Whether an index carries its rows (D29): an area index, or a series
      * index (#1039), whose entries hold the whole row as their projection, so
-     * it is read without a join; and beside a nested series index, every index
-     * but a summary, whose entries hold the lean row (#1435) — the binding
-     * lists none with a value of its own there; and beside an entries index,
-     * every index but a summary and an entries index, whose entries hold the
-     * row with the fields filed entry by entry emptied (#1522).
+     * it is read without a join — but a series index carrying a copy of each
+     * event, whose entries are its copies (#1725); and beside a nested series
+     * index, every index but a summary, whose entries hold the lean row
+     * (#1435) — the binding lists none with a value of its own there; and
+     * beside an entries index, every index but a summary and an entries index,
+     * whose entries hold the row with the fields filed entry by entry emptied
+     * (#1522).
      */
     private carriesRow(schema: Schema, nested: Nested, name: string): boolean {
+        if (this.copyOf(schema, name) !== undefined) return false;
         const kind = this.kind(schema, name);
         return kind === "area" || kind === "series" || (nested.type === "some" && kind !== undefined && kind !== "summary")
             || (kind !== undefined && kind !== "summary" && kind !== "entries" && this.entriesIndexes(schema).size > 0);
@@ -366,10 +383,11 @@ export class IndexedPagedRuntime {
         if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
         // An index that carries its rows is read without a join, whatever the binding's (D29); a summary index's
         // entries name no row to join (#1039), nor do a nested series index's span's (#1438), and a nested series index's
-        // are its rows' items (#1435).
+        // are its rows' items (#1435). A series index's copies are their events' own, read at their own type (#1725).
         const rows = name !== "primary" && !span && this.carriesRow(schema, nested, name);
         const summary = name !== "primary" && (span || this.isSummary(schema, name));
-        const join = name !== "primary" && joined && !rows && !summary && !inNested && entries === undefined && leanRows === undefined;
+        const copy = name === "primary" ? undefined : this.copyOf(schema, name);
+        const join = name !== "primary" && joined && !rows && !summary && !inNested && entries === undefined && leanRows === undefined && copy === undefined;
         const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${join ? "+join" : ""}`;
         const cached = built.get(sourceKey);
         if (cached !== undefined) return cached;
@@ -380,7 +398,8 @@ export class IndexedPagedRuntime {
                     : inNested ? indexWindowType(key, schema.keys[name]!, nestedValue, row)
                         : entries !== undefined ? indexWindowType(key, entries.key, entries.value, row)
                             : leanRows !== undefined ? indexWindowType(key, key, row, row)
-                                : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
+                                : copy !== undefined ? indexWindowType(key, schema.keys[name]!, copy, row)
+                                    : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
         const handle = this.paged.buildHandle(toEastTypeValue(type), path,
             { index: name === "primary" ? null : name, join }, "pinned") as unknown as Handle;
         built.set(sourceKey, handle);
@@ -395,7 +414,8 @@ export class IndexedPagedRuntime {
      *  index's entry gives its totals as its value, and names no row (#1039);
      *  a nested series index's its item, totals or subtotal (#1435); an
      *  entries index's the Dict's value, and its lean rows' the lean row as
-     *  both (#1522). */
+     *  both (#1522); and a series index's copy of its event, and no row
+     *  (#1725). */
     private entriesOf(schema: Schema, nested: Nested, name: string, window: unknown): unknown[] {
         let mapped = this.windows.get(window as object);
         if (mapped === undefined) { mapped = new Map(); this.windows.set(window as object, mapped); }
@@ -405,7 +425,8 @@ export class IndexedPagedRuntime {
                 rows = [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }));
             } else if (this.entriesRowsOf(schema, name) !== undefined) {
                 rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: some(entry.value) }));
-            } else if (this.isSummary(schema, name) || isNested(nested, name) || isSpan(nested, name) || this.kind(schema, name) === "entries") {
+            } else if (this.isSummary(schema, name) || isNested(nested, name) || isSpan(nested, name) || this.kind(schema, name) === "entries"
+                || this.copyOf(schema, name) !== undefined) {
                 rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: none }));
             } else if (this.carriesRow(schema, nested, name)) {
                 const whole = isTypeEqual(schema.args[2], schema.row);
@@ -505,6 +526,10 @@ export class IndexedPagedRuntime {
                     }
                     if (isNested(nested, name)) throw nestedWindow(name);
                     if (name !== "primary" && (this.kind(schema, name) === "entries" || this.entriesRowsOf(schema, name) !== undefined)) throw entriesWindow(name);
+                    // A series index's copies are of their own type, never the binding's projection (#1725).
+                    if (name !== "primary" && this.copyOf(schema, name) !== undefined) {
+                        throw new Error(`Data.bindPaged: '${name}' is a series index whose entries are copies of its events, each of its own type: a reader reads its cells (recordSliceCellEntries)`);
+                    }
                     const result = this.source(schema, path, metadata, nested, joined, name).page(offset, limit);
                     if (result.type === "none") return none;
                     return some(this.entriesOf(schema, nested, name, result.value));
@@ -557,11 +582,12 @@ export class IndexedPagedRuntime {
     platform(allowed: ReadonlySet<string> | null): PlatformFunction[] {
         const primitives = this.primitives();
         return [bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[]) => {
-            // The binding's types, as its reads take them; its maintenance part's last, which the handle carries (#1437).
-            const schema = this.schema(types.slice(0, -1));
+            // The binding's types, as its reads take them; its maintenance and copies parts' last, which the handle carries
+            // (#1437, #1725).
+            const schema = this.schema(types.slice(0, -2));
             return (...values: unknown[]) => {
-                const [path, metadata, nested, joined, entryKeys, recordId, maintenance, fill] =
-                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances, NestedFill];
+                const [path, metadata, nested, joined, entryKeys, recordId, maintenance, fill, copies] =
+                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances, NestedFill, IndexCopies];
                 const pathKey = datasetPathToString(path);
                 if (allowed !== null && !allowed.has(pathKey)) throw new Error(`Data.bindPaged: source path '${pathKey}' not declared in manifest`);
                 const typeKey = printType(StructType(schema.args.map((type, i) => [`T${i}`, type] as const)));
@@ -575,7 +601,7 @@ export class IndexedPagedRuntime {
                     East.value(joined, BooleanType)] as const;
                 const { page, seek, total, revision, refresh } = DataIndexedPrimitives;
                 const handle = {
-                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys, maintenance, fill,
+                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys, maintenance, copies, fill,
                     page: East.compile(East.function([StringType, IntegerType, IntegerType], OptionType(schema.window), ($, name, offset, limit) =>
                         $.return(page(args, ...descriptor, name, offset, limit))), primitives),
                     seek: East.compile(East.function([StringType, SeekQueryType], OptionType(SeekRangeType), ($, name, query) =>

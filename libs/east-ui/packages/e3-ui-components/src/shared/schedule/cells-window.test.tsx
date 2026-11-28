@@ -9,10 +9,14 @@
  * stored rows as its cells, kept while its record, its narrowing and the range
  * hold, and standing while they are read again. Over a record that is a plain
  * object here — its revision, its rows, and whether its read is in flight or
- * throws — the reader is held to: what it gives the kind and when; how often it
+ * throws — the reader is held to: what it gives the kind — the rows themselves,
+ * by their handle, a row's bytes made only when a gesture asks (#1771) — and
+ * when; how often it
  * asks the kind's read; how what it hands on stands to what is asked (the one
  * rule, `../view-read.ts`); what a failed read names; and what Saves landed,
- * laid over rows read before them and let go once they are read since. The
+ * laid over rows read before them and let go once they are read since; and
+ * the rows as one block, for a host placing a kind a block at a time (#1793),
+ * held as read, never with what a Save landed laid over them. The
  * builders' DOM tests carry the same through e3
  * (`calendar/calendar-records.dom.test.tsx`,
  * `plan/frame/plan-builder-editing.dom.test.tsx`).
@@ -24,18 +28,19 @@ import {
     ArrayType, BlobType, DateTimeType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, toEastTypeValue,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
-import { useScheduleCells, type ScheduleCellKind, type ScheduleCellsArgs } from "./cells.js";
+import { SCHEDULE_EVENT_CAP, ScheduleCellReadType } from "@elaraai/e3-ui/internal";
+import { heldCellRows } from "./cell-rows.js";
+import { schedulePeriodFailure, useScheduleCells, type ScheduleCellKind, type ScheduleCellRead, type ScheduleCellsArgs } from "./cells.js";
 import type { ScheduleEventDraftsValue, ScheduleLanded } from "./editing.js";
 
 const Row = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });
 type RowValue = ValueTypeOf<typeof Row>;
 const Cells = ArrayType(StructType({ key: StringType, row: Row }));
 const encodeCells = encodeBeast2For(Cells);
-const decodeCells = decodeBeast2For(Cells);
 const encodeRow = encodeBeast2For(Row);
 const decodeRow = decodeBeast2For(Row);
 const sameBytes = equalFor(BlobType);
+const readEqual = equalFor(ScheduleCellReadType);
 const compareString = compareFor(StringType);
 
 const at = (text: string) => new Date(text);
@@ -86,8 +91,15 @@ const asked = (of: FakeRecord, over: Partial<ScheduleCellsArgs> = {}, kind: Part
     drafts: NO_DRAFTS, span: undefined, ...over,
 });
 
-/** The rows a kind's cells hold, each by its key. */
-const titles = (bytes: Uint8Array | undefined) => (bytes === undefined ? undefined : decodeCells(bytes).map((entry): [string, RowValue] => [entry.key, entry.row]));
+/**
+ * The rows a kind is handed, each by its key: those held under the handle its read names, as the reader unpacked them —
+ * none for a kind it reads none of (#1771); `undefined` for a kind it names not.
+ */
+const titles = (read: ScheduleCellRead | undefined) => {
+    if (read === undefined) return undefined;
+    if (read.type !== "rows") return [];
+    return (heldCellRows(read.value) as ValueTypeOf<typeof Cells> | undefined)?.map((entry): [string, RowValue] => [entry.key, entry.row]);
+};
 
 describe("a kind read a window at a time is given its window's own rows (#1599)", () => {
     test("within the cap: its rows as its cells, each row by its key's text, the kind named as windowed, and what is handed on current", () => {
@@ -98,10 +110,16 @@ describe("a kind read a window at a time is given its window's own rows (#1599)"
         expect([[...read.windowed], read.view, read.error, [...read.capped], read.reading, read.drawn]).toEqual([["job"], "current", undefined, [], false, undefined]);
         const held = read.held.get("job")!;
         expect([held.has("J1"), held.has("J2"), held.has("J9"), held.get("J9")]).toEqual([true, true, false, undefined]);
+        // Handed the rows themselves, by their handle (#1771): unpacked once — the very rows a gesture finds its event's
+        // row among — never bytes packed for the kind's seams to unpack again.
+        const handed = read.reads.get("job");
+        if (handed?.type !== "rows") throw new Error("expected the job's rows handed on by their handle");
+        const rows = heldCellRows(handed.value) as ValueTypeOf<typeof Cells>;
+        expect([Object.is(held.value("J1"), rows[0]!.row), Object.is(held.value("J2"), rows[1]!.row)]).toEqual([true, true]);
+        expect([...held.rows()]).toEqual([["J1", BROCHURES], ["J2", CATALOGUE]]);
+        // A row's own bytes, made when a gesture asks for them: once — asked again, the same object.
         expect(decodeRow(held.get("J2")!.row)).toEqual(CATALOGUE);
-        // Asked again, a row's bytes are the same object: made once.
         expect(held.get("J2")).toBe(held.get("J2"));
-        expect([...held].map(([id, { row }]) => [id, decodeRow(row)])).toEqual([["J1", BROCHURES], ["J2", CATALOGUE]]);
     });
 
     test("before its first read lands it is given nothing — its host waits on the reader, which reads no window of its own — and what is handed on is cold", () => {
@@ -121,7 +139,8 @@ describe("a kind read a window at a time is given its window's own rows (#1599)"
         expect([result.current.reads.has("job"), result.current.view, jobs.calls]).toEqual([false, "cold", []]);
         jobs.counted = SCHEDULE_EVENT_CAP + 1;
         rerender(asked(jobs));
-        expect([titles(result.current.reads.get("job")), [...result.current.capped], [...result.current.windowed], jobs.calls]).toEqual([[], ["job"], [], []]);
+        // Handed nothing (#1771): none of its events.
+        expect([result.current.reads.get("job")?.type, [...result.current.capped], [...result.current.windowed], jobs.calls]).toEqual(["nothing", ["job"], [], []]);
         expect(result.current.notices.map((notice) => [notice.kind, notice.events])).toEqual([["job", SCHEDULE_EVENT_CAP + 1]]);
     });
 
@@ -131,6 +150,22 @@ describe("a kind read a window at a time is given its window's own rows (#1599)"
         expect([whole.result.current.reads.has("job"), [...whole.result.current.windowed], whole.result.current.view]).toEqual([false, [], "current"]);
         const hidden = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: asked(jobs, {}, { hidden: true }) });
         expect([hidden.result.current.reads.has("job"), [...hidden.result.current.windowed], jobs.calls]).toEqual([false, [], []]);
+    });
+
+    test("every kind is asked in the same read: one whose read is in flight holds back no other's, so their reads go out together (#1771)", () => {
+        const jobs = record([["J1", BROCHURES]]);
+        const checks = record([["C1", CATALOGUE]]);
+        jobs.flight = true;
+        const both = (): ScheduleCellsArgs => ({ ...asked(jobs), kinds: [kindOver(jobs), kindOver(checks, { key: "check", name: "Press check" })] });
+        const { result, rerender } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: both() });
+        // The checks' window asked beside the jobs' in flight; nothing handed on until both have landed.
+        expect([jobs.calls, checks.calls, result.current.reads.has("check"), result.current.view]).toEqual([[periodOf(WEEK)], [periodOf(WEEK)], false, "cold"]);
+        jobs.flight = false;
+        rerender(both());
+        expect([titles(result.current.reads.get("job")), titles(result.current.reads.get("check")), result.current.view])
+            .toEqual([[["J1", BROCHURES]], [["C1", CATALOGUE]], "current"]);
+        // The checks' rows, kept, were not read again.
+        expect(checks.calls).toEqual([periodOf(WEEK)]);
     });
 });
 
@@ -145,8 +180,8 @@ describe("its rows are kept while its record, and the range, hold — and stand 
             expect([...result.current.drafts.get("job")!.keys()]).toEqual([`new-${n}`]);
         }
         expect(jobs.calls).toEqual([periodOf(WEEK)]);
-        // The same cells, by identity: nothing was read or encoded again.
-        expect(result.current.reads.get("job")).toBe(first);
+        // The same rows, by their handle: nothing was read or made again.
+        expect(readEqual(result.current.reads.get("job")!, first!)).toBe(true);
     });
 
     test("a Save, or another session's write: its rows as read before stand while they are read again — live, the view the same — and the rows read since replace them as they land", () => {
@@ -160,12 +195,12 @@ describe("its rows are kept while its record, and the range, hold — and stand 
         rerender(asked(jobs));
         expect([result.current.view, titles(result.current.reads.get("job")), [...result.current.windowed]])
             .toEqual(["rereading", [["J1", BROCHURES], ["J2", CATALOGUE]], ["job"]]);
-        expect(result.current.reads.get("job")).toBe(standing);
+        expect(readEqual(result.current.reads.get("job")!, standing!)).toBe(true);
         expect(decodeRow(result.current.held.get("job")!.get("J1")!.row)).toEqual(BROCHURES);
         // A draft made meanwhile is handed on at once, over the rows standing.
         const drafts: ScheduleEventDraftsValue = new SortedMap([["job", new SortedMap([["J2", new Uint8Array([7])]], compareString)]], compareString);
         rerender(asked(jobs, { drafts }));
-        expect([result.current.view, [...result.current.drafts.get("job")!.keys()], result.current.reads.get("job") === standing]).toEqual(["rereading", ["J2"], true]);
+        expect([result.current.view, [...result.current.drafts.get("job")!.keys()], readEqual(result.current.reads.get("job")!, standing!)]).toEqual(["rereading", ["J2"], true]);
         // It lands.
         jobs.flight = false;
         rerender(asked(jobs, { drafts }));
@@ -195,15 +230,40 @@ describe("its rows are kept while its record, and the range, hold — and stand 
     });
 });
 
-describe("a read that fails names the kind, and its window (#1599)", () => {
-    test("the kind's window's read throwing: why, the kind, and that it was its window — the last rows standing; the same failure is the same object", () => {
+describe("its rows as one block, for a host placing a kind a block at a time (#1793)", () => {
+    test("one block, under the handle of them all: its rows as they were read — never with what a Save landed laid over them — its events ordered as its record orders its keys", () => {
+        const jobs = record([["J1", BROCHURES], ["J2", CATALOGUE]]);
+        const { result, rerender } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: asked(jobs) });
+        const handed = result.current.reads.get("job");
+        if (handed?.type !== "rows") throw new Error("expected the job's rows handed on by their handle");
+        const blocks = () => result.current.blocks?.get("job");
+        expect(blocks()?.blocks.map((block) => block.handle)).toEqual([handed.value]);
+        expect([...blocks()!.blocks[0]!.held.ids()]).toEqual(["J1", "J2"]);
+        expect(blocks()!.compare("J1", "J2")).toBeLessThan(0);
+        // A Save deleted the catalogue, the record at r2, its window's read there on its way: the rows a gesture reads are as
+        // the Save left them, and the block's as they were read — so a draft is told from the rows the cells hold.
+        const landed: ScheduleLanded = new Map([["job", {
+            rows: new Map([["J2", { draft: new Uint8Array([9]), row: undefined, value: undefined }]]), from: new Set(["r1"]),
+        }]]);
+        jobs.revision = "r2";
+        jobs.rows = new Map([["J1", BROCHURES]]);
+        jobs.flight = true;
+        rerender(asked(jobs, { landed }));
+        expect([result.current.held.get("job")!.has("J2"), blocks()!.blocks[0]!.held.has("J2")]).toEqual([false, true]);
+    });
+});
+
+describe("a read that fails names the kind (#1599, #1710)", () => {
+    test("the kind's window's read throwing: why, and the kind — the last rows standing; the same failure is the same object", () => {
         const jobs = record([["J1", BROCHURES]]);
         const { result, rerender } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: asked(jobs) });
         jobs.revision = "r2";
         jobs.fails = new Error("the store is down");
         rerender(asked(jobs));
         const failure = result.current.error;
-        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"], window: true });
+        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"], rows: false });
+        // Its host says it as its period's.
+        expect(schedulePeriodFailure(result.current)).toBe(failure);
         expect([titles(result.current.reads.get("job")), result.current.view]).toEqual([[["J1", BROCHURES]], "current"]);
         rerender(asked(jobs));
         expect(result.current.error).toBe(failure);
@@ -213,11 +273,18 @@ describe("a read that fails names the kind, and its window (#1599)", () => {
         expect([result.current.error, result.current.view]).toEqual([undefined, "current"]);
     });
 
-    test("its count throwing is its window's failure too", () => {
+    test("its count throwing names the kind too", () => {
         const jobs = record([["J1", BROCHURES]]);
         const failing = kindOver(jobs, { count: () => { throw new Error("no count"); } });
         const { result } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: { ...asked(jobs), kinds: [failing] } });
-        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"], window: true });
+        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"], rows: false });
+    });
+
+    test("its host says every failure as its period's but the paged kind's own rows', which its paging says where those rows are (#1710)", () => {
+        const kind = { reason: "the store is down", kinds: ["job"], rows: false };
+        const rows = { reason: "the store is down", kinds: [], rows: true };
+        expect([schedulePeriodFailure({ error: kind }), schedulePeriodFailure({ error: rows }), schedulePeriodFailure({ error: undefined }), schedulePeriodFailure(undefined)])
+            .toEqual([kind, undefined, undefined, undefined]);
     });
 });
 
@@ -226,7 +293,7 @@ describe("what a Save landed, over a window's rows read before it (#1599)", () =
     const savedDraft = new Uint8Array([1, 2, 3]);
     /** What the editing keeps of a Save drafted at `r1`: the brochures moved, and the catalogue deleted. */
     const landed: ScheduleLanded = new Map([["job", {
-        rows: new Map([["J1", { draft: savedDraft, row: savedRow }], ["J2", { draft: new Uint8Array([9]), row: undefined }]]),
+        rows: new Map([["J1", { draft: savedDraft, row: savedRow, value: MOVED }], ["J2", { draft: new Uint8Array([9]), row: undefined, value: undefined }]]),
         from: new Set(["r1"]),
     }]]);
 
@@ -244,7 +311,8 @@ describe("what a Save landed, over a window's rows read before it (#1599)", () =
         expect([[...drafts.keys()], sameBytes(drafts.get("J1")!, savedDraft)]).toEqual([["J1", "J2"], true]);
         const held = result.current.held.get("job")!;
         expect([held.has("J1"), held.has("J2"), held.get("J2"), sameBytes(held.get("J1")!.row, savedRow)]).toEqual([true, false, undefined, true]);
-        expect([...held].map(([id, { row }]) => [id, decodeRow(row)])).toEqual([["J1", MOVED]]);
+        // Every row held, as the page holds it: the landed one as its Save left it, the deleted one gone.
+        expect([...held.rows()]).toEqual([["J1", MOVED]]);
         // The cells themselves stand as read: the rows from before the Save.
         expect(titles(result.current.reads.get("job"))).toEqual([["J1", BROCHURES], ["J2", CATALOGUE]]);
         expect(let_go).toEqual([]);

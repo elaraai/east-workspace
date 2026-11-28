@@ -1462,8 +1462,11 @@ Row virtualization via `@tanstack/react-virtual`:
   frame's scroll offset and where it placed the run (`useRowTop`,
   `RowsScroll.viewAt`), so a window landing above it draws it there in that
   one commit; one in flow is placed before paint. Either is drawn again only
-  as a row comes into the view or leaves it. A region whose items have no known position yet takes
-  the shared wash (`LoadingWash`). When a placeholder's fill and the footer's
+  as a row comes into the view or leaves it. A row's plot whose items have no known position yet
+  takes one skeleton bar across it (`LoadingRowBar`, #1764 — ruled 25 Nov 2026, a washed plot read
+  as a broken one), a run's rows the same through `UnloadedRun`'s `rowBar` cell; any other such
+  region — a day column, a month cell, a lane-hour cell, a canvas's area — takes the shared wash
+  (`LoadingWash`). When a placeholder's fill and the footer's
   loading line show is the builder's one reveal clock (CL4, `LoadingReveal`
   around its frame, read where it shows with `useRevealed`): after 150 ms, held
   at least 300 ms; geometry draws at once, and a shape keeps its footprint,

@@ -171,8 +171,12 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
             markers: [],
         })),
         planRow("chart", variant("chart", {
-            layers: [variant("column", { points: [{ t: a.at2, y: 5 }], axis: variant("left", null), series: none, breach: none, fold: variant("sum", null) })],
+            layers: [variant("column", {
+                points: [{ t: a.at2, y: 5 }], axis: variant("left", null), breach: none, fold: variant("sum", null),
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+            })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
         })),
         planRow("heat", variant("heat", {
             cells: variant("heat", {

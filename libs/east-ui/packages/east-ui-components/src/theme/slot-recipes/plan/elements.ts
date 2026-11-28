@@ -25,17 +25,20 @@ import {
     PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
 } from "./status.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { GUTTER_SLOT_W, PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight", "refLabel",
-    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartPlot", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
+    "chartTickGutter", "chartTickRail", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
+    "chartReadout", "chartReadoutValue", "chartTooltip", "chartTooltipTitle", "chartTooltipValue",
+    "markGroup", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
 
 /**
  * A lock's square (#1541, U9): Font Awesome's lock, 8px, in a bar or a chip — even, as a bar's 20px (16px dense) and
- * a chip's 18px are, so it centres on whole pixels; a tile's icons are 8px too.
+ * a chip's 18px are, so it centres on whole pixels; a tile's lock is 8px tall too, in its 20px (#1735).
  */
 export const PLAN_LOCK_W = "8px";
 
@@ -49,6 +52,9 @@ export const planLabelAfterLock = {
 
 /** An element that moves (#825) is picked up where it sits. */
 const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
+
+/** A mark is a click target — it selects its event or its row — under the pointer's hand; one that moves, the grab ({@link grab}). */
+const clickable = { cursor: "pointer" } satisfies SystemStyleObject;
 
 /** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
  * the label: removing only the label promotes a clipped quantity into its line. */
@@ -68,7 +74,35 @@ const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
  */
 const TICK_LINE = "14px";
 
-/** A chart row's axis tick, either side: mono 9.5 in the label ink, one line, its middle on its value's pixel. */
+/**
+ * A chart's series colours (#949, #1753), by a mark's place among the series (`data-series`): the brand first, as the
+ * chart rule has it, then the chart accents in their fixed order. Each sets the custom property a mark draws in, and a
+ * legend's stroke and a readout's beside it (#1750), so they never disagree.
+ */
+const CHART_SERIES_INKS = {
+    "& [data-series='0']": { "--mark-ink": "{colors.brand.solid}" },
+    "& [data-series='1']": { "--mark-ink": "{colors.accent.teal}" },
+    "& [data-series='2']": { "--mark-ink": "{colors.accent.purple}" },
+    "& [data-series='3']": { "--mark-ink": "{colors.accent.blue}" },
+    "& [data-series='4']": { "--mark-ink": "{colors.accent.orange}" },
+} satisfies SystemStyleObject;
+
+/** The room of a legend's line (#1750), and the even line its words stand on in it, so they start on a whole pixel (#1638). */
+const LEGEND_ROOM = "24px";
+const LEGEND_LINE = "14px";
+
+/** A legend's words, wherever they stand — a readout's too — on one line. */
+const legendWords = {
+    fontFamily: "mono",
+    fontSize: "10px",
+    lineHeight: LEGEND_LINE,
+    whiteSpace: "nowrap",
+} satisfies SystemStyleObject;
+
+/** What an axis's number stands in from the plot's edge, on the paper that keeps a mark from showing through it (#1750). */
+const TICK_INSET = "3px";
+
+/** A chart row's axis tick, wherever it stands: mono in the label ink, one line, its middle on its value's pixel. */
 const chartTick = {
     position: "absolute",
     fontFamily: "mono",
@@ -264,6 +298,7 @@ export const elementsBase = {
         top: "50%",
         borderRadius: "1px",
         background: "bg.surface",
+        ...clickable,
         // Its edge and an applied one's fill are one colour: the brand, or its status's tone (#1541).
         "--diamond-edge": "{colors.brand.solid}",
         boxShadow: `${DIAMOND_EDGE}, 0 0 0 2px {colors.bg.surface}`,
@@ -294,38 +329,61 @@ export const elementsBase = {
         "&:is([data-conflict], [data-bounds])": { boxShadow: `${DIAMOND_EDGE}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
+    // A chart row's plot: the plot cell whole, which its marks, its bands, its
+    // labels and its readout stand in.
+    chartPlot: {
+        position: "absolute",
+        inset: 0,
+    },
     // A chart row's marks (#949): the svg fills the plot, and every mark's
     // fill, stroke and dash is this slot's, selected by the mark's own
-    // attributes — series 1 in `brand.solid` (--brand-d, the chart rule), a
-    // forecast in a lighter mix of its own hue, a comparison series in the
-    // chart accents in their fixed order (teal → purple → blue → orange), a
-    // breach in warn. The renderer draws geometry only.
+    // attributes — a breach in warn, a forecast in a lighter mix of its own
+    // hue — in its layer's ink (#1753): a named series' by its place, the
+    // first `brand.solid` (--brand-d, the chart rule) and the later ones the
+    // chart accents in their fixed order (teal → purple → blue → orange); a
+    // colour its author chose, which the renderer sets in the same property;
+    // or, neither, its mark's own. Its layer's width, dash, strength and fill
+    // stand in custom properties of the recipe's own, which the renderer sets
+    // where the layer gives them. Under them all, a gridline a tick (#1750):
+    // the rule's ink mixed half into the paper, on one whole pixel.
     chartMarks: {
         position: "absolute",
         inset: 0,
         zIndex: 3,
         display: "block",
         overflow: "visible",
-        "& [data-plan-mark='column']": { fill: "brand.solid" },
-        "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='1']": { fill: "accent.teal" },
-        "& [data-plan-mark='column'][data-series='1'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='2']": { fill: "accent.purple" },
-        "& [data-plan-mark='column'][data-series='2'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.purple} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='3']": { fill: "accent.blue" },
-        "& [data-plan-mark='column'][data-series='3'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.blue} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='4']": { fill: "accent.orange" },
-        "& [data-plan-mark='column'][data-series='4'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.orange} 40%, {colors.bg.surface})" },
+        "& [data-plan-gridline]": {
+            fill: "none",
+            stroke: "color-mix(in oklch, {colors.border.subtle} 50%, {colors.bg.surface})",
+            strokeWidth: "1px",
+            shapeRendering: "crispEdges",
+        },
+        ...CHART_SERIES_INKS,
+        "& [data-plan-mark='column']": { fill: "var(--mark-ink, {colors.brand.solid})", fillOpacity: "var(--mark-fill, 1)" },
+        "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, var(--mark-ink, {colors.brand.solid}) 40%, {colors.bg.surface})" },
         "& [data-plan-mark='column'][data-warn]": { fill: "{colors.status.warn}" },
         "& [data-plan-mark='line'], & [data-plan-mark='line-planned'], & [data-plan-mark='area-line']": {
             fill: "none",
-            stroke: "brand.solid",
-            strokeWidth: "1.5px",
+            stroke: "var(--mark-ink, {colors.brand.solid})",
+            strokeWidth: "var(--mark-width, 1.5px)",
+            strokeOpacity: "var(--mark-opacity, 1)",
+            strokeDasharray: "var(--mark-dash, none)",
         },
-        "& [data-plan-mark='line-planned']": { strokeDasharray: "4 3" },
+        // A line's planned part (the now-split) is dashed — or, where the line
+        // has a dash of its own (`data-dash`), keeps it and draws fainter.
+        "& [data-plan-mark='line-planned']:not([data-dash])": { strokeDasharray: "4 3" },
+        "& [data-plan-mark='line-planned'][data-dash]": { strokeOpacity: "calc(var(--mark-opacity, 1) * 0.5)" },
         "& [data-plan-mark='band'], & [data-plan-mark='area']": {
-            fill: "color-mix(in srgb, {colors.brand.solid} 14%, transparent)",
+            fill: "var(--mark-ink, {colors.brand.solid})",
+            fillOpacity: "var(--mark-fill, 0.14)",
             stroke: "none",
+        },
+        // A line's or an area's dot: the paper, ringed in its layer's ink.
+        "& [data-plan-mark='dot']": {
+            fill: "{colors.bg.surface}",
+            stroke: "var(--mark-ink, {colors.brand.solid})",
+            strokeWidth: "1.5px",
+            opacity: "var(--mark-opacity, 1)",
         },
         "& [data-plan-mark='breach']": { fill: "{colors.status.warn}", stroke: "none" },
         "& [data-plan-mark='breach-rect']": {
@@ -334,11 +392,19 @@ export const elementsBase = {
             strokeWidth: "1.5px",
             strokeDasharray: "3 2",
         },
-        "& [data-plan-mark='refline']": { stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "2 3" },
-        "& [data-plan-mark='scatter']": { fill: "accent.purple", stroke: "none" },
+        // A reference line: dotted in the label ink, unless it gives its own colour or dash (#1753).
+        "& [data-plan-mark='refline']": {
+            stroke: "var(--mark-ink, {colors.fg.subtle})",
+            strokeWidth: "1px",
+            strokeDasharray: "var(--mark-dash, 2 3)",
+        },
+        "& [data-plan-mark='scatter']": { fill: "var(--mark-ink, {colors.accent.purple})", fillOpacity: "var(--mark-opacity, 1)", stroke: "none" },
         "& [data-plan-mark='refdot']": { fill: "bg.surface", stroke: "brand.solid", strokeWidth: "1.5px" },
     },
-    // A reference band — the paper wash under every mark, across its span.
+    // A reference band — the paper wash under every mark, across its span of
+    // instants, its range of values or both (#1753): the renderer places it, the
+    // plot's height where it gives no range. One in its author's colour is that
+    // colour mixed into the paper, as a chart draws a reference area.
     chartRefBand: {
         position: "absolute",
         top: 0,
@@ -346,22 +412,113 @@ export const elementsBase = {
         zIndex: 1,
         pointerEvents: "none",
         background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
+        "&[data-ink]": { background: "color-mix(in srgb, var(--mark-ink) 12%, transparent)" },
     },
-    // A chart's left-axis ticks stand inside the plot's left edge, as its
-    // right-axis ticks stand inside its right edge (#1680's review) — never in
-    // the gutter, where the values are. This box is the plot's, on a canvas row
-    // and on a narrow card alike, and each tick starts 3px in from its left
-    // edge (`chartTickLeft`), mirroring a right tick's 3px from its right: a
-    // tick of any width lies inside the plot, where one set against a narrow
-    // box's end ran out of it into the gutter.
+    // A narrow card has no gutter, so its chart's left-axis ticks stand inside
+    // the plot's left edge, as a chart's right-axis ticks stand inside its
+    // right edge. This box is the card's plot, and each tick starts a little
+    // in from its left edge (`chartTickLeft`), mirroring a right tick's from
+    // its right: a tick of any width lies inside the plot.
     plotTicks: {
         position: "absolute",
         inset: 0,
         pointerEvents: "none",
         zIndex: 5,
     },
-    chartTickLeft: { ...chartTick, left: "3px" },
-    chartTickRight: { ...chartTick, right: "3px", zIndex: 4 },
+    // Over the marks, a number stands on the paper, as a reference line's caption does (#1750): a column under it does
+    // not show through. Its padding is the inset it stood at, so its words keep their place.
+    chartTickLeft: { ...chartTick, left: 0, padding: `0 ${TICK_INSET}`, background: "bg.surface" },
+    chartTickRight: {
+        ...chartTick,
+        right: TICK_INSET,
+        zIndex: 4,
+        // On a phone card, which has no rail, its numbers stand on the paper too.
+        "[data-plan-cardbody] &": { right: 0, padding: `0 ${TICK_INSET}`, background: "bg.surface" },
+    },
+    // A canvas row's left-axis tick, in the gutter's value slot (#1750): at the
+    // slot's end, beside the plot it scales, in the slot's own tabular figures
+    // a weight up. One that stands where the row's controls show
+    // (`data-under-controls`) gives way while they do, on the rule that shows
+    // them.
+    chartTickGutter: {
+        ...chartTick,
+        right: 0,
+        fontSize: "10px",
+        fontWeight: "medium",
+        fontVariantNumeric: "tabular-nums",
+        [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
+    },
+    // A canvas row's right-axis tick, in the rail after its plot where the Plan declares one (#1750): at the rail's
+    // start, beside the plot it scales, in the gutter's numbers' face — as the left axis's stand at the value slot's end,
+    // the gap between them the gutter line's.
+    chartTickRail: {
+        ...chartTick,
+        left: "6px",
+        fontSize: "10px",
+        fontWeight: "medium",
+        fontVariantNumeric: "tabular-nums",
+    },
+    // A chart row's legend (#1750), down its gutter under the row's lines, which the renderer places it beneath: a line a
+    // named series, in the spec's room each, from the name's x — the gutter's own indent, which it takes from the cell,
+    // then past the caret's cell and its gap on a row that folds — to the value slot and its gap, which the left axis's
+    // numbers keep. It takes no pointer.
+    chartLegend: {
+        position: "absolute",
+        left: 0,
+        right: `calc(12px + ${GUTTER_SLOT_W} + 6px)`,
+        paddingLeft: "inherit",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 0,
+        pointerEvents: "none",
+        ...CHART_SERIES_INKS,
+        "& > [data-plan-legend-item]": { height: LEGEND_ROOM, paddingLeft: "20px" },
+        "&[data-leaf] > [data-plan-legend-item]": { paddingLeft: 0 },
+    },
+    // A phone card's legend (#1750): one line under its title, wrapping where it must, each series' stroke and name.
+    chartLegendCard: {
+        display: "flex",
+        flexWrap: "wrap",
+        columnGap: "12px",
+        rowGap: "2px",
+        padding: "0 12px 6px",
+        minWidth: 0,
+        ...CHART_SERIES_INKS,
+    },
+    // One series: its stroke, its name and unit, and — on a chart that draws on both axes — its axis.
+    chartLegendItem: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: 0,
+    },
+    // A series' stroke in its colour: the series colour its name takes, or the colour its author chose — a readout's
+    // layer that has neither, its mark's own ink (#1753).
+    chartLegendSwatch: {
+        flex: "none",
+        width: "12px",
+        height: "2px",
+        background: "var(--mark-ink, {colors.brand.solid})",
+        "&[data-kind='scatter']": { background: "var(--mark-ink, {colors.accent.purple})" },
+    },
+    // Its name and unit — the part of the line that gives way.
+    chartLegendName: {
+        ...legendWords,
+        fontWeight: "medium",
+        color: "fg.muted",
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+    },
+    // Its axis, a step quieter than its name: it qualifies the name, never competes with it.
+    chartLegendAxis: {
+        ...legendWords,
+        flex: "none",
+        fontWeight: "normal",
+        color: "fg.subtle",
+    },
+    // A reference layer's caption, on a paper knockout — a coloured line's in its colour (#1753).
     refLabel: {
         position: "absolute",
         fontFamily: "mono",
@@ -373,11 +530,25 @@ export const elementsBase = {
         padding: "0 3px",
         zIndex: 4,
         pointerEvents: "none",
+        "&[data-ink]": { color: "var(--mark-ink)" },
+        // A band's caption stands at the band's start (`--caption-at`). On a phone card, whose left numbers stand
+        // inside its plot (#1750), it never stands under them: it starts past the widest of them (`--left-glyphs`, in
+        // glyphs — a caption and a number share the mono face at one size, so a glyph of one is a glyph of the other)
+        // and the paper either side of it. Both are the recipe's own properties, so not `--plan-…` names, which are the
+        // canvas's geometry.
+        "&[data-plan-band-caption]": {
+            left: "var(--caption-at)",
+            "[data-plan-cardbody] [data-left-ticks] &": { left: `max(var(--caption-at), calc(var(--left-glyphs) * 1ch + 2 * ${TICK_INSET}))` },
+        },
+        // A reference line's caption stands at the plot's right edge, at the caption's own weight.
+        "&:where([data-plan-line-caption])": { right: "4px" },
     },
-    // The crosshair readout (#743) — each data layer's value at the
-    // hovered bucket, beside that bucket, in the ref-label vocabulary.
-    // The cursor channel fills, places and opens it (`data-open`), so a
-    // hover renders nothing; above the now line so it stays legible.
+    // The crosshair readout (#743) of every chart row but the one under the
+    // pointer, whose readout is the full one (`chartTooltip`, #1753): each
+    // series' value at the hovered bucket, beside that bucket, in the
+    // ref-label vocabulary. The cursor channel fills, places and opens it
+    // (`data-open`), so a hover renders nothing; above the now line so it
+    // stays legible.
     chartReadout: {
         position: "absolute",
         top: "2px",
@@ -398,15 +569,48 @@ export const elementsBase = {
         zIndex: 8,
         "&[data-open]": { display: "flex" },
     },
-    // One layer's value — in its mark's ink: lines, areas and bands the
-    // brand, columns the default ink, scatter the chart accent.
+    // One series' value, in the ink of its first layer's mark, so each value
+    // is told to its mark at a glance.
     chartReadoutValue: {
         "&[data-kind='line'], &[data-kind='area'], &[data-kind='band']": { color: "brand.fg" },
         "&[data-kind='scatter']": { color: "accent.purple" },
     },
+    // The full readout of the row under the pointer (#1753): over the canvas, fixed to the page where the renderer
+    // writes it, beside the hovered column, so no row's edge cuts it; the readout's paper and ring. The column's name
+    // over a line a series — its stroke, its name, and what it reads at the line's end. The cursor channel fills,
+    // places and opens it (`data-open`), so a hover renders nothing; it takes no pointer.
+    chartTooltip: {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        display: "none",
+        gridTemplateColumns: "auto minmax(0, 1fr) auto",
+        alignItems: "center",
+        columnGap: "6px",
+        rowGap: "4px",
+        padding: "6px 8px",
+        maxWidth: "320px",
+        background: "bg.surface",
+        borderRadius: "4px",
+        boxShadow: "0 0 0 1px {colors.border.subtle}",
+        pointerEvents: "none",
+        zIndex: "tooltip",
+        ...CHART_SERIES_INKS,
+        "&[data-open]": { display: "grid" },
+    },
+    // The column's name, across the box.
+    chartTooltipTitle: { ...legendWords, gridColumn: "1 / -1", fontWeight: "semibold", color: "fg.default" },
+    // What a series reads, at its line's end — its figures one width, so the values line up down the box.
+    chartTooltipValue: { ...legendWords, fontWeight: "semibold", color: "fg.default", fontVariantNumeric: "tabular-nums", textAlign: "right" },
     // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
     // Each glyph's size is the canvas's (`--plan-mark-…`), so a link meets a
     // mark at the glyph's edges (#1258).
+    //
+    // A mark, its lock and its label, held as one: the group draws no box of
+    // its own, so each stands in the plot as it would alone.
+    markGroup: {
+        display: "contents",
+    },
     milestoneDot: {
         position: "absolute",
         width: "var(--plan-mark-dot-w)",
@@ -416,6 +620,7 @@ export const elementsBase = {
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
+        ...clickable,
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
@@ -459,6 +664,7 @@ export const elementsBase = {
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
+        ...clickable,
         // ── R3, the border-triangle case — a CSS triangle has no width or
         // height to shrink, so the borders that ARE its size are halved.
         "&[data-ctx]": {
@@ -492,6 +698,7 @@ export const elementsBase = {
         justifyContent: "center",
         color: "{colors.brand.solid}",
         zIndex: 3,
+        ...clickable,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
         // Its status (#1541, U8): the icon in the tone's colour, in its kind's place; a tentative one in the tone's
         // ring, round its box — a solid glyph has no open form — which a drafted halo, an overlap's ring and a

@@ -28,8 +28,10 @@
  *
  * Its narrowing is one `Slice.bindRecords`, one rail on its toolbar (#1344):
  * its `rows` source gives the canvas its rows, paged from it; a source named
- * after an event kind narrows that kind's events and its backlog through its
- * interval index; and one a templates list or a tab names narrows its cards.
+ * after an event kind — or the one its `source` names, which the kinds of one
+ * record's cases share (#1769) — narrows that kind's events and its backlog
+ * through its interval index; and one a templates list or a tab names narrows
+ * its cards.
  * Every source holding a `range` holds the window with the others — an event
  * kind's, a tab's that lists what is in the dates on screen. The canvas's rows
  * never follow the dates: a `range` on the `rows` source would hold the
@@ -344,9 +346,10 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      * its `affordances` and `persist`. Its `rows` source gives the canvas its rows, paged from it in its index's order —
      * `data` then gives none — laid out by `series`, edits reaching the record through `record`
      * (`Record.bind(record)`); the resources among them narrow as every row does. A source named after an event kind's
-     * slot narrows that kind's events and its backlog through the source's interval index, its `range` the kind's start
-     * field — over rows read a page at a time, it lists the kind's series and summary indexes too, and the kind is read
-     * a cell at a time; one a templates list or a library tab names narrows its cards.
+     * slot — or the one its `source` names, which the kinds of one record share (#1769) — narrows that kind's events and
+     * its backlog through the source's interval index, its `range` the kind's start field — over rows read a page at a
+     * time, it lists the kind's series and summary indexes too, and the kind is read a cell at a time; one a templates
+     * list or a library tab names narrows its cards.
      * Every source holding a `range` holds the window with the others: the toolbar's navigation and range, the horizon
      * brush and the resolution write them together. The canvas's rows never follow the dates on screen: the `rows`
      * source takes no `range` — a date field there is a field of the rail the viewer sets — and a slice with no source
@@ -372,11 +375,12 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      */
     ready?: ExprType<EastType>;
     /**
-     * The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own: at least one, when given.
-     * Each lands on the canvas's rows (#1541, U1): its `resource.of` names a `Plan.series.resources` series or a
-     * `Plan.series.kinds` case by its key, and an event lands on the row whose key its resource field holds — or, `of`
-     * a name per case of a variant field, on the series its case names. An event is scheduled in time, so they need a
-     * time axis.
+     * The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own, or
+     * `...Schedule.events.kinds(record, field, { … })`, a kind per case of one record's variant field (#1769): at least
+     * one, when given. Each lands on the canvas's rows (#1541, U1): its `resource.of` names a `Plan.series.resources`
+     * series or a `Plan.series.kinds` case by its key, and an event lands on the row whose key its resource field holds
+     * — or, `of` a name per case of a variant field, on the series its case names. An event is scheduled in time, so
+     * they need a time axis.
      */
     events?: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
     /** Read-only rows: hand-built rows (`Plan.chart({ … })`) and `Plan.over(data, [series…])`. Pinned rows sit under the ruler; the rest follow `data`'s rows. */
@@ -761,8 +765,9 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             if (kind.templatesList !== "none") templatesSource("Plan", `Schedule.templates(rows, { …, source: "${slot}Templates" })`, kind.templatesSource, sliceNames);
         }
     }
-    // The sources a Plan takes: `rows`, an event kind's slot, or one a templates list or a tab names.
-    const named = new Set<string>([ROWS, ...kinds,
+    // The sources a Plan takes: `rows`, an event kind's — the one its `source` names (#1769), else its slot — or one a
+    // templates list or a tab names.
+    const named = new Set<string>([ROWS, ...eventKinds.map(([slot, kind]) => kind.source ?? slot),
         ...eventKinds.flatMap(([, kind]) => (kind.templatesSource === undefined ? [] : [kind.templatesSource])),
         ...(library ?? []).flatMap((tab) => (tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : []))]);
     const sources = recordSources(narrowing === undefined ? undefined : { ...narrowing, affordances: narrowing.affordances ?? PLAN_AFFORDANCES },
@@ -883,7 +888,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         if (events !== undefined) {
             // The series and summary indexes each event kind's source lists (#1039), its record's, read as the Plan is evaluated.
             for (const [slot, kind] of eventKinds) {
-                const part = bound.parts[slot] as unknown as { config: ExprType<RecordSliceConfigType> } | undefined;
+                const part = bound.parts[kind.source ?? slot] as unknown as { config: ExprType<RecordSliceConfigType> } | undefined;
                 if (part !== undefined) $(checkedScheduleTilings(slot, kind, paging, part.config, "Plan"));
             }
         }
@@ -920,9 +925,10 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         );
         return assemble(
             plan,
-            // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
-            // …and knowing the templates the library's tabs' cards make its events from (#1541, U1).
-            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot], made.get(slot))),
+            // Each event kind narrowed through its own source of the slice, when the slice has one (#1344) — the one its
+            // `source` names, which several kinds of one record share (#1769) — and knowing the templates the library's
+            // tabs' cards make its events from (#1541, U1).
+            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[kind.source ?? slot], made.get(slot))),
             optimiser,
             settings,
             tabs,

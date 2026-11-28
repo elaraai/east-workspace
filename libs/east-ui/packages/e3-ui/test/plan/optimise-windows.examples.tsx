@@ -57,17 +57,22 @@ export const clearDownPresses = e3.function("plan_clear_down_presses", {
 export const planOptimiseWindows = example({
     inputs: [],
     description: "A Plan read a cell at a time with the Elara eye (#1622): 2,000 presses, the canvas's rows, paged (a Plan.series.resources over Data.bindPaged), their jobs read through one Slice.bindRecords rail — the interval, series and summary indexes of the jobs' record — and never held whole, and `optimise` Func.bind of the works' maintenance optimiser on e3: Plan.Types.OptimiseRequest in, the window in view, the unit the axis is zoomed to, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: WindowJobs }) out, a patch of the jobs' record. The function reads each press that is down for maintenance — an input of the workspace — and that press's jobs over the window through the jobs' series index (`jobsByPress.events({ key, from, to })`), the Plan's unsaved edits laid over them (drafts: [planWindowJobs]), and sends them back to the backlog. A job dragged onto the press that is down, and not saved, is read among them: the eye waits on nothing the canvas has read, its patch lands in the session as one edit — the bars off the press, the Backlog holding them — which one Undo reverts and Save commits with the drag.",
-    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "series index", "index.series", "events", "East.diff", "patch", "backlog", "one edit", "Undo", "paged", "Data.bindPaged", "Slice.bindRecords", "cell", "large record", "e3.input", "maintenance", "Schedule.events", "Plan.series.resources", "Plan.library.backlog"],
+    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "series index", "index.flatSeries", "events", "East.diff", "patch", "backlog", "one edit", "Undo", "paged", "Data.bindPaged", "Slice.bindRecords", "cell", "large record", "e3.input", "maintenance", "Schedule.events", "Plan.series.resources", "Plan.library.backlog"],
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planWindowPresses));
             const jobs = $.let(Record.bind(planWindowJobs));
             const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // One rail: its `job` source lists the series and the summary beside the interval index, its range the window
-            // in view — the Plan reads the jobs' cells through them.
+            // in view — the Plan reads the jobs' cells through them — and the jobs' totals, which the horizon's bars read (#1732).
             const slice = $.let(Slice.bindRecords("ex.plan.optimise.windows", {
-                job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
-                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
+                job: {
+                    source: Data.bindPaged(planWindowJobs, {
+                        indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"],
+                        totals: ["plan_window_jobs_day_totals", "plan_window_jobs_week_totals", "plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
+                    }),
+                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
+                },
             }));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },

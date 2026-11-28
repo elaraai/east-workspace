@@ -24,11 +24,16 @@
  * Every cell says the value its colour or width encodes (#819): a data row's
  * cell is a button named by its bucket and value, a strip's cell carries the
  * same words as visually hidden text.
+ *
+ * Every part is a plain element of its slot's class, made once a theme
+ * (`useSlotClass`, #1780) — the hidden words too, of the class Chakra's own
+ * visually hidden text takes: a cell mounting works no style out.
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
-import { Box, VisuallyHidden } from "@chakra-ui/react";
+import { visuallyHiddenStyle } from "@chakra-ui/react";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { useSlotClass } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { instantKey, type PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
@@ -80,6 +85,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
     const dispatch = usePlanDispatch();
     // The canvas's words (#820) — every cell's text alternative speaks them.
     const w = usePlanWords();
+    const slot = useSlotClass();
     const { onElementClick } = usePlanResolvers();
     // RENDER bucketing (#619): overscan cells mount clipped at rest so a
     // brush-slide pan reveals them; interactions still speak `bucketOf`.
@@ -102,7 +108,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
         : {});
     const cellWords = (bucket: PlanBucket, value: string) => (element
         ? null
-        : <VisuallyHidden>{cellName(scale, bucket, value, w)}</VisuallyHidden>);
+        : <span className={slot(visuallyHiddenStyle)}>{cellName(scale, bucket, value, w)}</span>);
     const clickCell = (at: PlanInstantValue) => (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCellClick !== undefined) {
@@ -141,7 +147,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                     // inks its value to match.
                     const level = v === undefined ? undefined : heatLevel(depth);
                     return (
-                        <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
+                        <div key={i} className={slot(styles.heatCell)} data-ctx={ctxAttr}
                             data-plan-bucket={box.bucket.index}
                             {...cellAttrs(c.at, box.bucket, words)}
                             data-nodata={v === undefined ? "" : undefined}
@@ -152,12 +158,12 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                         >
                             {/* Its number: drawn whole, or — wider than the cell — off its line, out of sight, and said
                                 by the cell's hover (#1269). */}
-                            <Box as="span" css={styles.heatLabel} data-level={level} data-ctx={ctxAttr} data-plan-heat-label
+                            <span className={slot(styles.heatLabel)} data-level={level} data-ctx={ctxAttr} data-plan-heat-label
                                 data-plan-label="" aria-hidden={element ? undefined : "true"}>
                                 {v === undefined ? "–" : label}
-                            </Box>
+                            </span>
                             {cellWords(box.bucket, words)}
-                        </Box>
+                        </div>
                     );
                 })}
             </>
@@ -176,14 +182,14 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                     const frac = Math.max(0, Math.min(1, c.fraction));
                     const words = weightValueText(c.fraction, c.planned, w, format);
                     return (
-                        <Box key={i} css={styles.weightBar}
+                        <div key={i} className={slot(styles.weightBar)}
                             data-plan-bucket={b.index}
                             {...cellAttrs(c.at, b, words)}
                             data-planned={c.planned ? "" : undefined}
                             style={{ left: `calc(${b.x0 * 100}% + 4px)`, width: `calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})` }}
                             onClick={clickCell(c.at)}>
                             {cellWords(b, words)}
-                        </Box>
+                        </div>
                     );
                 })}
             </>
@@ -199,7 +205,7 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
                 const words = segmentsText(c.segments, w, segmentFormat);
                 return (
-                    <Box key={i} css={styles.segmentTrack}
+                    <div key={i} className={slot(styles.segmentTrack)}
                         data-plan-bucket={b.index}
                         {...cellAttrs(c.at, b, words)}
                         style={{ left: `calc(${b.x0 * 100}% + 4px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 8px)` }}
@@ -209,18 +215,18 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             const label = s.label.type === "some" ? s.label.value : undefined;
                             const fillTag = s.fill.type;
                             return (
-                                <Box key={j} css={styles.segmentPart}
+                                <div key={j} className={slot(styles.segmentPart)}
                                     style={{ width: `${share * 100}%` }}
                                     // The fill names its meaning; the recipe paints it.
                                     data-fill={fillTag}
                                     aria-hidden={element ? undefined : "true"}
                                 >
                                     {share > 0.14 ? label : undefined}
-                                </Box>
+                                </div>
                             );
                         })}
                         {cellWords(b, words)}
-                    </Box>
+                    </div>
                 );
             })}
         </>

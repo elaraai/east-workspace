@@ -64,15 +64,18 @@ export interface PlanNestedRollup {
 
 /**
  * A source's nested series index, as the Plan's build reads it: its name,
- * its tile and its summary tile, and each collection by its field.
+ * its tile, the periods it keeps its totals at, and each collection by its
+ * field.
  */
 export interface PlanNestedIndex {
     /** The index's name. */
     readonly name: string;
     /** The finest level it files at, and keeps subtotals from. */
     readonly tile: string;
-    /** The tile it keeps each node's totals by; none where it keeps none. */
-    readonly summary: string | undefined;
+    /** The periods it keeps each node's totals at, finest first: what a row past the cap shades from; none where it keeps none. */
+    readonly summary: readonly string[];
+    /** The periods it keeps the record's totals at, finest first: what the horizon's bars count by. */
+    readonly totals: readonly string[];
     /** Each collection's declaration, by its field. */
     readonly collections: ReadonlyMap<string, PlanNestedDeclaration>;
 }
@@ -115,8 +118,8 @@ function declarationOf(marker: EastType): PlanNestedDeclaration {
 /**
  * Reads a source's nested series index at build, from its binding's nested
  * part's type (`Data.bindPaged(record, { indexes })`): its name, each
- * collection's place, what it holds, its times and its rollups, its tile and
- * its summary's.
+ * collection's place, what it holds, its times and its rollups, its tile, and
+ * the periods it keeps each node's totals and the record's totals at.
  *
  * @param nested - The nested part's type, as the binding's type, or its Slice's `rows` source's, holds it
  * @returns The index's declaration; `undefined` for a binding listing none
@@ -126,7 +129,9 @@ export function planNestedIndex(nested: EastType | undefined): PlanNestedIndex |
     const part = fieldsOf((nested.cases as Readonly<Record<string, EastType>>).some);
     const name = nameOf(part?.index);
     if (part === undefined || name === undefined) return undefined;
-    return { name, tile: nameOf(part.tile)!, summary: nameOf(part.summary), collections: collectionsOf(part.collections) };
+    // Each period a field of its marker's struct, in the order the binding lists them: finest first.
+    const periods = (marker: EastType | undefined) => Object.keys(fieldsOf(marker) ?? {});
+    return { name, tile: nameOf(part.tile)!, summary: periods(part.summary), totals: periods(part.totals), collections: collectionsOf(part.collections) };
 }
 
 /**
@@ -288,7 +293,7 @@ function checkFunctions(facts: PlanSeriesNestFacts, level: Level, context: PlanN
         }
         throw new Error(`Plan: series "${facts.key}" reads "${found.field}" in a function (${via}), and its rows are paged — a row's collections are ` +
             `read a cell at a time: ${ITEM_FIELDS.has(element) ? `give ${via} as Plan.items("${found.field}", { from, to }, (item) => ({ … })), and ` : ""}` +
-            `declare index.nested({ collections: { ${found.field}: index.nested.items({ from, to }) }, tile, summary }) ` +
+            `declare index.nestedSeries({ collections: { ${found.field}: index.nestedSeries.items({ from, to }) }, tile, summary }) ` +
             "and list it in Data.bindPaged(record, { indexes })");
     }
 }
@@ -343,7 +348,7 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
     const declared = use.declared;
     if (declared === undefined) {
         throw new Error(`${series} reads "${place}", and the rows source's nested series index "${index.name}" does not declare it — declare it: ` +
-            `collections: { ${use.field}: index.nested.${builderFor(use)} }`);
+            `collections: { ${use.field}: index.nestedSeries.${builderFor(use)} }`);
     }
     if (use.kind === "items") {
         if (declared.kind !== "items") {
@@ -356,7 +361,7 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
         }
         if (use.rolledUp !== undefined && !declared.rollup) {
             throw new Error(`${series} rolls its children's runs up by ${use.rolledUp}, and "${index.name}" files "${place}" under no parent — declare it ` +
-                `index.nested.items(${timesCode(declared.times)}, { rollup: true })`);
+                `index.nestedSeries.items(${timesCode(declared.times)}, { rollup: true })`);
         }
         return;
     }
@@ -374,11 +379,11 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
         if (!kept) {
             if (declared.rollups.length === 0) {
                 throw new Error(`${series} subtotals "${place}" by ${rollupWords(subtotal)}, and "${index.name}" keeps no subtotals of it — declare it ` +
-                    `index.nested.values({ rollup: ${rollupCode(subtotal)} })`);
+                    `index.nestedSeries.values({ rollup: ${rollupCode(subtotal)} })`);
             }
             const words = declared.rollups.map(rollupWords);
             throw new Error(`${series} subtotals "${place}" by ${rollupWords(subtotal)}, and "${index.name}" keeps it by ${words.join(" and ")} — add the ` +
-                `rollup: index.nested.values({ rollup: [${[...declared.rollups.map(rollupCode), rollupCode(subtotal)].join(", ")}] }), or subtotal it by ${words[0]}`);
+                `rollup: index.nestedSeries.values({ rollup: [${[...declared.rollups.map(rollupCode), rollupCode(subtotal)].join(", ")}] }), or subtotal it by ${words[0]}`);
         }
         if (use.rowType !== undefined && !drawsAsStored(use.rowType, use.read!.read as PlanValuesReadSpec, `Plan: series "${use.series}"`)) {
             throw new Error(`${series} subtotals "${place}", and its cells draw another number than each value of it — e3 keeps the subtotals ` +
@@ -446,7 +451,7 @@ export function checkPlanNested(series: unknown, context: PlanNestedContext): re
     if (first === undefined) return uses;
     if (index === undefined) {
         throw new Error(`Plan: series "${first.series}" reads "${placeOf(first.place)}" a cell at a time, and the rows source lists no nested series ` +
-            `index — declare index.nested({ collections: { ${first.field}: index.nested.${builderFor(first)} }, ` +
+            `index — declare index.nestedSeries({ collections: { ${first.field}: index.nestedSeries.${builderFor(first)} }, ` +
             "tile, summary }) and list it in Data.bindPaged(record, { indexes })");
     }
     if (context.axisKind !== undefined && context.axisKind !== "time") {
@@ -454,9 +459,9 @@ export function checkPlanNested(series: unknown, context: PlanNestedContext): re
             `${context.axisKind === "number" ? "a number" : "an ordinal"} axis — bind the rows whole, or use a time axis`);
     }
     for (const use of uses) checkUse(use, index);
-    if (index.summary === undefined) {
-        throw new Error(`Plan: "${index.name}" keeps no totals — the Plan draws a view's items while they number 10,000 or fewer, and the ` +
-            'totals\' shading past that: declare summary: "month"');
+    if (index.summary.length === 0) {
+        throw new Error(`Plan: "${index.name}" keeps no totals — the Plan draws a view's items while they number 10,000 or fewer, and past that ` +
+            'shades each row from its totals at the period its column is, or one that divides it: declare summary: ["week", "month"]');
     }
     const subtotalled = uses.find((use) => use.subtotal !== undefined);
     if (subtotalled !== undefined && context.resolutions !== undefined) checkResolutions(subtotalled.series, index, context.resolutions);

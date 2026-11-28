@@ -26,10 +26,10 @@ import type { PagedSelector, PagedSource, PagedRow, PagedRun, PagedPlacedSegment
 import { NO_INDEX, pagedRevisionKey, pagedWindowFamily, seekKeyIn, seekQueryText, pagedBatchKey, withinFamily, searchOf } from "./keys.js";
 import { isPermanentPageError, failureOf } from "./errors.js";
 import {
-    type RunSpans, type Snapshot, landSearch, heldSearch, PLACE_CONCURRENCY, MAX_WITHIN_KEYS, heldWithinOf, keepWithin, releaseWithin, readWithin,
+    type Snapshot, landSearch, heldSearch, PLACE_CONCURRENCY, MAX_WITHIN_KEYS, heldWithinOf, keepWithin, releaseWithin, readWithin,
     trimWithin,
 } from "./state.js";
-import { elementCount, runsAfter, joinWindows } from "./windows.js";
+import { elementCount, runsAfter, joinWindows, runSpansOf } from "./windows.js";
 import { PagedReads } from "./reads.js";
 
 /**
@@ -413,11 +413,22 @@ export class PagedBatches extends PagedReads {
      * rows inside one of its runs is answered from it, as from a landed window
      * that covers it (#1217).
      *
+     * Each run is cut at the edges of what the reads of the same rows hold
+     * (#1797): a stretch a landed read holds is cut from it; one a read on its
+     * way asks waits on that read, which is read through so it is never given
+     * up, and is cut from it once it lands; the rest are asked of e3 at once, a
+     * read of their own beside the reads waited on. The read is put together
+     * once every stretch is in hand. So a read of rows a read before it
+     * brought, or is still bringing, under other searches — a change of
+     * period's cells, a run a period's tiles widen — never asks e3 for them
+     * again. A read waited on that fails, or is let go before it lands, leaves
+     * its stretch to be asked with the rest.
+     *
      * @param source - The rows read: a dataset's own, or one of a record's
      *   indexes, joined as its selector says
      * @param runs - The runs: ascending, disjoint, each inside the source
      * @returns The window, once every entry has landed
-     * @throws The read's failure, until a read after the retry gap asks again
+     * @throws The read's failure, or that of the read of what no read held, until a read after the retry gap asks again
      */
     runsAll(source: PagedSource, runs: readonly PagedRun[]): option<unknown> {
         const workspace = this.resolveWorkspace();
@@ -432,12 +443,44 @@ export class PagedBatches extends PagedReads {
             this.touchWindow(batchKey);
             return some(batch.window);
         }
-        if (this.due(batch)) this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs);
-        return this.answer(batch, batch.window);
+        if (!this.due(batch)) return this.answer(batch, batch.window);
+        const family = pagedWindowFamily(workspace, path, revision, selector);
+        const stretches = this.stretchesOf(family, runs, batch);
+        // No read holds or asks any of its rows: the runs are asked of e3 as they are, on this read's own channel.
+        if (stretches.every((stretch) => stretch.from === "e3")) {
+            this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs);
+            return this.answer(batch, batch.window);
+        }
+        // Every read a stretch is had from is read: one on its way stays wanted, and this read runs again as it lands;
+        // a landed one is never let go before it is cut from.
+        for (const stretch of stretches) if (stretch.from !== "e3") this.track(stretch.key);
+        // What no read holds or asks is asked of e3 at once, beside the reads waited on: a read of those runs alone.
+        const asked = stretches.flatMap((stretch): PagedRun[] => (stretch.from === "e3" ? [[stretch.row, stretch.count]] : []));
+        const fetched = asked.length === 0 ? some(undefined) : this.runsAll(source, asked);
+        if (fetched.type === "none" || stretches.some((stretch) => stretch.from === "coming")) return none;
+        const cuts = this.cutStretches(source.type, stretches, fetched.value);
+        if (cuts === undefined) {
+            // A stretch could not be cut: the runs are asked of e3 as they are.
+            this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs);
+            return this.answer(batch, batch.window);
+        }
+        // Every stretch in hand: the window is what they hold, kept on the read's channel for its reader.
+        batch.status = "loaded";
+        batch.window = joinWindows(source.type, cuts);
+        batch.runSpans = runSpansOf(family, runs);
+        delete batch.error;
+        delete batch.failedAtMs;
+        delete batch.permanent;
+        this.touchWindow(batchKey);
+        return some(batch.window);
     }
 
-    /** Launch a runs read, asking again for the entries each answer's bounds
-     *  did not reach. */
+    /**
+     * Launch a runs read of the runs as they are, asking again for the entries
+     * each answer's bounds did not reach, and land it whole. While it is on its
+     * way its channel says which runs it asks, so a read of runs wanting some
+     * of them waits on it (#1797).
+     */
     protected launchRunsBatch(
         workspace: string,
         path: TreePath,
@@ -447,10 +490,14 @@ export class PagedBatches extends PagedReads {
         batchKey: string,
         runs: readonly PagedRun[],
     ): void {
-        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
+        const entry = this.channel(snapshot, batchKey);
+        const { seq, signal } = this.launchFetch(batchKey, entry);
         const api = this.api;
         const { selector } = source;
         const decode = decodeBeast2For(source.type);
+        // Where each run's entries will sit: what it asks while on its way, and what it holds once landed.
+        const runSpans = runSpansOf(pagedWindowFamily(workspace, path, revision, selector), runs);
+        entry.askingRuns = runSpans;
         void (async () => {
             const parts: unknown[] = [];
             try {
@@ -478,10 +525,13 @@ export class PagedBatches extends PagedReads {
             if (!this.pinnedTo(snapshot, revision)) return;
             const window = joinWindows(source.type, parts);
             // Where each run's entries sit, so a read inside one is answered from them.
-            let at = 0;
-            const spans = runs.map(([row, count]) => { const span = { row, count, at }; at += count; return span; });
-            const runSpans: RunSpans = { family: pagedWindowFamily(workspace, path, revision, selector), runs: spans };
-            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.window = window; e.runSpans = runSpans; delete e.error; })) return;
+            if (!this.apply(batchKey, seq, (e) => {
+                e.status = "loaded";
+                e.window = window;
+                e.runSpans = runSpans;
+                delete e.askingRuns;
+                delete e.error;
+            })) return;
             this.touchWindow(batchKey);
             // A window across a narrowing's runs is a window: its readers hear with the burst it lands in, once a frame (CL9).
             this.notifyLanded([batchKey]);

@@ -76,6 +76,15 @@
  * the window of a row it has not read, and puts the view back as many px into
  * the window once it is in — its rows, or its failure's band.
  *
+ * # A saved window is counted at its own size (#1714)
+ *
+ * A place saved over a row names the window the row came from, and how many
+ * entries a window held then. A canvas's windows hold as many as its root
+ * says, which a deploy may change: a remount opens the window that holds the
+ * entry the saved one began at, at the size it reads at now — never the
+ * window of the same number, which at another size is other rows, or past
+ * the source's end.
+ *
  * @packageDocumentation
  */
 
@@ -92,7 +101,7 @@ import {
     type PlanEvent, type PlanGrain, type PlanStore, type PlanUiState, type RowKey,
 } from "../plan-state.js";
 import { type ResidencyOptions, windowedSourceOf } from "@elaraai/east-ui-components/internal";
-import { PLAN_PAGE_SIZE, type PlanViewport } from "../use-plan-paging.js";
+import type { PlanViewport } from "../use-plan-paging.js";
 import type { PlanSearch } from "../use-seek.js";
 import {
     NOT_PERSISTED, sameAnchor, sameKey, sameList, sameOwnWindow, sameToggle,
@@ -260,7 +269,11 @@ export interface PlanController {
     dispatch(e: PlanEvent): void;
     /** Parent rows in the current canvas, including nested parents. */
     groupKeys(): readonly RowKey[];
-    /** Fold all parents in one action, retaining offscreen overrides. */
+    /**
+     * Fold or open every parent in one action, retaining offscreen overrides —
+     * and it stands (#1777): every parent the canvas reads from then on
+     * arrives so, but one the user toggles, until the other is asked for.
+     */
     setGroupsCollapsed(collapsed: boolean): void;
     /**
      * Select events from outside the canvas (#1198) — the overlaps chip's
@@ -436,6 +449,10 @@ export interface PlanReconcileModel {
     declaredCollapsed: ReadonlySet<RowKey>;
     /** The declared grain. */
     declaredGrain: PlanGrain;
+    /** The keys of the rows among them that rows nest under: what Collapse all
+     *  or Expand all, left standing, folds or opens (#1777). The canvas always
+     *  gives them; absent, none moves. */
+    parents?: readonly RowKey[];
 }
 
 /** Each snapshot's element rows, once. */
@@ -470,7 +487,7 @@ export function elementRowsOf(p: PlanPagingSnapshot): readonly PlanRowValue[] {
  * @returns The window opened for it
  */
 function openedWindow(p: PlanPagingSnapshot, w: number): number {
-    const windows = p.total !== undefined ? Math.ceil(p.total / PLAN_PAGE_SIZE) : 0;
+    const windows = p.total !== undefined ? Math.ceil(p.total / p.windowEntries) : 0;
     return windows > 0 ? Math.min(w, windows - 1) : w;
 }
 
@@ -563,13 +580,18 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
 
     /** The UI state a paged window's height reads (#823) — the store's grain
      *  and charts, and each row's collapse as the canvas draws it: a declared
-     *  collapse not seeded yet is the collapse its landing will seed, so a
-     *  window measures the same before and after its rows seed. */
+     *  collapse not seeded yet is the collapse its landing will seed, and a
+     *  parent the user never toggled takes what Collapse all or Expand all left
+     *  standing as it lands (#1777), so a window measures the same before and
+     *  after its rows land. */
     const skeletonUi: SkeletonUi = {
         get grain() { return store.ui.grain; },
-        collapsed: (key, declared) => (declared && !store.seeded.has(key)
-            ? store.overrides.get(key) ?? true
-            : store.ui.collapsed.has(key)),
+        collapsed: (key, declared, parent) => {
+            const own = store.overrides.get(key);
+            if (own !== undefined) return own;
+            if (parent && store.standing !== undefined) return store.standing;
+            return declared && !store.seeded.has(key) ? store.standing !== false : store.ui.collapsed.has(key);
+        },
         get chartsExpanded() { return store.ui.chartsExpanded; },
     };
     /** The expand focus's context strips — what a window's rows draw at under
@@ -587,8 +609,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         heightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, skeletonUi, denseOf(value), expandFocus())),
         // At rest (#613): declared collapse, no charts, no focus — what the
         // slot rate is seeded from, so a first window that landed mid-collapse
-        // does not describe every unvisited one by it.
-        restHeightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, restUi(declaredGrainOf(value)), denseOf(value))),
+        // does not describe every unvisited one by it. What Collapse all or
+        // Expand all left standing is rest (#1777): every window still to land
+        // arrives under it, so the rate follows it.
+        restHeightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, restUi(declaredGrainOf(value), store.standing), denseOf(value))),
         policy: options.policy,
         onChange: () => batch(() => {
             const landed = paging.getSnapshot();
@@ -608,8 +632,12 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             replacing = landed.replacing;
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
-            // appears — in the same notification as the rows themselves.
-            store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
+            // appears — in the same notification as the rows themselves — and
+            // each parent takes what Collapse all or Expand all left standing
+            // (#1777), unless the user toggled it.
+            store = planStoreReducer(store, {
+                t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows), parents: groupKeysOf(landed.rows),
+            }).store;
             // A window landing says nothing in the canvas's live region: what the source reads is the footer's
             // loading line's to say, once a load (#1398, CL12).
             // The source's data moved off the snapshot a search was answered
@@ -656,7 +684,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
 
     // What the paged windows' heights were last measured under (#823).
     let measuredUnder: {
-        grain: PlanGrain; overrides: PlanStore["overrides"]; charts: ReadonlySet<RowKey>;
+        grain: PlanGrain; overrides: PlanStore["overrides"]; standing: boolean | undefined; charts: ReadonlySet<RowKey>;
         expand: RowKey | undefined; dense: boolean;
     } | undefined;
 
@@ -671,16 +699,18 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         const expand = store.ui.focus?.kind === "expand" ? store.ui.focus.key : undefined;
         const dense = denseOf(value);
         const m = measuredUnder;
-        if (m !== undefined && m.grain === store.ui.grain && m.overrides === store.overrides
+        if (m !== undefined && m.grain === store.ui.grain && m.overrides === store.overrides && m.standing === store.standing
             && m.charts === store.ui.chartsExpanded && m.expand === expand && m.dense === dense) return;
-        measuredUnder = { grain: store.ui.grain, overrides: store.overrides, charts: store.ui.chartsExpanded, expand, dense };
+        measuredUnder = {
+            grain: store.ui.grain, overrides: store.overrides, standing: store.standing, charts: store.ui.chartsExpanded, expand, dense,
+        };
         if (m !== undefined) paging.remeasure();
     }
 
     /** Whether the window holding source element `row` has landed in a block. */
     function landedAt(p: PlanPagingSnapshot, row: number): boolean {
-        const windows = p.total !== undefined ? Math.max(1, Math.ceil(p.total / PLAN_PAGE_SIZE)) : undefined;
-        const w = Math.floor(Math.max(0, row) / PLAN_PAGE_SIZE);
+        const windows = p.total !== undefined ? Math.max(1, Math.ceil(p.total / p.windowEntries)) : undefined;
+        const w = Math.floor(Math.max(0, row) / p.windowEntries);
         // An answer past the end (a key after every element) is the last window.
         const at = windows !== undefined ? Math.min(w, windows - 1) : w;
         for (const o of p.origin.values()) if (o.w === at) return true;
@@ -772,32 +802,33 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         return data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.getSnapshot().rows;
     }
 
-    /** Write the user's toggles when they differ from what storage holds (#813)
-     *  — unless the root binds a `ui` state, which holds them instead (#824). */
+    /** Write the user's toggles, and what Collapse all or Expand all left
+     *  standing (#1777), when they differ from what storage holds (#813) —
+     *  unless the root binds a `ui` state, which holds them instead (#824). */
     function persistToggles(): void {
         if (bound !== undefined) return;
         const collapse = [...store.overrides];
         const charts = [...store.ui.chartsExpanded];
-        if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)) return;
+        if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)
+            && persisted.standing === store.standing) return;
         persisted = { ...persisted, collapse, charts };
+        if (store.standing !== undefined) persisted.standing = store.standing;
         options.persist?.(persisted);
     }
 
     /** Keep the canvas's own window under its storage key as a gesture moves it (#813, #1344): what a remount opens
      *  on. The hold moves only while no source of the slice holds the window — a source's window is its own state —
      *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
-     *  scroll anchor is, never a toggle the host holds. */
+     *  scroll anchor is, never a toggle the host holds. It is kept as a range (#1740): the period its columns take is
+     *  worked out again as the canvas opens. */
     function persistWindow(): void {
         const hold = options.windowHold;
         const shown = hold?.last;
         const kind = value?.axis.type;
         if (hold === undefined || shown === undefined || (kind !== "time" && kind !== "number")) return;
-        // A source holding the window keeps it, and its zoom, in its own state.
+        // A source holding the window keeps it in its own state.
         if (planWindowParts(planSlices(value!), kind, hold.rows).length > 0) return;
-        // A time axis's zoom is kept with the window it shows (#1438), and is the one the hold falls back to.
-        const resolution = kind === "time" && value !== undefined ? currentScale(value, hold)?.resolution : undefined;
-        hold.resolution = resolution;
-        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1], ...(resolution !== undefined && { resolution }) };
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
         if (sameOwnWindow(persisted.window, next)) return;
         persisted = { ...persisted, window: next };
         options.persist?.(persisted);
@@ -815,6 +846,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             complete: inline,
             declaredCollapsed: declaredCollapsedOf(current),
             declaredGrain: declaredGrainOf(v),
+            parents: groupKeysOf(current),
         }).store;
         persistToggles();
     }
@@ -992,7 +1024,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const seen = paging.seenAt(req.key);
                 if (seen !== undefined) {
                     focusRequest = { ...req, phase: "opening" };
-                    paging.openAt(seen.w * PLAN_PAGE_SIZE, seen.block);
+                    paging.openAt(seen.w * paging.getSnapshot().windowEntries, seen.block);
                     return;
                 }
                 // Never seen — sought by the key of the element it comes from: a String key by its literal, a key of any
@@ -1102,7 +1134,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const before = prev === undefined ? undefined : planPart(planSlices(prev), ROWS_SOURCE);
                 const after = planPart(planSlices(next), ROWS_SOURCE);
                 const keep = before !== undefined && after !== undefined && sameSource(before.sourceId, after.sourceId);
-                paging.setSource(src, keep);
+                // Its windows hold as many entries as the root says (#1714).
+                paging.setSource(src, keep, Number(next.windowEntries));
                 // Which rows draw as diagnostics is the axis kind's to say:
                 // the windows take their skeletons again.
                 if (prev !== undefined && src !== undefined && prev.axis.type !== next.axis.type) paging.reskeleton();
@@ -1136,7 +1169,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         dispatch(e) {
             batch(() => {
                 const before = store.ui;
-                // A resolution lives in the slice: what it was, to say what it became.
+                // The period the columns take follows the range a preset sets: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
                     ? currentScale(value, options.windowHold)?.resolution : undefined;
                 // Bound, what the user did is the host's to hold (#824) —
@@ -1153,8 +1186,6 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (e.t === "resolution.set" && value !== undefined) {
                     const after = currentScale(value, options.windowHold)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
-                    // A zoom that left the canvas's own window where it was is kept with it all the same (#1438).
-                    persistWindow();
                 }
             });
         },
@@ -1383,7 +1414,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     }
                     const snap = paging.getSnapshot();
                     // An element past the end — saved against a longer source — is in the last window, as `openAt` reads it.
-                    const savedW = Math.floor(saved.element / PLAN_PAGE_SIZE);
+                    const savedW = Math.floor(saved.element / snap.windowEntries);
                     const w = openedWindow(snap, savedW);
                     const ours = (b: number) => block === undefined || b === block;
                     const first = items.findIndex((it) => {
@@ -1412,7 +1443,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(saved.window * PLAN_PAGE_SIZE, block);
+                        // The entry its window began at, by the size the window was counted in (#1714): a window's size
+                        // is the root's to say, and may be another now. An anchor that names none is read at the size now.
+                        paging.openAt(saved.window * (saved.entries ?? paging.getSnapshot().windowEntries), block);
                         return;
                     }
                     // On its way still. Once the jump has settled — the window opened for it in and drawn: its last, past
@@ -1443,14 +1476,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             const band = item.kind === "band" ? item.band : item.kind === "failed" ? item.failure : undefined;
             const unread = band === undefined ? undefined : paging.unreadPlace(band, at.offset);
             const origin = item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) : undefined;
+            // A window's number is counted in windows of the size the canvas reads at now, which the place says (#1714).
+            const entries = paging.getSnapshot().windowEntries;
             const next: PlanAnchor = band !== undefined && unread !== undefined
                 ? {
                     key: bodyItemKey(item),
                     offset: unread.px,
                     index: at.index,
-                    window: Math.floor(unread.element / PLAN_PAGE_SIZE),
+                    window: Math.floor(unread.element / entries),
                     block: band.block,
                     element: unread.element,
+                    entries,
                 }
                 : {
                     key: bodyItemKey(item),
@@ -1458,6 +1494,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     index: at.index,
                     window: origin?.w ?? null,
                     block: origin?.block ?? null,
+                    ...(origin !== undefined && { entries }),
                 };
             if (sameAnchor(persisted.anchor, next)) return;
             persisted = { ...persisted, anchor: next };

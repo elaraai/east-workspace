@@ -6,7 +6,8 @@
 /**
  * What a Plan over paged rows reads of their nested series index (#1438), as
  * its root carries it to the reader: the index, the binding it is read through
- * by its id, its tiles, and what each series reads of it — each collection's
+ * by its id, its tiles, the periods it keeps each node's totals and the
+ * record's totals at, and what each series reads of it — each collection's
  * place, the levels its items are filed at, how its rows shade past the cap
  * and how its parents read. Given as `data` and through a Slice's `rows`
  * source alike, the Slice's source the record's own binding. Rows paged whole
@@ -15,7 +16,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, East, NullType, OptionType, StringType, equalFor, none, printFor, some, variant, type BlockBuilder, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, equalFor, none, printFor, some, variant, type BlockBuilder, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { RecordSliceTileType } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanNestedUseType, PlanPayloadType, type PlanSeriesValue as BrandedSeries } from "@elaraai/e3-ui/internal";
@@ -60,15 +61,29 @@ const idOf = (source: () => unknown): string =>
 const tiles = ["week", "month", "quarter", "year"].map((tile) => variant(tile, null));
 const week = [variant("week", null)];
 
-/** The seam, in both forms: the index, the binding by its id, its tiles, and what each series reads. */
-function seamBoth(series: PlanSeriesValue[], source: () => unknown, index: string, uses: Uses): void {
+/** Periods, as the seam lists them: finest first. */
+const PeriodsType = ArrayType(RecordSliceTileType);
+type Periods = ValueTypeOf<typeof PeriodsType>;
+/** The periods an index keeps each node's totals and the record's totals at. */
+interface Kept { readonly summary: Periods; readonly totals: Periods }
+/** The machines' and the assemblies': a month for each node's, and — naming none for the record's — a month, a quarter and a year. */
+const monthKept: Kept = { summary: [variant("month", null)], totals: [variant("month", null), variant("quarter", null), variant("year", null)] };
+/** The ledgers', as written: a week and a month for each measure's, a month and a year for the record's. */
+const ledgersKept: Kept = { summary: [variant("week", null), variant("month", null)], totals: [variant("month", null), variant("year", null)] };
+
+/**
+ * The seam, in both forms: the index, the binding by its id, its tiles, the
+ * periods it keeps its totals at, and what each series reads.
+ */
+function seamBoth(series: PlanSeriesValue[], source: () => unknown, index: string, kept: Kept, uses: Uses): void {
     for (const form of ["data", "slice"] as const) {
         const nested = payload(form, series, source).plan.nested;
         assert.ok(nested.type === "some", `${form}: a seam`);
         assert.equal(nested.value.index, index, form);
         assert.equal(nested.value.source, idOf(source), `${form}: the record's binding, whatever the Slice narrows`);
         assert.ok(equalFor(RecordSliceTileType)(nested.value.tile, variant("week", null)), form);
-        assert.ok(equalFor(OptionType(RecordSliceTileType))(nested.value.summary, some(variant("month", null))), form);
+        assert.ok(equalFor(PeriodsType)(nested.value.summary, kept.summary), `${form}: each node's totals at ${printFor(PeriodsType)(nested.value.summary)}`);
+        assert.ok(equalFor(PeriodsType)(nested.value.totals, kept.totals), `${form}: the record's totals at ${printFor(PeriodsType)(nested.value.totals)}`);
         assert.ok(equalFor(ArrayType(PlanNestedUseType))(nested.value.uses, uses), `${form}: ${printFor(ArrayType(PlanNestedUseType))(nested.value.uses)}`);
     }
 }
@@ -83,7 +98,7 @@ describe("A Plan over paged rows carries what it reads of their nested series in
             }),
             Plan.series.heat(Machine, { key: "load", title: "Load", label: (m) => m.name, cells: Plan.heatCells(Plan.values("load", (pct) => ({ value: some(pct) }))) }),
         ] as unknown as PlanSeriesValue[];
-        seamBoth(series, machines, "machines_in_time", [
+        seamBoth(series, machines, "machines_in_time", monthKept, [
             { series: "presses", place: ["jobs"], levels: tiles, shade: variant("booked", null), parents: none },
             { series: "presses", place: ["alarms"], levels: week, shade: variant("count", null), parents: none },
             { series: "load", place: ["load"], levels: week, shade: variant("fold", variant("mean", null)), parents: none },
@@ -98,7 +113,7 @@ describe("A Plan over paged rows carries what it reads of their nested series in
                 cells: Plan.heatCells(Plan.values("readings", (v) => ({ value: some(v) })), { fold: "sum" }),
             })]),
         })] as unknown as PlanSeriesValue[];
-        seamBoth(ledgerGroup, ledgers, "ledgers_in_time", [
+        seamBoth(ledgerGroup, ledgers, "ledgers_in_time", ledgersKept, [
             { series: "readings", place: ["measures", "readings"], levels: week, shade: variant("fold", variant("sum", null)),
                 parents: some(variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) })) },
         ] as Uses);
@@ -109,7 +124,7 @@ describe("A Plan over paged rows carries what it reads of their nested series in
                 runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: "confirmed" })),
             })]),
         })] as unknown as PlanSeriesValue[];
-        seamBoth(assemblyGroup, assemblies, "assemblies_in_time", [
+        seamBoth(assemblyGroup, assemblies, "assemblies_in_time", monthKept, [
             { series: "parts", place: ["parts", "jobs"], levels: tiles, shade: variant("booked", null), parents: some(variant("bands", null)) },
         ] as Uses);
     });
@@ -122,7 +137,7 @@ describe("A Plan over paged rows carries what it reads of their nested series in
                 cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))),
             })]),
         })] as unknown as PlanSeriesValue[];
-        seamBoth(ledgerTable, ledgers, "ledgers_in_time", [
+        seamBoth(ledgerTable, ledgers, "ledgers_in_time", ledgersKept, [
             { series: "readings", place: ["measures", "readings"], levels: week, shade: variant("fold", variant("sum", null)),
                 parents: some(variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) })) },
         ] as Uses);

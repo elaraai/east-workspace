@@ -31,9 +31,16 @@ import { MARK_LABEL_GAP } from "./labels.js";
 import { markAttributes } from "./marking.js";
 import { stackBoundsOf } from "./stack.js";
 
-/** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
-function curveFor(c: Curve | undefined): typeof curveMonotoneX {
-    return c === undefined ? curveMonotoneX : match(c, {
+/**
+ * A chart curve's visx curve function — the one mapping every chart drawing East's curves shares, the Plan's chart
+ * rows too (#1753).
+ *
+ * @param c - The curve, when one is given
+ * @param fallback - What draws when none is: a Chart's `monotoneX`
+ * @returns The visx curve function
+ */
+export function curveFor(c: Curve | undefined, fallback: typeof curveMonotoneX = curveMonotoneX): typeof curveMonotoneX {
+    return c === undefined ? fallback : match(c, {
         monotoneX: () => curveMonotoneX,
         linear: () => curveLinear,
         natural: () => curveNatural,

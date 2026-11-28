@@ -56,6 +56,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING } from "../conflict-ring.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
+import { TOOLBAR_WORDS_LINE } from "../toolbar-row.js";
 
 /** The shared drag stages the canvas's own indicators replace — the candidate and active frames and the active wash. */
 const OWN_INDICATORS = {
@@ -242,13 +243,17 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             borderRadius: "sm",
             color: "fg.muted",
         },
+        // The saved time and the readout stand in the row with no box of their own: each on the row's line, so the time
+        // stands as the grid chip's words do and the readout as the zoom's figure beside it does.
         saved: {
             ...MICRO_LABEL,
+            lineHeight: TOOLBAR_WORDS_LINE,
             color: "fg.success",
         },
         readout: {
             fontFamily: "mono",
             fontSize: "11px",
+            lineHeight: TOOLBAR_WORDS_LINE,
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },

@@ -23,6 +23,11 @@ function rangeField(slice: Bind): Field | undefined {
     const id = slice.config.range;
     return id.type === "some" ? slice.config.fields.find(field => field.fieldId === id.value) : undefined;
 }
+/** A range field's value as its choice prints it, from the number the range is on: epoch ms on a date. */
+function windowLiteral(field: Field): (value: number) => string {
+    return (value) => printRecordChoice(field, field.kind === "datetime" ? new Date(value)
+        : field.kind === "integer" ? BigInt(Math.round(value)) : value);
+}
 function bounds(field: Field, from: string, to: string): RecordSliceRange {
     const number = (text: string): number => {
         const value = readRecordChoice(field, text);
@@ -74,8 +79,7 @@ function presetHolds(slice: Bind, state: State, where: Where, range: string): bo
 export function setRecordSliceWindow(slice: Bind, min: number, max: number): void {
     const field = rangeField(slice);
     if (field === undefined) return;
-    const literal = (value: number) => printRecordChoice(field, field.kind === "datetime" ? new Date(value)
-        : field.kind === "integer" ? BigInt(Math.round(value)) : value);
+    const literal = windowLiteral(field);
     const state = slice.read();
     const where = recordChoiceWhere(slice.config, state.where, field.fieldId,
         variant("range", { from: literal(min), to: literal(max) }));

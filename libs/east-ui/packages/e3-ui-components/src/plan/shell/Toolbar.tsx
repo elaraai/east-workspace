@@ -13,7 +13,9 @@
  * end, the rail's summary, counting each source, the overlaps chip and the
  * history item. The fold toggle acts on every parent, including nested rows,
  * and keeps the same per-row state as the disclosure buttons. There is no
- * Series button: the library's Series tab holds the series (#1195). The
+ * Series button: the library's Series tab holds the series (#1195). What the
+ * fold toggle leaves stands (#1777): every parent read later arrives so, and
+ * while Collapse all stands the toggle says Expand all. The
  * overlaps chip (#1198, PB52) counts the pairs of events that overlap in the
  * window; a click selects the first pair, earliest first, and brings it into
  * view.
@@ -28,16 +30,19 @@
  *
  * They fold on one ladder (#952): the rail first, its summary folding after
  * every step of it — then the Plan's own items (the user's decision,
- * 2026-09-27): the overlaps chip to its glyph and its count — words give way
- * before a control does — then the resolution segment folds into a one-chip
- * menu, then the fold toggle keeps only its icon. On a row narrower still the
- * key search folds into its icon, which opens the box in a popover (#1193):
- * with that, a phone's row holds every item. The history item folds last, to
- * its buttons. Before that last step, a time-axis Plan folds its group and
- * resolution controls into the shared date navigator's View, and its overlaps
- * chip with them, one move, as Calendar and Roster fold theirs (#1344: a
- * phone's row has room for the rail's icon, the View and the history item,
- * and no more). Nothing wraps or goes to a second row.
+ * 2026-09-27): the date navigator's label shortens and the overlaps chip keeps
+ * its glyph and its count — words give way before a control does — then the
+ * resolution segment folds into a one-chip menu, then the fold toggle keeps
+ * only its icon. On a row narrower still the key search folds into its icon,
+ * which opens the box in a popover (#1193): with that, a phone's row holds
+ * every item. The date navigator's arrows go only then (#1740, agreed 24 Nov
+ * 2026): they step the window a screenful, the control a viewer reaches for
+ * most, so they are the last of the Plan's own the row gives up. The history
+ * item folds last, to its buttons. Before that last step, a time-axis Plan
+ * folds its group and resolution controls into the shared date navigator's
+ * View, and its overlaps chip with them, one move, as Calendar and Roster fold
+ * theirs (#1344: a phone's row has room for the rail's icon, the View and the
+ * history item, and no more). Nothing wraps or goes to a second row.
  */
 
 import { useCallback, useMemo } from "react";
@@ -61,10 +66,11 @@ import { SEARCH_BOX_RANK } from "../../shared/schedule/search-rank.js";
 import { isPlanRowsFind } from "../find.js";
 import { PLAN_TOOLS, type PlanTool } from "../links/connect.js";
 
-/** The Plan's own fold ranks, after every step of the rail's (#952): the
- *  overlaps chip keeps its glyph and its count, the resolution then the fold
- *  toggle shorten, and the key search folds into its icon. The history item's
- *  step (`DEFAULT_RANK`) comes after all of them. */
+/** The Plan's own fold ranks, after every step of the rail's (#952): the date
+ *  navigator's label shortens and the overlaps chip keeps its glyph and its
+ *  count, the resolution then the fold toggle shorten, the key search folds
+ *  into its icon, and only then do the date navigator's arrows go (#1740). The
+ *  history item's step (`DEFAULT_RANK`) comes after all of them. */
 const PLAN_RANK = {
     overlapsShort: HOST_RANK,
     resolution: HOST_RANK + 1,
@@ -72,6 +78,7 @@ const PLAN_RANK = {
     tools: HOST_RANK + 3,
     seek: HOST_RANK + 4,
     time: HOST_RANK,
+    arrows: HOST_RANK + 5,
     controls: HOST_RANK + 6,
 } as const;
 
@@ -129,7 +136,9 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const controller = usePlanController();
     const folded = usePlanSelector(snapshot => {
         const keys = controller.groupKeys();
-        return keys.length === 0 ? undefined : snapshot.store.ui.grain === "group" || keys.some(key => snapshot.store.ui.collapsed.has(key));
+        return keys.length === 0
+            ? undefined
+            : snapshot.store.standing === true || snapshot.store.ui.grain === "group" || keys.some(key => snapshot.store.ui.collapsed.has(key));
     });
     const words = usePlanWords();
     const slices = chrome?.slices;
@@ -174,7 +183,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const tools = chrome?.tools;
     const optimiseItem = chrome?.optimise?.toolbarItem;
     const resolution = scale?.resolution ?? "";
-    // The resolution is the slice's: without one the segment would offer a control that does nothing.
+    // A period pressed moves the window, and a canvas with no slice has none to move: its segment would do nothing.
     const showResolution = slices !== undefined && resolutionItems.length > 0;
     const pickResolution = useCallback((r: string) => dispatch({ t: "resolution.set", resolution: r }), [dispatch]);
     // The overlapping pairs, which the toolbar's chip counts (#1198), and the first, earliest first — what its click
@@ -227,17 +236,18 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             {linkMenu(true)}
             {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
         </>;
+        // Its label shortens first and its arrows stay: they go after every other control of the Plan's has folded, the
+        // step before all of them fold into its View.
         return {
-            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.controls],
-            bundle: [undefined, "plan.controls"],
-            forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} compact />,
+            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.arrows, PLAN_RANK.controls],
+            bundle: [undefined, undefined, "plan.controls"],
+            forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} shortLabel />, <PlanTimeNavigator {...window} compact />,
                 <PlanTimeNavigator {...window} compact controls={compactControls} />],
         };
     }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,
         pickResolution, pairs, selectFirst, toolStrip, linkMenu]);
-    // The segment writes the slice's resolution (`slice.setResolution`) — without a slice the effect runner drops it, so
-    // mounting it would offer a control that does nothing. The unbound-canvas fallback story is #572's (resolution
-    // persist fallback); until then, no slice ⇒ no segment.
+    // A period pressed sets the window's range (`window.preset`, #1740), and the columns' period follows it. A canvas
+    // with no slice keeps the axis's stated window, where the effect runner drops a preset: no slice, no segment.
     const resolutionItem = useMemo((): ToolbarItem | undefined => (drawn && showResolution ? {
         key: "resolution",
         rank: [PLAN_RANK.resolution, PLAN_RANK.controls],

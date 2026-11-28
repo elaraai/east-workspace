@@ -196,7 +196,9 @@ test("a Plan's first drag adds no rule to the page's styles as it is picked up o
     await carried(page, bar, "a bar");
     await letGo(page);
 
-    // A bar's end, carried a few days on.
+    // A bar's end, carried a few days on: drawn while the bar is in hand (#1780), so the pointer comes over it first — its
+    // class made with the bar, so the ends it draws add no rule either.
+    await handbook.hover();
     const end = await pickUp(page, handbook.locator("[data-plan-edge='end']"), () => expect(plot).toHaveAttribute("data-drop-active", ""), "a bar's end");
     const later = await dayOf(plot, 21);
     await page.mouse.move(later.x, later.y, { steps: 8 });

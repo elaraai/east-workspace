@@ -114,7 +114,7 @@ describe("a Calendar's paged resource kind (#1424)", () => {
     });
 
     test("an event kind on the paged kind is read a cell at a time through its source of the slice: read whole, through its day index, or beside another kind, it is refused at build, the refusal naming both indexes over the kind's own fields", () => {
-        const declared = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
+        const declared = String.raw`index\.flatSeries\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
             String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
         const source = String.raw`a paged kind's events are read a cell at a time, through the kind's source of the slice: `;
         const named = String.raw`name a source after "job", Data\.bindPaged\(record, \{ indexes \}\), listing `;
@@ -155,7 +155,7 @@ describe("a Calendar's event kind over a record keyed by any type (#1696)", () =
             initial: new Map(),
             indexes: (index) => ({
                 calendar_windows_placed_jobs_by_time: index.interval({ from: "start", to: "end" }),
-                calendar_windows_placed_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+                calendar_windows_placed_jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
                 calendar_windows_placed_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
             }),
             mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -164,7 +164,7 @@ describe("a Calendar's event kind over a record keyed by any type (#1696)", () =
             initial: new Map(),
             indexes: (index) => ({
                 calendar_windows_sourced_jobs_by_time: index.interval({ from: "start", to: "end" }),
-                calendar_windows_sourced_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+                calendar_windows_sourced_jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
                 calendar_windows_sourced_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
             }),
             mutations: (mutation) => ({ patch: mutation.patch() }),

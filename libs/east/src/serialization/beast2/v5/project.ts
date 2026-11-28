@@ -27,6 +27,9 @@
  * variable, through chains of field accesses. Each segment it walks is then
  * decoded to those fields alone, and counted ({@link beast2PagedLoopStats}).
  *
+ * The same parsing past is what reads a segment's rows one at a time
+ * (`segment-rows.ts`): one walk of a segment notes where each row starts.
+ *
  * @packageDocumentation
  */
 
@@ -41,8 +44,12 @@ import type { IR } from "../../../ir.js";
 import { TAG_NEW, TAG_REF, buildV5Decoder, readContainerTag, type V5DecodeContext, type V5Decoder } from "./codec.js";
 import type { SegmentDecoder } from "./stream.js";
 
-/** Parses past one value of a type without building it. */
-type Skipper = (reader: BufferReader, ctx: V5DecodeContext) => void;
+/**
+ * Parses past one value of a type without building it.
+ *
+ * @internal
+ */
+export type Skipper = (reader: BufferReader, ctx: V5DecodeContext) => void;
 
 /** What a container met in a dropped field is defined as. */
 const SKIPPED: object = Object.freeze({});
@@ -91,8 +98,15 @@ function holdsFunction(type: EastTypeValue, depth = 0): boolean {
  * Builds the parser that steps past one value of `type`. A container it
  * meets takes a definition, as a decode's does, recorded as skipped; a
  * back-reference it meets is checked to be in range and followed no further.
+ *
+ * @param type - the type of the value to parse past
+ * @param typeCtx - recursive-type resolution context shared across the tree
+ * @returns the parser
+ * @throws {TypeError} When `type` holds a function, whose value cannot be
+ *   parsed past without decoding its IR.
+ * @internal
  */
-function buildSkipper(type: EastTypeValue, typeCtx: Map<bigint, Skipper>): Skipper {
+export function buildSkipper(type: EastTypeValue, typeCtx: Map<bigint, Skipper>): Skipper {
   switch (type.type) {
     case "Never":
     case "Null":

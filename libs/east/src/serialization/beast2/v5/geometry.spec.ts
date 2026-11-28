@@ -19,7 +19,6 @@ import { SortedMap, SortedSet } from "../../../index.js";
 import {
   encodeBeast2For,
   decodeBeast2For,
-  encodeBeast2SegmentsFor,
   openBeast2PagesFor,
   readBeast2Extents,
   carveBeast2,
@@ -30,31 +29,16 @@ import {
   spliceBeast2Tail,
   type Beast2RangeReader,
 } from "../index.js";
+import { makeTable, segmented } from "./segmented.spec.fixtures.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
-
-/** A canonical Dict of `n` rows keyed 0..n-1. */
-function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name: string }> {
-  const entries: [bigint, { id: bigint; name: string }][] = [];
-  for (let i = 0; i < n; i++) {
-    const id = BigInt(i + offset);
-    entries.push([id, { id, name: `row-${i + offset}` }]);
-  }
-  return new SortedMap(entries, compareFor(IntegerType));
-}
 
 /** A collection in canonical order as a blob of 100-element segments — a
  *  geometry chosen here rather than by the cut rule, so that a small value
  *  still spans several segments. */
 function paged(type: EastType, value: Iterable<unknown>): Uint8Array {
-  const items = [...value];
-  const batches: unknown[] = [];
-  for (let i = 0; i < items.length; i += 100) {
-    const chunk = items.slice(i, i + 100);
-    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
-  }
-  return encodeBeast2SegmentsFor(type)(batches as never);
+  return segmented(type, [...value], 100);
 }
 
 describe("Beast2 v5 — geometry extents", () => {

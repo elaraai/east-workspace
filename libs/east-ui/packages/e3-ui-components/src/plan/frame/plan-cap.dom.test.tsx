@@ -18,11 +18,12 @@
  *   count, the rail's bounds and the backlog — never a page of the window —
  *   and no event draws. With a summary listed, where its tile divides the
  *   canvas's bucket each press's share of each bucket booked shades from it,
- *   two requests; where it divides none, the rows are hatched and the banner
- *   says how many events there are and the resolution that shades them. With
- *   none listed, the banner says to narrow the filters or zoom in.
+ *   two requests; where it divides none, the columns take the finest coarser
+ *   period it divides by themselves, the range as it is, and shade from it
+ *   there — nothing said (#1799). With none listed, the rows are hatched and
+ *   one plain line says there are too many to show at once.
  * - A pan that leaves the proofs behind brings the range within the cap: its
- *   events are read and draw, and the banner goes.
+ *   events are read and draw, and the line goes.
  * - Past the cap over the range the canvas reads, though the window in view
  *   holds few, the footer counts the window's events through the rail, and
  *   reads none of them.
@@ -35,10 +36,10 @@
  * - A kind hidden in the Series tab is in no figure — the footer's, the pane's
  *   or a row's — within the cap or past it, and nothing says so.
  * - A kind held whole is counted in memory, and draws the same: past the cap
- *   its rows hatched and the banner; within it, its events.
+ *   its rows hatched and the line; within it, its events.
  * - A kind read through its day index is counted by the days its events run
  *   on, the search its read asks first: past the cap no page of the index is
- *   read, and its events are not counted — the banner, the footer and the
+ *   read, and its events are not counted — the line, the footer and the
  *   inspector say so, never a number; within it, its days are read.
  */
 
@@ -387,8 +388,12 @@ const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTML
 const eventsDrawn = (c: HTMLElement) => slot(c, "main")!.querySelectorAll("[data-plan-row] [data-run]");
 /** An element's name. */
 const named = (node: HTMLElement | null) => node?.getAttribute("aria-label") ?? null;
-/** The jobs' notice: the banner saying how many events there are, and what shades them; `null` with none. */
-const notice = (c: HTMLElement) => slot(c, "banners")?.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]') ?? null;
+/** The one line over what no period shows (#1799); `null` with none. */
+const notice = (c: HTMLElement) => slot(c, "banners")?.querySelector<HTMLElement>('[data-plan-banner="over"]') ?? null;
+/** What it says of the jobs. */
+const TOO_MANY_JOBS = "Too many print jobs to show at once: pick a shorter range or narrow the filters.";
+/** The period the columns take, as the toolbar's segment shows it pressed. */
+const periodShown = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
 /** The footer's count of the events in the window. */
 const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="events"]')?.textContent ?? null;
 /** The inspector pane. */
@@ -432,43 +437,46 @@ async function zoomTo(c: HTMLElement, resolution: "day" | "week" | "month" | "qu
 // ============================================================================
 
 describe("a kind counted past the cap, through its source of the rail (#1039)", () => {
-    test("no event of the range is read or drawn; with a summary whose tile divides no day, the rows are hatched and the banner names the events and the resolution that shades them — at a month, each press's share booked, from the summary", async () => {
+    test("no event of the range is read or drawn; with a summary whose tile divides no day, the columns take months by themselves — the fortnight as it is, nothing said — and each press's share booked shades from the summary (#1799)", async () => {
         await bookProofs();
         const { container: c } = await h.mount(summaryPlan);
         await settle();
-        // Saturday 3 to Wednesday 21 October: the proofs and the thirteen jobs of the fortnight, counted — never read.
-        expect(notice(c)?.textContent).toContain("10,014 print job events in view");
-        expect(notice(c)?.textContent).toContain("switch to month to see where they fall");
+        // Saturday 3 to Wednesday 21 October: the proofs and the thirteen jobs of the fortnight, counted — never read. The
+        // fortnight gives days, which a month's summary shades none of: the columns are months, and no banner says a thing.
+        await waitFor(() => expect(askedOf(SUMMARY).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
+        await settle();
+        expect(periodShown(c)).toBe("MONTH");
+        expect(notice(c)).toBeNull();
+        expect(slot(c, "banners")?.querySelector("[data-plan-banner]") ?? null).toBeNull();
+        // Press 1001 in October: its 334 proofs a minute each, the brochure run's eight hours, the night catalogue's eight
+        // and the ticket books' two — 23.6 of October's 744 hours.
+        const october = [...rowOf(c, "P-1001").querySelectorAll<HTMLElement>("[data-cell]")].find((cell) => named(cell)?.startsWith("Oct"));
+        expect(named(october ?? null)).toMatch(/\b3% booked/);
+        expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]")).toHaveLength(0);
         expect(eventsDrawn(c)).toHaveLength(0);
-        expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
-        expect(rowOf(c, "P-1030").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
         // The interval index served the count, the rail's bounds and the backlog — never a page of the window, nor a run of
         // it — and nothing read the record whole.
         expect(intervalPages()).toEqual(BACKLOG_PAGE);
         expect(windowRuns()).toEqual([]);
         expect(h.requests("read", JOBS)).toEqual([]);
-        expect(askedOf(SUMMARY)).toEqual([]);
+        expect(windowRead()).toBe(false);
         // The footer counts them exactly, from the source, as the rail does.
         expect(counted(c)).toBe("10,014 events");
-        // At a month: the summary's cells, two requests, and each press's share of each month booked.
-        await zoomTo(c, "month");
-        await waitFor(() => expect(askedOf(SUMMARY).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
+        // Days pressed are tried again, and as few show nothing: the columns are months again, with nothing said.
+        await zoomTo(c, "day");
         await settle();
+        expect(periodShown(c)).toBe("MONTH");
         expect(notice(c)).toBeNull();
-        // Press 1001 in October: its 334 proofs a minute each, the brochure run's eight hours, the night catalogue's eight
-        // and the ticket books' two — 23.6 of October's 744 hours.
-        const october = [...rowOf(c, "P-1001").querySelectorAll<HTMLElement>("[data-cell]")].find((cell) => named(cell)?.startsWith("Oct"));
-        expect(named(october ?? null)).toMatch(/\b3% booked/);
         expect(eventsDrawn(c)).toHaveLength(0);
-        expect(windowRead()).toBe(false);
     });
 
-    test("with no summary, the rows are hatched and the banner says to narrow the filters or zoom in; a pan that leaves the proofs behind reads the events of the range and draws them", async () => {
+    test("with no summary, the rows are hatched and one plain line says there are too many to show; a pan that leaves the proofs behind reads the events of the range and draws them", async () => {
         await bookProofs();
         const { container: c } = await h.mount(intervalPlan);
         await settle();
-        expect(notice(c)?.textContent).toContain("10,014 print job events in view");
-        expect(notice(c)?.textContent).toContain("Too many to draw at this resolution: narrow the filters, or zoom in.");
+        expect(notice(c)?.textContent).toBe(TOO_MANY_JOBS);
+        // No period shows them: the columns keep the fortnight's days.
+        expect(periodShown(c)).toBe("DAY");
         expect(eventsDrawn(c)).toHaveLength(0);
         expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
         expect(intervalPages()).toEqual(BACKLOG_PAGE);
@@ -492,7 +500,7 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
         await bookProofs(BEYOND);
         const { container: c } = await h.mount(intervalPlan);
         await settle();
-        expect(notice(c)?.textContent).toContain("10,014 print job events in view");
+        expect(notice(c)?.textContent).toBe(TOO_MANY_JOBS);
         // The fortnight's thirteen, counted through the rail as it counts them — and no event of it read for the count.
         expect(counted(c)).toBe("13 events");
         expect(intervalPages()).toEqual(BACKLOG_PAGE);
@@ -511,7 +519,7 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
         // No count of 0: the jobs not counted, and why.
         expect(fact(c, "events")).toBeNull();
         expect(fact(c, "hours")).toBeNull();
-        expect(notCounted(c)).toBe("Print jobs not counted: too many to draw at this resolution");
+        expect(notCounted(c)).toBe("Print jobs not counted: too many in view");
         // None of its events is read for the row: no page of the window, nor a run of it.
         expect(intervalPages()).toEqual(BACKLOG_PAGE);
         expect(windowRead()).toBe(false);
@@ -533,7 +541,7 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
         expect(stat(c, "events")).toBe("10,015");
         // The hours of the kinds read: the check's two. The jobs' are not counted, and the pane says so — never as none.
         expect(stat(c, "hours")).toBe("2");
-        expect(notCounted(c)).toBe("Print job hours not counted: too many to draw at this resolution");
+        expect(notCounted(c)).toBe("Print job hours not counted: too many in view");
         expect(notCountedLines(c)).toBe(1);
         expect(windowRead()).toBe(false);
         // Another planner takes the proofs away: the jobs within the cap, read over the window, their hours counted — the
@@ -581,12 +589,11 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
 // ============================================================================
 
 describe("a kind held whole, counted in memory (#1039)", () => {
-    test("draws the same past the cap: its rows hatched and the banner, no event drawn; within it — the proofs taken away — its events", async () => {
+    test("draws the same past the cap: its rows hatched and the line, no event drawn; within it — the proofs taken away — its events", async () => {
         const before = await bookProofs();
         const { container: c } = await h.mount(wholePlan);
         await settle();
-        expect(notice(c)?.textContent).toContain("10,014 print job events in view");
-        expect(notice(c)?.textContent).toContain("Too many to draw at this resolution: narrow the filters, or zoom in.");
+        expect(notice(c)?.textContent).toBe(TOO_MANY_JOBS);
         expect(eventsDrawn(c)).toHaveLength(0);
         expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
         expect(counted(c)).toBe("10,014 events");
@@ -605,21 +612,20 @@ describe("a kind held whole, counted in memory (#1039)", () => {
 // ============================================================================
 
 describe("a kind read through its day index, counted by the days its events run on (#1039)", () => {
-    test("past the cap no page of its day index is read: its rows hatched, and its events not counted — the banner, the footer and the inspector say so, never a number; within it, its days are read and its events counted", async () => {
+    test("past the cap no page of its day index is read: its rows hatched, and its events not counted — the line, the footer and the inspector say so, never a number; within it, its days are read and its events counted", async () => {
         const before = await bookProofs();
         const { container: c } = await h.mount(dayPlan);
         await settle();
         // Saturday 3 to Wednesday 21 October: the proofs a day each, and the fortnight's jobs a day for each they run on —
-        // 10,018 entries, past the cap, and no number of its events.
-        expect(notice(c)?.textContent).toContain("Print job events in view: not counted");
-        expect(notice(c)?.textContent).toContain("Too many to draw at this resolution: narrow the filters, or zoom in.");
+        // 10,018 entries, past the cap, and no number of its events: the line says too many, and counts none.
+        expect(notice(c)?.textContent).toBe(TOO_MANY_JOBS);
         expect(eventsDrawn(c)).toHaveLength(0);
         expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
         expect(counted(c)).toBe("print jobs not counted");
         // Nothing selected: no count of the events nor of their hours, and the inspector says why, in one line.
         expect(stat(c, "events")).toBeNull();
         expect(stat(c, "hours")).toBeNull();
-        expect(notCounted(c)).toBe("Print jobs not counted: too many to draw at this resolution");
+        expect(notCounted(c)).toBe("Print jobs not counted: too many in view");
         expect(notCountedLines(c)).toBe(1);
         // The day index sought over the days the canvas reads — the search its read asks first, bounded at the range's
         // end, whose answer is their count — and no page of it read.
@@ -646,7 +652,7 @@ describe("a kind read through its day index, counted by the days its events run 
         expect(counted(c)).toBe("10,001 events, print jobs not counted");
         // No kind's hours read: no hours, never 0 — and one line for both.
         expect(stat(c, "hours")).toBeNull();
-        expect(notCounted(c)).toBe("Print jobs and Press check hours not counted: too many to draw at this resolution");
+        expect(notCounted(c)).toBe("Print jobs and Press check hours not counted: too many in view");
         expect(notCountedLines(c)).toBe(1);
     });
 });

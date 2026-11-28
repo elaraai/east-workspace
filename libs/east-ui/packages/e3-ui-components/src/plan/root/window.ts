@@ -27,20 +27,38 @@
  * axis still allows it — else on the axis's stated window. A canvas with no
  * slice keeps the axis's stated window.
  *
- * The resolution is the leading source's, written to each source holding the
- * window, else to every source (`controller/effects.ts`); a record's
- * resolution only re-buckets the canvas, and is no part of a source's
- * narrowing, so zooming fetches nothing.
+ * The window is a range, and a time axis's columns take the period the range
+ * and the plot's width give (#1740, `shared/time/period.ts`): the finest the
+ * axis offers whose column holds the column floor. The period is no state of
+ * a source's and is kept nowhere: the canvas's hold works it out when the
+ * range changes, by whatever control, and when the canvas opens, and holds
+ * that one while the plot's width alone changes — a pane opened, a browser
+ * resized — down to the squeeze floor ({@link PlanWindowHold.periodFor},
+ * {@link PlanWindowHold.layOut}).
+ *
+ * The range and the width say nothing of how much the range holds. Past what a
+ * view may draw, the period they give may show nothing of what is in view
+ * where a coarser one, which a summary shades, does (#1799,
+ * `shared/schedule/fallback-period.ts`): the canvas then has its hold fall
+ * back to that one ({@link PlanWindowHold.fallBack}), the range as it is. A
+ * fallback only ever goes coarser, and it stands while the range moves along
+ * — a pan, a step, the now rung, a brush dragged along — so the columns never
+ * go finer and back as a viewer moves through such a time. A range of another
+ * length — a brush resized or drawn anew, a zoom — is picked again on the
+ * plot, and so is a period pressed ({@link PlanWindowHold.pickAgain}).
  *
  * @packageDocumentation
  */
 
 import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getSomeorUndefined, useSlicesReactivity } from "@elaraai/east-ui-components";
-import { recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
-import { tileNext, tileStart, type RecordTile } from "@elaraai/east-ui/internal";
-import { resolveScale, type PlanAxisValue } from "../axis.js";
-import type { PlanScale } from "../scale.js";
+import { recordSliceDomain, recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { columnPeriod, periodColumns, squeezedPeriod } from "../../shared/time/period.js";
+import { MAX_BUCKETS, resolutionInterval } from "../../shared/time/scale.js";
+import { coarserThan } from "../../shared/time/zoom.js";
+import { axisPeriods, resolveScale, type PlanAxisValue } from "../axis.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_UNLAID_PLOT } from "../geometry.js";
+import type { PlanResolution, PlanScale } from "../scale.js";
 import type { PlanAxisKind } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
 import type { PlanOwnWindow } from "../persisted.js";
@@ -65,20 +83,26 @@ export interface PlanWindowPart {
  * ({@link PlanWindowHold.subscribe}). It names the sources whose ranges never
  * hold the window, as the canvas renders, so its effects read the same
  * sources holding it as its render does.
+ *
+ * It holds the period the window's columns take too (#1740), worked out at the
+ * last change of range on the plot as the canvas laid it out — or the coarser
+ * one the canvas fell back to there (#1799) — so the render, the effects and a
+ * gesture read one period.
  */
 export interface PlanWindowHold {
     /** The window last shown, `[from, to)` on the axis's domain; `undefined` before any. */
     last: readonly [number, number] | undefined;
     /** The sources whose ranges never hold the window, by name: the `rows` source (`PLAN_ROW_SOURCES`). */
     rows: readonly string[];
-    /** How many times a gesture has moved the canvas's own window: what its render reads the hold by. */
-    readonly moves: number;
+    /** How many times a gesture has moved the canvas's own window, or a change of the plot's width or a fallback its
+     *  columns' period: what its render reads the hold by. */
+    readonly version: number;
     /** The span of what the canvas's series shown read through its rows' nested series index (#1438), `[from, to)`: what a zoom
-     *  keeps the canvas's own window inside; `undefined` where none is known. */
+     *  to a table cell's period keeps the canvas's own window inside; `undefined` where none is known. */
     span: readonly [number, number] | undefined;
-    /** The zoom the canvas's own window was last kept at (#1438): the scale's while the slice holds none — a page's store
-     *  may not outlive the page, where the canvas's storage keeps the window and its zoom; `undefined` before any. */
-    resolution: string | undefined;
+    /** The plot's width as the canvas last laid it out, in px (#1740): what a range's period is picked on, and a preset's
+     *  columns counted on. Before any, the plot a canvas not laid out weighs its window on. */
+    readonly plot: number;
     /**
      * Moves the canvas's own window — no source of its slice holds one — and
      * tells its render. The window it shows already moves nothing.
@@ -88,7 +112,51 @@ export interface PlanWindowHold {
      */
     move(min: number, max: number): void;
     /**
-     * Listens for a move of the canvas's own window.
+     * Takes the plot's width as the canvas lays it out (#1740). The first one
+     * picks the window's period again, on the plot as it is; a later one alone
+     * keeps the period — a pane opened or shut, a browser resized, asks nothing
+     * of the time — and picks it again only where its columns would fall under
+     * the squeeze floor. It tells the render where the period moved. A plot of
+     * no width, a pane hidden, is not laid out, and changes nothing. Nor does
+     * the plot's width undo a fallback: only a period as coarse takes its place.
+     *
+     * @param plot - The plot's width, in px
+     */
+    layOut(plot: number): void;
+    /**
+     * The period a window's columns take (#1740): the one picked at the last
+     * change of range — or fallen back to there — while the range and the
+     * periods offered are the same; else picked now, on the plot as it is, and
+     * kept. A fallback stands for a range that is the last moved along, unless
+     * the plot gives it a coarser period still (#1799): one as long — a brush
+     * dragged along — or one of as many whole columns of the period fallen
+     * back to as the last touches — a pan, a step, the now rung.
+     *
+     * @param from - The window's start, in ms
+     * @param to - Its end, exclusive
+     * @param offered - The periods the axis offers
+     * @returns The period; `undefined` where none is offered
+     */
+    periodFor(from: number, to: number, offered: readonly PlanResolution[]): PlanResolution | undefined;
+    /**
+     * Falls back to a coarser period for the range as it is (#1799): the one
+     * its columns take shows nothing of what is in view, and this one does
+     * (`shared/schedule/fallback-period.ts`). It tells the render. Only ever
+     * coarser: a period no coarser than the one in use, or one the axis does
+     * not offer, changes nothing — nor does any before a range is shown.
+     *
+     * @param period - The period to take
+     */
+    fallBack(period: PlanResolution): void;
+    /**
+     * Picks the period again on the plot as it is, for the range as it is: a
+     * period pressed is tried again where the canvas had fallen back from it
+     * (#1799). It tells the render where the period moved; with no fallback
+     * standing it changes nothing.
+     */
+    pickAgain(): void;
+    /**
+     * Listens for a move of the canvas's own window, or of its columns' period.
      *
      * @param listener - Called after each move
      * @returns Stop listening
@@ -97,26 +165,90 @@ export interface PlanWindowHold {
 }
 
 /**
+ * Whether a range is another moved along (#1799): as long as it — a brush
+ * dragged along — or whole columns of a period, as many as the other touches —
+ * a pan, a step or the now rung at that period, which shift the columns drawn.
+ * A range of another length is a viewer's change of it.
+ *
+ * @param period - The period the other's columns take
+ * @param was - The other range, `[from, to)` in ms
+ * @param from - The range's start, in ms
+ * @param to - Its end, exclusive
+ * @returns Whether it is the other moved along
+ */
+function movedAlong(period: PlanResolution, was: { readonly from: number; readonly to: number }, from: number, to: number): boolean {
+    if (to - from === was.to - was.from) return true;
+    const interval = resolutionInterval(period);
+    return interval.floor(new Date(from)).getTime() === from && interval.floor(new Date(to)).getTime() === to
+        && periodColumns(period, from, to) === periodColumns(period, was.from, was.to);
+}
+
+/**
  * A window hold for a canvas.
  *
  * @param initial - The canvas's own window to open on: what a last session kept, as {@link restoredWindow} takes it
  *   back (#813); left out, no window shown yet
- * @returns The hold, showing `initial`, the `rows` source the one whose range never holds the window
+ * @returns The hold, showing `initial`, the `rows` source the one whose range never holds the window, its plot not laid out
  */
-export function createPlanWindowHold(initial?: readonly [number, number], resolution?: string): PlanWindowHold {
+export function createPlanWindowHold(initial?: readonly [number, number]): PlanWindowHold {
     const listeners = new Set<() => void>();
-    let moves = 0;
+    let version = 0;
+    let plot = PLAN_UNLAID_PLOT;
+    let laidOut = false;
+    // The period picked at the last change of range, and the range and the periods it was picked for; `fell` where the
+    // canvas fell back to it from the finer one the plot gives the range (#1799).
+    let kept: { from: number; to: number; offered: readonly PlanResolution[]; period: PlanResolution; fell: boolean } | undefined;
+    const tell = () => {
+        version += 1;
+        for (const listener of [...listeners]) listener();
+    };
     const hold: PlanWindowHold = {
         last: initial,
         rows: PLAN_ROW_SOURCES,
         span: undefined,
-        resolution,
-        get moves() { return moves; },
+        get version() { return version; },
+        get plot() { return plot; },
         move(min, max) {
             if (hold.last !== undefined && hold.last[0] === min && hold.last[1] === max) return;
             hold.last = [min, max];
-            moves += 1;
-            for (const listener of [...listeners]) listener();
+            tell();
+        },
+        layOut(width) {
+            if (!(width > 0) || (laidOut && width === plot)) return;
+            const first = !laidOut;
+            plot = width;
+            laidOut = true;
+            if (kept === undefined) return;
+            const picked = first
+                ? columnPeriod(kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS.floor) ?? kept.period
+                : squeezedPeriod(kept.period, kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS);
+            // The plot's width never undoes a fallback: what is in view is no fewer for it.
+            if (picked === kept.period || (kept.fell && coarserThan(kept.period, picked))) return;
+            kept = { ...kept, period: picked, fell: false };
+            tell();
+        },
+        periodFor(from, to, offered) {
+            const was = kept !== undefined && kept.offered.length === offered.length && kept.offered.every((period, i) => period === offered[i])
+                ? kept : undefined;
+            if (was !== undefined && was.from === from && was.to === to) return was.period;
+            const picked = columnPeriod(from, to, plot, offered, PLAN_COLUMN_WIDTHS.floor);
+            if (picked === undefined) return undefined;
+            // A fallback stands for the range it was made at moved along, unless the plot gives that a coarser period still.
+            const stands = was !== undefined && was.fell && !coarserThan(picked, was.period) && movedAlong(was.period, was, from, to);
+            kept = { from, to, offered, period: stands ? was.period : picked, fell: stands };
+            return kept.period;
+        },
+        fallBack(period) {
+            if (kept === undefined || !coarserThan(period, kept.period) || !kept.offered.includes(period)) return;
+            kept = { ...kept, period, fell: true };
+            tell();
+        },
+        pickAgain() {
+            if (kept === undefined || !kept.fell) return;
+            const picked = columnPeriod(kept.from, kept.to, plot, kept.offered, PLAN_COLUMN_WIDTHS.floor) ?? kept.period;
+            const moved = picked !== kept.period;
+            kept = { ...kept, period: picked, fell: false };
+            if (moved) tell();
         },
         subscribe(listener) {
             listeners.add(listener);
@@ -126,55 +258,26 @@ export function createPlanWindowHold(initial?: readonly [number, number], resolu
     return hold;
 }
 
-/** The resolutions a zoom counts in buckets of the calendar. */
-const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "month", "quarter", "year"]);
-
-/** A bucket's mean length, in ms: how far a run of them around an instant reaches, before the calendar cuts them. */
-const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
+/** A source's range domain, on the axis's arm: its kind, and its bounds as numbers. */
+export type PlanWindowDomain = NonNullable<ReturnType<typeof recordSliceDomain>>;
 
 /**
- * Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. The axis's domain
- * is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
- */
-function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
-    const out: number[] = [];
-    for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());
-    return out;
-}
-
-/**
- * The window a zoom shows on a canvas holding its own (#1438): as many
- * buckets of the new resolution as the window shown held of the old, about
- * the same middle, or the one given — inside the span of what its series read where it is
- * known, the whole span where they do not fit, and over the window shown too
- * where it lies outside the span. Where a source holds the window it is that
- * source's narrowing, and a zoom only re-buckets.
+ * The domain of the sources holding the window (#1344): from the earliest to
+ * the latest of their range fields' values, each of the axis's arm — where
+ * their data is: what the horizon spans, and what a zoom to a table cell's
+ * period keeps its window inside (#1710).
  *
- * @param shown - The window shown, `[from, to)` in ms
- * @param from - The resolution it shows at
- * @param to - The resolution zoomed to
- * @param span - The span of what the series read, `[from, to)` in ms; `undefined` where none is known
- * @param about - The middle it zooms about, in ms: the window shown's own unless given — a table cell's period, where a
- *   double click on it zooms to edit it (#1438)
- * @returns The window, `[from, to)` in ms, each end a bucket's edge; `undefined` for a resolution no calendar bucket names
+ * @param parts - The sources holding the window
+ * @returns Their domain; `undefined` while no source has one
  */
-export function zoomedWindow(shown: readonly [number, number], from: string, to: string,
-    span: readonly [number, number] | undefined, about?: number): readonly [number, number] | undefined {
-    if (!ZOOM_TILES.has(from) || !ZOOM_TILES.has(to)) return undefined;
-    const tile = to as RecordTile;
-    const n = Math.max(1, bucketsOver(from as RecordTile, shown[0], shown[1]).length);
-    const middle = about ?? (shown[0] + shown[1]) / 2;
-    const reach = (n + 1) * BUCKET_MS[tile];
-    const buckets = span === undefined
-        ? bucketsOver(tile, middle - reach, middle + reach)
-        : bucketsOver(tile, Math.min(span[0], shown[0]), Math.max(span[1], shown[1]));
-    if (buckets.length === 0) return undefined;
-    let at = 0;
-    while (at + 1 < buckets.length && buckets[at + 1]! <= middle) at++;
-    const first = Math.max(0, Math.min(at - Math.floor(n / 2), buckets.length - n));
-    const last = Math.min(buckets.length, first + n);
-    const end = last < buckets.length ? buckets[last]! : tileNext(tile, new Date(buckets[last - 1]!)).getTime();
-    return [buckets[first]!, end];
+export function windowPartsDomain(parts: readonly PlanWindowPart[]): PlanWindowDomain | undefined {
+    let out: PlanWindowDomain | undefined;
+    for (const { part } of parts) {
+        const domain = recordSliceDomain(part);
+        if (domain === undefined) continue;
+        out = out === undefined ? domain : { kind: out.kind, min: Math.min(out.min, domain.min), max: Math.max(out.max, domain.max) };
+    }
+    return out;
 }
 
 /** The canvas's narrowing chrome and scale. */
@@ -240,10 +343,11 @@ export function statedWindow(axis: PlanAxisValue): readonly [number, number] | u
  * The canvas's own window a last session kept under its storage key (#813), as
  * the canvas takes it back before its first paint: only while it holds its own
  * — its slice has no source holding the window, whose state keeps it — and only
- * a window the axis still allows, on the arm it was written on and one the axis
- * lays out at the zoom it was kept at — or, kept with none, the slice's —
- * in no more buckets than the canvas draws. Anything else leaves the axis's
- * stated window.
+ * a window the axis still allows, on the arm it was written on and one the
+ * axis lays out in no more columns than the canvas draws: a range of time is
+ * kept as a range, its period worked out again as the canvas opens (#1740), so
+ * any range the coarsest period offered draws whole comes back. Anything else
+ * leaves the axis's stated window.
  *
  * @param kept - What the canvas's storage keeps of its own window
  * @param value - The root the canvas mounts with: its axis and its slice
@@ -256,21 +360,14 @@ export function restoredWindow(kept: PlanOwnWindow | undefined, value: PlanRootV
     // A canvas with no slice keeps the axis's stated window, and one whose sources hold the window shows theirs.
     if (chrome === undefined || planWindowParts(chrome, value.axis.type, rows).length > 0) return undefined;
     const window = [kept.min, kept.max] as const;
-    const scale = resolveScale({ axis: value.axis, sliceWindow: window, sliceResolution: kept.resolution ?? slicedResolution(chrome, []) });
+    if (value.axis.type === "time") {
+        const offered = axisPeriods(value.axis);
+        const coarsest = offered[offered.length - 1];
+        const columns = coarsest === undefined ? 0 : periodColumns(coarsest, kept.min, kept.max);
+        return columns > 0 && columns <= MAX_BUCKETS ? window : undefined;
+    }
+    const scale = resolveScale({ axis: value.axis, sliceWindow: window });
     return scale === undefined || scale.truncated !== undefined ? undefined : window;
-}
-
-/**
- * The resolution the slice holds: the leading source's, else the first
- * source's — a slice with no window holds it there.
- *
- * @param chrome - The rail's chrome
- * @param parts - The sources holding the window
- * @returns Its tag; `undefined` while it holds none
- */
-export function slicedResolution(chrome: PlanSlicesChrome | undefined, parts: readonly PlanWindowPart[]): string | undefined {
-    const part = parts[0]?.part ?? chrome?.slice.parts[0]?.slice;
-    return part === undefined ? undefined : getSomeorUndefined(part.read().resolution)?.type;
 }
 
 /**
@@ -289,10 +386,10 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
     const windowParts = useMemo(() => planWindowParts(chrome, axis, rows), [chrome, axis, rows]);
     // The controller's effects read the sources holding the window as the render does: they name the same row sources.
     useLayoutEffect(() => { hold.rows = rows; }, [hold, rows]);
-    // Re-render on every write to a source: the window and the resolution are their state, whoever wrote them. And on
-    // every move of the canvas's own window, while no source holds one: the hold's state.
+    // Re-render on every write to a source: the window is their state, whoever wrote it. And on every move of the
+    // canvas's own window, while no source holds one, and of its columns' period as the plot is laid out: the hold's state.
     const version = useSlicesReactivity(chrome?.slice.parts.map((p) => p.slice.key) ?? []);
-    useSyncExternalStore(hold.subscribe, () => hold.moves, () => hold.moves);
+    useSyncExternalStore(hold.subscribe, () => hold.version, () => hold.version);
     const affordances = useMemo(() => chrome?.affordances.map((a) => a.type) ?? [], [chrome]);
     // Read as numbers, never as the decoded state's objects, which are new every read: a memo keyed on them would
     // rebuild the scale — and hand every mounted row a new one — on every render (#812).
@@ -300,22 +397,23 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
     if (lead !== undefined) hold.last = lead;
     const from = (lead ?? hold.last)?.[0];
     const to = (lead ?? hold.last)?.[1];
-    // The slice's zoom, else — the canvas holding its own window — the zoom that window was kept at (#1438).
-    const resolution = slicedResolution(chrome, windowParts) ?? (lead === undefined ? hold.resolution : undefined);
+    const stated = statedWindow(data.axis);
+    const targetFrom = from ?? stated?.[0];
+    const targetTo = to ?? stated?.[1];
+    // The period the window's columns take (#1740): the hold's, picked at the last change of range on the plot as laid out.
+    const offered = useMemo(() => axisPeriods(data.axis), [data.axis]);
+    const period = axis !== "time" || targetFrom === undefined || targetTo === undefined ? undefined : hold.periodFor(targetFrom, targetTo, offered);
     // `resolveScale` owns the ladder: the sources' window — or the canvas's own — ▸ the stated window, per axis kind. The
     // rows are no input (#822), so windows landing keep one scale rather than handing every mounted row a new one (#812).
     const scale = useMemo(() => resolveScale({
         axis: data.axis,
         sliceWindow: from === undefined || to === undefined ? undefined : [from, to],
-        sliceResolution: resolution,
+        period,
         words,
-    }), [data.axis, from, to, resolution, words]);
+    }), [data.axis, from, to, period, words]);
     // Every source that does not hold the window yet takes it — a first mount, a range a choice replaced, or another
     // source's range written by the range editor — unless it would replace a choice of the source's own.
     const [error, setError] = useState<string>();
-    const stated = statedWindow(data.axis);
-    const targetFrom = from ?? stated?.[0];
-    const targetTo = to ?? stated?.[1];
     useLayoutEffect(() => {
         if (targetFrom === undefined || targetTo === undefined || windowParts.length === 0) return;
         try {

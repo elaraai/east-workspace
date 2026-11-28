@@ -4,18 +4,20 @@
  *
  * @vitest-environment jsdom
  *
- * A bucket cell with more tiles than it has room for (#1267): the tiles that
- * fit, each drawn whole, then a `+n` chip counting the rest, named for what it
- * holds and where; its menu lists them by their tiles' names, and a pick keeps
- * the tile on the cell's run, focuses it and opens its popover. A folded tile
- * is out of the row's walk, which reaches the chip in its place. The fold is
- * measured again as the room changes, and an open menu stays open through it.
- * A cell with no room beside the chip for a kept tile's floor shows the kept
- * tile alone until it is let go. A cell with no room for one tile draws none:
- * its chip alone, across the cell, lists every tile, and a pick opens the
- * tile's popover hung from the chip (#1276). jsdom lays nothing out: the
- * tiles, the chip's stand-in and the room measure as the stand-in layout below
- * says.
+ * A bucket cell's tiles in its slots (#1735, #1267): the day's room in its
+ * lane's, every edge on a whole pixel of the plot its row measures; one tile
+ * takes the day, two halves, three or four quarters, from five three and a
+ * `+n` in the last quarter — named for what it holds and where — whose menu
+ * lists the rest by their tiles' names; a pick keeps the tile in a slot,
+ * focuses it and opens its popover. A folded tile is out of the row's walk,
+ * which reaches the chip in its place. Narrow days keep the floor: slots under
+ * it give way to fewer, the `+n` taking the rest. The slots follow the plot as
+ * it resizes, and an open menu stays open through it. A day of one slot shows
+ * a kept tile alone until it is let go. A cell with no room for one of its
+ * several tiles draws its chip alone across the day, listing every tile, and a
+ * pick opens the tile's popover hung from the chip (#1276); a lone tile there
+ * draws as a mark across the cell, its click its own (#1710). jsdom lays
+ * nothing out: the plot measures as the stand-in layout below says.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -70,7 +72,7 @@ function planRoot(rows: PlanWireRow[], popover?: unknown): PlanRootValue {
     } as unknown as PlanRootValue;
 }
 
-/** The van's tiles: three in Jul 6's cell, then one alone in Jul 20's. */
+/** The van's tiles: three in Jul 6's day, then one alone in Jul 20's. */
 const VAN = planRow("van", variant("buckets", {
     lanes: [], markers: [],
     events: [
@@ -81,18 +83,19 @@ const VAN = planRow("van", variant("buckets", {
     ],
 }));
 
-/** Each tile's width drawn whole, in the stand-in layout; the chip's stand-in 24px; the tiles 5px apart. */
-const WIDTHS: Readonly<Record<string, number>> = { a: 40, b: 45, c: 28, d: 50 };
-const CHIP = 24;
-/** The widths the stand-in layout draws the tiles at now — {@link WIDTHS} until a test's font arrives. */
-let widths: Readonly<Record<string, number>> = WIDTHS;
+/** The yard's six tiles in Jul 6's day. */
+const YARD = planRow("van", variant("buckets", {
+    lanes: [], markers: [],
+    events: ["u", "v", "w", "x", "y", "z"].map((key) => tile(key, 1, key.toUpperCase())),
+}));
 
-/** The room each cell's tiles have, as the stand-in layout gives it. */
-let room = 200;
-/** Each ResizeObserver's callback and what it observes: a cell's is called as its room changes. */
-const observers: Array<{ callback: () => void; targets: Element[] }> = [];
-/** The page's fonts: jsdom has none, so a cell hears this stand-in's `loadingdone`. */
-let fonts = new EventTarget();
+/** The plot as the stand-in layout gives it: twelve weekly days at a pitch, a buckets row of one lane less its rule. */
+let plot = { width: 12 * 132, height: 24 };
+/** A day's pitch, as the stand-in plot gives it. */
+const pitched = (pitch: number) => { plot = { width: 12 * pitch, height: 24 }; };
+/** Each ResizeObserver's callback and what it observes: a row's measure is called as the plot changes, with an entry
+ *  for each element it observes, as a browser delivers them. */
+const observers: Array<{ callback: (entries: { target: Element }[]) => void; targets: Element[] }> = [];
 /** What the canvas's IntersectionObservers watch — an open popover's anchor among them. */
 const watched: Element[] = [];
 /** Every IntersectionObserver the canvas creates — a popover watches its anchor with one. */
@@ -104,41 +107,24 @@ class IntersectionObserverStub {
 }
 const saved = {
     rect: Element.prototype.getBoundingClientRect,
-    computed: window.getComputedStyle,
     observer: (globalThis as { ResizeObserver?: unknown }).ResizeObserver,
 };
 
 beforeEach(() => {
     initializeStore(new UIStore());
-    room = 200;
-    widths = WIDTHS;
+    pitched(132);
     observers.length = 0;
     watched.length = 0;
-    fonts = new EventTarget();
-    Object.defineProperty(document, "fonts", { configurable: true, value: fonts });
     (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = IntersectionObserverStub;
     Element.prototype.getBoundingClientRect = function (this: Element) {
-        const width = this.matches("[data-plan-cell-tiles]") ? room
-            : this.matches("[data-event]") ? widths[this.getAttribute("data-event") ?? ""] ?? 0
-                : this.matches("[data-tile-more-measure]") ? CHIP : 0;
-        return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0, toJSON: () => ({}) } as DOMRect;
+        const { width, height } = this.matches("[data-plan-cells-measure]") ? plot : { width: 0, height: 0 };
+        return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, width, height, toJSON: () => ({}) } as DOMRect;
     };
-    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
-        const style = saved.computed.call(window, el, pseudo);
-        if (!el.matches("[data-plan-cell-tiles]")) return style;
-        return new Proxy(style, {
-            get: (target, prop) => {
-                if (prop === "columnGap") return "5px";
-                const value = Reflect.get(target, prop) as unknown;
-                return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-            },
-        });
-    }) as typeof window.getComputedStyle;
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
-        private readonly observer: { callback: () => void; targets: Element[] };
-        constructor(callback: () => void) { this.observer = { callback, targets: [] }; observers.push(this.observer); }
+        private readonly observer: { callback: (entries: { target: Element }[]) => void; targets: Element[] };
+        constructor(callback: (entries: { target: Element }[]) => void) { this.observer = { callback, targets: [] }; observers.push(this.observer); }
         observe(target: Element) { this.observer.targets.push(target); }
-        unobserve() {}
+        unobserve(target: Element) { this.observer.targets.splice(this.observer.targets.indexOf(target), 1); }
         disconnect() { this.observer.targets.length = 0; }
     };
 });
@@ -146,16 +132,17 @@ afterEach(() => {
     cleanup();
     localStorage.clear();
     Element.prototype.getBoundingClientRect = saved.rect;
-    window.getComputedStyle = saved.computed;
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver = saved.observer;
     delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
-    Reflect.deleteProperty(document, "fonts");
 });
 
-/** The cells' room has changed: their observers hear it, as the layout would tell them. */
+/** The plot has resized: the rows' measures hear it, as the layout would tell them. */
 const resized = async () => {
     await act(async () => {
-        for (const { callback, targets } of observers) if (targets.some((el) => el.matches("[data-plan-cell-tiles]"))) callback();
+        for (const { callback, targets } of observers) {
+            const measured = targets.filter((el) => el.matches("[data-plan-cells-measure]"));
+            if (measured.length > 0) callback(measured.map((target) => ({ target })));
+        }
     });
 };
 
@@ -163,24 +150,27 @@ const resized = async () => {
 const popover = (ref: PlanElementRefValue) =>
     (ref.type === "event" ? some(variant("Text", { value: `POP · ${ref.value.event}`, style: none })) : none);
 
-const renderPlan = (key: string, withPopover = true) => render(
+const renderPlan = (key: string, row: PlanWireRow = VAN, withPopover = true) => render(
     <ChakraProvider value={system}>
-        <EastChakraPlan value={planRoot([VAN], withPopover ? popover : undefined)} storageKey={key} />
+        <EastChakraPlan value={planRoot([row], withPopover ? popover : undefined)} storageKey={key} />
     </ChakraProvider>,
 );
 
+const cellAt = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="${key}"]`)!;
 /** Jul 6's cell as it draws: the tiles that show, by key, the folded ones, and its chip's words and name. */
-function cellOf(container: HTMLElement) {
-    const cell = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="1:0"]`)!;
+function cellOf(container: HTMLElement, key = "1:0") {
+    const cell = cellAt(container, key);
     const tiles = [...cell.querySelectorAll<HTMLElement>("[data-event]")];
     const chip = cell.querySelector<HTMLElement>("[data-tile-more]");
     return {
         shown: tiles.filter((el) => !el.hasAttribute("data-folded")).map((el) => el.getAttribute("data-event")),
         folded: tiles.filter((el) => el.hasAttribute("data-folded")).map((el) => el.getAttribute("data-event")),
         chip: chip === null ? null : [chip.textContent, chip.getAttribute("aria-label")],
-        measuring: cell.querySelector("[data-tile-more-measure]") !== null,
     };
 }
+/** Where a cell's shown tiles stand: each one's key, left and width, as its slot sets them. */
+const placesOf = (container: HTMLElement, key: string) => [...cellAt(container, key).querySelectorAll<HTMLElement>("[data-event]:not([data-folded])")]
+    .map((el) => [el.getAttribute("data-event"), el.style.left, el.style.width]);
 const chipOf = (container: HTMLElement) => container.querySelector<HTMLElement>(`${rowSel("van")} [data-tile-more]`)!;
 const tileOf = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`${rowSel("van")} [data-event="${key}"]`)!;
 /** Opens the chip's menu. */
@@ -192,34 +182,36 @@ const pick = async (name: RegExp) => {
     await act(async () => { fireEvent.click(item); });
 };
 
-describe("a bucket cell with more tiles than room (#1267)", () => {
-    test("a cell its tiles fit draws every tile and no chip; a lone tile with room for it never folds", () => {
-        const { container } = renderPlan("plan-1267-fit");
-        expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null, measuring: false });
-        room = 10;
-        const narrow = renderPlan("plan-1267-lone");
-        expect(narrow.container.querySelectorAll(`${rowSel("van")} [data-event="d"][data-folded]`)).toHaveLength(0);
+describe("a bucket cell's tiles in its slots (#1735)", () => {
+    test("at B 132, three tiles take quarters 2px in and 5 apart, a lone tile the day; the cell is the day's room, its rule its last pixel, in a lane of 24", () => {
+        const { container } = renderPlan("plan-1735-slots");
+        expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null });
+        expect(placesOf(container, "1:0")).toEqual([["a", "2px", "28px"], ["b", "35px", "28px"], ["c", "68px", "28px"]]);
+        expect(placesOf(container, "3:0")).toEqual([["d", "2px", "127px"]]);
+        const cell = cellAt(container, "1:0").style;
+        expect([cell.left, cell.width, cell.top, cell.height, cell.getPropertyValue("--plan-tile-top")]).toEqual(["132px", "131px", "0px", "24px", "2px"]);
     });
 
-    test("short of room, the run that fits beside the chip shows and the chip counts the rest, named for what it holds and where", () => {
-        // Beside the chip: 90 less 24 and its gap, 61 — ALPHA (40) fits; the proposal after it does not.
-        room = 90;
-        const { container } = renderPlan("plan-1267-fold");
-        expect(cellOf(container)).toEqual({
-            shown: ["a"], folded: ["b", "c"], chip: ["+2", "2 more events, Week of Jul 6, 2026"], measuring: false,
-        });
+    test("five or more: three tiles and a +n in the last quarter, named for what it holds and where", () => {
+        const { container } = renderPlan("plan-1735-five", YARD);
+        expect(cellOf(container)).toEqual({ shown: ["u", "v", "w"], folded: ["x", "y", "z"], chip: ["+3", "3 more events, Week of Jul 6, 2026"] });
+        expect([chipOf(container).style.left, chipOf(container).style.width]).toEqual(["101px", "28px"]);
     });
 
-    test("with no room for any tile beside it, the chip alone counts them all — every event in the cell, none more than another (#1680's review)", () => {
-        room = 40;
-        const { container } = renderPlan("plan-1267-chip-alone");
-        expect(cellOf(container)).toEqual({
-            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"], measuring: false,
-        });
+    test("narrow days keep the floor: at B 90 the three are one and a +2 in halves; at B 40 the +3 alone, every event in it, none more than another (#1680's review)", () => {
+        pitched(90);
+        const { container } = renderPlan("plan-1735-halves");
+        expect(cellOf(container)).toEqual({ shown: ["a"], folded: ["b", "c"], chip: ["+2", "2 more events, Week of Jul 6, 2026"] });
+        expect(placesOf(container, "1:0")).toEqual([["a", "2px", "40px"]]);
+        expect([chipOf(container).style.left, chipOf(container).style.width]).toEqual(["47px", "40px"]);
+        cleanup();
+        pitched(40);
+        const narrow = renderPlan("plan-1735-alone");
+        expect(cellOf(narrow.container)).toEqual({ shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"] });
     });
 
-    test("the menu lists the folded tiles by their names; a pick keeps the tile on the run, focuses it and opens its popover", async () => {
-        room = 90;
+    test("the menu lists the folded tiles by their names; a pick keeps the tile in a slot, focuses it and opens its popover", async () => {
+        pitched(90);
         const { container } = renderPlan("plan-1267-pick");
         await openMenu(container);
         expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
@@ -227,17 +219,15 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
             "S-A, Week of Jul 6, 2026, confirmed",
         ]);
         await pick(/^S-A/);
-        // S-A takes its place first; ALPHA after it no longer fits beside the chip.
+        // S-A takes the one slot beside the chip; ALPHA folds.
         await waitFor(() => expect(cellOf(container).shown).toEqual(["c"]));
-        expect(cellOf(container)).toEqual({
-            shown: ["c"], folded: ["a", "b"], chip: ["+2", "2 more events, Week of Jul 6, 2026"], measuring: false,
-        });
+        expect(cellOf(container)).toEqual({ shown: ["c"], folded: ["a", "b"], chip: ["+2", "2 more events, Week of Jul 6, 2026"] });
         await waitFor(() => expect(document.activeElement).toBe(tileOf(container, "c")));
         expect(await screen.findByText("POP · c")).toBeTruthy();
     });
 
     test("a folded tile is out of the row's walk, and the chip stands in it where the tiles it folds would be", async () => {
-        room = 90;
+        pitched(90);
         const { container } = renderPlan("plan-1267-walk");
         const a = tileOf(container, "a");
         act(() => a.focus());
@@ -251,74 +241,60 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         expect(document.activeElement).toBe(a);
     });
 
-    test("the fold follows the room: wider, every tile shows and the chip goes; narrower again, they fold", async () => {
-        room = 90;
-        const { container } = renderPlan("plan-1267-resize");
+    test("the slots follow the plot: wider, every tile shows and the chip goes; narrower again, they fold — and an open menu stays open while its chip stands", async () => {
+        pitched(90);
+        const { container } = renderPlan("plan-1735-resize");
         expect(cellOf(container).chip).toEqual(["+2", "2 more events, Week of Jul 6, 2026"]);
-        room = 200;
+        pitched(132);
         await resized();
-        expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null, measuring: false });
-        room = 90;
+        expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null });
+        pitched(90);
         await resized();
         expect(cellOf(container).shown).toEqual(["a"]);
-    });
-
-    test("a font arriving measures the cell again: tiles it draws narrower fit, and the chip goes", async () => {
-        room = 90;
-        const { container } = renderPlan("plan-1267-font");
-        expect(cellOf(container).shown).toEqual(["a"]);
-        // The face arrives and draws every tile narrower: 20 + 5 + 25 + 5 + 20 is 75, in 90 of room.
-        widths = { ...WIDTHS, a: 20, b: 25, c: 20 };
-        await act(async () => { fonts.dispatchEvent(new Event("loadingdone")); });
-        expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null, measuring: false });
-    });
-
-    test("an open menu stays open, with its items, as the cell measures again — a font arriving, or the room changing", async () => {
-        room = 90;
-        const { container } = renderPlan("plan-1267-open");
         await openMenu(container);
+        const items = ["Event, Week of Jul 6, 2026, recommended", "S-A, Week of Jul 6, 2026, confirmed"];
         const menu = () => ({
             open: chipOf(container)?.getAttribute("aria-expanded") ?? null,
             items: screen.queryAllByRole("menuitem").map((item) => item.textContent),
         });
-        const items = ["Event, Week of Jul 6, 2026, recommended", "S-A, Week of Jul 6, 2026, confirmed"];
         expect(menu()).toEqual({ open: "true", items });
-        await act(async () => { fonts.dispatchEvent(new Event("loadingdone")); });
-        expect(menu()).toEqual({ open: "true", items });
-        room = 95;
+        pitched(95);
         await resized();
         expect(menu()).toEqual({ open: "true", items });
     });
 
-    test("a cell with no room for one tile draws none: its chip alone, across the cell, lists every tile; a pick opens the tile's popover, hung from the chip (#1276)", async () => {
-        room = 0;
+    test("a day with no room for one tile: several fold into its chip alone, across the day, which lists every tile and a pick opens the tile's popover hung from the chip (#1276); a lone tile draws as a mark across its day — the tile itself, never a count of one, its click its popover (#1710)", async () => {
+        pitched(7);
         const { container } = renderPlan("plan-1276-no-room");
-        // Jul 6's three tiles, and DELTA alone in Jul 20's cell: every one folds, kept or not.
-        expect(cellOf(container)).toEqual({
-            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"], measuring: false,
-        });
-        const lone = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="3:0"]`)!;
-        const chip = lone.querySelector<HTMLElement>("[data-tile-more]")!;
-        // The cell's one event: its chip names it as one event, never one more (#1680's review).
-        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["+1", "1 event, Week of Jul 20, 2026"]);
-        expect([chip.hasAttribute("data-no-room"), tileOf(container, "d").hasAttribute("data-folded")]).toEqual([true, true]);
-        await act(async () => { fireEvent.click(chip); });
-        expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["DELTA, Week of Jul 20, 2026, confirmed"]);
-        await pick(/^DELTA/);
-        expect(await screen.findByText("POP · d")).toBeTruthy();
-        // DELTA, which cannot draw, stays folded; its popover watches the chip, which it hangs from.
-        expect(tileOf(container, "d").hasAttribute("data-folded")).toBe(true);
+        // Jul 6's three tiles: every one folds into the chip, the cell's one part, kept or not.
+        expect(cellOf(container)).toEqual({ shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"] });
+        const chip = chipOf(container);
+        expect(chip.hasAttribute("data-no-room")).toBe(true);
+        await openMenu(container);
+        await pick(/^ALPHA/);
+        expect(await screen.findByText("POP · a")).toBeTruthy();
+        // ALPHA, which cannot draw beside the others, stays folded; its popover watches the chip, which it hangs from.
+        expect(tileOf(container, "a").hasAttribute("data-folded")).toBe(true);
         expect(watched.at(-1)).toBe(chip);
+        // DELTA alone in Jul 20's day: no chip, the tile drawn as the cell's mark.
+        const lone = cellAt(container, "3:0");
+        expect(lone.querySelector("[data-tile-more]")).toBeNull();
+        expect(lone.querySelector("[data-plan-cell-tiles]")!.hasAttribute("data-no-room")).toBe(true);
+        expect(tileOf(container, "d").hasAttribute("data-folded")).toBe(false);
+        // Its click is the tile's own: its popover, which watches the tile.
+        await act(async () => { fireEvent.click(tileOf(container, "d")); });
+        expect(await screen.findByText("POP · d")).toBeTruthy();
+        expect(watched.at(-1)).toBe(tileOf(container, "d"));
     });
 
-    test("with no room beside the chip for a kept tile's floor, the kept tile shows alone; let go, it folds and hands the focus to the chip", async () => {
-        room = 40;
+    test("on a day of one slot, a kept tile stands alone while the chip waits; let go, it folds and hands the focus to the chip", async () => {
+        pitched(40);
         const { container } = renderPlan("plan-1267-alone");
         expect(cellOf(container).chip).toEqual(["+3", "3 events, Week of Jul 6, 2026"]);
         await openMenu(container);
         await pick(/^ALPHA/);
-        // ALPHA alone: 40 less the chip leaves no room for its 20px floor beside it.
-        await waitFor(() => expect(cellOf(container)).toEqual({ shown: ["a"], folded: ["b", "c"], chip: null, measuring: false }));
+        await waitFor(() => expect(cellOf(container)).toEqual({ shown: ["a"], folded: ["b", "c"], chip: null }));
+        expect(placesOf(container, "1:0")).toEqual([["a", "2px", "35px"]]);
         await waitFor(() => expect(document.activeElement).toBe(tileOf(container, "a")));
         expect(await screen.findByText("POP · a")).toBeTruthy();
         // Esc closes the popover and hands the focus back to ALPHA, which the cell no longer keeps: it folds, and
@@ -335,26 +311,25 @@ const selecting = (elements: readonly string[]): PlanController => ({
     getSnapshot: () => ({ store: { ui: { elements } }, overlay: { popover: null } }),
 }) as unknown as PlanController;
 
-/** A tile as the cell draws it, by its key: a button its stand-in layout sizes. */
+/** A tile as the cell draws it, by its key. */
 const standIn = (key: string): BucketCellTile => ({
     key,
     name: key.toUpperCase(),
-    draw: (folded) => <div key={key} data-event={key} data-folded={folded ? "" : undefined} tabIndex={-1} role="button" />,
+    draw: (folded, place) => <div key={key} data-event={key} data-folded={folded ? "" : undefined} style={place} tabIndex={-1} role="button" />,
 });
 
-describe("a bucket cell keeps a selected event's tile on its run (#1267)", () => {
-    test("a tile the canvas has selected — an event kind's — never folds: it takes its place first", () => {
-        room = 90;
+describe("a bucket cell keeps a selected event's tile in a slot (#1267)", () => {
+    test("a tile the canvas has selected — an event kind's — never folds: it takes its slot first", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <PlanControllerContext.Provider value={selecting(["b"])}>
                     <BucketCell styles={{}} rowKey="van" cellKey="1:0" place={{}} over={undefined}
-                        tiles={["a", "b", "c"].map(standIn)} marker={null} folds frac={0} bucket="Week of Jul 6, 2026"
-                        lane={undefined} words={PLAN_WORDS} onClick={() => undefined} signature="a|b|c" />
+                        tiles={["a", "b", "c"].map(standIn)} marker={null} folds pitch={90} frac={0} bucket="Week of Jul 6, 2026"
+                        lane={undefined} words={PLAN_WORDS} onClick={() => undefined} />
                 </PlanControllerContext.Provider>
             </ChakraProvider>,
         );
-        // B first; A after it would take 45 + 5 + 40, 90, of the 61 beside the chip.
+        // Halves at B 90: B in the one slot beside the chip, A and C in it.
         expect([...container.querySelectorAll("[data-event]:not([data-folded])")].map((el) => el.getAttribute("data-event"))).toEqual(["b"]);
         expect(container.querySelector("[data-tile-more]")?.textContent).toBe("+2");
     });

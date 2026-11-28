@@ -186,7 +186,11 @@
  * that keeps `renderRow` the same function while its data holds pays for a
  * scroll only in the rows coming into view. Which row shows at the top of the
  * view is read by the row that needs it (`useRowsTop`), never handed to every
- * row.
+ * row. The frame itself is drawn again as a scroll begins, as its intent is
+ * read and as it comes to rest — a wheel step, three times over: a row's box
+ * is its own part, drawn again only as its index, its place or `renderRow`
+ * moves, so those draw none of the rows that hold. (A sectioned frame's rows
+ * are placed from its stuck heads, worked out each time it is drawn.)
  */
 
 import {
@@ -335,6 +339,55 @@ function createScrollIntentFollow(): ScrollIntentFollow {
  */
 const RowContent = memo(function RowContent({ index, render }: { index: number; render: (index: number) => ReactNode }) {
     return <>{render(index)}</>;
+});
+
+/**
+ * Test-only probe of a row's box — lets "the frame drawn again around rows
+ * that hold draws none of their boxes" be asserted as the boxes' own renders.
+ * `undefined` outside tests.
+ */
+let rowBoxProbe: ((index: number) => void) | undefined;
+/** Install (or clear) the test row box probe. Test use only. */
+export function setVirtualRowsBoxProbe(fn: ((index: number) => void) | undefined): void {
+    rowBoxProbe = fn;
+}
+
+/** What a row's box is drawn from: its index, where it stands among the rows, and its renderer. */
+interface RowBoxProps {
+    readonly index: number;
+    /** Its start in the rows' own coordinates, which its content reads (`useRowTop`). */
+    readonly top: number;
+    readonly render: (index: number) => ReactNode;
+}
+
+/**
+ * A fixed-height row's box, in the window's one column: drawn again only when
+ * its index, where it stands or its renderer moves. The frame draws itself
+ * again as a scroll begins, as its intent is read and as it comes to rest —
+ * each wheel step, three times over — around rows that hold, and draws none of
+ * their boxes for it.
+ */
+const FixedRow = memo(function FixedRow({ index, top, render }: RowBoxProps) {
+    rowBoxProbe?.(index);
+    return (
+        <Box data-index={index}>
+            <RowTopContext.Provider value={top}><RowContent index={index} render={render} /></RowTopContext.Provider>
+        </Box>
+    );
+});
+
+/**
+ * A measured row's box, translated to where it stands and handed to the
+ * virtualizer to measure: drawn again as a fixed row's is ({@link FixedRow}).
+ */
+const MeasuredRow = memo(function MeasuredRow({ index, top, render, measure }: RowBoxProps & { readonly measure: (node: Element | null) => void }) {
+    rowBoxProbe?.(index);
+    return (
+        <Box data-index={index} data-slot="virtualRow" ref={measure}
+            position="absolute" top="0" left="0" width="100%" style={{ transform: `translateY(${top}px)` }}>
+            <RowTopContext.Provider value={top}><RowContent index={index} render={render} /></RowTopContext.Provider>
+        </Box>
+    );
 });
 
 /**
@@ -1738,15 +1791,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
     }
     const placeRow = (item: VirtualItem) => {
-        const row = <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>;
         if (!sectioned) {
-            return (
-                <Box key={item.key} data-index={item.index} data-slot="virtualRow" ref={virtualizer.measureElement}
-                    position="absolute" top="0" left="0" width="100%" style={{ transform: `translateY(${item.start - margin}px)` }}>
-                    {row}
-                </Box>
-            );
+            return <MeasuredRow key={item.key} index={item.index} top={item.start - margin} render={renderRow} measure={virtualizer.measureElement} />;
         }
+        const row = <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>;
         // The row's place, which the frame moves — a stuck head row's, its rail, taking no pointer below the row — and
         // in it the row itself, measured, sticking under the header and the stuck rows above it, which the host's recipe
         // paints. The place is its top, never a transform, which a stuck row's offset would be worked out before (the
@@ -1788,11 +1836,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                     width="100%"
                     style={{ transform: `translateY(${columnTop}px)` }}
                 >
-                    {items.map((item) => (
-                        <Box key={item.key} data-index={item.index}>
-                            <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
-                        </Box>
-                    ))}
+                    {items.map((item) => <FixedRow key={item.key} index={item.index} top={item.start - margin} render={renderRow} />)}
                     {overlay !== undefined && overlay !== null && (
                         // The rows' box, in the column: back at the rows' top,
                         // as tall as all of them. It takes no pointer — what the

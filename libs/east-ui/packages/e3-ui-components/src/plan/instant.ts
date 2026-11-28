@@ -13,7 +13,7 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, FloatType, equalFor, parseFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, parseFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 
 /** One decoded instant — `{ time | number | ordinal }` (derived from the East type, never mirrored). */
@@ -22,10 +22,8 @@ export type PlanInstantValue = ValueTypeOf<typeof Plan.Types.Instant>;
 /** Whether two instants are alike — the same arm and the same East value. */
 export const equalInstants: (a: PlanInstantValue, b: PlanInstantValue) => boolean = equalFor(Plan.Types.Instant);
 
-const printTime = printFor(DateTimeType);
-const printNumber = printFor(FloatType);
-const readTime = parseFor(DateTimeType);
-const readNumber = parseFor(FloatType);
+const printInstant = printFor(Plan.Types.Instant);
+const readInstant = parseFor(Plan.Types.Instant);
 
 /** The axis kinds — the arms of {@link PlanInstantValue}. */
 export type PlanAxisKind = PlanInstantValue["type"];
@@ -65,46 +63,30 @@ export function instantOrder(t: PlanInstantValue, ordinal?: ReadonlyMap<string, 
 }
 
 /**
- * A stable identity for grouping cells by instant — its arm and its value as
- * East prints it (`time:2026-01-05T00:00:00.000`, `number:3.0`,
- * `ordinal:P1`): two instants that name the same bucket share a key.
+ * A stable identity for grouping cells by instant — the instant as East
+ * prints it, its arm and its value in one text: two instants that name the
+ * same bucket share a key.
+ *
+ * @remarks
+ * A function of exactly one argument, so it maps point-free: East's printer
+ * takes further parameters of its own.
  *
  * @param t - The instant
  * @returns The grouping key
  */
 export function instantKey(t: PlanInstantValue): string {
-    switch (t.type) {
-        case "time": return `time:${printTime(t.value)}`;
-        case "number": return `number:${printNumber(t.value)}`;
-        case "ordinal": return `ordinal:${t.value}`;
-    }
+    return printInstant(t);
 }
 
 /**
  * The instant a {@link instantKey} names — its inverse, read with East's
- * parsers, so an element can carry its instant in a DOM attribute and the
+ * parser, so an element can carry its instant in a DOM attribute and the
  * canvas read it back (#816: a cell's `data-cell`).
  *
  * @param key - A key `instantKey` produced
  * @returns The instant, or `undefined` for a string no instant produces
  */
 export function instantOfKey(key: string): PlanInstantValue | undefined {
-    const colon = key.indexOf(":");
-    if (colon < 0) return undefined;
-    const arm = key.slice(0, colon);
-    const rest = key.slice(colon + 1);
-    switch (arm) {
-        case "time": {
-            const read = readTime(rest);
-            return read.success ? timeInstant(read.value) : undefined;
-        }
-        case "number": {
-            const read = readNumber(rest);
-            return read.success ? numberInstant(read.value) : undefined;
-        }
-        case "ordinal":
-            return ordinalInstant(rest);
-        default:
-            return undefined;
-    }
+    const read = readInstant(key);
+    return read.success ? read.value : undefined;
 }

@@ -12,12 +12,16 @@
  * mounts, when its buckets change, when its track's width changes (in the
  * ResizeObserver's delivery) and when fonts arrive (`useMeasureAgain`)
  * — so no frame shows a label it does not rest on. A track with no width yet
- * (a ruler not laid out) draws every label.
+ * (a ruler not laid out) draws every label. It reads the track's width before
+ * the frame paints too, and returns it, so a ruler that places its ticks on
+ * whole pixels of it (the Plan's, #1735) measures its labels at the columns
+ * it draws.
  *
  * @packageDocumentation
  */
 
 import { useLayoutEffect, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { useMeasureAgain } from "@elaraai/east-ui-components/internal";
 import type { Scale, ScaleBucket } from "./scale.js";
 
@@ -61,6 +65,21 @@ function insideOf(el: HTMLElement): { left: number; right: number } {
     };
 }
 
+/** What a ruler draws ({@link useRulerFit}): which of its labels, where, and the width its track was read at. */
+export interface RulerLayout {
+    /**
+     * Which labels draw and where each sits; `undefined` while the ruler measures, or while its track has no width, when
+     * every label draws, centred.
+     */
+    readonly fit: RulerFit | undefined;
+    /**
+     * The track's width as the ruler last read it — as it mounted, or in its observer's delivery, before the frame
+     * paints; `undefined` before it is laid out, or with the fit off. A ruler on whole pixels (the Plan's, #1735) places
+     * its ticks by it: the width its labels were measured at.
+     */
+    readonly width: number | undefined;
+}
+
 /**
  * What a ruler draws of its labels — see the module docs.
  *
@@ -68,14 +87,39 @@ function insideOf(el: HTMLElement): { left: number; right: number } {
  * @param scale - The scale the ticks are the buckets of
  * @param prefer - The bucket (its `index`) whose label draws wherever it clears every period's first column drawn: the
  *   narrow ruler's now bucket
- * @returns Which labels draw and where each sits; `undefined` while the ruler measures, or while its track has no
- *   width, when every label draws, centred
+ * @param enabled - Whether its labels are fitted, and its track's width read, at all
+ * @returns Which labels draw and where each sits, and the track's width they were fitted at
  */
-export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: RulerScale<I>, prefer?: number, enabled = true): RulerFit | undefined {
-    // What the labels' places depend on: each one's words and its column, and the bucket preferred.
-    const signature = `${prefer ?? ""}\u0002${scale.buckets.map((b) => `${b.label}\u0000${b.x0}\u0000${b.x1}`).join("\u0001")}`;
+export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: RulerScale<I>, prefer?: number, enabled = true): RulerLayout {
+    const [width, setWidth] = useState<number | undefined>(undefined);
+    // What the labels' places depend on: each one's words and its column, the width the ticks stand on, and the bucket
+    // preferred.
+    const signature = `${prefer ?? ""}\u0002${width ?? ""}\u0002${scale.buckets.map((b) => `${b.label}\u0000${b.x0}\u0000${b.x1}`).join("\u0001")}`;
     const { measuring, measured } = useMeasureAgain(trackRef, signature, enabled);
     const [fit, setFit] = useState<RulerFit | undefined>(undefined);
+    // The track's width, read as it mounts and in each delivery of the ruler's own observer, before the frame paints. It
+    // is a part of what the labels are measured by (the signature), so the ticks' places and the labels' measure never
+    // disagree in a frame. Another observer's reading can come before a pane that folds in the same delivery moves the
+    // track (#1735).
+    useLayoutEffect(() => {
+        const track = trackRef.current;
+        if (!enabled || track === null) return undefined;
+        const read = () => {
+            const now = track.getBoundingClientRect().width;
+            return now > 0 ? now : undefined;
+        };
+        let last = read();
+        setWidth(last);
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver(() => {
+            const now = read();
+            if (now === last || (now !== undefined && last !== undefined && Math.abs(now - last) < 0.01)) return;
+            last = now;
+            flushSync(() => setWidth(now));
+        });
+        ro.observe(track);
+        return () => ro.disconnect();
+    }, [trackRef, enabled]);
     useLayoutEffect(() => {
         const track = trackRef.current;
         if (!enabled || !measuring || track === null) return;
@@ -94,5 +138,6 @@ export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: R
         setFit(input === undefined ? undefined : thinTicks(input.labels, input.track, input.gap));
     }, [measuring, measured, signature, scale, prefer, trackRef, enabled]);
     // While it measures, every label draws whole: never painted, as the measure lands first.
-    return enabled && !measuring && fit !== undefined && fit.shown.length === scale.buckets.length ? fit : undefined;
+    const shown = enabled && !measuring && fit !== undefined && fit.shown.length === scale.buckets.length ? fit : undefined;
+    return { fit: shown, width: enabled ? width : undefined };
 }

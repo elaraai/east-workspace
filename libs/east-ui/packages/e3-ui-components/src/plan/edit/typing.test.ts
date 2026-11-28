@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { East } from "@elaraai/east";
 import { Format, TickFormatType } from "@elaraai/east-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
-import { PlanTypingStore, planZooms, readTyped, resolutionOfValues, typedText, typesAt, zoomApart } from "./typing.js";
+import { PlanTypingStore, readTyped, resolutionOfValues, typedText, typesAt, zoomApart } from "./typing.js";
 
 /** A percent, as a position's format decodes. */
 const PERCENT = East.compile(East.function([], TickFormatType, () => Format.Percent()), [])();
@@ -50,13 +50,6 @@ describe("a table cell's typed text (#1438)", () => {
 });
 
 describe("the zooms a table cell's typing reads (#1438)", () => {
-    it("are the resolution segment's and the one the axis opens at, the finest first, auto none of them", () => {
-        expect(planZooms(["month", "week", "year"], "week")).toEqual(["week", "month", "year"]);
-        expect(planZooms([], "month")).toEqual(["month"]);
-        expect(planZooms(["quarter"], "auto")).toEqual(["quarter"]);
-        expect(planZooms([], undefined)).toEqual([]);
-    });
-
     it("let a cell take a number at the finest zoom alone: a coarser one is a summary of the values beneath it", () => {
         expect(typesAt("week", ["week", "month"])).toBe(true);
         expect(typesAt("month", ["week", "month"])).toBe(false);

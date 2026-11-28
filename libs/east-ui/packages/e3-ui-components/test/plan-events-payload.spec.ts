@@ -54,6 +54,8 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 const WINDOW = { min: FIRST, max: LAST };
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
+/** What a kind no reader of its cells names reads from: its window (#1771). */
+const OVER_WINDOW = variant("window", null);
 const rowIds = equalFor(ArrayType(Plan.Types.RowId));
 const printId = printFor(Plan.Types.RowId);
 const NO_EDITS = { drop: false, move: none, values: [] };
@@ -63,14 +65,14 @@ const blocksOf = (payload: Payload) => (payload.plan.rows.type === "inline" ? pa
 
 /** An event kind's events in the window, by key. */
 function keysIn(kind: EventKind): string[] {
-    const read = kind.planItems(FIRST, LAST, NO_DRAFTS, none);
+    const read = kind.planItems(FIRST, LAST, NO_DRAFTS, OVER_WINDOW);
     if (read.type !== "some") assert.fail("expected the window read");
     return read.value.map((item) => item.key);
 }
 
 /** An event kind's backlog, by key. */
 function backlogOf(kind: EventKind): string[] {
-    const read = kind.planUnscheduled(FIRST, LAST, NO_DRAFTS, none);
+    const read = kind.planUnscheduled(FIRST, LAST, NO_DRAFTS, OVER_WINDOW);
     if (read.type !== "some") assert.fail("expected the backlog");
     return read.value.map((item) => item.key);
 }

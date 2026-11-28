@@ -428,7 +428,7 @@ describe('a series and a summary index inside the delta (#1433)', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
       indexes: (index) => ({
-        jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
       }),
       mutations: (mutation) => ({

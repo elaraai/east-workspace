@@ -43,6 +43,8 @@ export interface ConnectOverlayProps {
     store: PlanEditStore;
     /** The grid's fixed track before the plot: the gutter (px). */
     gutterPx: number;
+    /** The grid's fixed track after the plot: the right axis's rail (px, #1750); 0 where the Plan declares none. */
+    railPx: number;
 }
 
 /** A box on the page as an end in the layer's own px. */
@@ -51,7 +53,7 @@ function endOf(box: DOMRect, layer: DOMRect): RibbonEnd {
 }
 
 /** Connect's draft line, in the rows' coordinates — `VirtualRows`' overlay while Connect is held. */
-export function ConnectOverlay({ styles, store, gutterPx }: ConnectOverlayProps) {
+export function ConnectOverlay({ styles, store, gutterPx, railPx }: ConnectOverlayProps) {
     const draft = useSyncExternalStore(store.subscribeDraft, () => store.connectDraft);
     const layerRef = useRef<HTMLDivElement | null>(null);
     // The layer lies over the rows' box: its own width and height are the drawing's.
@@ -68,7 +70,7 @@ export function ConnectOverlay({ styles, store, gutterPx }: ConnectOverlayProps)
     return (
         <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons data-plan-connect={draft?.onto !== undefined ? "snapped" : ""} aria-hidden="true">
             <LinksLayer ribbons={NO_RIBBONS} width={width} height={height}
-                clip={{ left: gutterPx, width: width !== undefined ? Math.max(0, width - gutterPx) : 0 }} hit={NO_HIT}
+                clip={{ left: gutterPx, width: width !== undefined ? Math.max(0, width - gutterPx - railPx) : 0 }} hit={NO_HIT}
                 preview={{ was: undefined, line: line === undefined ? undefined : { stroke: line.stroke, head: line.head } }} />
         </Box>
     );

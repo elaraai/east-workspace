@@ -31,8 +31,6 @@ export interface PlanRowBox extends Edges {
     leaf: boolean;
     /** The rows it is laid out among: those of one parent tile it. */
     among: number;
-    /** Whether it is an open group band, whose name spans its whole row, over its plot (#1680's review). */
-    open: boolean;
     /** Where its name starts, and what it reads. */
     label: { left: number; text: string } | null;
     sub: string | null;
@@ -47,9 +45,9 @@ export const PLAN_KIND_OF = { "data-run": "span", "data-mark": "events", "data-c
 
 /**
  * A level's indent of a row's line (`RowShell`'s `INDENT_PX`): a member's line starts this far past the line of the row it
- * is under (#1680's review).
+ * is under — a caret's cell and the line's gap, so its words start where the words of the row it is under do (#1749).
  */
-export const PLAN_INDENT = 8;
+export const PLAN_INDENT = 20;
 
 /**
  * What stands before the name on a row that folds — its caret's 14px cell and the line's 6px gap — and on no leaf, whose
@@ -87,7 +85,6 @@ export async function planRowsOf(entry: Locator): Promise<PlanRowBox[]> {
                 start: gutter.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(gutter).paddingLeft),
                 leaf: gutter.querySelector("[data-leaf]") !== null,
                 among: parents.indexOf(parent),
-                open: gutter.hasAttribute("data-open"),
                 label: label === null ? null : { left: label.getBoundingClientRect().left, text: label.textContent ?? "" },
                 sub: sub === null ? null : sub.textContent,
                 items: draws.flatMap((draw) => [...row.querySelectorAll(`[role="gridcell"] [${draw}]`)]
@@ -145,11 +142,9 @@ export function planBandFaults(rows: readonly PlanRowBox[]): string[] {
             }
         }
         if (!same(row.gutter.bottom, row.plot.bottom)) bad.push(`${row.id}: its gutter ends at ${row.gutter.bottom}px, its plot at ${row.plot.bottom}px`);
-        // An open band's name spans its whole row, over its plot (#1680's review); any other row's gutter ends where its
-        // plot starts.
-        if (row.open) {
-            if (!same(row.gutter.right, row.plot.right)) bad.push(`${row.id}: its open band's name ends at ${row.gutter.right}px, its row at ${row.plot.right}px`);
-        } else if (!same(row.gutter.right, row.plot.left)) bad.push(`${row.id}: its gutter ends at ${row.gutter.right}px, its plot starts at ${row.plot.left}px`);
+        // Every row's gutter ends where its plot starts — a group band's too, open or folded, its name the rows' gutter
+        // line (#1749).
+        if (!same(row.gutter.right, row.plot.left)) bad.push(`${row.id}: its gutter ends at ${row.gutter.right}px, its plot starts at ${row.plot.left}px`);
         // The rows tile: each starts where the one before it, among the rows it is laid out with, ends.
         const before = rows[i - 1];
         if (before !== undefined && before.among === row.among && !same(row.top, before.bottom)) {

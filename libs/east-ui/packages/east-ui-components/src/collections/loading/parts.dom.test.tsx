@@ -3,11 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * The shared loading parts in the DOM (#1398): the region wash, a failure
- * said once where no row can hold it, a region its read found empty said
- * once, the narrow layouts' placeholder card, and every placeholder shape
- * `aria-hidden` (CL12) — and, under a builder's reveal, unseen at its
- * footprint until the reveal says so (CL4).
+ * The shared loading parts in the DOM (#1398): a row's skeleton bar (#1764),
+ * the region wash, a failure said once where no row can hold it, a region its
+ * read found empty said once, the narrow layouts' placeholder card, and every
+ * placeholder shape `aria-hidden` (CL12) — and, under a builder's reveal,
+ * unseen at its footprint until the reveal says so (CL4).
  */
 
 import type { ReactNode } from "react";
@@ -16,7 +16,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { ChakraProvider } from "@chakra-ui/react";
 import { faInbox } from "@fortawesome/free-solid-svg-icons";
 import { system } from "../../theme/index.js";
-import { LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, type PlaceholderKind } from "./parts.js";
+import { LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingRowBar, LoadingWash, PlaceholderCard, PlaceholderShape, type PlaceholderKind } from "./parts.js";
 import { LoadingReveal } from "./reveal.js";
 
 afterEach(() => { cleanup(); });
@@ -35,8 +35,14 @@ describe("the loading parts", () => {
         expect(document.querySelector("[data-loading-wash]")).toBeNull();
     });
 
+    test("a row's plot waiting for its read: one skeleton bar across it, the region wash none of it, aria-hidden (#1764)", () => {
+        wrap(<div style={{ position: "relative" }}><LoadingRowBar /></div>);
+        const bars = [...document.querySelectorAll<HTMLElement>("[data-loading-bar]")];
+        expect([bars.length, bars[0]!.getAttribute("aria-hidden"), bars[0]!.textContent, document.querySelector("[data-loading-wash]")]).toEqual([1, "true", "", null]);
+    });
+
     test("every shape is aria-hidden and states no value", () => {
-        const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "check", "rowNumber", "fill"];
+        const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "check", "rowNumber", "fill", "rowBar"];
         wrap(<div>{kinds.map((kind) => <PlaceholderShape key={kind} kind={kind} index={3} />)}</div>);
         const shapes = [...document.querySelectorAll("[data-shape]")];
         expect(shapes.map((shape) => shape.getAttribute("data-shape"))).toEqual(kinds);
@@ -86,19 +92,20 @@ describe("the loading parts", () => {
         expect(document.querySelectorAll("[data-placeholder-card] [data-shape]")).toHaveLength(0);
     });
 
-    test("under a builder's reveal every shape and the wash keep their footprint unseen until it says so; a real row number shows at once (CL4)", () => {
+    test("under a builder's reveal every shape, the row's bar and the wash keep their footprint unseen until it says so; a real row number shows at once (CL4)", () => {
         vi.useFakeTimers();
         try {
-            const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "fill"];
+            const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "fill", "rowBar"];
             wrap(
                 <LoadingReveal waiting>
                     {kinds.map((kind) => <PlaceholderShape key={kind} kind={kind} index={3} />)}
                     <PlaceholderShape kind="rowNumber" index={3} number="4" />
+                    <LoadingRowBar />
                     <LoadingWash />
                 </LoadingReveal>,
             );
-            const hidden = () => [...document.querySelectorAll("[data-shape], [data-loading-wash]")].map((el) => el.hasAttribute("data-unrevealed"));
-            expect(hidden()).toEqual([...kinds.map(() => true), false, true]);
+            const hidden = () => [...document.querySelectorAll("[data-shape], [data-loading-bar]:not([data-shape]), [data-loading-wash]")].map((el) => el.hasAttribute("data-unrevealed"));
+            expect(hidden()).toEqual([...kinds.map(() => true), false, true, true]);
             act(() => { vi.advanceTimersByTime(150); });
             expect(hidden().every((unseen) => !unseen)).toBe(true);
         } finally {

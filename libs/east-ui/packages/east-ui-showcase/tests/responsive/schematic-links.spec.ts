@@ -18,7 +18,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { openExample } from "./plan-page";
+import { clickRowControl, openExample } from "./plan-page";
 import { DATA_CENTRE } from "./schematic-page";
 import { settled } from "./settle";
 
@@ -109,7 +109,7 @@ test.describe("The Schematic's links in the shared look (#1403)", { tag: "@deskt
     for (const theme of ["light", "dark"] as const) {
         test(`the canvas's probe reads its links' colours and caption font from the parts the Plan's links draw with — the casing, the ink, the lit ink and its ring, the knockout and the caption (${theme})`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState", undefined, theme);
-            await entry.locator('[data-plan-control="links"]').first().click();
+            await clickRowControl(entry.locator("[data-plan-row]:has([data-plan-control='links'])").first(), "links");
             await expect(entry.locator("[data-plan-link]").first()).toBeVisible();
             // Its parts at rest, then a link lit under the pointer: what a lit link takes.
             const rest = await lookOf(entry, AT_REST);

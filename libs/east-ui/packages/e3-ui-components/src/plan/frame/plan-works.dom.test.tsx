@@ -23,7 +23,7 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, onTestFinished } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -32,10 +32,11 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { PLAN_GEOMETRY } from "../geometry.js";
+import { PLAN_COLUMN_WIDTHS, PLAN_GEOMETRY, PLAN_UNLAID_PLOT } from "../geometry.js";
+import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
-import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, entry, horizonLaidOut, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { width } from "../../e3-web-mount.test-utils.js";
 import { periodText } from "../../shared/time/scale.js";
 
@@ -48,7 +49,7 @@ const WORKS = pathText(ex.planWorks.path as TreePath);
 /** The works' index by name, which pages them lean, and their nested series index. */
 const BY_NAME = ex.planWorks.indexes.plan_works_by_name;
 const IN_TIME = ex.planWorks.indexes.plan_works_in_time;
-/** The span e3 keeps beside their nested series index: each collection's months across the works. */
+/** The span e3 keeps beside their nested series index: each collection's totals across the works, a month, a quarter and a year at a time. */
 const SPAN = { name: nestedSpanName(IN_TIME.name) };
 
 /** Whether a request reads the works through one of their indexes. */
@@ -61,23 +62,25 @@ const askedOf = (index: { readonly name: string }) => h.requests().filter(throug
 /** A works' row of jobs. */
 const worksRow = (c: HTMLElement, key: string) => slot(c, "main")!.querySelector<HTMLElement>(rowAt(entry("works", key)));
 
+/** The periods the works' totals were searched at since a request: each search of a row's totals, by its period's literal. */
+const totalsSearched = (since: number) => [...new Set(h.requests().slice(since).filter((request) => request.kind === "find" && through(IN_TIME)(request))
+    .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])))
+    .filter((from) => from[3] === ".totals").map((from) => from[4]!))];
+
 /**
- * Lays the horizon's strip out over jsdom's measures (#1438), which the
- * harness leaves to the test: its width is what the returned setter last set,
- * and a resize tells the strip it moved.
- *
- * @returns Sets the strip's width, px
+ * The calendar periods of so many months an item touches, by their starts, as e3 counts it: the one holding its start,
+ * and each after it that starts before its end — an instant, the one holding it.
  */
-function horizonLaidOut(): (px: number) => void {
-    let laid = 0;
-    const real = Element.prototype.getBoundingClientRect;
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-        return this.hasAttribute("data-plan-horizon-track") || this.hasAttribute("data-brush-track")
-            ? { x: 0, y: 0, top: 0, left: 0, right: laid, bottom: 32, width: laid, height: 32, toJSON() {} } as DOMRect
-            : real.call(this);
-    });
-    return (px) => { laid = px; };
+function periodsTouched(from: Date, to: Date, months: number): number[] {
+    const out = [Date.UTC(from.getUTCFullYear(), Math.floor(from.getUTCMonth() / months) * months, 1)];
+    for (;;) {
+        const last = new Date(out[out.length - 1]!);
+        const next = Date.UTC(last.getUTCFullYear(), last.getUTCMonth() + months, 1);
+        if (next >= to.getTime()) return out;
+        out.push(next);
+    }
 }
+
 /** How many works the stress run commits in one patch: each patch commits within e3's deadline for a mutation. */
 const PATCH_WORKS = 100;
 
@@ -143,14 +146,15 @@ describe("the works on a Plan (#1438)", () => {
     test("the horizon spans the ten years every series reads, as e3 keeps their span, read once: a series switched off asks nothing and moves no edge of it (#1440)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
-        // The span's searches: one for each collection any series reads, shown or not, in one request, then their months.
+        // The span's searches: one for each collection any series reads, shown or not, in one request, then each one's
+        // first month and its last, in one read.
         const spanReads = () => h.requests().filter(through(SPAN)).map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
         expect(spanReads()).toEqual(["find 5", "runs"]);
         // Ten years of weeks, from the works' first month to their last: the strip spans them, not the window's own margins.
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         expect(caption()).toBeLessThan(540);
-        // Jobs switched off: nothing is asked again — every series' months are in hand — and the horizon stays the ten
+        // Jobs switched off: nothing is asked again — every series' ends are in hand — and the horizon stays the ten
         // years they hold; only the bars leave its collections out.
         const before = spanReads().length;
         const spanned = caption();
@@ -203,7 +207,8 @@ describe("the works on a Plan (#1438)", () => {
         fireEvent.pointerMove(track, { clientX: parseFloat(getComputedStyle(bars()[top]!).left) + 1, pointerType: "mouse" });
         await waitFor(() => expect(document.querySelector("[data-brush-tip]")?.textContent).toBe(`${periodText(new Date(expected[top]![0]), "month")} · ${max} items`));
         fireEvent.pointerLeave(track, { pointerType: "mouse" });
-        // 300px keeps no 4px a month: a quarter a bar, each its three months' counts.
+        // 300px keeps no 4px a month: a quarter a bar, at the quarter's own count as e3 keeps it — a load is a value at
+        // an instant, in one month alone, so each quarter's is its three months' too.
         horizonWidth(300);
         await width(900);
         await waitFor(() => expect(meta()).toMatch(/^max \d+ items \/ q$/));
@@ -216,18 +221,107 @@ describe("the works on a Plan (#1438)", () => {
         expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual([...quarters].sort(([a], [b]) => a - b).map(([, n]) => n));
     });
 
-    test("a zoom shows as many buckets as before about the same middle: the year shows the ten years, and the week again a few weeks in their middle", async () => {
+    test("a quarter's bar counts each item once, as e3 keeps the quarter: a job over a month's end is in both months' counts and once in their quarter's, never the months added up (#1739)", async () => {
+        // The strip laid out 300px wide: ten years keep no 4px a month, so a quarter a bar.
+        const horizonWidth = horizonLaidOut();
+        horizonWidth(300);
+        // What the Jobs series reads, as the generator made it — each works' jobs, a span each, and its alarms, an instant
+        // each — counted by a period as e3 counts: an item once in each period it touches.
+        const generated = [...East.compile(ex.generateWorksAll, [])(100n, 522n).values()];
+        const countedBy = (months: number) => {
+            const periods = new Map<number, number>();
+            const touch = (from: Date, to: Date) => { for (const at of periodsTouched(from, to, months)) periods.set(at, (periods.get(at) ?? 0) + 1); };
+            for (const works of generated) {
+                for (const job of works.jobs.values()) touch(job.start, job.end);
+                for (const alarm of works.alarms.values()) touch(alarm.at, alarm.at);
+            }
+            return [...periods].sort(([a], [b]) => a - b);
+        };
+        const quarters = countedBy(3);
+        // The months of each quarter added up count a job over a month's end twice: more than the quarter holds.
+        const summed = new Map<number, number>();
+        for (const [month, n] of countedBy(1)) {
+            const quarter = periodsTouched(new Date(month), new Date(month), 3)[0]!;
+            summed.set(quarter, (summed.get(quarter) ?? 0) + n);
+        }
+        expect(quarters.filter(([quarter, n]) => summed.get(quarter)! > n).length).toBeGreaterThan(0);
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        const pane = slot(container, "start")!;
+        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+        await settle();
+        for (const name of ["Load", "Crew hours", "Parts"]) {
+            const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+            fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        }
+        const band = () => container.querySelector<HTMLElement>("[data-slot='horizon']")!;
+        const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
+        const max = quarters.reduce((m, [, n]) => Math.max(m, n), 0);
+        await waitFor(() => expect(band().querySelector("[data-plan-horizon-meta]")?.textContent).toBe(`max ${max} items / q`));
+        expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual(quarters.map(([, n]) => n));
+        // The quarter's counts are read from e3 at the quarter: the span's searches name it.
+        const periodsRead = new Set(h.requests().filter((request) => request.kind === "find" && through(SPAN)(request))
+            .flatMap((request) => request.searches.map((search) => ("fields" in search ? search.fields[1] : undefined))));
+        expect(periodsRead.has(".quarter")).toBe(true);
+    });
+
+    test("past 10,000 jobs in view the works shade from their totals at the zoom's own period — the week's at a week's zoom, the month's at a month's — the columns stay at it, and nothing is said (#1739, #1799)", async () => {
+        // 10,500 jobs of an hour on the first works, across the first weeks in view, beside its own.
+        const start = (await h.read(ex.planWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Works>>;
+        const first = start.get("W-10001")!;
+        const like = [...first.jobs.values()][0]!;
+        const from = Date.UTC(2026, 8, 28);
+        const batch = Array.from({ length: 10_500 }, (_, i) => {
+            const at = from + (i % 600) * 3_600_000;
+            return [`B-${String(i).padStart(5, "0")}`, { ...like, product: "batch", start: new Date(at), end: new Date(at + 3_600_000) }] as const;
+        });
+        const next = new Map(start);
+        next.set("W-10001", { ...first, jobs: new Map([...batch, ...first.jobs]) });
+        await h.patch(ex.planWorks, next);
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        const cells = () => [...(worksRow(container, "W-10001")?.querySelectorAll<HTMLElement>("[data-cell]") ?? [])];
+        /** Any banner the frame draws: none, while the zoom's own period shades what is in view. */
+        const notice = () => slot(container, "banners")?.querySelector("[data-plan-banner]") ?? null;
+        /** The period the columns take, as the toolbar's segment shows it pressed: the zoom's own, its totals kept at it. */
+        const periodShown = () => slot(container, "toolbar")!.querySelector('[data-toolbar-item="resolution"] [aria-checked="true"]')?.textContent ?? null;
+        // At the week, a period the index keeps each works' totals at: read at the week, never the month, each week
+        // shaded by the share of it booked — the first, seventeen jobs to the hour, whole — and no job drawn.
+        await waitFor(() => expect(cells().length).toBeGreaterThan(0), { timeout: 10_000 });
+        expect(totalsSearched(0)).toEqual([".week"]);
+        expect(worksRow(container, "W-10001")!.querySelectorAll("[data-run]")).toHaveLength(0);
+        expect(cells().filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        expect(cells().some((cell) => /100% booked/.test(cell.getAttribute("aria-label") ?? ""))).toBe(true);
+        expect(notice()).toBeNull();
+        expect(periodShown()).toBe("WEEK");
+        // At the month: the month's own totals, never its weeks' — a week lies in no one month.
+        const atMonth = h.requests().length;
+        await zoomTo(container, "month");
+        await waitFor(() => expect(totalsSearched(atMonth)).toEqual([".month"]), { timeout: 10_000 });
+        await settle();
+        expect(worksRow(container, "W-10001")!.querySelectorAll("[data-run]")).toHaveLength(0);
+        expect(cells().length).toBeGreaterThan(0);
+        expect(cells().filter((cell) => cell.hasAttribute("data-nodata"))).toEqual([]);
+        expect(notice()).toBeNull();
+        expect(periodShown()).toBe("MONTH");
+    });
+
+    test("a period pressed keeps the window's start and sets its preset from it: out to the year, as many years from the one 28 September is in as fill the plot at the preset width; back to the week, as many weeks from the same start (#1438, #1740, ruled 23 Nov 2026)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
-        const ruler = () => container.querySelector("[data-slot='ruler'], [data-plan-ruler]")?.textContent ?? "";
+        const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((tick) => tick.textContent);
+        // The columns a preset shows on a plot not laid out, as a canvas's in a DOM with no layout is.
+        const preset = Math.floor(PLAN_UNLAID_PLOT / PLAN_COLUMN_WIDTHS.preset);
+        // From Monday 28 September 2026: the years from 2026, the window's end a year's edge.
         await zoomTo(container, "year");
-        await waitFor(() => expect(ruler()).toContain("2022"));
-        for (const year of ["2023", "2026", "2029", "2031"]) expect(ruler()).toContain(year);
+        await waitFor(() => expect(ticks()).toEqual(Array.from({ length: preset }, (_, year) => String(2026 + year))));
+        // The start stays: as many weeks from the week of 28 September 2026, W40.
         await zoomTo(container, "week");
-        await waitFor(() => expect(ruler()).toContain("2027"));
-        expect(ruler()).not.toContain("2022");
+        await waitFor(() => expect(ticks()).toHaveLength(preset));
+        expect(ticks()[0]).toBe("W40");
     });
 
     test("a works' crew hours, folded, draw each week's sum of its crews' hours as e3 keeps it", async () => {
@@ -258,7 +352,7 @@ describe("the works on a Plan (#1438)", () => {
             const part = cell.querySelector("[data-part]");
             return part === null ? [] : [[cell.getAttribute("data-cell"), Number((part.textContent ?? "").replace(/,/g, ""))] as const];
         });
-        expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [`time:${new Date(at).toISOString().replace("Z", "")}`, sum]));
+        expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [instantKey(timeInstant(new Date(at))), sum]));
     });
 
     test("a value too wide for its column draws a dot in its place, its numerals kept, hidden, for its hover to say; a column wide enough, its numerals", async () => {

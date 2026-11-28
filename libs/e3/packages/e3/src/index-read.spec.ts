@@ -57,9 +57,9 @@ const jobs = record('jobs', JobsType, {
       { value: East.function([StringType, JobRow], StringType, (_$, _key, job) => job.title) }),
     in_time: index.interval({ from: 'start', to: 'end' }),
     in_time_by_state: index.interval({ on: ['state'], from: 'start', to: 'end' }),
-    press_weeks: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
-    press_days_by_state: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
-    press_quarters: index.series({ key: 'press', from: 'start', to: 'end', tile: 'quarter' }),
+    press_weeks: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    press_days_by_state: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
+    press_quarters: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'quarter' }),
     press_load: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
     press_load_by_state: index.summary({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
   }),
@@ -73,7 +73,7 @@ const shifts = record('shifts', ShiftsType, {
   initial: new Map(),
   indexes: (index) => ({
     shifts_in_time: index.interval({ from: 'start', to: 'end' }),
-    shifts_by_press: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
+    shifts_by_press: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
   }),
 });
 
@@ -825,11 +825,11 @@ describe('an entries index\'s readers', () => {
     assertEast(DictType(StringType, StringType), named(entriesOf(stations, stations.indexes.by_service.entries.rows, rows), 'S-010', 'S-020'), expected, 'ten stations, lean');
   });
 
-  it('reads a nested series index\'s span as a plain index, giving each tile\'s key in a row\'s key\'s place', () => {
+  it('reads a nested series index\'s span as a plain index, giving each tile\'s key in a row\'s key\'s place, a period at a time (#1739)', () => {
     const Machine = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
     const machines = record('machines', DictType(StringType, Machine), {
       initial: new Map(),
-      indexes: (index) => ({ machines_in_time: index.nested({ collections: { load: index.nested.values() }, tile: 'week', summary: 'month' }) }),
+      indexes: (index) => ({ machines_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week', summary: ['month'] }) }),
     });
     const fleet = new SortedMap<string, ValueTypeOf<typeof Machine>>(undefined, keyOrder);
     for (let n = 0; n < 6; n++) {
@@ -838,13 +838,27 @@ describe('an entries index\'s readers', () => {
     }
     const span = index(machines.indexes.machines_in_time.nested.span);
     const SpanKey = span.index.keyType;
-    const months = East.compile(East.function([span.type], DictType(SpanKey, RecordSummaryTotalsType), ($, entries) =>
-      span.read(entries).of({ collection: variant('step', { key: 'load', rest: variant('end', null) }) }).collect($)), []);
-    const read = months(entriesOf(machines, machines.indexes.machines_in_time.nested.span, fleet));
+    const SpanTotals = DictType(SpanKey, RecordSummaryTotalsType);
+    const held = entriesOf(machines, machines.indexes.machines_in_time.nested.span, fleet);
+    // The record's totals of a collection at one period: the collection's place, then the period, lead the span's key
+    const months = East.compile(East.function([span.type], SpanTotals, ($, entries) =>
+      span.read(entries).of({ collection: variant('step', { key: 'load', rest: variant('end', null) }), level: variant('month', null) }).collect($)), []);
+    const read = months(held);
     // The fleet's values run from October into January: a month's entry counts the values in it, across the machines
-    assert.ok(read.size >= 3, `the months the load touches: ${read.size}`);
+    assert.equal(read.size, 4, 'the months the load touches');
     assert.equal([...read.values()].reduce((sum, totals) => sum + totals.count, 0n), 30n, 'every value counted once, in its month');
-    assert.ok([...read.keys()].every((key) => key.collection.type === 'step'), 'each under the collection\'s place');
+    const sameLevel = equalFor(RecordLevelType);
+    assert.ok([...read.keys()].every((key) => key.collection.type === 'step' && sameLevel(key.level, variant('month', null))), 'each a month\'s, under the collection\'s place');
+
+    // Of every period the index keeps them at — a month, a quarter and a year, where it names none — under the place alone
+    const periods = East.compile(East.function([span.type], SpanTotals, ($, entries) =>
+      span.read(entries).of({ collection: variant('step', { key: 'load', rest: variant('end', null) }) }).collect($)), []);
+    const all = periods(held);
+    assert.equal(all.size, 8, 'four months, two quarters and two years');
+    for (const period of ['month', 'quarter', 'year'] as const) {
+      const counted = [...all].filter(([key]) => sameLevel(key.level, variant(period, null))).reduce((sum, [, totals]) => sum + totals.count, 0n);
+      assert.equal(counted, 30n, `every value counted once, in its ${period}`);
+    }
   });
 
   it('refuses a key that is not the field\'s, where the reader is called', () => {
@@ -873,19 +887,40 @@ type Yard = ValueTypeOf<typeof YardRow>;
 const yards = record('yards', YardsType, {
   initial: new Map(),
   indexes: (index) => ({
-    yards_in_time: index.nested({
+    yards_in_time: index.nestedSeries({
       collections: {
-        visits: index.nested.items({ from: 'start', to: 'end' }),
-        notes: index.nested.values(),
-        teams: index.nested.rows({
-          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
-          checks: index.nested.items({ at: 'at' }),
-          hours: index.nested.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
-          teams: index.nested.recursive(),
+        visits: index.nestedSeries.items({ from: 'start', to: 'end' }),
+        notes: index.nestedSeries.values(),
+        teams: index.nestedSeries.rows({
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+          checks: index.nestedSeries.items({ at: 'at' }),
+          hours: index.nestedSeries.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
+          teams: index.nestedSeries.recursive(),
         }),
       },
       tile: 'week',
-      summary: 'month',
+      summary: ['month'],
+    }),
+  }),
+});
+
+/** The yards again, their index keeping each node's totals a week and a month: a read names the one it reads. */
+const yardsByPeriod = record('yards_by_period', YardsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    yards_in_time: index.nestedSeries({
+      collections: {
+        visits: index.nestedSeries.items({ from: 'start', to: 'end' }),
+        notes: index.nestedSeries.values(),
+        teams: index.nestedSeries.rows({
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+          checks: index.nestedSeries.items({ at: 'at' }),
+          hours: index.nestedSeries.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
+          teams: index.nestedSeries.recursive(),
+        }),
+      },
+      tile: 'week',
+      summary: ['week', 'month'],
     }),
   }),
 });
@@ -971,8 +1006,10 @@ const PathType = ArrayType(StringType);
 const YardIdType = yards.indexes.yards_in_time.keyType.fields.path.node.cases.step.fields.key;
 /** A node's keys as a reader is given them: each team's key an id of the index's, under the teams' case. */
 const teamIds = (path: ExprType<typeof PathType>) => path.map((_$, key) => East.value(variant('teams', key) as never, YardIdType));
-const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
+const TileTotals = DictType(DateTimeType, RecordNestedTotalsType);
 const TileFloats = DictType(DateTimeType, FloatType);
+/** A month, as a level: the period the yards' index keeps its totals at. */
+const MONTH: ValueTypeOf<typeof RecordLevelType> = variant('month', null);
 /** An item of a subtree, as the yards' index names it: the teams' keys down to the team holding it, and its id. */
 const UnderType = NestedUnderType(yards.indexes.yards_in_time);
 const BeneathType = DictType(UnderType, JobRow);
@@ -990,26 +1027,26 @@ const notesIn = East.compile(East.function([NotesType, DateTimeType, DateTimeTyp
   notes.filter((_$, _note, made) => East.greaterEqual(made, from).and(() => East.less(made, to)))), []);
 
 /**
- * Some jobs' totals a month: for each month that overlaps a window, how many
- * of them touch it and the milliseconds of it they cover — a loop over them
- * all, a month at a time.
+ * Some jobs' totals a tile of a period: for each tile of it that overlaps a
+ * window, how many of them touch it and the milliseconds of it they cover — a
+ * loop over them all, a tile at a time, so a job is counted once in every
+ * tile of the period that it touches.
  */
-const jobMonths = East.compile(East.function([ArrayType(JobRow), DateTimeType, DateTimeType], MonthTotals, ($, jobs, from, to) => {
-  const months = $.let(new Map(), MonthTotals);
+const jobTiles = East.compile(East.function([ArrayType(JobRow), RecordLevelType, DateTimeType, DateTimeType], TileTotals, ($, jobs, period, from, to) => {
+  const tiles = $.let(new Map(), TileTotals);
   $.if(East.less(from, to), ($) => {
     const startOf = $.const(TILE_FNS.tileStart);
     const nextOf = $.const(TILE_FNS.tileNext);
-    const month = $.const(variant('month', null), RecordLevelType);
-    const tile = $.let(startOf(month, from));
+    const tile = $.let(startOf(period, from));
     $.while(East.less(tile, to), ($) => {
-      const next = $.const(nextOf(month, tile));
+      const next = $.const(nextOf(period, tile));
       const count = $.let(0n);
       const ms = $.let(0n);
       $.for(jobs, ($, job) => {
         $.match(job.start, {
           some: ($, start) => {
             const end = $.const(job.end.unwrap('some', () => start));
-            // An instant touches the month it is in, and covers none of it.
+            // An instant touches the tile it is in, and covers none of it.
             $.if(East.lessEqual(end, start).and(() => East.greaterEqual(start, tile)).and(() => East.less(start, next)), ($) => {
               $.assign(count, count.add(1n));
             });
@@ -1020,44 +1057,42 @@ const jobMonths = East.compile(East.function([ArrayType(JobRow), DateTimeType, D
           },
         });
       });
-      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms, values: none })); });
+      $.if(East.greater(count, 0n), ($) => { $(tiles.insert(tile, { count, ms, values: none })); });
       $.assign(tile, next);
     });
   });
-  return months;
+  return tiles;
 }), []);
 
-/** Some instants' totals a month: for each month that overlaps a window, how many are in it. */
-const instantMonths = East.compile(East.function([ArrayType(DateTimeType), DateTimeType, DateTimeType], MonthTotals, ($, instants, from, to) => {
-  const months = $.let(new Map(), MonthTotals);
+/** Some instants' totals a tile of a period: for each tile of it that overlaps a window, how many are in it. */
+const instantTiles = East.compile(East.function([ArrayType(DateTimeType), RecordLevelType, DateTimeType, DateTimeType], TileTotals, ($, instants, period, from, to) => {
+  const tiles = $.let(new Map(), TileTotals);
   $.if(East.less(from, to), ($) => {
     const startOf = $.const(TILE_FNS.tileStart);
     const nextOf = $.const(TILE_FNS.tileNext);
-    const month = $.const(variant('month', null), RecordLevelType);
-    const tile = $.let(startOf(month, from));
+    const tile = $.let(startOf(period, from));
     $.while(East.less(tile, to), ($) => {
-      const next = $.const(nextOf(month, tile));
+      const next = $.const(nextOf(period, tile));
       const count = $.let(0n);
       $.for(instants, ($, made) => {
         $.if(East.greaterEqual(made, tile).and(() => East.less(made, next)), ($) => { $.assign(count, count.add(1n)); });
       });
-      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms: 0n, values: none })); });
+      $.if(East.greater(count, 0n), ($) => { $(tiles.insert(tile, { count, ms: 0n, values: none })); });
       $.assign(tile, next);
     });
   });
-  return months;
+  return tiles;
 }), []);
 
-/** A node's hours' totals a month: how many, their sum, the least, the greatest and the latest, taken in the order logged. */
-const hourMonths = East.compile(East.function([HoursType, DateTimeType, DateTimeType], MonthTotals, ($, hours, from, to) => {
-  const months = $.let(new Map(), MonthTotals);
+/** A node's hours' totals a tile of a period: how many, their sum, the least, the greatest and the latest, taken in the order logged. */
+const hourTiles = East.compile(East.function([HoursType, RecordLevelType, DateTimeType, DateTimeType], TileTotals, ($, hours, period, from, to) => {
+  const tiles = $.let(new Map(), TileTotals);
   $.if(East.less(from, to), ($) => {
     const startOf = $.const(TILE_FNS.tileStart);
     const nextOf = $.const(TILE_FNS.tileNext);
-    const month = $.const(variant('month', null), RecordLevelType);
-    const tile = $.let(startOf(month, from));
+    const tile = $.let(startOf(period, from));
     $.while(East.less(tile, to), ($) => {
-      const next = $.const(nextOf(month, tile));
+      const next = $.const(nextOf(period, tile));
       const count = $.let(0n);
       const sum = $.let(0.0);
       const least = $.let(0.0);
@@ -1072,11 +1107,11 @@ const hourMonths = East.compile(East.function([HoursType, DateTimeType, DateTime
           $.assign(count, count.add(1n));
         });
       });
-      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms: 0n, values: some({ sum, min: least, max: greatest, last }) })); });
+      $.if(East.greater(count, 0n), ($) => { $(tiles.insert(tile, { count, ms: 0n, values: some({ sum, min: least, max: greatest, last }) })); });
       $.assign(tile, next);
     });
   });
-  return months;
+  return tiles;
 }), []);
 
 /** Some Floats' sum, added in order. */
@@ -1259,43 +1294,75 @@ describe('a nested series index\'s readers', () => {
 
   it('totals, subtreeTotals: a node\'s totals a month, and those of the items beneath it, for each month that overlaps a window', () => {
     const totalsOf = (place: readonly ['teams', 'jobs'] | readonly ['teams', 'checks'] | readonly ['teams', 'hours']) =>
-      East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
+      East.compile(East.function([...WINDOW], TileTotals, ($, entries, yard, path, from, to) =>
         inTime.read(entries).totals({ collection: place, row: yard, path: teamIds(path), from, to }).collect($)), []);
     const jobTotals = totalsOf(['teams', 'jobs']);
     const checkTotals = totalsOf(['teams', 'checks']);
     const hourTotals = totalsOf(['teams', 'hours']);
-    const beneathTotals = East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
+    const beneathTotals = East.compile(East.function([...WINDOW], TileTotals, ($, entries, yard, path, from, to) =>
       inTime.read(entries).subtreeTotals({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     let months = 0;
     for (const { yard, path, team } of TEAMS) {
       for (const w of WINDOWS.slice(0, 30)) {
         const where = `${node(yard, path)} in ${window(w)}`;
-        const expected = jobMonths([...team.jobs.values()], w.from, w.to);
+        const expected = jobTiles([...team.jobs.values()], MONTH, w.from, w.to);
         months += expected.size;
-        assertEast(MonthTotals, jobTotals(held, yard, path, w.from, w.to), expected, `the jobs' months of ${where}`);
-        assertEast(MonthTotals, checkTotals(held, yard, path, w.from, w.to), instantMonths([...team.checks.values()].map((check) => check.at), w.from, w.to),
+        assertEast(TileTotals, jobTotals(held, yard, path, w.from, w.to), expected, `the jobs' months of ${where}`);
+        assertEast(TileTotals, checkTotals(held, yard, path, w.from, w.to), instantTiles([...team.checks.values()].map((check) => check.at), MONTH, w.from, w.to),
           `the checks' months of ${where}`);
-        assertEast(MonthTotals, hourTotals(held, yard, path, w.from, w.to), hourMonths(team.hours, w.from, w.to), `the hours' months of ${where}`);
-        assertEast(MonthTotals, beneathTotals(held, yard, path, w.from, w.to),
-          jobMonths(teamsBeneath(team.teams).flatMap((within) => [...within.team.jobs.values()]), w.from, w.to), `the months of the jobs beneath ${where}`);
+        assertEast(TileTotals, hourTotals(held, yard, path, w.from, w.to), hourTiles(team.hours, MONTH, w.from, w.to), `the hours' months of ${where}`);
+        assertEast(TileTotals, beneathTotals(held, yard, path, w.from, w.to),
+          jobTiles(teamsBeneath(team.teams).flatMap((within) => [...within.team.jobs.values()]), MONTH, w.from, w.to), `the months of the jobs beneath ${where}`);
       }
     }
     assert.ok(months > 1000, `the windows hold months to read: ${months}`);
 
-    // The row's own collections, and what is beneath the row
+    // The row's own collections, and what is beneath the row: the one period the index keeps, named as it may be
     const rowTotals = (place: readonly ['visits'] | readonly ['notes']) =>
-      East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], MonthTotals, ($, entries, yard, from, to) =>
-        inTime.read(entries).totals({ collection: place, row: yard, from, to }).collect($)), []);
+      East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], TileTotals, ($, entries, yard, from, to) =>
+        inTime.read(entries).totals({ collection: place, row: yard, tile: 'month', from, to }).collect($)), []);
     const visitTotals = rowTotals(['visits']);
     const noteTotals = rowTotals(['notes']);
     for (const [yard, row] of YARDS) {
       for (const w of WINDOWS.slice(0, 30)) {
-        assertEast(MonthTotals, visitTotals(held, yard, w.from, w.to), jobMonths([...row.visits.values()], w.from, w.to), `the visits' months of ${yard} in ${window(w)}`);
-        assertEast(MonthTotals, noteTotals(held, yard, w.from, w.to), instantMonths([...row.notes.keys()], w.from, w.to), `the notes' months of ${yard} in ${window(w)}`);
-        assertEast(MonthTotals, beneathTotals(held, yard, [], w.from, w.to),
-          jobMonths(teamsBeneath(row.teams).flatMap((within) => [...within.team.jobs.values()]), w.from, w.to), `the months of the jobs beneath ${yard} in ${window(w)}`);
+        assertEast(TileTotals, visitTotals(held, yard, w.from, w.to), jobTiles([...row.visits.values()], MONTH, w.from, w.to), `the visits' months of ${yard} in ${window(w)}`);
+        assertEast(TileTotals, noteTotals(held, yard, w.from, w.to), instantTiles([...row.notes.keys()], MONTH, w.from, w.to), `the notes' months of ${yard} in ${window(w)}`);
+        assertEast(TileTotals, beneathTotals(held, yard, [], w.from, w.to),
+          jobTiles(teamsBeneath(row.teams).flatMap((within) => [...within.team.jobs.values()]), MONTH, w.from, w.to), `the months of the jobs beneath ${yard} in ${window(w)}`);
       }
     }
+  });
+
+  it('totals, subtreeTotals: at each period the index keeps them at, the one `tile` names — an item counted once in every tile of it that it touches (#1739)', () => {
+    const byPeriod = index(yardsByPeriod.indexes.yards_in_time);
+    const kept = entriesOf(yardsByPeriod, yardsByPeriod.indexes.yards_in_time, YARDS);
+    const NODE = [byPeriod.type, StringType, PathType, DateTimeType, DateTimeType] as const;
+    const read = { week: 0, month: 0 };
+    for (const tile of ['week', 'month'] as const) {
+      const period: ValueTypeOf<typeof RecordLevelType> = variant(tile, null);
+      const jobTotals = East.compile(East.function([...NODE], TileTotals, ($, entries, yard, path, from, to) =>
+        byPeriod.read(entries).totals({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), tile, from, to }).collect($)), []);
+      const checkTotals = East.compile(East.function([...NODE], TileTotals, ($, entries, yard, path, from, to) =>
+        byPeriod.read(entries).totals({ collection: ['teams', 'checks'], row: yard, path: teamIds(path), tile, from, to }).collect($)), []);
+      const hourTotals = East.compile(East.function([...NODE], TileTotals, ($, entries, yard, path, from, to) =>
+        byPeriod.read(entries).totals({ collection: ['teams', 'hours'], row: yard, path: teamIds(path), tile, from, to }).collect($)), []);
+      const beneathTotals = East.compile(East.function([...NODE], TileTotals, ($, entries, yard, path, from, to) =>
+        byPeriod.read(entries).subtreeTotals({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), tile, from, to }).collect($)), []);
+      for (const { yard, path, team } of TEAMS) {
+        for (const w of WINDOWS.slice(0, 12)) {
+          const where = `${node(yard, path)} in ${window(w)}`;
+          const expected = jobTiles([...team.jobs.values()], period, w.from, w.to);
+          read[tile] += expected.size;
+          assertEast(TileTotals, jobTotals(kept, yard, path, w.from, w.to), expected, `the jobs' totals a ${tile} of ${where}`);
+          assertEast(TileTotals, checkTotals(kept, yard, path, w.from, w.to), instantTiles([...team.checks.values()].map((check) => check.at), period, w.from, w.to),
+            `the checks' totals a ${tile} of ${where}`);
+          assertEast(TileTotals, hourTotals(kept, yard, path, w.from, w.to), hourTiles(team.hours, period, w.from, w.to), `the hours' totals a ${tile} of ${where}`);
+          assertEast(TileTotals, beneathTotals(kept, yard, path, w.from, w.to),
+            jobTiles(teamsBeneath(team.teams).flatMap((within) => [...within.team.jobs.values()]), period, w.from, w.to), `a ${tile}'s totals of the jobs beneath ${where}`);
+        }
+      }
+    }
+    assert.ok(read.month > 100 && read.week > read.month, `the windows hold weeks and months to read: ${read.week}, ${read.month}`);
   });
 
   it('subtotals: a parent\'s subtotals by a rollup at a level, for each tile that overlaps a window; none for a node that draws its own', () => {
@@ -1373,12 +1440,12 @@ describe('a nested series index\'s readers', () => {
     assert.throws(over((readers) => readers.items({ collection: ['visits'], from, to } as never)), /items: `row` is left out — the key of the record's row the node is in/);
     assert.throws(over((readers) => readers.items({ collection: ['visits'], row: 'Y-1', from } as never)), /items: `to` is left out — a window is \[from, to\), each a DateTime/);
     assert.throws(over((readers) => readers.subtree({ collection: ['visits'], row: 'Y-1', from, to })),
-      /^Error: e3\.index 'yards\.yards_in_time' subtree: the collection at \['visits'\] is not rolled up, so no node holds the items beneath it — declare it index\.nested\.items\(times, \{ rollup: true \}\)$/);
+      /^Error: e3\.index 'yards\.yards_in_time' subtree: the collection at \['visits'\] is not rolled up, so no node holds the items beneath it — declare it index\.nestedSeries\.items\(times, \{ rollup: true \}\)$/);
     assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'hours'], row: 'Y-1', from, to })), /subtreeTotals: the collection at \['teams', 'hours'\] is not rolled up/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'mean', from, to })),
       /^Error: e3\.index 'yards\.yards_in_time' subtotals: the collection at \['teams', 'hours'\] keeps no subtotal by mean — it keeps sum, \{ fold: 'last', aggregate: 'max' \}$/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'jobs'], row: 'Y-1', rollup: 'sum', from, to })),
-      /subtotals: the collection at \['teams', 'jobs'\] keeps no subtotal by sum — it keeps none: declare index\.nested\.values\(\{ rollup \}\)/);
+      /subtotals: the collection at \['teams', 'jobs'\] keeps no subtotal by sum — it keeps none: declare index\.nestedSeries\.values\(\{ rollup \}\)/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'median' as never, from, to })),
       /subtotals: the collection at \['teams', 'hours'\] rolls up by "median", which is no rollup/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'sum', level: 'day', from, to })),
@@ -1393,13 +1460,42 @@ describe('a nested series index\'s readers', () => {
     const Shed = StructType({ name: StringType, visits: JobsType });
     const sheds = record('sheds', DictType(StringType, Shed), {
       initial: new Map(),
-      indexes: (index) => ({ sheds_in_time: index.nested({ collections: { visits: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'day' }) }),
+      indexes: (index) => ({ sheds_in_time: index.nestedSeries({ collections: { visits: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'day' }) }),
     });
     const shedsInTime = index(sheds.indexes.sheds_in_time);
     assert.throws(() => East.function([shedsInTime.type], NullType, (_$, entries) => {
       shedsInTime.read(entries).totals({ collection: ['visits'], row: 'S-1', from, to });
       return null;
-    }), /^Error: e3\.index 'sheds\.sheds_in_time' totals: the index keeps no totals — declare the tile they are kept by, as index\.nested\(\{ …, summary: 'month' \}\)$/);
+    }), /^Error: e3\.index 'sheds\.sheds_in_time' totals: the index keeps no totals — declare the periods they are kept at, as index\.nestedSeries\(\{ …, summary: \['month'\] \}\)$/);
+  });
+
+  it('refuses a period the index keeps no totals at, and a read that names none of several, where the reader is called (#1739)', () => {
+    const from = at('2026-10-12T00:00:00.000');
+    const to = at('2026-10-19T00:00:00.000');
+    // An index that keeps its totals at one period reads it, named or not, and no other
+    assert.throws(() => East.function([inTime.type], NullType, (_$, entries) => {
+      // @ts-expect-error — the yards keep their totals a month alone
+      inTime.read(entries).totals({ collection: ['visits'], row: 'Y-1', tile: 'week', from, to });
+      return null;
+    }), /^Error: e3\.index 'yards\.yards_in_time' totals: the index keeps its totals at month, and none at "week"$/);
+
+    // One that keeps them at several reads the one a read names
+    const byPeriod = index(yardsByPeriod.indexes.yards_in_time);
+    const over = (body: (readers: ReturnType<typeof byPeriod.read>) => unknown) => () =>
+      East.function([byPeriod.type], NullType, (_$, entries) => { body(byPeriod.read(entries)); return null; });
+    assert.throws(over((readers) => readers.totals({ collection: ['visits'], row: 'Y-1', from, to })),
+      /^Error: e3\.index 'yards_by_period\.yards_in_time' totals: the index keeps its totals at week, month — name the one to read, as tile: 'week'$/);
+    assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'jobs'], row: 'Y-1', from, to })),
+      /^Error: e3\.index 'yards_by_period\.yards_in_time' subtreeTotals: the index keeps its totals at week, month — name the one to read, as tile: 'week'$/);
+    // @ts-expect-error — it keeps no totals a quarter: `tile` is one of the periods its `summary` names
+    assert.throws(over((readers) => readers.totals({ collection: ['visits'], row: 'Y-1', tile: 'quarter', from, to })),
+      /^Error: e3\.index 'yards_by_period\.yards_in_time' totals: the index keeps its totals at week, month, and none at "quarter"$/);
+    // @ts-expect-error — nor a day
+    assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'jobs'], row: 'Y-1', tile: 'day', from, to })),
+      /^Error: e3\.index 'yards_by_period\.yards_in_time' subtreeTotals: the index keeps its totals at week, month, and none at "day"$/);
+    // A collection that is not rolled up is refused before the period is read
+    assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'hours'], row: 'Y-1', tile: 'week', from, to })),
+      /subtreeTotals: the collection at \['teams', 'hours'\] is not rolled up/);
   });
 
   it('arrives on the body\'s parameter in a function with a spec', () => {

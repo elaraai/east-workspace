@@ -31,7 +31,9 @@
  *   element below it, each sized by the ledger, so eviction moves nothing and
  *   a window landing beside the run takes exactly its band's slot; a band
  *   report's pixels map back to the element under the view
- *   ({@link elementInBand}, #612), and a failed window is a band at its slot
+ *   ({@link elementInBand}, #612) — once the ledger has a rate to read them
+ *   by, a window landed or a pitch declared, and never before: until then the
+ *   view stands where it stood — and a failed window is a band at its slot
  *   ({@link failedSpan}).
  * - **The demand** ({@link advanceAtRest}, {@link firstWindow}): the run
  *   follows the view a window at a time while it rests, reading ahead the way
@@ -48,7 +50,7 @@
 
 import { StringType, equalFor, none, type option } from "@elaraai/east";
 import {
-    advance, documentHeight, elementAtOffset, entryLookup, isEmpty, offsetOfWindow, pin, slotHeight, travelOf, unpinAll,
+    advance, documentHeight, elementAtOffset, entryLookup, isEmpty, isRated, offsetOfWindow, pin, slotHeight, travelOf, unpinAll,
     type CarriedEntry, type EntryLookup, type Residency, type ResidencyOptions, type Travel, type WindowLedger,
 } from "@elaraai/east-ui-components/internal";
 
@@ -509,17 +511,31 @@ export function bandsAround(
  * far drag rebases instead of walking. Without pixels, the element just
  * outside the run on that side.
  *
+ * Pixels name an element only through a rate the ledger has — a window landed,
+ * or a pitch declared (`isRated`). Before either the band is sized at a row's
+ * height an element, whatever an element draws: the middle of a view that has
+ * not scrolled, read through it, is an element well down the source, and for a
+ * source whose elements each fill the view that is windows past the ones it
+ * shows — all of them then read on an open. So until a window has landed the
+ * pixels are left unread: the report names its side of the run alone, as one
+ * without pixels does — which walks on past windows that failed — and beside a
+ * run of nothing, which has no side to name, it names nothing, and the view
+ * stands where it stood.
+ *
  * @param ledger - The ledger
  * @param run - The run the band stands beside
  * @param at - Which band
  * @param px - Pixels from the band's top to the view's centre, when the frame says them
  * @param pageSize - Elements per window
- * @returns The element
+ * @returns The element; `undefined` where the report names none — its pixels unread, beside a run of nothing
  */
-export function elementInBand(ledger: WindowLedger, run: WindowRun, at: "head" | "tail", px: number | undefined, pageSize: number): number {
+export function elementInBand(ledger: WindowLedger, run: WindowRun, at: "head" | "tail", px: number | undefined, pageSize: number): number | undefined {
     if (px !== undefined && ledger.windows > 0) {
-        const bandTop = at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
-        return elementAtOffset(ledger, bandTop + Math.max(0, px));
+        if (isRated(ledger)) {
+            const bandTop = at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
+            return elementAtOffset(ledger, bandTop + Math.max(0, px));
+        }
+        if (run.to < run.from) return undefined;
     }
     return at === "head" ? Math.max(0, run.from * pageSize - 1) : (run.to + 1) * pageSize;
 }

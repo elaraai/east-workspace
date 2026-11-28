@@ -35,6 +35,7 @@ import {
   type Beast2Codec,
 } from "../index.js";
 import type { Beast2SyncRangeReader } from "../index.js";
+import { makeTable, segmented } from "./segmented.spec.fixtures.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
@@ -43,22 +44,7 @@ const TableType = DictType(IntegerType, RowType);
  *  `per` — a geometry chosen here rather than by the cut rule, so that a small
  *  value still spans several segments. */
 function paged(type: EastType, value: Iterable<unknown>, codec?: Beast2Codec, per = 100): Uint8Array {
-  const items = [...value];
-  const batches: unknown[] = [];
-  for (let i = 0; i < items.length; i += per) {
-    const chunk = items.slice(i, i + per);
-    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
-  }
-  return encodeBeast2SegmentsFor(type, codec === undefined ? undefined : { codec })(batches as never);
-}
-
-function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name: string }> {
-  const entries: [bigint, { id: bigint; name: string }][] = [];
-  for (let i = 0; i < n; i++) {
-    const id = BigInt(i + offset);
-    entries.push([id, { id, name: `row-${i + offset}` }]);
-  }
-  return new SortedMap(entries, compareFor(IntegerType));
+  return segmented(type, [...value], per, codec);
 }
 
 describe("Beast2 v5 — lazy Dict", () => {

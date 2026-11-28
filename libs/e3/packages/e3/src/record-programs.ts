@@ -38,7 +38,7 @@ import {
 import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
 import { emptiedRow } from './record-index.js';
-import { NestedPatchedType } from './record-nested-programs.js';
+import { NestedPatchedType, NestedTouchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 import { lazyBuilds } from './lazy-build.js';
@@ -101,7 +101,8 @@ export function summed(index: RecordIndexDef): boolean {
  * A record's index as it is built and bound (#1434, #1521): as declared, but,
  * beside a nested series index or an entries index of the record, one that
  * carries nothing — a plain or an interval index with no `value` — or the row
- * — an area index, a key-form series index — carries the lean row instead:
+ * — an area index, a series index declared with no `value` — carries the lean
+ * row instead:
  * its rows without the nested series index's collections, or with every field
  * the entries indexes file emptied, so a page of them reads no nested item, no
  * entry and no segment of the record's own. An index with a `value` of its
@@ -113,7 +114,7 @@ export function summed(index: RecordIndexDef): boolean {
  */
 export function builtIndex(rec: RecordDef, index: RecordIndexDef): RecordIndexDef {
   if (index.nested !== undefined || index.entries !== undefined || summed(index)) return index;
-  const carriesTheRow = index.area !== undefined || index.series !== undefined;
+  const carriesTheRow = index.area !== undefined || index.series?.carries === 'row';
   if (index.valueFn !== undefined && !carriesTheRow) return index;
   const lean = leanRowOf(rec);
   if (lean === undefined) return index;
@@ -539,9 +540,9 @@ function rowChanges(types: DictWrite) {
  * index they are the row's `add`s: under each key it moves, what it took away
  * and gave, summed, and none where they cancel (#1039). A nested series index
  * is maintained by the row's patch where one is given and says what it touched
- * (#1434), and by the two rows whole otherwise; an entries index compares the
- * two rows' entries key by key (#1521); every other index compares the rows'
- * entries whole.
+ * (#1434), and by the two rows whole otherwise, and its span the same way
+ * (#1739); an entries index compares the two rows' entries key by key (#1521);
+ * every other index compares the rows' entries whole.
  *
  * A write's program runs it on each row the write touches, and a binding
  * carries it, so a page previews a drafted row's Save with the function the
@@ -722,8 +723,42 @@ function rowEntriesMaintenance(
  * @remarks
  * A write reads the record, never the summary, so it says what changed rather
  * than what a total becomes; the apply adds it to the total held.
+ *
+ * A nested series index's span is kept by the row's patch where one is given
+ * and says what it touched (#1739): its totals are sums over the row's items
+ * and values, so what those the patch names took away and gave is what the two
+ * rows' difference is, and a write reads no item it did not touch. A replace
+ * on the way leaves the two rows to be read whole, as a row inserted or
+ * deleted is. Both give the same `add`s.
  */
 function summaryMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+  const whole = wholeRowsMaintenance(index, keyType, valueType, rowPatchType);
+  if (index.span === undefined) return whole;
+  const opsType = DictType(indexEntryKeyType(NullType, index.keyType), RecordSummaryOpType);
+  const walk = functionAt(index.span.touched, [valueType, valueType, rowPatchType], NestedTouchedType(valueType));
+  return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, patch) => {
+    const sums = $.const(whole);
+    const touched = $.const(walk);
+    $.match(patch, {
+      some: ($, rowPatch) => {
+        $.match(touched(held.unwrap(), next.unwrap(), rowPatch), {
+          replaced: () => {},
+          unchanged: ($) => {
+            $.return(new Map());
+          },
+          touched: ($, rows) => {
+            $.return(sums(key, some(rows.held), some(rows.next), none));
+          },
+        });
+      },
+      none: () => {},
+    });
+    return sums(key, held, next, patch);
+  });
+}
+
+/** A summary index's maintenance for one row from the two rows whole ({@link summaryMaintenance}): what the row before took away, and what the row after gives. */
+function wholeRowsMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
   // A summary's entry stands for every row of its key, so its `k` is Null.
   const opsType = DictType(indexEntryKeyType(NullType, index.keyType), RecordSummaryOpType);
   const totalsType = DictType(index.keyType, RecordSummaryTotalsType);

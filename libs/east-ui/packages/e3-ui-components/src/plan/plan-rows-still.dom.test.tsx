@@ -112,8 +112,8 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         // those and the one before, are the ones it holds.
         await press(c, "]");
         still(1, 1, 0);
-        // A step of the date navigator: a day on again, the same weeks.
-        await next(c, "Next day");
+        // Another: a day on again, the same weeks.
+        await press(c, "]");
         still(2, 2, 0);
         // A pan into the week of 19 October's edge: the week after it is wanted, its first fifty orders' cells read alone.
         await press(c, "]");
@@ -132,6 +132,10 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         });
         await settle();
         still(6, 3, 0);
+        // A step of the date navigator: the window's own eleven days on, from 18 October — the week past the ones the
+        // canvas holds is wanted, its first fifty orders' cells read alone.
+        await next(c, "Next 11 days");
+        still(17, 14, 50);
         // A resolution re-buckets the window: no part of the orders' narrowing, so it reads none of them, and of the
         // operations only the cells of the tiles it reads that the canvas does not hold.
         await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name: "WEEK" })); });
@@ -183,9 +187,9 @@ describe("the ops plan: a slice with no source holding the window, the canvas ho
         // A pan, `]`: a week on.
         await press(c, "]");
         still(1);
-        // A step of the date navigator: a week on again.
-        await next(c, "Next week");
-        still(2);
+        // A step of the date navigator: the window's own thirteen weeks on.
+        await next(c, "Next 13 weeks");
+        still(14);
     });
 });
 

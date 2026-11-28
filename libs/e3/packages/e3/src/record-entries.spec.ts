@@ -368,11 +368,11 @@ describe('index.entries — refuses, at definition time, in words', () => {
     const words = /^Error: e3\.record 'machines': the entries index 'by_count' beside the nested series index 'in_time' — one kind of index files a record's nested fields: declare the one or the other$/;
     assert.throws(() => record('machines', MachinesType, {
       initial: new Map(),
-      indexes: (index) => ({ by_count: index.entries('counts'), in_time: index.nested({ collections: { jobs: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'week' }) }),
+      indexes: (index) => ({ by_count: index.entries('counts'), in_time: index.nestedSeries({ collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'week' }) }),
     }), words);
     assert.throws(() => record('machines', MachinesType, {
       initial: new Map(),
-      indexes: (index) => ({ in_time: index.nested({ collections: { jobs: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'week' }), by_count: index.entries('counts') }),
+      indexes: (index) => ({ in_time: index.nestedSeries({ collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'week' }), by_count: index.entries('counts') }),
     }), words);
   });
 

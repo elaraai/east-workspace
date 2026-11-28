@@ -95,8 +95,9 @@ export { Card } from "./container/index.js";
 export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Map, Blend } from "./collections/index.js";
 // The chart layer builders' TS faces and the spec vocabulary a composite
 // consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
-export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
-export { ChartXType, ChartDomainType, ChartTickValuesType, NumberDomainType, numberDomainOf, type NumberDomainInput } from "./charts/spec/index.js";
+export { Chart, type AxisOptions, type ChartLayer, type MarkStyle, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
+// A layer's curve — what a Plan chart row's layer keeps of its styling (#1753) — and a number scale's domain.
+export { ChartXType, ChartDomainType, ChartTickValuesType, ChartCurveType, type ChartCurveLiteral, NumberDomainType, numberDomainOf, type NumberDomainInput } from "./charts/spec/index.js";
 // Whether a domain draws (east-workspace#1726): the renderers' reading of one, and the factories' check of literal bounds.
 export { drawsDomain } from "./charts/spec/number-domain.js";
 export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";

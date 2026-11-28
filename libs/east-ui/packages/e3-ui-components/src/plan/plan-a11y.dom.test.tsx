@@ -99,6 +99,7 @@ const span = (runs: unknown[] = [], decisions: unknown[] = [], ports: unknown[] 
 const chart = (points: [Date, number][], expandable = true) => variant("chart", {
     layers: [variant("line", {
         points: points.map(([d, y]) => ({ t: t(d), y })), axis: variant("left", null), breach: none, fold: variant("mean", null),
+        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
     })],
     left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable,
 });
@@ -114,6 +115,7 @@ function planRoot(rows: PlanWireRow[], opts: {
 } = {}): PlanRootValue {
     return {
         rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

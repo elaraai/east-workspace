@@ -128,19 +128,32 @@ describe("chart summary (#819)", () => {
     const kind = (layers: unknown[]): ChartKindValue => ({ layers, left: none, right: none } as unknown as ChartKindValue);
 
     test("each data layer's min, max and last inside the window — and its breaches, which only colour shows", () => {
-        const line = variant("line", { points: pts([3, 7, 5]), axis: variant("left", null), breach: some(variant("above", 6)) });
-        const cols = variant("column", { points: pts([2, 4]), axis: variant("left", null), series: none, breach: none });
-        const ref = variant("refLine", { y: 5, axis: variant("left", null), label: some("TARGET") });
+        const line = variant("line", {
+            points: pts([3, 7, 5]), axis: variant("left", null), breach: some(variant("above", 6)), fold: variant("mean", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+        });
+        const cols = variant("column", {
+            points: pts([2, 4]), axis: variant("left", null), breach: none, fold: variant("sum", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+        });
+        const ref = variant("refLine", { y: 5, axis: variant("left", null), label: some("TARGET"), dash: none, color: none });
         expect(chartSummary(kind([line, cols, ref]), scale, w))
             .toBe("Chart: line min 3, max 7, last 5, 1 beyond threshold; columns min 2, max 4, last 4");
     });
 
     test("points outside the window and gaps are not summarised; two layers of a kind are numbered", () => {
         const before = { t: t("2026-06-01T00:00:00"), y: 99 };
-        const a = variant("line", { points: [before, ...pts([1, NaN, 2])], axis: variant("left", null), breach: none });
-        const b = variant("line", { points: [before], axis: variant("left", null), breach: none });
+        const a = variant("line", {
+            points: [before, ...pts([1, NaN, 2])], axis: variant("left", null), breach: none, fold: variant("mean", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+        });
+        const b = variant("line", {
+            points: [before], axis: variant("left", null), breach: none, fold: variant("mean", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+        });
         const band = variant("band", {
             points: [{ t: t("2026-06-29T00:00:00"), lo: 1, hi: 4 }], axis: variant("left", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         });
         expect(chartSummary(kind([a, b, band]), scale, w))
             .toBe("Chart: line 1 min 1, max 2, last 2; line 2 no data in the window; range min 1, max 4, last 1–4");

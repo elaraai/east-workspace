@@ -59,7 +59,7 @@ This creates a package with:
 - `e3.output.array(T)`, `set(T)`, `dict(K, V, { merge? })`, `fold(T, { zero, combine })` - The output kinds a stream task emits into: what `emit` takes, and how the parts of the output combine
 - `e3.partition(dataset, { by? })` - Mark a stream task's input as one its work may be split over, a piece at a time, in parallel
 - `e3.record(name, type, { initial?, indexes?, mutations?, migrations? })` - Define a record: state written only through its mutations, each an audited commit. A record is declared whole, its parts named in its declaration:
-  - `indexes: (index) => ({ by_site: index.on(["site"]), … })` - Second collections over a Dict record, in another order: `index.on(fields)`, `key(fn)` or `keys(fn)`, each with an optional `value` projection, or `interval`, `area`, `series`, `nested` and `summary` over the rows' times and boxes
+  - `indexes: (index) => ({ by_site: index.on(["site"]), … })` - Second collections over a Dict record, in another order: `index.on(fields)`, `key(fn)` or `keys(fn)`, each with an optional `value` projection, or `interval`, `area`, `flatSeries`, `nestedSeries`, `summary` and `totals` over the rows' times and boxes
   - `mutations: (mutation) => ({ patch: mutation.patch(), … })` - Its mutations: `mutation.reduce(fn)`, a reducer over the whole state; `edit(fn)`, a body writing through an `edit` capability; or `patch()`, a patch a client sends
   - `migrations: (migration) => [migration.value(name, fn), …]` - The steps a deploy runs when a package changes the record's type, in order: `value`, `rows` or `rekey`
 - `e3.package(name, version, ...items)` - Create a package (dependencies collected automatically)

@@ -27,6 +27,8 @@ import type { PlanTransport } from "../shell/transport.js";
 import type { PlanToolsChrome } from "../links/connect.js";
 import type { PlanLinksOver } from "../links/kinds.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import type { PlanEventPlacings } from "./events.js";
+import type { PlanOver } from "./fallback.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
 import type { PlanWindowPart } from "./window.js";
@@ -149,13 +151,25 @@ export interface PlanChrome {
     optimise?: PlanOptimiseChrome | undefined;
     /**
      * The kinds' cells and counts (#1039): what a kind given cells draws from — a kind read by them, or past the cap,
-     * none — which the footer counts over the rows drawn and the inspector's row reads, every kind's drafts as the
-     * seams take them, and the kinds drawing the notice; `undefined` for a Plan whose kinds the reader neither reads by
-     * their cells nor counts.
+     * none — which the footer counts over the rows drawn and the inspector's row reads, and every kind's drafts as the
+     * seams take them; `undefined` for a Plan whose kinds the reader neither reads by their cells nor counts. What no
+     * period the axis offers shows of them is {@link PlanChrome.over}'s.
      */
     cells: ScheduleCellsRead | undefined;
+    /**
+     * The event kinds' events as each read of them lands, and what each was read over (#1771): what the footer's counts
+     * take the window's events from, so none of a kind's are read again for them; `undefined` for a Plan without event kinds.
+     */
+    placings?: PlanEventPlacings | undefined;
     /** The link kinds holding more links than are read (#1541, U10): none of such a kind's links is drawn, and the frame's notice says how many it holds. */
     linksOver: readonly PlanLinksOver[];
+    /**
+     * What the Plan can show at no period its axis offers (#1039, #1739, #1799): the event kinds with more events in view
+     * than it draws, and the rows' own collections with more items, that no summary shades at any of them — their rows
+     * hatched, and the frame's one line naming them. Where a coarser period shows them the canvas's columns take it
+     * themselves (`fallback.ts`), and this names none of them.
+     */
+    over: PlanOver;
     /** The tools the viewer picks among (#1541, U10): Select and Connect, shown while a link kind is editable; `undefined` while none is. */
     tools: PlanToolsChrome | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */

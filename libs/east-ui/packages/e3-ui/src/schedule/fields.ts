@@ -134,7 +134,10 @@ export function keyCases(type: EastType): string[] | undefined {
  * A field holding the key of a keyed entity, checked: a field holding a key
  * of the one kind `of` names, or a variant holding a key of the kind its case
  * names — either, or an Option of either. Each key is of any type a Dict may be
- * keyed by (#1549): `key` is the one a field holds, `keys` each case's.
+ * keyed by (#1549): `key` is the one a field holds, `keys` each case's. A
+ * variant's `cases` are those `of` names a slot for: every case of it, but for
+ * a field checked to take some of them alone (#1769), whose other cases name
+ * no entity.
  */
 export type KeyField =
     | { readonly field: string; readonly shape: "key"; readonly of: string; readonly optional: boolean; readonly key: EastType }
@@ -219,14 +222,17 @@ export interface KeyFieldWords {
  * @param type - The field's type
  * @param of - What its option's `of` names: a slot, or a slot per case
  * @param words - How the refusals name it
+ * @param partial - Whether `of` may name a slot for some of a variant's cases alone (#1769): a Schedule kind of one case
+ *   of its record lands on the entities of those cases, and a row whose field holds another names none
  * @returns The field, checked
  * @throws {Error} Naming the option: a field holding a type no Dict is keyed
  *   by, nor an Option of one; an `of` naming no slot, for a field that is no
  *   variant of keys, or neither a slot nor a slot per case, for one that is;
- *   an `of` that does not name a slot for each of the variant's cases, or
- *   names one slot twice
+ *   an `of` that does not name a slot for each of the variant's cases — or,
+ *   given `partial`, for at least one of them and none that is no case of it —
+ *   or names one slot twice
  */
-export function checkKeyField(field: string, type: EastType, of: unknown, words: KeyFieldWords): KeyField {
+export function checkKeyField(field: string, type: EastType, of: unknown, words: KeyFieldWords, partial = false): KeyField {
     const { where, prop, noun } = words;
     const one = `${/^[aeiou]/.test(noun) ? "an" : "a"} ${noun}`;
     const inner = optionOf(type) ?? type;
@@ -247,7 +253,12 @@ export function checkKeyField(field: string, type: EastType, of: unknown, words:
     }
     const slots = of as Readonly<Record<string, string>>;
     const named = Object.keys(slots);
-    if (named.length !== cases.length || !named.every((c) => cases.includes(c))) {
+    if (partial) {
+        // Some of the cases alone (#1769): at least one, each a case of the field.
+        if (named.length === 0 || !named.every((c) => cases.includes(c))) {
+            throw new Error(`${where}: \`${prop}.of\` names ${one} slot for some of "${field}"'s cases (${cases.join(", ")}) — and it names ${named.join(", ") || "none"}`);
+        }
+    } else if (named.length !== cases.length || !named.every((c) => cases.includes(c))) {
         throw new Error(`${where}: \`${prop}.of\` names ${one} slot for each of "${field}"'s cases (${cases.join(", ")}) — and it names ${named.join(", ") || "none"}`);
     }
     const kinds = Object.values(slots);
@@ -255,7 +266,9 @@ export function checkKeyField(field: string, type: EastType, of: unknown, words:
         throw new Error(`${where}: \`${prop}.of\` names each ${noun} slot once — a case per kind of ${noun} — and it names ${kinds.join(", ")}`);
     }
     const held = (inner as { readonly cases: Readonly<Record<string, EastType>> }).cases;
-    return { field, shape: "cases", of: slots, cases, optional, variant: inner, keys: Object.fromEntries(cases.map((c) => [c, held[c]!])) };
+    // The cases it names a slot for, in the variant's order.
+    const taken = cases.filter((c) => Object.hasOwn(slots, c));
+    return { field, shape: "cases", of: slots, cases: taken, optional, variant: inner, keys: Object.fromEntries(taken.map((c) => [c, held[c]!])) };
 }
 
 /**
@@ -274,8 +287,9 @@ const RefOption = OptionType(ScheduleResourceRefType);
 /**
  * Reads a key field as a reference to the entity it names: its kind's slot
  * and its key's text, a String key as itself and any other as East prints it
- * (#1549) — `none` for an Option field holding none, or for a row of a
- * builder whose kind has no such field.
+ * (#1549) — `none` for an Option field holding none, for a variant's case its
+ * `of` names no slot for (#1769), or for a row of a builder whose kind has no
+ * such field.
  *
  * @param field - The field, checked; `undefined`, the kind has none
  * @param rowType - The row type
@@ -296,8 +310,12 @@ export function keyFieldRef(field: KeyField | undefined, rowType: EastType): Exp
                 : ref(value);
         }
         const of = field.of;
-        const byCase = (v: ExprType<EastType>) => (v as unknown as { match: (arms: object) => ExprType<typeof RefOption> }).match(Object.fromEntries(field.cases.map((c) =>
-            [c, (_$2: unknown, key: ExprType<EastType>) => East.value(some(East.value({ kind: of[c]!, key: textOf(key, field.keys[c]!) }, ScheduleResourceRefType)), RefOption)])));
+        // An arm for every case of the variant: one its `of` names no slot for names no entity (#1769).
+        const all = Object.keys((field.variant as VariantType).cases);
+        const byCase = (v: ExprType<EastType>) => (v as unknown as { match: (arms: object) => ExprType<typeof RefOption> }).match(Object.fromEntries(all.map((c) =>
+            [c, Object.hasOwn(of, c)
+                ? (_$2: unknown, key: ExprType<EastType>) => East.value(some(East.value({ kind: of[c]!, key: textOf(key, field.keys[c]!) }, ScheduleResourceRefType)), RefOption)
+                : (_$2: unknown) => East.value(none, RefOption)])));
         return field.optional
             ? (value as unknown as ExprType<OptionType<EastType>>).match({ none: (_$2) => East.value(none, RefOption), some: (_$2, v) => byCase(v) })
             : byCase(value);

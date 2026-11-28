@@ -129,16 +129,16 @@ export const machines = e3.record("machines", DictType(StringType, Machine), {
         // The machines by name.
         machines_by_name: index.on(["name"]),
         // What the machines file in time: their jobs and stops a span each, their alarms an instant each, and their load and output a week each.
-        machines_in_time: index.nested({
+        machines_in_time: index.nestedSeries({
             collections: {
-                jobs: index.nested.items({ from: "start", to: "end" }),
-                stops: index.nested.items({ from: "start", to: "end" }),
-                alarms: index.nested.items({ at: "at" }),
-                load: index.nested.values(),
-                output: index.nested.values(),
+                jobs: index.nestedSeries.items({ from: "start", to: "end" }),
+                stops: index.nestedSeries.items({ from: "start", to: "end" }),
+                alarms: index.nestedSeries.items({ at: "at" }),
+                load: index.nestedSeries.values(),
+                output: index.nestedSeries.values(),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -196,10 +196,10 @@ export const halls = e3.record("halls", DictType(StringType, Hall), {
         // The halls by site.
         halls_by_site: index.on(["site"]),
         // Each member's load a day at a time, each hall keeping their mean from the day up.
-        halls_in_time: index.nested({
-            collections: { members: index.nested.rows({ load: index.nested.values({ rollup: "mean" }) }) },
+        halls_in_time: index.nestedSeries({
+            collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: "mean" }) }) },
             tile: "day",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -290,12 +290,12 @@ export const assemblies = e3.record("assemblies", DictType(StringType, Assembly)
         // The assemblies by line.
         assemblies_by_line: index.on(["line"]),
         // Each part's jobs in time, filed under every part above it too.
-        assemblies_in_time: index.nested({
+        assemblies_in_time: index.nestedSeries({
             collections: {
-                parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nested.recursive() }),
+                parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -389,16 +389,16 @@ export const ledgers = e3.record("ledgers", DictType(StringType, Ledger), {
         // The ledgers by site.
         ledgers_by_site: index.on(["site"]),
         // Each leaf measure's readings and stock in time, every measure above it keeping their subtotals.
-        ledgers_in_time: index.nested({
+        ledgers_in_time: index.nestedSeries({
             collections: {
-                measures: index.nested.rows({
-                    readings: index.nested.values({ rollup: ["sum", "count"] }),
-                    stock: index.nested.values({ rollup: { fold: "last", aggregate: "sum" } }),
-                    children: index.nested.recursive(),
+                measures: index.nestedSeries.rows({
+                    readings: index.nestedSeries.values({ rollup: ["sum", "count"] }),
+                    stock: index.nestedSeries.values({ rollup: { fold: "last", aggregate: "sum" } }),
+                    children: index.nestedSeries.recursive(),
                 }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

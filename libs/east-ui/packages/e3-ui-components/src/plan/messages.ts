@@ -60,8 +60,8 @@ export type PlanPart =
 /** The unit a horizon caption counts in — a time resolution, or a number axis's step. */
 export type PlanHorizonUnit = "hour" | "day" | "week" | "month" | "quarter" | "year" | "step";
 
-/** The period a horizon's bars count by (#1438). */
-export type PlanHorizonBucket = "month" | "quarter" | "year";
+/** The period a horizon's bars count by (#1438): a day or a week too over the record's totals (#1732). */
+export type PlanHorizonBucket = "day" | "week" | "month" | "quarter" | "year";
 
 /** A chart layer kind, as the chart's summary names it. */
 export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band";
@@ -209,16 +209,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The line under it. */
     libraryNarrowedHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
 
-    // ── Too many events to draw (#1039) ────────────────────────────────────
-    /** The notice's title: a kind with more events in view than it draws, and no summary to shade them at this
-     *  resolution — `12,480 print job events in view`; `kind` its name as running text writes it. */
-    tooManyEvents: (p: { kind: string; n: number; count: string }) => string;
-    /** The notice's title for a kind whose count is no number of its events, a day index's (#1039) — `Print job events in
-     *  view: not counted`; `kind` its name as running text writes it. */
-    tooManyEventsNotCounted: (p: { kind: string }) => string;
-    /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
-     *  see where they fall`; `undefined`, it has none. */
-    tooManyEventsHint: (p: { resolution: string | undefined }) => string;
+    // ── Too many to show (#1039, #1739, #1799) ─────────────────────────────
+    /**
+     * The one line over what the Plan can show at no period it offers — where a coarser one shows it, its columns take that
+     * one themselves, and nothing is said: the event kinds with more events in view than it draws, and no totals to shade
+     * them at any period (`kinds`, their names as running text writes them), and the rows' own collections the same
+     * (`items`) — `Too many print jobs and items to show at once: pick a shorter range or narrow the filters.`
+     */
+    tooManyToShow: (p: { kinds: readonly string[]; items: boolean }) => string;
 
     // ── Too many links to draw (#1541, U10) ────────────────────────────────
     /** The notice's title: a link kind holding more links than are read — `10,001 flow links`; `kind` its name as running
@@ -320,10 +318,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
     /**
      * What a row's facts, or the window's, leave out (#1039), as one line: the kinds they count none of, too many of
-     * their events in view, none of them read — `Print jobs not counted: too many to draw at this resolution` — and the
-     * kinds whose events they count but whose hours they do not, none of them read — `Print job hours not counted: too
-     * many to draw at this resolution`; both, `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are
-     * the kinds' names.
+     * their events in view, none of them read — `Print jobs not counted: too many in view` — and the kinds whose events
+     * they count but whose hours they do not, none of them read — `Print job hours not counted: too many in view`; both,
+     * `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are the kinds' names.
      */
     inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
@@ -396,6 +393,20 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  the one parent whose members span windows, #822) it is a short bar,
      *  never a count (#1398, CL13). */
     groupMeta: (p: { n: number; count: string }) => string;
+    /**
+     * What a group's row says of a column it counts the events beneath it in (#1716), on its hover and to a reader —
+     * `Oct 2026: 24 events — Print job 13, Paper delivery 5, Folding run 4, Trim 2`: `bucket` the column in words,
+     * `count` its events, each record's share where it counts more than one, by its kinds' names (`shares`, their counts
+     * formatted), and the kinds the viewer hides that it counts (`hidden`).
+     */
+    bandCount: (p: { bucket: string; n: number; count: string; shares: readonly { readonly names: string; readonly count: string }[]; hidden: readonly string[] }) => string;
+    /**
+     * What a group's row says of a record beneath it that it does not count (#1716), after a column's count — `Inspection
+     * not counted: no totals kept by hall`: `names` its kinds' names; `why` its source lists no totals led by the `fields`
+     * that name the row's group (`totals`), none at a period dividing the columns (`zoom`), or the filters choose what
+     * they cannot answer (`filters`).
+     */
+    bandNotCounted: (p: { names: string; why: "totals" | "zoom" | "filters"; fields: readonly string[] }) => string;
     // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
     // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
@@ -568,6 +579,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     chartSummary: (p: { parts: readonly string[] }) => string;
     /** A chart row with no data layers. */
     chartNoData: () => string;
+    /** A named series of a chart row, on its legend's line (#1750) — `Output k sheets`: `unit` its axis's label, where
+     *  the axis names one. */
+    chartSeries: (p: { name: string; unit: string | undefined }) => string;
+    /** The value axis a series scales against, on its legend's line where its chart draws on both (#1750) — `left`. */
+    chartAxisSide: (p: { side: "left" | "right" }) => string;
+    /** A chart row's legend's last line, where the row has no room for every series (#1750) — `+2 more`; `every` where it
+     *  has room for this line alone, which then stands for every series — `3 series`. */
+    chartLegendMore: (p: { n: number; count: string; every: boolean }) => string;
+    /** What a series of a chart row reads at a bucket, in its readout (#1753) — `42 (38–46) k sheets`: `value` its
+     *  value there, `range` its band's ({@link PlanMessages.valueRange}), each formatted and `undefined` where it has
+     *  none; `unit` its axis's label, where the axis names one. */
+    chartReading: (p: { value: string | undefined; range: string | undefined; unit: string | undefined }) => string;
 
     // ── The live region (#819) ─────────────────────────────────────────────
     /** A row was selected. */
@@ -600,7 +623,7 @@ const HORIZON_UNIT: Record<PlanHorizonUnit, string> = {
     hour: "HR", day: "D", week: "WK", month: "MO", quarter: "Q", year: "YR", step: "STEPS",
 };
 
-const HORIZON_PER: Record<PlanHorizonBucket, string> = { month: "mo", quarter: "q", year: "yr" };
+const HORIZON_PER: Record<PlanHorizonBucket, string> = { day: "day", week: "wk", month: "mo", quarter: "q", year: "yr" };
 
 const STATE_WORD: Record<PlanStateWord, string> = {
     estimated: "estimated",
@@ -709,11 +732,8 @@ export const planMessages: PlanMessages = {
     libraryNarrowed: ({ tab, name }) => `No ${narrowedNoun(tab, name)} match the filters`,
     libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
 
-    tooManyEvents: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "event", "events")} in view`,
-    tooManyEventsNotCounted: ({ kind }) => `${kind.charAt(0).toUpperCase()}${kind.slice(1)} events in view: not counted`,
-    tooManyEventsHint: ({ resolution }) => (resolution === undefined
-        ? "Too many to draw at this resolution: narrow the filters, or zoom in."
-        : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+    tooManyToShow: ({ kinds, items }) =>
+        `Too many ${joined([...kinds.map(pluralName), ...(items ? ["items"] : [])], "and")} to show at once: pick a shorter range or narrow the filters.`,
     tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
     tooManyLinksHint: () => "Too many to draw: none of them is shown.",
     toolsLabel: () => "Tools",
@@ -780,7 +800,7 @@ export const planMessages: PlanMessages = {
         events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
     inspectorNotCounted: ({ kinds, hours }) =>
-        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many to draw at this resolution`,
+        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many in view`,
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
@@ -820,6 +840,13 @@ export const planMessages: PlanMessages = {
     expandControl: () => "Expand row",
 
     groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
+    bandCount: ({ bucket, n, count, shares, hidden }) => {
+        const by = shares.length > 1 ? ` — ${shares.map((share) => `${share.names} ${share.count}`).join(", ")}` : "";
+        const also = hidden.length > 0 ? `, hidden ${joined(hidden.map(lowerWord), "and")} among them` : "";
+        return `${bucket}: ${count} ${plural(n, "event", "events")}${by}${also}`;
+    },
+    bandNotCounted: ({ names, why, fields }) => `${names} not counted: ${why === "totals" ? `no totals kept by ${joined(fields, "and")}`
+        : why === "zoom" ? "no totals at this zoom" : "the filters choose what its totals can't answer"}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>
@@ -910,6 +937,13 @@ export const planMessages: PlanMessages = {
     chartLayerEmpty: ({ layer }) => `${layer} no data in the window`,
     chartSummary: ({ parts }) => `Chart: ${parts.join("; ")}`,
     chartNoData: () => "Chart: no data",
+    chartSeries: ({ name, unit }) => (unit !== undefined && unit !== "" ? `${name} ${unit}` : name),
+    chartAxisSide: ({ side }) => side,
+    chartLegendMore: ({ count, every }) => (every ? `${count} series` : `+${count} more`),
+    chartReading: ({ value, range, unit }) => {
+        const reading = value === undefined ? range ?? "" : range === undefined ? value : `${value} (${range})`;
+        return unit !== undefined && unit !== "" ? `${reading} ${unit}` : reading;
+    },
 
     announceSelected: ({ label }) => `Selected ${label}`,
     announceEvents: ({ n, count }) => (n === 0 ? "No event selected" : `${count} ${plural(n, "event", "events")} selected`),

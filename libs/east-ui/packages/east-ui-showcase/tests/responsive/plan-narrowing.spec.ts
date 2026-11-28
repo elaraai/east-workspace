@@ -246,15 +246,14 @@ for (const theme of LAYOUT_THEMES) {
         await expect(page.locator("[role=dialog][data-state=open]")).toHaveCount(0);
         await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 13)));
         await expectCounts(page, frame, [9, 30], [9, 24]);
-        // The navigator's arrows, two days on: its eight whole days from the 15th to the 23rd, in both sources.
-        for (let step = 0; step < 2; step++) {
-            await nav.locator("[data-time-trigger]").click();
-            await page.getByRole("dialog").getByRole("button", { name: "Next day", exact: true }).click();
-            await expect(page.locator("[role=dialog][data-state=open]")).toHaveCount(0);
-        }
-        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 15)));
-        await expectCounts(page, frame, [8, 30], [6, 24]);
-        // The brush: the lens's body slid three days on, the 18th to the 26th, committed once on release into both sources.
+        // The navigator's arrow, the window's own length on (#1740): the eight whole days after the eight it showed, from
+        // the 21st to the 29th, in both sources.
+        await nav.locator("[data-time-trigger]").click();
+        await page.getByRole("dialog").getByRole("button", { name: "Next 8 days", exact: true }).click();
+        await expect(page.locator("[role=dialog][data-state=open]")).toHaveCount(0);
+        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 21)));
+        await expectCounts(page, frame, [5, 30], [4, 24]);
+        // The brush: the lens's body slid two days back, the 19th to the 27th, committed once on release into both sources.
         const track = frame.locator('[data-slot="horizon"] [data-brush-track]');
         await track.scrollIntoViewIfNeeded();
         await track.hover();
@@ -266,11 +265,11 @@ for (const theme of LAYOUT_THEMES) {
         const y = box.y + box.height / 2;
         await page.mouse.move(box.x + box.width * (from + to) / 2, y);
         await page.mouse.down();
-        await page.mouse.move(box.x + box.width * ((from + to) / 2 + 3 * day), y, { steps: 12 });
+        await page.mouse.move(box.x + box.width * ((from + to) / 2 - 2 * day), y, { steps: 12 });
         // A record's query moves once a gesture: while the lens is held the window is where it was.
-        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 15)));
+        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 21)));
         await page.mouse.up();
-        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 18)));
-        await expectCounts(page, frame, [6, 30], [4, 24]);
+        await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 19)));
+        await expectCounts(page, frame, [7, 30], [6, 24]);
     });
 }

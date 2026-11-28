@@ -66,7 +66,7 @@ const LineIds = NestedIdType({ units: StringType, 'units.jobs': StringType });
 const LinePath = NestedPathType(LineIds);
 /** A job beneath a line, as its subtree's read names it: the units' keys down to the unit holding it, and its id. */
 const Beneath = DictType(StructType({ path: LinePath, id: LineIds }), NullType);
-const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
+const TileTotals = DictType(DateTimeType, RecordNestedTotalsType);
 
 const WS = 'main';
 const LIMITS = { timeoutMs: 240_000, maxResultBytes: 4 * 1024 * 1024, maxLogBytes: 64 * 1024 };
@@ -96,8 +96,10 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
       indexes: (index) => ({
         by_press: index.on(['press']),
         in_time: index.interval({ from: 'start', to: 'end' }),
-        press_weeks: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        press_weeks: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         press_load: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        // With no key, the record's totals a week under each state (#1732).
+        state_load: index.totals({ on: ['state'], from: 'start', to: 'end', tile: 'week' }),
         by_area: index.area({ x: 'x', y: 'y', cell: 0.25 }),
         by_part: index.entries('parts'),
       }),
@@ -131,15 +133,16 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     const lines = e3.record('lines', LinesType, {
       initial: new Map(),
       indexes: (index) => ({
-        lines_in_time: index.nested({
+        lines_in_time: index.nestedSeries({
           collections: {
-            units: index.nested.rows({
-              jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
-              sheets: index.nested.values({ rollup: 'sum' }),
+            units: index.nestedSeries.rows({
+              jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+              sheets: index.nestedSeries.values({ rollup: 'sum' }),
             }),
           },
           tile: 'week',
-          summary: 'month',
+          // Each node's totals a week and a month: a read names the one it reads (#1739).
+          summary: ['week', 'month'],
         }),
       }),
       mutations: (mutation) => ({
@@ -251,6 +254,17 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         });
         return kept;
       }),
+      // A summary with no key's totals of the tiles that overlap a window under a state (#1732): a loop over every entry of it.
+      e3.function('plain_state_totals', { inputs: [e3.index(jobs.indexes.state_load)], args: [StringType, DateTimeType, DateTimeType], output: Totals }, ($, load, state, from, to) => {
+        const kept = $.let(new Map(), Totals);
+        const week = $.const(7n * DAY);
+        $.for(load, ($, totals, entry) => {
+          const tile = $.const(entry.ik.tile.toEpochMilliseconds());
+          $.if(East.equal(entry.ik.on.state, state).and(() => East.less(from, to)).and(() => tile.less(to.toEpochMilliseconds()))
+            .and(() => tile.add(week).greater(from.toEpochMilliseconds())), ($) => { $(kept.insert(entry.ik.tile, totals)); });
+        });
+        return kept;
+      }),
       // A nested series index's: a loop over what the line, or its unit, holds
       e3.function('plain_unit_jobs', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: Keys }, ($, rows, line, unit, from, to) => {
         const inWindow = $.const(overlaps);
@@ -274,11 +288,27 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
       e3.function('plain_unit_sheets', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: SheetsType }, (_$, rows, line, unit, from, to) =>
         rows.get(line).units.get(unit).sheets.filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))),
       // A unit's sheets' totals a month, of a window of whole months: how many, their sum, the least, the greatest and the latest
-      e3.function('plain_unit_months', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: MonthTotals }, (_$, rows, line, unit, from, to) =>
+      e3.function('plain_unit_months', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals }, (_$, rows, line, unit, from, to) =>
         rows.get(line).units.get(unit).sheets
           .filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))
           .groupReduce(
             (_$, _sheets, counted) => East.DateTime.roundDownMonth(counted, 1n),
+            ($) => $.const({ count: 0n, ms: 0n, values: none }, RecordNestedTotalsType),
+            (_$, totals, sheets) => ({
+              count: totals.count.add(1n),
+              ms: totals.ms,
+              values: some(totals.values.match({
+                none: () => ({ sum: sheets, min: sheets, max: sheets, last: sheets }),
+                some: (_$, was) => ({ sum: was.sum.add(sheets), min: East.min(was.min, sheets), max: East.max(was.max, sheets), last: sheets }),
+              })),
+            }),
+          )),
+      // The same totals a week, of a window of whole weeks (#1739): the weeks are kept beside the months, never made of them
+      e3.function('plain_unit_weeks', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals }, (_$, rows, line, unit, from, to) =>
+        rows.get(line).units.get(unit).sheets
+          .filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))
+          .groupReduce(
+            (_$, _sheets, counted) => East.DateTime.roundDownWeek(counted, 1n),
             ($) => $.const({ count: 0n, ms: 0n, values: none }, RecordNestedTotalsType),
             (_$, totals, sheets) => ({
               count: totals.count.add(1n),
@@ -324,6 +354,7 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     const inTime = e3.index(jobs.indexes.in_time);
     const pressWeeks = e3.index(jobs.indexes.press_weeks);
     const pressLoad = e3.index(jobs.indexes.press_load);
+    const stateLoad = e3.index(jobs.indexes.state_load);
     const byArea = e3.index(jobs.indexes.by_area);
     const byPart = e3.index(jobs.indexes.by_part);
     const linesInTime = e3.index(lines.indexes.lines_in_time);
@@ -359,6 +390,8 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         }),
         e3.function(onRuntime('totals', runtime), { inputs: [pressLoad], args: [StringType, DateTimeType, DateTimeType], output: Totals, ...on }, ($, entries, press, from, to) =>
           entries.totals({ key: press, from, to }).collect($)),
+        e3.function(onRuntime('state_totals', runtime), { inputs: [stateLoad], args: [StringType, DateTimeType, DateTimeType], output: Totals, ...on }, ($, entries, state, from, to) =>
+          entries.totals({ on: { state }, from, to }).collect($)),
         e3.function(onRuntime('within', runtime), { inputs: [byArea], args: [FloatType, FloatType, FloatType, FloatType], output: Keys, ...on }, ($, entries, x, y, width, height) => {
           const kept = $.let(new Map(), Keys);
           entries.within({ x, y, width, height }).each($, ($, _job, key) => { $(kept.insert(key, null)); });
@@ -378,8 +411,10 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         }),
         e3.function(onRuntime('unit_sheets', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, unit, from, to) =>
           entries.items({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
-        e3.function(onRuntime('unit_months', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: MonthTotals, ...on }, ($, entries, line, unit, from, to) =>
-          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
+        e3.function(onRuntime('unit_months', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals, ...on }, ($, entries, line, unit, from, to) =>
+          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], tile: 'month', from, to }).collect($)),
+        e3.function(onRuntime('unit_weeks', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals, ...on }, ($, entries, line, unit, from, to) =>
+          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], tile: 'week', from, to }).collect($)),
         e3.function(onRuntime('line_weeks', runtime), { inputs: [linesInTime], args: [StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, from, to) =>
           entries.subtotals({ collection: ['units', 'sheets'], row: line, rollup: 'sum', from, to }).collect($)),
       ];
@@ -496,6 +531,13 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     assert.equal(load.size, 5, 'four weeks from a Wednesday touch five weeks');
   });
 
+  it('a summary index with no key: totals, each tile of the record\'s that overlaps a window, under its leading fields (#1732)', async () => {
+    const load = await held('state_totals', 'plain_state_totals', 'state_load', Totals,
+      [arg(StringType, 'confirmed'), arg(DateTimeType, at('2026-06-10T00:00:00.000')), arg(DateTimeType, at('2026-07-08T00:00:00.000'))], 1, 1);
+    assert.equal(load.size, 5, 'four weeks from a Wednesday touch five weeks');
+    for (const [, totals] of load) assert.ok(totals.count > 200n, `a week's confirmed jobs on every press, a job every forty minutes: ${totals.count}`);
+  });
+
   it('an area index: within, the rows whose point is in a window', async () => {
     const room = await held('within', 'plain_within', 'by_area', Keys, [arg(FloatType, 20), arg(FloatType, 10), arg(FloatType, 5), arg(FloatType, 4)], 6, 16);
     assert.equal(room.size, 11 * 9, 'a point every half metre, the edges included');
@@ -519,10 +561,14 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     assert.ok(beneath.size >= 4 * 12, `four units' jobs beneath their line: ${beneath.size}`);
     const sheets = await held('unit_sheets', 'plain_unit_sheets', 'lines_in_time', SheetsType, [line, unit, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(sheets.size, 28, 'a value a day for four weeks');
-    // Whole months, and whole weeks: the totals of two months, and the line's sum of its units' sheets in each of four weeks
-    const months = await held('unit_months', 'plain_unit_months', 'lines_in_time', MonthTotals,
+    // Whole months, and whole weeks: the totals of two months, those of four weeks — each period read as the index
+    // keeps it, by the `tile` a read names — and the line's sum of its units' sheets in each of four weeks
+    const months = await held('unit_months', 'plain_unit_months', 'lines_in_time', TileTotals,
       [line, unit, arg(DateTimeType, at('2026-02-01T00:00:00.000')), arg(DateTimeType, at('2026-04-01T00:00:00.000'))], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(months.size, 2);
+    const unitWeeks = await held('unit_weeks', 'plain_unit_weeks', 'lines_in_time', TileTotals, [line, unit, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
+    assert.equal(unitWeeks.size, 4);
+    for (const [, totals] of unitWeeks) assert.equal(totals.count, 7n, 'a value a day, seven a week');
     const weeks = await held('line_weeks', 'plain_line_weeks', 'lines_in_time', SheetsType, [line, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(weeks.size, 4);
   });

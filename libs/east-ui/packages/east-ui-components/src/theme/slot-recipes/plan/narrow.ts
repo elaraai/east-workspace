@@ -23,7 +23,7 @@ export const narrowSlots = [
     "narrowRoot", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
-    "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
+    "narrowCardHead", "narrowCardTitle", "narrowCardEnd", "narrowCardSub", "narrowCardBody",
     "narrowRender", "narrowMore", "narrowPending", "narrowEmpty",
 ] as const;
 
@@ -239,6 +239,8 @@ export const narrowBase = {
         "&[data-invalid]": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
         "&[data-selected]": { background: "{colors.brandTint}", borderColor: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.border.subtle})" },
         "&[data-expanded]": { borderColor: "brand.solid" },
+        // A drilled card's gutter body: under its head, inset as the head's words are.
+        "& > [data-plan-expandgutter]": { marginX: "12px", marginBottom: "8px" },
     },
     narrowCardHead: {
         display: "flex",
@@ -259,6 +261,14 @@ export const narrowBase = {
         // Mono row-id treatment (`.nm.id`), and the group strip's name.
         "&[data-id]": { fontFamily: "mono", fontSize: "12px", letterSpacing: "0.02em" },
         "&[data-group]": { fontFamily: "mono", fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", color: "fg.muted" },
+    },
+    // A card head's end — and a section header's: its status and its value, at the end of the line, never giving way.
+    narrowCardEnd: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        marginLeft: "auto",
+        flexShrink: 0,
     },
     narrowCardSub: {
         fontFamily: "mono",

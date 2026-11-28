@@ -20,7 +20,9 @@
  * What is read, in each example's live preview:
  *
  * - each run of words, and the nearest box around it that paints an edge, a
- *   fill or an inset ring;
+ *   fill or an inset ring — or the toolbar's row it stands in with no control
+ *   around it (#1775), which paints nothing and stands its words among its
+ *   controls' boxes: a title, a count, a readout, a state's word;
  * - where that box stands at most 34px tall — a chip, a tag, a badge, a cell,
  *   a row — and the words stand inside it;
  * - and is a part its component names: the box, or the element its words are

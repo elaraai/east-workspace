@@ -471,10 +471,12 @@ export {
 // How a Plan's event kinds' events join its rows (#1192, #1541): the seam its
 // payload carries, made inside the payload's assembly, the series they land on,
 // the drafts it reads, by kind, and what a reader read of a kind by its series
-// index's cells, and the resources' shading past the budget (#1039).
+// index's cells, and the resources' shading past the budget (#1039) — and the
+// key a row beneath a resource is filed under, by which a reader of the events
+// placed finds the row a list is for (#1712).
 export {
-    createEventSeam, eventDrawsOf, landingsOnWire, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType,
-    PlanEventShadeType, PlanEventShadingType, PlanLandingType,
+    createEventSeam, eventDrawsOf, landingsOnWire, planChildRowKey, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType,
+    PlanEventSeamType, PlanEventShadeType, PlanEventShadingType, PlanLandingType,
 } from './plan/event-rows.js';
 // What a Plan over paged rows reads of their nested series index (#1438): the
 // seam on its root, what each series reads of the index, and the rows'
@@ -844,6 +846,9 @@ export { templateValues } from './schedule/templates.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
+// The rows a builder's reader read of a kind's cells (#1771): what each kind's read seams take through a handle, at its
+// own cells type — the rows as the page unpacked them, which the renderer answers.
+export { scheduleCellRows } from './schedule/cell-rows.js';
 // A builder's reference record (#1551): its slice's `reference` source, which the Roster and the Allocation window as their
 // own kind's and read for their check alone, its rows carried as bytes beside their type.
 export { SCHEDULE_REFERENCE, ScheduleReferenceType } from './schedule/reference.js';

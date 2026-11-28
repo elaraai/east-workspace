@@ -370,14 +370,33 @@ the same controls move, the brush's horizon the axis's stated window and the
 window shown, as long again either side, so its lens slides either way. It is
 kept under the canvas's storage key as its folds are
 (`persisted.ts`, #813), and a remount draws it from its first frame while the
-axis still allows it (`restoredWindow`), else the axis's stated window. A
-record's resolution
-only re-buckets — the window a source holds is its narrowing — and the brush
-commits once a gesture, with no histogram. A canvas holding its own window
-zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
-as it showed of the old, about the same middle, inside the span of what its
-series read where it reads a nested series index (`PlanWindowHold.span`), so
-the year shows the works' ten years. The
+axis still allows it (`restoredWindow`), else the axis's stated window. The
+columns' period is no part of a source's narrowing, and nothing stores it
+(#1740, `shared/time/period.ts`): the window's range and the plot's width
+give it — the finest period offered whose column holds the column floor —
+picked by the canvas's hold as the range changes, and kept while the plot's
+width alone changes, down to the squeeze floor (`PlanWindowHold.periodFor`,
+`layOut`). A period pressed is a range: as many of it as the plot holds at
+the preset width, from the window's own start, which stays (ruled 23 Nov
+2026; `presetWindow`), written into the sources holding the window, or into
+the canvas's own, and the columns take the period pressed. A zoom to a table
+cell's period (#1438) stands about the middle the cell names instead
+(`presetAround`), inside the sources' domain, or the span of what its series
+read where the canvas holds its own window over a nested series index
+(`PlanWindowHold.span`). Past what a view may draw, the period a range gives
+may show nothing of what is in view where a coarser one, which a summary
+shades, does: the canvas then takes that one by itself, the range as it is,
+and says nothing (#1799, `root/fallback.ts` over
+`shared/schedule/fallback-period.ts`, the hold's `fallBack`). It only ever
+goes coarser, and it stands as the window moves along — a pan, a step, the
+now rung, a brush dragged along — so the columns never go finer and back as
+a viewer moves through such a time; a range of another length is picked
+again, and so is a period pressed (`pickAgain`), falling back again where it
+must. The readers' notices name the period they were read at
+(`PlanEventLead.cellsPeriod`, `PlanNestedLead.resolution`), and the canvas
+acts on those of the columns' own alone: what its readers handed on before
+the columns moved says nothing of them. The brush commits once a gesture,
+over the bars of the sources' totals (below, "The horizon's bars"). The
 Plan reads its event kinds' rows, counts and backlog and the selected events
 in components of their own (`PlanEventsReader`, `PlanKindsReader`,
 `PlanSelectionReader`). An event kind over rows read a page at a time (#1541),
@@ -405,10 +424,17 @@ window's read asks first — through its day index by the days its events run
 on, in the search its read asks first (an upper bound, never their number:
 `countExact` false), or in memory, its record read whole. Past 10,000 none
 is read or drawn, and the reader names it among the kinds past the cap
-(`capped`): its rows shade from its source's summary, else they are hatched
-and the banner says how many events there are — or, for a day index's count,
-that they are not counted; the payload's window answers none past the cap too,
-so no read of a range past it reads a page. The footer's counts and the
+(`capped`): its rows shade from its source's summary where the summary's tile
+divides the columns' period, else the reader gives a notice naming the tiles a
+summary would shade it by (`ScheduleCellNotice.shades`; none for rows beneath
+a resource that a summary keyed by the resource cannot shade), and the canvas
+takes the finest coarser period offered that one of them divides, by itself
+(above). Where the axis offers none, the rows are hatched, and the frame's one
+line names the kinds, and the rows' own items, that no period shows
+(`data-plan-banner="over"`, `tooManyToShow`: `Too many print jobs to show at
+once: pick a shorter range or narrow the filters.`); the payload's window
+answers none past the cap too, so no read of a range past it reads a page.
+The footer's counts and the
 inspector's row facts, in components of their own, read such a kind over the
 window only once its count over the range the canvas reads is within the cap
 (`scheduleWithinCap`), never by what the reader last decided, which a new
@@ -418,7 +444,7 @@ as not counted (`13 events, print jobs not counted`); with nothing selected,
 the inspector counts the events of a kind past the cap whose count is exact,
 never its hours: the hours are those of the kinds read — none where no kind's
 are — and one line names what it does not count (`Print jobs and Press check
-hours not counted: too many to draw at this resolution`). A kind hidden in the
+hours not counted: too many in view`). A kind hidden in the
 Series tab is in none of these figures, read by its cells or counted, and
 nothing says so (`frame/hidden.ts`' `hides`); its backlog is the Backlog
 tab's still. A selected resource's row, over paged rows, whose cells the reader does not
@@ -2107,49 +2133,84 @@ window through the seam with what it read:
   tiles it adds. A batch in flight is asked again until it lands, never asked
   beside a new one.
 - **The cap.** Past 10,000 items of a collection in the cells wanted, its rows
-  shade from their totals at the summary tile where it divides the bucket, or
-  are hatched with the reader's notice.
+  shade from their totals (#1739): at the period their column is where the
+  index keeps each row's totals at it (the seam's `summary`), else at the
+  coarsest period it keeps that divides the column (`dividingTiles`) — a
+  week's zoom from the week's totals, a quarter's from its months'. Where it
+  keeps none that divides the column, the reader names the collection among
+  its notices, each with its items in view and the periods its totals are
+  kept at, beside the resolution it read at (`PlanNestedLead.resolution`),
+  and the canvas takes the finest coarser period offered that they divide, by
+  itself, as it does for event kinds past the cap (#1799, above): the rows
+  shade there. Where the axis offers none, the rows are hatched, and the
+  frame's one line says there are too many items to show
+  (`data-plan-banner="over"`).
 - **What it hands on.** The cells, encoded as the binding's fill takes them;
   the shading; each parent's subtotals by row key, which `derivePlan` draws in
   place of its children's, unfolded; a version the canvas's paged source names
   in its revision. Beside them (`onWaiting`), while a read is in flight, the
   rows waiting on it — each row with a run not held, as a pan, a zoom, a
-  scroll or a commit asks — which wash as a paged kind's unread rows do (the
-  plot busy, #1398 CL2, a card's body too) until their cells land: never a
-  blank plot that fills. The frame waits on them as on any read its view
-  waits for — main busy, the footer's line saying so, the wash shown on the
-  reveal clock: the rows in view the canvas reports at rest, or, narrow, the
+  scroll or a commit asks — which draw one skeleton bar across their plot as a
+  paged kind's unread rows do (the plot busy, #1398 CL2, a card's body too;
+  #1764) until their cells land: never a blank plot that fills. The frame
+  waits on them as on any read its view waits for — main busy, the footer's
+  line saying so, the bar shown on the reveal clock: the rows in view the
+  canvas reports at rest, or, narrow, the
   cards the list shows (`narrowShown`), since the list reports no range.
 - **The span.** The collections every series of the canvas reads, shown or
-  not (`usePlanNestedSpan`, #1440): their months across the record's rows,
+  not (`usePlanNestedSpan`, #1440): their periods across the record's rows,
   each with the items and values touching it, as e3 keeps them in the index's
   span (`<index>_span`, which the binding reads as a summary index, never
-  listed) — one search a collection, an exact match on its place, and one read
-  of their entries, ascending, each collection's kept apart; the span is the
-  first month any touches to the end of the last, and the months' counts are
-  the shown series' collections' alone. Switching a series asks nothing, and
-  with every series off the strip still spans the data, its bars empty.
-  Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
-  beside the window shown where no source holds the window, a zoom keeps the
-  window inside it, its row held while it is first read, and a read again
-  holds the last until it lands.
+  listed) at each period the index keeps the record's totals at (the seam's
+  `totals`, #1739). Its key leads with a collection's place and the period,
+  so a period's tiles are one search a collection, an exact match on the two
+  (`spanRuns`). The span is read at the finest period kept — each
+  collection's first tile and its last, in one read — from the first period
+  any touches to the end of the last (`spanOf`). The counts are read at the
+  period the horizon asks (the read's `totals(period)`, over `spanCounts`:
+  one read of the collections' entries, ascending, each collection's kept
+  apart), and are the shown series' collections' alone. Switching a series
+  asks nothing, and with every series off the strip still spans the data, its
+  bars empty. Reported apart (`onSpan`, a `PlanNestedSpanRead`: the span, the
+  periods kept and the read of their counts); the horizon spans it beside the
+  window shown where no source holds the window, a zoom to a table cell's
+  period keeps the window inside it, its row held while it is first read, and
+  a read again holds the last — the span, and the counts at the period they
+  were read by — until it lands.
 - **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
-  `horizonDensity` buckets the months' counts in the finest of month, quarter
-  and year that keeps 4px a bucket on the strip (the band measures its track,
-  `data-plan-horizon-track`), from the period the horizon begins in to the one
-  it ends in, each clipped to it — a month the horizon clips counts whole, as
+  the bars count by the finest period the index keeps the record's totals at
+  that keeps 4px a bucket on the strip (`horizonUnit` over the span's
+  `periods`; the band measures its track, `data-plan-horizon-track`), the
+  coarsest where none does, and each bucket is that period's own count as e3
+  keeps it (`horizonTotalsDensity`, #1739): an item is in the count of each
+  period it touches, once, so a job over a month's end is in both months'
+  bars and once in their quarter's, and no finer period's counts are added
+  up. The buckets run from the period the horizon begins in to the one it
+  ends in, each clipped to it — a period the horizon clips counts whole, as
   e3 keeps no finer count. The strip draws them (east-ui-components'
   `BrushStrip`); the caption's meta line says the largest bucket and its
   period (`max 1,559 items / mo`), or `no data`, and a bar's hover its period
-  and count. A horizon over record sources has no counts yet, and draws the
-  baseline alone, with no meta line.
+  and count. A horizon over record sources (#1732) draws the totals e3 keeps
+  of each record a period, its binding naming them
+  (`Data.bindPaged(record, { indexes, totals })`): at the finest of a day, a
+  week, a month, a quarter and a year that every source lists and that keeps
+  4px a bucket (`horizonUnit` over `shared/time/horizon-totals.ts`'
+  `totalsUnits`), each source's read through its record Slice over the whole
+  years around the horizon, under its narrowing (`sourcesTotals` over
+  `recordSliceTotals`), and summed over the sources (`horizonTotalsDensity`) —
+  no event counted, and a pan, or a horizon widening within its years, reads
+  nothing. A week's bucket starts on its Monday, as e3's week tiles do. A
+  source that lists none, or whose totals do not serve its narrowing, leaves
+  the baseline alone. Every bar is one width, the narrowest bucket's between
+  the two ends, which the horizon may clip to a sliver — with none between
+  them, the wider end's (east-ui-components' `brushBars`).
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
 - **Drafting.** A gesture drafts each row it touches read whole by key
   (`usePlanWholeRows`, the binding's `rowsAll`), never a window's lean row: a
   row not held yet is read, every row asked meanwhile in one request, and the
   gesture is drafted once it lands; meanwhile the row and every row above it
-  draw in flight (the unread wash, the plot busy: `usePlanEditing`'s
+  draw in flight (the unread skeleton bar, the plot busy: `usePlanEditing`'s
   `inFlight`).
 - **Another planner's commit.** A source moving under the drafts reads every
   drafted row whole at the new revision, in one request, and carries the
@@ -2189,9 +2250,18 @@ what the test's heap holds.
 In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
 #1438's list at 1440 and 390: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving
-nothing as their cells land, the rows waiting washed meanwhile; the rows
-shading past the cap at the height of those they stand in for; a folded
-works drawing its crews' sums; and a crew's week typed.
+nothing as their cells land, the rows waiting drawing their skeleton bar
+meanwhile; the rows
+shading past the cap at the height of those they stand in for, from the
+totals e3 keeps for the period their columns are — a week's at a week, a
+month's at a month — hatched at neither, the columns keeping that period, and
+under no banner (#1739, #1799); a folded works drawing its crews' sums; and a
+crew's week typed. At 1440 it holds the
+horizon's bars to the works' own jobs and alarms too (#1739), counted from
+the example's generator as e3 counts them: by the quarter at the example's
+width, each bar the items touching its quarter, fewer than its months' added
+up; and, its frame widened until a month's bar has room, each bar its month's
+own. A phone draws no horizon.
 
 ### A table cell too narrow for its value (#1269, #1438)
 
@@ -2232,8 +2302,9 @@ the page's.
   cell then. At a coarser zoom each cell is a summary of the values beneath it
   and takes none: its tooltip (`data-plan-note`, said by the overlay's label
   tooltip) says to zoom to the finest, and a double click, Enter or a tap
-  below 480px zooms there about its period (`resolution.set`'s `about`; a
-  canvas holding its own window re-windows by `zoomedWindow`), focus landing
+  below 480px zooms there about its period (`resolution.set`'s `about`: as
+  many of the finest as its preset shows about the cell's middle,
+  `presetAround`), focus landing
   on the row's cell at the period's middle (`PlanTypingStore.focusOnZoom`,
   `takeFocus`). The zooms are the slice's — its resolution segment's and the
   one the axis opens at (`planZooms`) —, so a Plan without a slice types at
@@ -2357,7 +2428,7 @@ unloaded run (east-ui-components' `UnloadedRun`, #1398, CL2; `SheetRunRow`,
 `PlanRunRow`): rows at the rows' own pitch where the run meets the view — the
 Sheet's with its gutter, its columns' rules and a flat sheet's real row
 numbers, each cell its column kind's shape; the Plan's with its label bars and
-its plot washed under its grid and now line — one item of the virtualizer
+one skeleton bar across its plot under its grid and now line (#1764) — one item of the virtualizer
 however long the run, and to the grid one row, its one cell across it, busy
 while its windows are read — under the Sheet's lens, while the lens reads its
 stretch (`RecordLens.reading`), never one it is not reading, far from the view
@@ -2434,7 +2505,8 @@ lanes, slots and resources, the Calendar's own grid, never the old period's
 events under its labels), a placeholder where its content goes, unseen at its
 footprint until the frame's one reveal clock says so (`LoadingReveal`), which
 the footer's line keeps too, and a region whose items have no known place
-washed (`LoadingWash`); or one whose
+washed (`LoadingWash`) — a timeline row's plot taking one skeleton bar across
+it instead (`LoadingRowBar`, #1764); or one whose
 read failed — its geometry, its cells blank, the failure said once, as a line
 in its first row in view (`LoadingFailedLine`: the Roster's first person's
 days, the Allocation's lane cells or Table row, the Calendar's timeline row
@@ -2584,7 +2656,8 @@ by the shared reader through the Calendar's adapter (`calendarCellsPaged`,
 standing while the view shows only places not read): the blocks of fifty
 around them by the tiles the window touches, every cell's searches in one
 request and the missing cells' entries in one more; a row whose cells have not
-landed draws the wash, busy, and its booked hours a placeholder
+landed draws its skeleton bar (#1764) — a Resources view's column the wash —
+busy, and its booked hours a placeholder
 (`drawnRows`), and while those cells are read — the wait that follows their
 windows' as the view reaches resources not read yet — the footer's line says
 the events read, as the Plan's does (`Loading print job events…`, the shared
@@ -2801,8 +2874,9 @@ A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;
 its `reading` only there, where rows wait on it): a row whose cells never
 landed — before the first read, or scrolled into view — or are on their way over
-a range they were not read over, a window moved, draws the shared wash under what
-it holds, busy, on the Plan's one reveal clock, and the footer's line reads the
+a range they were not read over, a window moved, draws the shared skeleton bar
+across its plot under what it holds (`LoadingRowBar`, #1764), busy, on the
+Plan's one reveal clock, and the footer's line reads the
 kind (`Loading print job events…`); a read again over the same range, a commit's
 or another narrowing's, leaves the cells standing in, retained. A window the view
 shows and then its rows' cells are one wait: what the view showed at its last rest

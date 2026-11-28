@@ -22,7 +22,7 @@ import {
     ArrayType, BooleanType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
-import { RecordSliceConfigType, RecordSliceTileType } from "@elaraai/east-ui/internal";
+import { RecordSliceConfigType, RecordSliceOrderType, RecordSliceTileType, type RecordSliceTilingType } from "@elaraai/east-ui/internal";
 import type { ScheduleEventKind } from "./events.js";
 import type { ScheduleResourceKind } from "./resources.js";
 
@@ -62,8 +62,11 @@ export function scheduleResourcePaging(resources: Resources): SchedulePaging {
     };
 }
 
-/** A series or a summary index's place among a source's: which it is, the fields it files by, and its tile. */
-const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType });
+/**
+ * A series or a summary index's place among a source's: which it is, the fields it files by, its tile, and the order it
+ * files in — a series index in time order is another index than one in key order over the same fields (#1710).
+ */
+const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType, order: RecordSliceOrderType });
 
 /**
  * The series index and the summary index a kind placed on a paged resource
@@ -76,7 +79,7 @@ const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(Strin
 export function scheduleCellIndexes(kind: ScheduleEventKind<EastType, EastType>): { readonly series: string; readonly summary: string } {
     const filed = `{ key: "${kind.resourceField}", from: "${kind.times.start}", to: "${kind.times.end}"`;
     return {
-        series: `index.series(${filed}, tile: "week" })`,
+        series: `index.flatSeries(${filed}, tile: "week" })`,
         summary: `index.summary(${filed}, tile: "month" })`,
     };
 }
@@ -122,12 +125,14 @@ export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Eve
                 "read whole — a paged kind's events are read a cell at a time, through a series index that reads its rows alone: " +
                 `place events.${slot} on ${paged.join(" and ")} alone, or read ${paging.paged} whole`);
         }
-        if (sources.includes(slot)) continue;
+        // Its source: the one its `source` names (#1769), else the one named after its slot.
+        if (sources.includes(kind.source ?? slot)) continue;
         const { series, summary } = scheduleCellIndexes(kind);
         const how = kind.windowed ? "reads the days in view through its day index (`window`)" : "its record is read whole";
         const leave = kind.windowed ? "leave `window` and `backlogWindow` out, and " : "";
+        const name = kind.source === undefined ? `name a source after "${slot}"` : `give the slice the source its \`source\` names, "${kind.source}"`;
         throw new Error(`${builder}: events.${slot} is placed on ${paged.join(" and ")}, paged, and ${how} — a paged kind's events are read a cell at a ` +
-            `time, through the kind's source of the slice: ${leave}name a source after "${slot}", Data.bindPaged(record, { indexes }), listing ` +
+            `time, through the kind's source of the slice: ${leave}${name}, Data.bindPaged(record, { indexes }), listing ` +
             `${series} and ${summary} beside its interval index`);
     }
 }
@@ -138,11 +143,14 @@ export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Eve
  * builder reads only then — and refused in words naming the change to make:
  * one filed by another field than the kind's resource, or over other times
  * than its events'; a series index for a kind not placed on a paged resource
- * kind alone; two series, or two summaries, by one tile over the same fields;
+ * kind alone; two series in one order, or two summaries, by one tile over the same fields;
  * a series index with no summary beside it, whose shading draws past the cap;
  * and, for a kind placed on a paged resource kind, a source listing no series
  * index — a paged kind's events are read a cell at a time — each naming the
- * indexes to declare over the kind's own fields.
+ * indexes to declare over the kind's own fields. The record's totals a source
+ * lists (#1732), which a horizon counts the kind's events by, are refused over
+ * other times than the kind's; they are filed by no resource, so they count as
+ * no summary beside a series index.
  *
  * @param slot - The event kind's slot
  * @param kind - The event kind
@@ -176,52 +184,65 @@ export function checkedScheduleTilings(
         const summary = $.let(none, OptionType(StringType));
         const summaries = $.let(0n, IntegerType);
         $.for(held.indexes, ($2, index) => {
-            for (const arm of ["series", "summary"] as const) {
-                $2.match(index[arm], {
-                    some: ($3, tiling) => {
-                        const named = $3.let(East.value(`${where} ${arm} index "`).concat(index.name).concat("\""));
-                        // A refusal known at build ends the branch: nothing after it runs.
-                        if (field === undefined) {
-                            $3.error(named.concat(", and the kind places its events on no resource — a series or a summary index files events by " +
-                                "their resource: give the kind `resource`, or leave the index out"));
-                            return;
-                        }
-                        if (arm === "series" && !alone) {
-                            $3.error(named.concat(unpaged));
-                            return;
-                        }
-                        // Filed by the kind's resource, over its events' times.
-                        $3.if(tiling.key.equal(field).not(), ($4) => {
-                            $4.error(named.concat(", filed by \"").concat(tiling.key).concat(`" — a ${builder} reads it by the kind's resource field: key: "${field}"`));
-                        });
-                        $3.if(tiling.from.equal(start).not().or(() => tiling.to.equal(end).not()), ($4) => {
-                            $4.error(named.concat(", over \"").concat(tiling.from).concat("\" to \"").concat(tiling.to)
-                                .concat(`" — a ${builder} reads it over the kind's own times: from: "${start}", to: "${end}"`));
-                        });
-                        if (arm === "series") {
-                            $3.assign(series, some(index.name));
-                        } else {
-                            $3.assign(summary, some(index.name));
-                            $3.assign(summaries, summaries.add(1n));
-                        }
-                        // One of each by a tile over the same fields.
-                        const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile }, TilingKeyType);
-                        const at = $3.let(East.print(place));
-                        $3.if(seen.has(at), ($4) => {
-                            const tile = $4.let(tiling.tile.match({
-                                day: (_$5) => East.value("day", StringType),
-                                week: (_$5) => East.value("week", StringType),
-                                month: (_$5) => East.value("month", StringType),
-                                quarter: (_$5) => East.value("quarter", StringType),
-                                year: (_$5) => East.value("year", StringType),
-                            }));
-                            $4.error(East.value(`${where} ${arm} indexes "`).concat(seen.get(at)).concat("\" and \"").concat(index.name)
-                                .concat("\", each by the ").concat(tile).concat(" over the same fields — list one"));
-                        });
-                        $3(seen.insert(at, index.name));
-                    },
+            // A series index, or a summary filed by key: each by the kind's resource, over its events' times.
+            const filed = ($3: BlockBuilder<NullType>, arm: "series" | "summary", tiling: ExprType<RecordSliceTilingType>): void => {
+                const named = $3.let(East.value(`${where} ${arm} index "`).concat(index.name).concat("\""));
+                // A refusal known at build ends the branch: nothing after it runs.
+                if (field === undefined) {
+                    $3.error(named.concat(", and the kind places its events on no resource — a series or a summary index files events by " +
+                        "their resource: give the kind `resource`, or leave the index out"));
+                    return;
+                }
+                if (arm === "series" && !alone) {
+                    $3.error(named.concat(unpaged));
+                    return;
+                }
+                // Filed by the kind's resource, over its events' times.
+                $3.if(tiling.key.equal(field).not(), ($4) => {
+                    $4.error(named.concat(", filed by \"").concat(tiling.key).concat(`" — a ${builder} reads it by the kind's resource field: key: "${field}"`));
                 });
-            }
+                $3.if(tiling.from.equal(start).not().or(() => tiling.to.equal(end).not()), ($4) => {
+                    $4.error(named.concat(", over \"").concat(tiling.from).concat("\" to \"").concat(tiling.to)
+                        .concat(`" — a ${builder} reads it over the kind's own times: from: "${start}", to: "${end}"`));
+                });
+                if (arm === "series") {
+                    $3.assign(series, some(index.name));
+                } else {
+                    $3.assign(summary, some(index.name));
+                    $3.assign(summaries, summaries.add(1n));
+                }
+                // One of each by a tile over the same fields.
+                const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile, order: tiling.order }, TilingKeyType);
+                const at = $3.let(East.print(place));
+                $3.if(seen.has(at), ($4) => {
+                    const tile = $4.let(tiling.tile.match({
+                        day: (_$5) => East.value("day", StringType),
+                        week: (_$5) => East.value("week", StringType),
+                        month: (_$5) => East.value("month", StringType),
+                        quarter: (_$5) => East.value("quarter", StringType),
+                        year: (_$5) => East.value("year", StringType),
+                    }));
+                    $4.error(East.value(`${where} ${arm} indexes "`).concat(seen.get(at)).concat("\" and \"").concat(index.name)
+                        .concat("\", each by the ").concat(tile).concat(" over the same fields — list one"));
+                });
+                $3(seen.insert(at, index.name));
+            };
+            $2.match(index.series, { some: ($3, tiling) => { filed($3 as unknown as BlockBuilder<NullType>, "series", tiling); } });
+            $2.match(index.summary, {
+                some: ($3, kept) => {
+                    $3.match(kept, {
+                        keyed: ($4, tiling) => { filed($4 as unknown as BlockBuilder<NullType>, "summary", tiling); },
+                        // The record's totals (#1732), which a horizon counts the kind's events by: filed by no resource, so they
+                        // are no summary beside a series index, and over the kind's own times.
+                        totals: ($4, totals) => {
+                            $4.if(totals.from.equal(start).not().or(() => totals.to.equal(end).not()), ($5) => {
+                                $5.error(East.value(`${where} totals "`).concat(index.name).concat("\", over \"").concat(totals.from).concat("\" to \"")
+                                    .concat(totals.to).concat(`" — a ${builder}'s horizon counts the kind's events over their own times: from: "${start}", to: "${end}"`));
+                            });
+                        },
+                    });
+                },
+            });
         });
         // A series index's events draw while they fit the cap, its summary's shading past it.
         const noSummary = ($2: BlockBuilder<NullType>, name: ExprType<StringType>) => {

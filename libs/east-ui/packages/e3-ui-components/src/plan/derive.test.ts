@@ -10,7 +10,8 @@
 
 /**
  * The renderer-side derivations (`derive.ts`) — rollup bands, heat / table
- * aggregates, their cost at scale (#810), and diagnostic rows (#811, #822).
+ * aggregates, their cost at scale (#810), diagnostic rows (#811, #822), and a
+ * chart folded as its row draws, once a period (#1798).
  *
  * (Split out of `model.test.ts` with the module it tests, #815.)
  */
@@ -18,10 +19,11 @@
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    rowHeight, deriveBands, deriveHeatCells, deriveTableCells, derivePlan, indexRows, toCanvasRows, windowRestHeight,
+    rowHeight, deriveBands, deriveHeatCells, deriveTableCells, derivePlan, indexRows, stableDerived, toCanvasRows, windowRestHeight,
     axisKindMismatches, HEAT_ROW_H, ROW_H, ROW_H_DENSE, GROUP_STRIP_H, GROUP_H, type PlanParentSubtotals, type PlanRowValue,
     type PlanWireRow, type VisibleRow,
 } from "./model.js";
+import { setChartFoldProbe } from "./derive.js";
 import type { PlanInstantValue } from "./instant.js";
 import { planScale } from "./scale.js";
 import { PLAN_WORDS } from "./words.js";
@@ -843,14 +845,24 @@ describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
         const pts = (vals: readonly number[]) => [W28, W29, W30, W31].map((at, i) => ({ t: t(at), y: vals[i]! }));
         const chart = trow("c", undefined, variant("chart", {
             layers: [
-                variant("column", { points: pts([1, 2, 3, 4]), axis: variant("left", null), series: none, breach: none, fold: variant("sum", null) }),
-                variant("line", { points: pts([10, 20, 30, 40]), axis: variant("left", null), breach: none, fold: variant("mean", null) }),
-                variant("scatter", { points: pts([5, 6, 7, 8]), axis: variant("left", null) }),
+                variant("column", {
+                    points: pts([1, 2, 3, 4]), axis: variant("left", null), breach: none, fold: variant("sum", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
+                variant("line", {
+                    points: pts([10, 20, 30, 40]), axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
+                variant("scatter", {
+                    points: pts([5, 6, 7, 8]).map((p) => ({ ...p, size: none })), axis: variant("left", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
             ],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
         }));
         const derived = derivePlan(indexRows([chart]), undefined, "time", PLAN_WORDS, month);
-        const layers = derived.charts.get("c")!.layers;
+        const layers = derived.chart((chart.kind.type === "chart" ? chart.kind.value : undefined)!).layers;
         /** A folding layer's points — `undefined` for any other kind. */
         const pointsOf = (i: number) => {
             const layer = layers[i];
@@ -860,6 +872,55 @@ describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
         expect(pointsOf(1)).toEqual([{ t: JUL, y: 25 }]);
         const scatter = chart.kind.type === "chart" ? chart.kind.value.layers[2] : undefined;
         expect(layers[2]).toBe(scatter);
+    });
+
+    test("the derivation folds no chart: a chart folds the first time its row asks, once a period, kept by the chart, the period and the order (#1798)", () => {
+        const lineChart = () => variant("chart", {
+            layers: [variant("line", {
+                points: [W28, W29, W30, W31].map((at, i) => ({ t: t(at), y: i + 1 })), axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+            })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
+        });
+        const rows = ["a", "b", "c"].map((key) => trow(key, undefined, lineChart()));
+        const declared = rows.map((row) => (row.kind.type === "chart" ? row.kind.value : undefined)!);
+        const index = indexRows(rows);
+        const folds: unknown[] = [];
+        setChartFoldProbe((chart) => folds.push(chart));
+        try {
+            // Three chart rows held: the derivation folds none of them.
+            const atMonth = derivePlan(index, undefined, "time", PLAN_WORDS, month);
+            expect(folds).toHaveLength(0);
+            // The row drawn folds its own — its weeks as July's mean — and keeps it: asked again, the same chart.
+            const drawn = atMonth.chart(declared[0]!);
+            expect(folds).toHaveLength(1);
+            expect(folds[0]).toBe(declared[0]);
+            const line = drawn.layers[0];
+            expect(line !== undefined && line.type === "line" ? line.value.points : undefined).toEqual([{ t: JUL, y: 2.5 }]);
+            expect(atMonth.chart(declared[0]!)).toBe(drawn);
+            // A derivation again at the period — a window's landing — hands the rows the same fold, kept as it is, and
+            // the row drawn again folds nothing.
+            const again = derivePlan(index, undefined, "time", PLAN_WORDS, month);
+            expect(again.chart).toBe(atMonth.chart);
+            expect(stableDerived(atMonth, again).chart).toBe(atMonth.chart);
+            expect(again.chart(declared[0]!)).toBe(drawn);
+            expect(folds).toHaveLength(1);
+            // Another period is another fold: the row drawn there folds once, to the chart itself, a week holding one
+            // point each; back at July's period, what was folded there is found.
+            const atWeek = derivePlan(index, undefined, "time", PLAN_WORDS, week);
+            expect(atWeek.chart).not.toBe(atMonth.chart);
+            expect(atWeek.chart(declared[0]!)).toBe(declared[0]);
+            expect(folds).toHaveLength(2);
+            expect(derivePlan(index, undefined, "time", PLAN_WORDS, month).chart(declared[0]!)).toBe(drawn);
+            expect(folds).toHaveLength(2);
+            // An ordinal axis's order is the fold's too: one order, one fold; another order, another.
+            const order = new Map([["A", 0]]);
+            expect(derivePlan(index, order, "time", PLAN_WORDS, month).chart).toBe(derivePlan(index, order, "time", PLAN_WORDS, month).chart);
+            expect(derivePlan(index, order, "time", PLAN_WORDS, month).chart).not.toBe(atMonth.chart);
+        } finally {
+            setChartFoldProbe(undefined);
+        }
     });
 });
 

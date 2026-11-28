@@ -1675,6 +1675,162 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
         assert.ok(equalFor(ArrayType(StringType))(window.value as string[], [written[0]!, written[1]!, written[3]!, written[4]!, written[5]!]));
     });
 
+    test("a run a landed read of the same rows holds is taken from it and only the rest asked; every run held, nothing is: rows a read brought are never asked again under other runs (#1797)", async () => {
+        const { runtime, source } = await queued();
+        // A view's read of two runs lands, as a reader of a series index reads its cells.
+        runtime.runsAll(source, [[1, 2], [6, 3]]);
+        await h.settle();
+        assert.equal(runtime.runsAll(source, [[1, 2], [6, 3]]).type, "some");
+        // The next view's read holds one of those runs and one more: a change of period's cells, over the same rows and more.
+        assert.equal(runtime.runsAll(source, [[1, 2], [10, 2]]).type, "none", "in flight: the run no landed read holds is asked");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[1, 2], [6, 3]], [[10, 2]]],
+            "only the run no landed read holds");
+        const next = runtime.runsAll(source, [[1, 2], [10, 2]]);
+        assert.ok(next.type === "some");
+        // The same entries as another runtime's pages of those runs, each run in its place.
+        const other = (await queued()).queue;
+        const page = (offset: bigint, limit: bigint) => h.ready(() => other.page(offset, limit));
+        assert.ok(queueEqual(next.value as ValueTypeOf<typeof QueueWindow>, [...await page(1n, 2n), ...await page(10n, 2n)]));
+        // Runs inside runs landed reads hold, one of each read: answered at once, kept on its own channel, nothing asked.
+        const held = runtime.runsAll(source, [[7, 1], [11, 1]]);
+        assert.ok(held.type === "some", "answered at once");
+        assert.ok(queueEqual(held.value as ValueTypeOf<typeof QueueWindow>, [...await page(7n, 1n), ...await page(11n, 1n)]));
+        assert.equal(runtime.runsAll(source, [[7, 1], [11, 1]]).value, held.value, "kept on its own channel");
+        assert.equal(reads("runs", "records.work_orders").length, 2, "nothing asked");
+    });
+
+    /** The dispatch queue's rows, as another runtime pages them: what a read of runs holds, each stretch in its place. */
+    const pagedQueue = async (offset: bigint, limit: bigint) => {
+        const other = (await queued()).queue;
+        return h.ready(() => other.page(offset, limit));
+    };
+    /** Whether a request reads the queue's run of three rows from its third: the days' read, as the tests below name it. */
+    const daysRead = (request: E3Request) => request.kind === "runs" && request.dataset === "records.work_orders"
+        && JSON.stringify(bodyOf(request).runs) === "[[2,3]]";
+
+    test("a run a landed read holds part of is cut from it, and only the rows it adds are asked: a run a period's tiles widen (#1797)", async () => {
+        const { runtime, source } = await queued();
+        // The days' read of a run lands.
+        runtime.runsAll(source, [[2, 3]]);
+        await h.settle();
+        assert.equal(runtime.runsAll(source, [[2, 3]]).type, "some");
+        // The weeks' read of the same run, widened either side: only the rows it adds are asked.
+        assert.equal(runtime.runsAll(source, [[1, 6]]).type, "none");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[2, 3]], [[1, 1], [5, 2]]]);
+        const widened = runtime.runsAll(source, [[1, 6]]);
+        assert.ok(widened.type === "some");
+        assert.ok(queueEqual(widened.value as ValueTypeOf<typeof QueueWindow>, await pagedQueue(1n, 6n)), "each stretch in its place");
+        assert.equal(reads("runs", "records.work_orders").length, 2, "no row asked twice");
+    });
+
+    test("a run a read on its way asks part of waits on that read — never given up, though its own reader has gone — while the rows it adds are asked at once, and lands once both have (#1797)", async () => {
+        const { runtime, source } = await queued();
+        const held = h.e3.hold(daysRead);
+        // The days' read of a run, on its way: its reader reads it under tracking and holds what it read.
+        runtime.enableTracking();
+        assert.equal(runtime.runsAll(source, [[2, 3]]).type, "none");
+        const daysReader = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
+        await held.holding;
+        // The weeks' read of the same run, widened: it waits on the days' read for the rows that one asks.
+        const weeks = tracked(runtime, () => runtime.runsAll(source, [[1, 6]]));
+        assert.equal(weeks.value.type, "none");
+        // The days' reader moves on; the weeks' read still waits on its read.
+        for (const leave of daysReader) leave();
+        await h.settle();
+        const asked = reads("runs", "records.work_orders");
+        assert.deepEqual(asked.map((request) => bodyOf(request).runs), [[[2, 3]], [[1, 1], [5, 2]]], "the rows no read asks, at once");
+        assert.equal(asked[0]!.signal.aborted, false, "the read waited on is never given up");
+        assert.equal(runtime.runsAll(source, [[1, 6]]).type, "none", "waiting on the read on its way");
+        held.release();
+        await h.settle();
+        assert.ok(weeks.fired() > 0, "its reader runs again as the read it waits on lands");
+        const widened = runtime.runsAll(source, [[1, 6]]);
+        assert.ok(widened.type === "some");
+        assert.ok(queueEqual(widened.value as ValueTypeOf<typeof QueueWindow>, await pagedQueue(1n, 6n)), "each stretch in its place");
+        assert.equal(reads("runs", "records.work_orders").length, 2, "no row asked twice");
+    });
+
+    test("a read waited on that fails fails the read waiting on it too, until a read after the gap asks for its rows alone again (#1797)", async () => {
+        const { runtime } = await known(new TestPagedRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = sourceOf(runtime, QueueWindowType, ordersPath, BY_STATUS);
+        const held = h.e3.hold(daysRead);
+        assert.equal(runtime.runsAll(source, [[2, 3]]).type, "none");
+        await held.holding;
+        assert.equal(runtime.runsAll(source, [[1, 6]]).type, "none");
+        await h.settle();
+        // The days' read fails on its way.
+        const recover = h.e3.fail(daysRead, DOWN);
+        held.release();
+        await h.settle();
+        assert.throws(() => runtime.runsAll(source, [[1, 6]]), /records\.work_orders: internal: the store is down/);
+        runtime.clockMs = 500;
+        assert.throws(() => runtime.runsAll(source, [[1, 6]]), /internal/, "still failed inside the gap");
+        assert.equal(reads("runs", "records.work_orders").length, 2, "nothing asked again inside the gap");
+        recover();
+        runtime.clockMs = 5000;
+        assert.equal(runtime.runsAll(source, [[1, 6]]).type, "none", "asked again after the gap");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[2, 3]], [[1, 1], [5, 2]], [[2, 3]]],
+            "the failed read's rows alone: the rest landed");
+        const widened = runtime.runsAll(source, [[1, 6]]);
+        assert.ok(widened.type === "some");
+        assert.ok(queueEqual(widened.value as ValueTypeOf<typeof QueueWindow>, await pagedQueue(1n, 6n)), "each stretch in its place");
+    });
+
+    test("a run a window on its way holds part of waits on that window, as a window inside it does (#1596), and asks e3 for the rest alone (#1797)", async () => {
+        const { runtime, queue, source } = await queued();
+        const held = h.e3.hold(pages("records.work_orders"));
+        // A window of the queue's rows on its way, as a sheet reads the rows it draws.
+        assert.equal(queue.page(2n, 3n).type, "none");
+        await held.holding;
+        // A read of a run across it and past either end: it waits on the window for the rows that one asks.
+        const read = tracked(runtime, () => runtime.runsAll(source, [[1, 6]]));
+        assert.equal(read.value.type, "none");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[1, 1], [5, 2]]],
+            "the rows the window does not ask, at once");
+        held.release();
+        await h.settle();
+        assert.ok(read.fired() > 0, "its reader runs again as the window lands");
+        const widened = runtime.runsAll(source, [[1, 6]]);
+        assert.ok(widened.type === "some");
+        const asked = [reads("page", "records.work_orders").length, reads("runs", "records.work_orders").length];
+        assert.ok(queueEqual(widened.value as ValueTypeOf<typeof QueueWindow>, await pagedQueue(1n, 6n)), "each stretch in its place");
+        assert.deepEqual(asked, [1, 1], "no row asked twice");
+    });
+
+    test("a read waited on that is let go before it lands — no reader waits on either any longer — leaves its rows to be asked again, the rest kept (#1797)", async () => {
+        const { runtime, source } = await queued();
+        const held = h.e3.hold(daysRead);
+        /** One reader's run, as a view's: read under tracking, then subscribed to what it read; what it returns lets it go. */
+        const readOnce = (runs: PagedRun[]) => {
+            runtime.enableTracking();
+            assert.equal(runtime.runsAll(source, runs).type, "none");
+            const unsubs = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
+            return () => { for (const unsub of unsubs) unsub(); };
+        };
+        const days = readOnce([[2, 3]]);
+        await held.holding;
+        const weeks = readOnce([[1, 6]]);
+        await h.settle();
+        // The view goes from both: nothing waits on the days' read any longer, and it is given up. The rest landed, and stays.
+        days();
+        weeks();
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => [bodyOf(request).runs, request.signal.aborted]),
+            [[[[2, 3]], true], [[[1, 1], [5, 2]], false]]);
+        held.release();
+        // The weeks read again: the rows the read given up asked are asked again, alone.
+        assert.equal(runtime.runsAll(source, [[1, 6]]).type, "none");
+        await h.settle();
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) => bodyOf(request).runs), [[[2, 3]], [[1, 1], [5, 2]], [[2, 3]]]);
+        const widened = runtime.runsAll(source, [[1, 6]]);
+        assert.ok(widened.type === "some");
+        assert.ok(queueEqual(widened.value as ValueTypeOf<typeof QueueWindow>, await pagedQueue(1n, 6n)), "each stretch in its place");
+    });
+
     test("a failed read of rows or of runs throws its reason, and a read after the gap asks again", async () => {
         const { runtime, source } = await keyed(new TestPagedRuntime());
         const recover = h.e3.fail((request) => (request.kind === "rows" || request.kind === "runs") && request.dataset === "inputs.preview_counts", DOWN);
