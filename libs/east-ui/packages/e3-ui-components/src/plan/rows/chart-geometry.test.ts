@@ -482,6 +482,13 @@ describe("one set of ticks for both axes (#1750)", () => {
         expect(ticksOf(kind, 88).map((t) => t.right)).toEqual(["75", "85", "95", "105"]);
     });
 
+    test("a right value read back where the left's tick falls on its zero prints as 0, never -0.0 — the sliver two scales leave there is no value", () => {
+        // −0.6–16.2 by 4 beside −1.5–40.5, on a 119px plot: the right read −6.7e-16 at the left's 0.
+        const kind = chart([line([{ t: 0.5, y: 8 }]), right([{ t: 0.5, y: 20 }])],
+            { left: ticked(-0.6, 16.2, [0, 4, 8, 12, 16]), right: ticked(-1.5, 40.5) });
+        expect(ticksOf(kind, 119).map((t) => t.right)).toEqual(["0", "10", "20", "30", "40"]);
+    });
+
     test("where the left declares none, it labels its top over columns, and the right keeps its own ticks — one line where two fall together", () => {
         const kind = chart([
             column([{ t: 0.5, y: 20 }], { stack: "s" }),

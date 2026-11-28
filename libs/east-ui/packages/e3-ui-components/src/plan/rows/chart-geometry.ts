@@ -764,10 +764,15 @@ export function chartTicks(kind: ChartKindValue, scales: { left: ValueScale; rig
     const rightText = axisFormatter(right, w.locale);
     const declared = placedTicks(left, scales.left);
     if (declared.length > 0) {
+        // The float noise two scales leave on a value is a sliver of the right axis's span: at its zero, a sliver is
+        // all there is, which a round number's twelve digits keep.
+        const [r0, r1] = scales.right.domain() as [number, number];
+        const noise = Math.abs(r1 - r0) * 1e-9;
         return declared.map((v) => {
             const y = scales.left(v);
             // The right axis's own value at the left's tick, less the float noise two scales leave on a round number.
-            const there = right === undefined ? undefined : Number(scales.right.invert(y).toPrecision(12));
+            const read = right === undefined ? undefined : scales.right.invert(y);
+            const there = read === undefined ? undefined : Math.abs(read) < noise ? 0 : Number(read.toPrecision(12));
             return { y, left: leftText(v), right: there === undefined ? undefined : rightText(there) };
         });
     }
