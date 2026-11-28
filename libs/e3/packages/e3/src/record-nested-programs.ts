@@ -2392,6 +2392,9 @@ export function nestedDefinition(
   constructor: IndexConstructor, name: string, rec: RecordDef, spec: object, config: { runner?: FunctionRunner } | undefined,
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    throw new Error(`${constructor} '${name}' takes an options object ({ collections, tile, summary, totals })`);
+  }
   if ('key' in spec || 'from' in spec || 'to' in spec) {
     throw new Error(`${constructor} '${name}' takes collections, tile, summary and totals — key, from and to file the record's own events: index.flatSeries({ key, from, to, tile })`);
   }

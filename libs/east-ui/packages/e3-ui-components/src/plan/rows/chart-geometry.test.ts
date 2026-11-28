@@ -265,6 +265,48 @@ describe("areas that share a stack pile up (#1753)", () => {
         expect(bounds(2)).toEqual([[16, 17]]);
         expect(chartDomains(kind, stacks).left).toEqual({ min: 0, max: 17 });
     });
+
+    test("multiple stacked fold: none areas stack at exact instants over their timestamp union so intra-bucket peaks align and shape the domain", () => {
+        const scale = axis(2);
+        const area = (points: { t: number; y: number }[], curve?: "stepAfter") => variant("area", {
+            points: points.map((p) => pt(p.t, p.y)), axis: variant("left", null), fold: variant("none", null),
+            style: {
+                label: none, color: none, curve: curve !== undefined ? some(variant(curve, null)) : none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                size: none, stack: some("load"), legend: true, tooltip: true, order: none,
+            },
+        }) as ChartLayerValue;
+        // Same-instant intra-bucket peaks: layer 1 at t=0.2 must stack on 100 (to 120), NOT on layer 0's last-in-bucket value 10!
+        const aligned = chart([
+            area([{ t: 0.2, y: 100 }, { t: 0.8, y: 10 }]),
+            area([{ t: 0.2, y: 20 }, { t: 0.8, y: 5 }]),
+        ]);
+        const sAligned = layoutStacks(aligned.layers, scale);
+        expect(sAligned.areas.get(0)!.map((p) => [p.lo, p.hi, p.edge, p.source])).toEqual([[0, 100, 100, 0], [0, 10, 10, 1]]);
+        expect(sAligned.areas.get(1)!.map((p) => [p.lo, p.hi, p.edge, p.source])).toEqual([[100, 120, 120, 0], [10, 15, 15, 1]]);
+        expect(chartDomains(aligned, sAligned).left).toEqual({ min: 0, max: 120 });
+
+        // Misaligned timestamps: layer 1 interpolates across layer 0's peak at t=0.5 (without tagging synthetic vertices with `source`).
+        const staggered = chart([
+            area([{ t: 0.2, y: 10 }, { t: 0.5, y: 80 }, { t: 0.8, y: 10 }]),
+            area([{ t: 0.2, y: 20 }, { t: 0.8, y: 10 }]),
+        ]);
+        const sStaggered = layoutStacks(staggered.layers, scale);
+        expect(sStaggered.areas.get(1)!.map((p) => [p.lo, p.hi, p.edge, p.source])).toEqual([
+            [10, 30, 30, 0],
+            [80, 95, 95, undefined],
+            [10, 20, 20, 1],
+        ]);
+        expect(chartDomains(staggered, sStaggered).left).toEqual({ min: 0, max: 95 });
+
+        // Negative stacked areas carry `edge` along their outer (lower) boundary `lo`, not 0.
+        const negative = chart([
+            area([{ t: 0.2, y: -10 }, { t: 0.8, y: -20 }]),
+            area([{ t: 0.2, y: -5 }, { t: 0.8, y: -15 }]),
+        ]);
+        const sNeg = layoutStacks(negative.layers, scale);
+        expect(sNeg.areas.get(0)!.map((p) => [p.lo, p.hi, p.edge])).toEqual([[-10, 0, -10], [-20, 0, -20]]);
+        expect(sNeg.areas.get(1)!.map((p) => [p.lo, p.hi, p.edge])).toEqual([[-15, -10, -15], [-35, -20, -35]]);
+    });
 });
 
 describe("reference layers (#1753)", () => {
@@ -669,6 +711,25 @@ describe("how each layer draws (#1753)", () => {
         expect(bubbleRadius(kind, 31)!(400)).toBeCloseTo(7.75, 9);
         // A row whose points have no size draws its dots.
         expect(bubbleRadius(chart([kind.layers[1]!]), 120)).toBeUndefined();
+        // A non-finite size (Infinity / NaN) never poisons the scale for finite bubbles.
+        const withInf = chart([
+            variant("scatter", {
+                points: [
+                    { t: numberInstant(0.5), y: 1, size: some(Infinity) },
+                    { t: numberInstant(1.5), y: 2, size: some(100) },
+                    { t: numberInstant(2.5), y: 3, size: some(25) },
+                ],
+                axis: variant("left", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+        ]);
+        const rInf = bubbleRadius(withInf, 120)!;
+        expect(rInf(100)).toBeCloseTo(16, 9);
+        expect(rInf(25)).toBeCloseTo(8, 9);
+        expect(rInf(Infinity)).toBe(3);
     });
 });
 

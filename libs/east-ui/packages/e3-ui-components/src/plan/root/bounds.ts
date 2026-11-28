@@ -113,9 +113,26 @@ function boundedEvents(kinds: readonly BoundedKind[], editing: PlanEventEditing,
         if (cells.reads.has(kind.key)) {
             // Read by its cells — past the cap, they hold none of its events.
             // Each row as the page unpacked it (#1771): none packed for the check.
-            for (const [id, row] of cells.held.get(kind.key)?.rows() ?? []) {
-                if (drafts.has(id)) continue;
-                const breaches = fieldBreaches(fields, row);
+            // Lean copies (#1725) may omit bounded fields, so only check fields present on the copy struct.
+            const heldCells = cells.held.get(kind.key);
+            let checkFields = fields;
+            if (heldCells?.copy === true) {
+                const entryType = fromEastTypeValue(kind.cellsType);
+                const rowType = entryType.type === "Array" && entryType.value.type === "Struct"
+                    ? (entryType.value.fields as Record<string, EastType>)["row"] : undefined;
+                const hasPath = (path: readonly string[]): boolean => {
+                    let cur = rowType;
+                    for (const seg of path) {
+                        if (cur?.type !== "Struct") return false;
+                        cur = (cur.fields as Record<string, EastType>)[seg];
+                    }
+                    return cur !== undefined;
+                };
+                checkFields = fields.filter((f) => f.path.length > 0 && hasPath(f.path));
+            }
+            for (const [id, row] of heldCells?.rows() ?? []) {
+                if (drafts.has(id) || checkFields.length === 0) continue;
+                const breaches = fieldBreaches(checkFields, row);
                 if (breaches.length > 0) breaking.push({ id, breaches });
             }
             for (const id of drafts.keys()) {

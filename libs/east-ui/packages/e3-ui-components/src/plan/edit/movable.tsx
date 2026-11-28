@@ -27,7 +27,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { MoveGhost, useMoveGhostClasses } from "../../shared/schedule/move-ghost.js";
 import { useDragEventChip, useDragEventEdge, type CellCoord, type DragHandle } from "@elaraai/east-ui-components";
 import { slotOfInstant } from "../../shared/time/slot.js";
@@ -117,6 +117,7 @@ export function usePlanMovable(movable: PlanMovable | undefined, selected = fals
     const [over, setOver] = useState(false);
     const [focused, setFocused] = useState(false);
     const [held, setHeld] = useState(false);
+    const letGoRef = useRef<(() => void) | undefined>(undefined);
     // Its ghost's classes, made as the element is drawn, ahead of the drag that first draws one (#1594).
     useMoveGhostClasses(edit?.styles);
     const surface = edit?.surface;
@@ -174,16 +175,26 @@ export function usePlanMovable(movable: PlanMovable | undefined, selected = fals
     /** An end's press: recorded, and the element held in hand until the press ends, wherever the pointer goes meanwhile. */
     const press = useCallback((e: ReactPointerEvent, which: "start" | "end") => {
         arm(e, which);
+        letGoRef.current?.();
         const doc = (e.currentTarget as HTMLElement).ownerDocument;
         const letGo = () => {
+            letGoRef.current = undefined;
             setHeld(false);
             doc.removeEventListener("pointerup", letGo, true);
             doc.removeEventListener("pointercancel", letGo, true);
         };
+        letGoRef.current = letGo;
         doc.addEventListener("pointerup", letGo, true);
         doc.addEventListener("pointercancel", letGo, true);
         setHeld(true);
     }, [arm]);
+    useEffect(() => () => { letGoRef.current?.(); }, []);
+    useEffect(() => {
+        if (ends) return;
+        setOver(false);
+        setFocused(false);
+        letGoRef.current?.();
+    }, [ends]);
     const inHand = over || focused || held || selected;
     const moveEnds = useMemo<PlanMoveEnds | undefined>(
         () => (inHand && edgeFrom !== null ? { from: edgeFrom, ghost, label, press } : undefined),

@@ -217,8 +217,9 @@ export function seriesDefinition(
   config: { runner?: RecordIndexDef['runner']; value?: IndexFunction } | undefined,
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  const has = (option: string) => typeof spec === 'object' && spec !== null && !Array.isArray(spec) && option in spec;
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile', 'order'],
-    'value' in spec ? `a series index's value is an option beside these: ${constructor.slice(constructor.lastIndexOf('index.'))}({ … }, { value })` : undefined);
+    has('value') ? `a series index's value is an option beside these: ${constructor.slice(constructor.lastIndexOf('index.'))}({ … }, { value })` : undefined);
   const fields = checkTimeTile(constructor, name, valueType, spec);
   const order = checkOrder(constructor, name, spec.order);
   const { rowType, leading } = fields;
@@ -323,9 +324,10 @@ export function summaryDefinition(
   constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
 ): RecordIndexDef {
   const entry = indexedEntry(constructor, name, rec);
+  const has = (option: string) => typeof spec === 'object' && spec !== null && !Array.isArray(spec) && option in spec;
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a summary index holds its totals, so it takes no value'
-      : 'order' in spec ? 'a summary index is filed by key, a key\'s tiles together: an order is a series index\'s' : undefined);
+    has('value') ? 'a summary index holds its totals, so it takes no value'
+      : has('order') ? 'a summary index is filed by key, a key\'s tiles together: an order is a series index\'s' : undefined);
   if (spec.key === undefined) {
     throw new Error(`${constructor} '${name}' takes a key — the field naming what an event is on, which a summary index keeps a total a tile under: ` +
       `key: '…'; the record's totals a tile, under no key, are index.totals({ from, to, tile })`);
@@ -351,10 +353,11 @@ export function totalsDefinition(
   constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
 ): RecordIndexDef {
   const entry = indexedEntry(constructor, name, rec);
+  const has = (option: string) => typeof spec === 'object' && spec !== null && !Array.isArray(spec) && option in spec;
   onlyOptions(constructor, name, spec, ['on', 'from', 'to', 'tile'],
-    'key' in spec ? 'the record\'s totals are kept a tile, whatever each event is on: a key\'s totals a tile are index.summary({ key, from, to, tile })'
-      : 'value' in spec ? 'the index holds the record\'s totals, so it takes no value'
-        : 'order' in spec ? 'the record\'s totals are a total a tile: an order is a series index\'s' : undefined);
+    has('key') ? 'the record\'s totals are kept a tile, whatever each event is on: a key\'s totals a tile are index.summary({ key, from, to, tile })'
+      : has('value') ? 'the index holds the record\'s totals, so it takes no value'
+        : has('order') ? 'the record\'s totals are a total a tile: an order is a series index\'s' : undefined);
   return tiledTotals(constructor, name, rec, entry, spec, config);
 }
 

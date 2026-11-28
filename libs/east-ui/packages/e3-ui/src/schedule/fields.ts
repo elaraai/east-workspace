@@ -146,8 +146,10 @@ export type KeyField =
         readonly optional: boolean; readonly variant: EastType; readonly keys: Readonly<Record<string, EastType>>;
     };
 
-/** Whether a variant's cases are an Option's. */
-type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
+/** Whether a variant's cases are exactly an Option's (`none: NullType` and `some`). */
+type IsOption<C> = keyof C extends "none" | "some"
+    ? ("none" extends keyof C ? ("some" extends keyof C ? (C["none" & keyof C] extends NullType ? true : false) : false) : false)
+    : false;
 
 /**
  * A field naming one end of a link (#1549): a field of a type a Dict may be

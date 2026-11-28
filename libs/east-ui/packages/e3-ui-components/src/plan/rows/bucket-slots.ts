@@ -93,12 +93,23 @@ export type BucketSlots =
  */
 export function bucketSlots(pitch: number, count: number, kept: number | undefined, floor: number, least: number): BucketSlots {
     if (count === 0) return { kind: "slots", k: 1, tiles: [], more: undefined };
-    const width = (k: number) => Math.round(pitch / k);
-    const place = (k: number, slot: number) => ({ slot, left: PLAN_CELL_INSET + slot * width(k), width: width(k) - BUCKET_SLOT_GAP });
+    // Round slot boundaries rather than scaling a single rounded slot width: keeps the right inset exact (2px inside
+    // the day's rule) and 5px gaps between adjacent slots across every integer and fractional pitch.
+    const edge = (k: number, i: number) => Math.round((i * pitch) / k);
+    const place = (k: number, slot: number) => {
+        const start = edge(k, slot);
+        const end = edge(k, slot + 1);
+        return { slot, left: PLAN_CELL_INSET + start, width: end - start - BUCKET_SLOT_GAP };
+    };
     // No room for one tile across the whole day.
-    if (width(1) - BUCKET_SLOT_GAP < least) return count === 1 ? { kind: "mark" } : { kind: "count", count };
+    if (edge(1, 1) - BUCKET_SLOT_GAP < least) return count === 1 ? { kind: "mark" } : { kind: "count", count };
     let k = count === 1 ? 1 : count === 2 ? 2 : 4;
-    while (k > 1 && width(k) - BUCKET_SLOT_GAP < floor) k = k === 4 ? 2 : 1;
+    const narrowest = (n: number) => {
+        let min = Infinity;
+        for (let s = 0; s < n; s++) min = Math.min(min, edge(n, s + 1) - edge(n, s) - BUCKET_SLOT_GAP);
+        return min;
+    };
+    while (k > 1 && narrowest(k) < floor) k = k === 4 ? 2 : 1;
     if (count <= k) return { kind: "slots", k, tiles: Array.from({ length: count }, (_, i) => ({ index: i, ...place(k, i) })), more: undefined };
     const keep = kept !== undefined && kept >= 0 && kept < count ? kept : undefined;
     // One slot: the kept tile stands alone, its chip waiting; else the chip counts every tile.

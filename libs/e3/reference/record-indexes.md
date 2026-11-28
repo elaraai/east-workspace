@@ -625,7 +625,7 @@ in the index's own order.
 |---|---|---|---|
 | `index.on`, `index.key`, `index.keys` | `of(key)`: the rows under an index key, or under its first fields (`{ owner }` of `['owner', 'due']`). `between({ from?, to? })`: the rows from one index key up to another | what the index carries, and the row's key | one |
 | `index.interval` | `overlapping({ on?, from, to })`: the rows that overlap `[from, to)`. `unset({ on? })`: the rows with no start | what the index carries, and the row's key | at most 55, in the index's order: the starts in the window, then one a tree node above its first instant |
-| `index.flatSeries` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
+| `index.flatSeries` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | what the index carries, and the row's key | one a level, from the index's tile to the year, in the index's order of its levels |
 | `index.flatSeries`, `order: 'time'` | `events({ on?, from, to })`: the events on every key under `on` that overlap `[from, to)`; it takes no `key` | what the index carries, and the row's key | one a level, a tile's events together in their keys' order |
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
 | `index.totals` | `totals({ on?, from, to })`: each of the record's tiles under `on` that overlaps `[from, to)`; it takes no `key` | `{ count, ms }`, and the tile's start in place of a row's key | one |

@@ -568,6 +568,15 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
                 overrides = next;
                 // And it stands for every row with rows under it read from now on (#1777).
                 standing = a.e.collapsed;
+                // Expanding all also clears evicted parents that were standing-collapsed without an override.
+                if (!a.e.collapsed && state.collapsed.size > 0) {
+                    const collapsed = new Set<string>();
+                    for (const key of state.collapsed) if (overrides.get(key) === true) collapsed.add(key);
+                    if (collapsed.size !== state.collapsed.size) {
+                        const ui = { ...state, collapsed };
+                        return { store: { ...store, ui, overrides, standing }, effects };
+                    }
+                }
             }
             const next = state === store.ui && overrides === store.overrides && standing === store.standing
                 ? store

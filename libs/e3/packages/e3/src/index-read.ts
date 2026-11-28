@@ -372,7 +372,7 @@ export type KeyWindow<IK> = TimeWindow & {
  * A series index's readers (`index.flatSeries`).
  *
  * @typeParam IK - The index's key type, `{ on, key, level, tile }`
- * @typeParam P - What the index carries: the row
+ * @typeParam P - What the index carries: the row, or its value
  * @typeParam K - The row's key type
  */
 export interface SeriesReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
@@ -564,7 +564,7 @@ function seriesEvents(entries: Entries) {
   const start = optionField(rowType, series.from, DateTimeType);
   const end = optionField(rowType, series.to, DateTimeType);
   if (start === undefined || end === undefined) {
-    throw new Error(`${entries.name}: a series index carries its rows, and these carry no '${series.from}' and '${series.to}' to test a window by`);
+    throw new Error(`${entries.name}: a series index carries each event's row or value, and this carries no '${series.from}' and '${series.to}' to test a window by`);
   }
   const levels = levelsFrom(series.tile);
   /**

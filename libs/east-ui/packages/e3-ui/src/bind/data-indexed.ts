@@ -482,7 +482,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const totalsAt = new Map<string, string>();
     for (const index of totals) {
         const tile = index.summary!.tile;
-        const at = [tile, ...(index.on ?? [])].join("\u0000");
+        const at = [tile, ...[...(index.on ?? [])].sort()].join("\u0000");
         const was = totalsAt.get(at);
         if (was !== undefined) {
             throw new Error(`Data.bindPaged: '${was}' and '${index.name}' are each the record's totals a ${tile} over the same leading fields — list one`);

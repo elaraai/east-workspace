@@ -168,6 +168,21 @@ describe("window ledger — a rate to read pixels by (#1794)", () => {
         // The source's count moved: its geometry starts again, and with it what its pixels can be read by.
         expect(isRated(createLedger(2_400, PAGE))).toBe(false);
     });
+
+    test("an empty window (0 px) does not lock the slot rate to 1 px: the first positive-height window seeds it", () => {
+        let l = createLedger(500, 1);
+        l = observeWindow(l, 0, { px: 0, rows: 0, restPx: 0 });
+        expect(isRated(l)).toBe(false);
+        expect(l.seed).toBeUndefined();
+        expect(l.slotPx).toBe(32);
+        // Once a non-empty window lands, it seeds the rate normally.
+        l = observeWindow(l, 1, { px: 640, rows: 20, restPx: 640 });
+        expect(isRated(l)).toBe(true);
+        expect(l.seed).toBe(1);
+        expect(l.slotPx).toBe(640);
+        // Reseed follows the non-empty seed window, not empty window 0.
+        expect(reseed(l, 32).slotPx).toBe(32);
+    });
 });
 
 describe("window ledger — geometry", () => {

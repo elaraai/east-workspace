@@ -1966,3 +1966,55 @@ Each wire changed under this rule, with the kind it is.
   are re-exported, and the dataflow computes each UI task's output again under
   the new type. A UI task's output is not stored state, and the pages record
   keeps its type, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` root carries its window size and right-axis rail switch
+  (#1714, #1750)** — package-borne. `PlanRootType` gains `windowEntries`
+  (`IntegerType`), after `rowsKeyType` — how many entries each paged window
+  reads (`PLAN_PAGE_SIZE` unless `paging.entries` says otherwise) — and
+  `rightAxis` (`BooleanType`), after `style` — whether chart rows read their
+  right axes' numbers in a shared rail after every row's plot. They travel in
+  the `Plan` extension's payload, so a UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` landings declare their nesting path and depth (#1716)** —
+  package-borne. `PlanLandingType` gains `within` (`Array<String>`) and `depth`
+  (`IntegerType`), after `under`: the series keys a landing series nests inside
+  and how many steps its rows' paths hold, which group rows use to plan their
+  totals counts. They travel in the `Plan` extension's payload (`landings`), so
+  a UI value encoded under either type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, so no repository
+  upgrade step ships with it.
+- **e3-ui's schedule event kinds read cells by handle and name their source
+  (#1769, #1771)** — package-borne. `ScheduleKindType`'s `items` and
+  `unscheduled` and `PlanEventKindType`'s `planItems` and `planUnscheduled`
+  trade their fourth argument `Option<Blob>` for `ScheduleCellReadType`
+  (`window | rows(String) | nothing`), and `PlanEventReadsType` trades
+  `Dict<String, Option<Blob>>` for `Dict<String, ScheduleCellReadType>`: the
+  renderer hands the seams an opaque handle to unpacked entries read through
+  the new generic platform function `schedule_cell_rows([T], String) -> T`
+  rather than re-encoding beast2 bytes. `PlanEventKindType` also gains `source`
+  (`StringType`) before `draw`, naming the shared slice source several case
+  kinds of one record read through. They travel in the `Plan`, `Calendar`,
+  `Roster` and `Allocation` extensions' payloads, so a UI value encoded under
+  either type does not decode under the other and older renderers do not supply
+  `schedule_cell_rows`: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` chart rows carry layer styling, axis labels/ticks, row
+  switches, bubbles, target zones and `fold: "none"` (#1753, #1807)** —
+  package-borne. `PlanRowKindType`'s `chart` arm gains `grid`, `legend` and
+  `tooltip` (`BooleanType`), after `expandable`. `PlanChartAxisType` gains
+  `numTicks` (`Option<Float>`) after `tickValues` and `label` (`Option<String>`)
+  after `format`. `PlanChartLayerType` gains `style: PlanChartStyleType` on all
+  five data arms (`line`, `area`, `column`, `scatter`, `band`), replaces
+  `column`'s `series` with `style.stack`, changes `line`'s and `area`'s `fold`
+  from `PlanFoldType` to `PlanLineFoldType` (adding `none`), changes `scatter`'s
+  points from `PlanChartPointType` to `PlanChartScatterPointType` (adding
+  `size: Option<Float>`), adds `dash` and `color` to `refLine`, and replaces
+  `refBand`'s `{ from, to, label }` with `{ x, y, axis, label, color }`. They
+  travel in the `Plan` extension's payload (`PlanRowKindType`), so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.

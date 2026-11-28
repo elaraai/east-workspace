@@ -23,6 +23,7 @@ import {
   PAGE_BYTE_BUDGET_DEFAULT, PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT, cachedSegments, collectionOf, corruptRefusal, elementsOf, indexOf,
   openForRead, openTarget, pageError, pinnedCacheControl, readDataset, rowsByKey, searchTarget, type PinnedCache,
 } from './dataset-reads.js';
+import { decodedSegments } from './segments.js';
 import { compileKeySearch, locateAll, type KeySearchQuery, type Located } from './key-search.js';
 
 export { PAGE_BYTE_BUDGET_DEFAULT, type PinnedCache } from './dataset-reads.js';
@@ -385,7 +386,10 @@ async function valuePage(
     pageCount = segments.counts[seg]!;
     pageOffset = seg === 0 ? 0 : cumulative[seg - 1]!;
     try {
-      windowValue = collectionOf(typeValue, await elementsOf(storage, repoPath, segments, [{ from: pageOffset, to: pageOffset + pageCount }]));
+      const segment = (await decodedSegments(storage, repoPath, segments, [seg])).get(seg)!;
+      const elements: unknown[] = new Array(segment.count);
+      for (let i = 0; i < segment.count; i++) elements[i] = segment.element(i);
+      windowValue = collectionOf(typeValue, elements);
     } catch (err) {
       return corruptRefusal(err, 'dataset_not_segmented');
     }

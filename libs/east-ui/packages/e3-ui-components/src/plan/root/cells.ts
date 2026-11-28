@@ -424,14 +424,18 @@ export function createCellSpanStore(): PlanCellSpanStore {
  * @returns The span; `undefined` when no paged row is in view
  */
 export function cellSpanOf(
-    items: readonly { readonly key: string; readonly path: readonly string[] }[], origin: ReadonlyMap<string, { readonly w: number }>,
+    items: readonly { readonly key: string; readonly path: readonly string[]; readonly slot?: string | undefined }[],
+    origin: ReadonlyMap<string, { readonly w: number }>,
     narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
     const rows: ScheduleCellEnd[] = [];
-    for (const { key, path } of items) {
+    for (const { key, path, slot } of items) {
         const at = origin.get(key);
         const resource = path[path.length - 1];
-        if (at !== undefined && resource !== undefined) rows.push({ w: at.w, key: resource });
+        if (at !== undefined && resource !== undefined) {
+            const under = path.length > 1 ? path.slice(0, -1) : undefined;
+            rows.push({ w: at.w, key: resource, ...(slot !== undefined && { slot }), ...(under !== undefined && { under }) });
+        }
     }
     return scheduleCellSpanOf(rows, narrowing);
 }
@@ -461,7 +465,7 @@ export function cellSpanOf(
  * @returns The span to report: of no row while the view's paged rows stand for no resource, and `standing` while it shows rows not read alone
  */
 export function shownCellSpan(
-    rows: readonly { readonly key: string; readonly path: readonly string[] }[], unread: boolean, standing: ScheduleCellSpan | undefined,
+    rows: readonly { readonly key: string; readonly path: readonly string[]; readonly slot?: string | undefined }[], unread: boolean, standing: ScheduleCellSpan | undefined,
     origin: ReadonlyMap<string, { readonly w: number }>, narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
     const span = cellSpanOf(rows, origin, narrowing);

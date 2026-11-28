@@ -191,6 +191,21 @@ describe("the records a group's own row counts (#1716)", () => {
         expect(shown.sources.map((s) => s.source)).toEqual(["folding", "trim", "job"]);
         expect(shown.uncounted).toEqual([]);
     });
+
+    test("a shared source landing at disagreeing nesting depths beneath one band is reported uncounted rather than silently using the first depth", () => {
+        // `job` lands both on `folders` (depth 2 -> 1 field under floors) and `tasks` (depth 4 -> 1 field under floors): same standing under floors -> counted.
+        // Under a shared source landing at different step counts relative to `floors` (e.g. direct depth 1 vs nested depth 2): disagreeing depths -> uncounted.
+        const multiDepthLandings: PlanLandingValue[] = [
+            landing("direct", ["folding"], ["floors"], 2n),
+            // A deeper child series under `floors` where `under` is none and depth is 3 (2 leading fields on index) vs depth 2 (1 leading field).
+            landing("deep", ["folding"], ["floors", "sub"], 3n),
+        ];
+        // Series index led by ["hall", "sub"] (length 2): for `direct` (depth 2, path 1) `d = 2 - (2 - 1) = 1`; for `deep` (depth 3, path 1) `d = 2 - (3 - 1) = 0`!
+        const multiParts = [partOf(FOLDING, { series: { on: ["hall", "sub"], key: "folder" }, totals: [[["hall"], "day"], [[], "day"]] })];
+        const plan = planBandSources(band("floors", "H-101"), [FOLDING], multiDepthLandings, multiParts, []);
+        expect(plan.sources).toEqual([]);
+        expect(plan.uncounted).toEqual([{ names: "Folding run", why: "totals", fields: [] }]);
+    });
 });
 
 describe("a row's narrowing, and the totals it reads (#1716)", () => {

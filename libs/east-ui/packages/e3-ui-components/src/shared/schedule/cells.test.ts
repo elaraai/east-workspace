@@ -292,6 +292,48 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711, #1797)", () 
             { slot: "presses", id: "0.0.1", keys: keysOf(10, 10), under: ["H-01"] },
         ]);
     });
+
+    test("duplicate keys across groups or slots are disambiguated by slot and under — blocks in between are never dropped and travel direction stays accurate", () => {
+        // Same resource key P-0000 appears under H-01 at index 0 and again under H-02 at index 100.
+        const under = (hall: string, from: number, n: number): ScheduleCellKey[] => presses(from, n).map((press) => ({ ...press, under: [hall] }));
+        const dup = pagedOf([[...under("H-01", 0, 100), ...under("H-02", 0, 100)]]);
+        const across = {
+            runs: [{ first: { w: 0, key: "P-0000", slot: "presses", under: ["H-01"] }, last: { w: 0, key: "P-0000", slot: "presses", under: ["H-02"] } }],
+            narrowing: undefined,
+        };
+        // Covers blocks 0.0, 0.1 (H-01) and 0.2 (H-02) rather than collapsing to 0.0 alone.
+        expect(named(schedulePagedBlocks(dup, across))).toEqual(["0.0", "0.1", "0.2"]);
+        const s1: ScheduleCellSpan = {
+            runs: [{ first: { w: 0, key: "P-0000", slot: "presses", under: ["H-01"] }, last: { w: 0, key: "P-0020", slot: "presses", under: ["H-01"] } }],
+            narrowing: undefined,
+        };
+        const s2: ScheduleCellSpan = {
+            runs: [{ first: { w: 0, key: "P-0000", slot: "presses", under: ["H-02"] }, last: { w: 0, key: "P-0020", slot: "presses", under: ["H-02"] } }],
+            narrowing: undefined,
+        };
+        expect(sameCellSpan(s1, s2)).toBe(false);
+        expect(scheduleCellTravel(dup, s1, s2)).toBe("forward");
+        expect(scheduleCellTravel(dup, s2, s1)).toBe("back");
+        // Same key across two slots in one window.
+        const twoSlots = pagedOf([[
+            ...Array.from({ length: 60 }, (_x, i) => ({ slot: "a", key: `K-${i}` })),
+            ...Array.from({ length: 60 }, (_x, i) => ({ slot: "b", key: `K-${i}` })),
+        ]]);
+        const slotSpan: ScheduleCellSpan = {
+            runs: [{ first: { w: 0, key: "K-0", slot: "a" }, last: { w: 0, key: "K-0", slot: "b" } }],
+            narrowing: undefined,
+        };
+        expect(schedulePagedBlocks(twoSlots, slotSpan)?.map((b) => `${b.slot}:${b.id}`)).toEqual(["a:0.0", "a:0.1", "b:0.1"]);
+        // Duplicate keys and children inside one block slice are deduplicated.
+        const repeated = pagedOf([[
+            { slot: "presses", key: "P-1", children: [{ slot: "tasks", key: "T-1" }, { slot: "tasks", key: "T-1" }] },
+            { slot: "presses", key: "P-1", children: [{ slot: "tasks", key: "T-1" }, { slot: "tasks", key: "T-2" }] },
+        ]]);
+        const blocks = schedulePagedBlocks(repeated, undefined)!;
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0]!.keys).toEqual(["P-1"]);
+        expect(blocks[0]!.children?.get("P-1")).toEqual([{ slot: "tasks", key: "T-1" }, { slot: "tasks", key: "T-2" }]);
+    });
 });
 
 describe("the tiles a summary shades a resolution's buckets by (#1039)", () => {
@@ -534,6 +576,20 @@ describe("a kind's rows block by block (#1793)", () => {
             { literals: ['"P-2"'], entries: [[entry("J-2", "on P-2")]] },
         ];
         expect(scheduleBlocksLeft(groups, new Set(["J-5", "J-2"]), idOf).map((left) => [...left])).toEqual([["J-5"], ["J-2"]]);
+    });
+
+    test("copy-backed series entries (#1725) carry their data in entry.value with entry.row === none", () => {
+        const { idOf } = counting();
+        const copyEntry = (key: string, val?: string) => ({ key, row: none, value: val === undefined ? none : some(val) }) as unknown as RecordSliceEntry;
+        const levels = [[copyEntry("J-2", "copy-2"), copyEntry("J-1", "copy-1"), copyEntry("J-9")]];
+        expect(scheduleBlockEntries(levels, new Set(), compareKey, idOf, true)).toEqual([
+            { key: "J-1", row: "copy-1" }, { key: "J-2", row: "copy-2" },
+        ]);
+        const groups = [
+            { literals: ['"P-1"'], entries: [[copyEntry("J-1", "copy-1"), copyEntry("J-2", "copy-2")]] },
+            { literals: ['"P-1"'], entries: [[copyEntry("J-2", "copy-2")]] },
+        ];
+        expect(scheduleBlocksLeft(groups, new Set(), idOf, true).map((left) => [...left])).toEqual([["J-2"], []]);
     });
 });
 

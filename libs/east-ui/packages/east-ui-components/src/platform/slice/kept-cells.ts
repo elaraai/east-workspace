@@ -68,4 +68,13 @@ export class RecordSliceKeptCells {
         for (const text of [...kept.cells.keys()]) if (!wanted.has(text)) kept.cells.delete(text);
         return some(texts.map((text) => kept.cells.get(text)!));
     }
+
+    /**
+     * Drop cached places matching `drop`, freeing entries for evicted periods or keys.
+     *
+     * @param drop - Predicate receiving each cached place key (`at`)
+     */
+    prune(drop: (at: string) => boolean): void {
+        for (const at of [...this.kept.keys()]) if (drop(at)) this.kept.delete(at);
+    }
 }

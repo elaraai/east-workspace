@@ -41,13 +41,23 @@ export interface RecordSliceTileTotals {
     readonly ms: bigint;
 }
 
+/** Most record Slices whose standalone totals cells are retained across mounts. */
+const MAX_KEPT_SLICES = 64;
+
 /** What each record Slice's totals keep, by the Slice's key: the cells read at its record's revision. */
 const KEPT = new Map<string, RecordSliceKeptCells>();
 
-/** The cells a Slice's totals keep, made once a Slice. */
+/** The cells a Slice's totals keep, made once a Slice (LRU-bounded). */
 function keptOf(slice: Bind): RecordSliceKeptCells {
     let kept = KEPT.get(slice.key);
-    if (kept === undefined) { kept = new RecordSliceKeptCells(); KEPT.set(slice.key, kept); }
+    if (kept !== undefined) {
+        KEPT.delete(slice.key);
+        KEPT.set(slice.key, kept);
+        return kept;
+    }
+    kept = new RecordSliceKeptCells();
+    KEPT.set(slice.key, kept);
+    while (KEPT.size > MAX_KEPT_SLICES) KEPT.delete(KEPT.keys().next().value!);
     return kept;
 }
 

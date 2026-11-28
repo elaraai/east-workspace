@@ -23,7 +23,7 @@ import { East, SortedMap } from "../../../index.js";
 import { SourceMap } from "../../../location.js";
 import { BufferReader, BufferWriter } from "../../binary-utils.js";
 import { buildPlatformContext } from "../shared.js";
-import { encodeBeast2PagedFor, openBeast2PagesFor } from "../index.js";
+import { encodeBeast2PagedFor, encodeBeast2SegmentsFor, openBeast2PagesFor, type Beast2SyncRangeReader } from "../index.js";
 import { asTypeValue } from "./type-section.js";
 import { TAG_NEW, TAG_REF, type V5DecodeContext } from "./codec.js";
 import { decodedWeightFor } from "./weight.js";
@@ -162,6 +162,71 @@ describe("beast2 v5 what a walk of a segment's rows refuses", () => {
     own(out, [1n, 2n, 3n], 0n);
     referring(out, 1, 1n);
     assert.throws(() => walk(out.pop(), 2), /container backref delta 1 out of range \(0 definitions visible\)/);
+  });
+
+  test("Format v1 self-contained segments with per-segment aliasing fall back to whole-segment decode", () => {
+    const shared = [1n, 2n, 3n];
+    // Mark a single-segment blob written with per-segment aliasing (`selfContained: false`)
+    // as `self_contained_segments` (Format v1 blobs promised no REF crosses a segment, not a row).
+    const markSelfContained = (blob: Uint8Array): Uint8Array => {
+      const copy = blob.slice();
+      const view = new DataView(copy.buffer, copy.byteOffset, copy.byteLength);
+      const indexOffset = Number(view.getBigUint64(copy.byteLength - 16, true));
+      copy[indexOffset] = copy[indexOffset]! | 1;
+      return copy;
+    };
+
+    const Arr = ArrayType(Row);
+    const arrBlob = markSelfContained(
+      encodeBeast2SegmentsFor(Arr, { selfContained: false, codec: "none" })([[{ items: shared, n: 0n }, { items: shared, n: 1n }]]),
+    );
+    const arrRows = beast2SegmentRowsFor(Arr)(openBeast2PagesFor(Arr)(arrBlob), 0);
+    assert.equal(arrRows.count, 2);
+    assert.deepEqual([arrRows.element(0), arrRows.element(1)], [{ items: [1n, 2n, 3n], n: 0n }, { items: [1n, 2n, 3n], n: 1n }]);
+
+    const MapRows = DictType(StringType, Row);
+    const cmp = compareFor(StringType);
+    const dictBlob = markSelfContained(
+      encodeBeast2SegmentsFor(MapRows, { selfContained: false, codec: "none" })([
+        new SortedMap([["a", { items: shared, n: 0n }], ["b", { items: shared, n: 1n }]], cmp),
+      ]),
+    );
+    const dictRows = beast2SegmentRowsFor(MapRows)(openBeast2PagesFor(MapRows)(dictBlob), 0);
+    assert.equal(dictRows.count, 2);
+    assert.deepEqual([dictRows.key(0), dictRows.key(1)], ["a", "b"]);
+    assert.deepEqual(dictRows.element(1), ["b", { items: [1n, 2n, 3n], n: 1n }]);
+  });
+
+  test("uncompressed (CODEC_NONE) segments detach their buffer from a reusable range reader and clear decode containers", () => {
+    const MapRows = DictType(StringType, Row);
+    const cmp = compareFor(StringType);
+    const blob = encodeBeast2PagedFor(MapRows, { codec: "none" })(
+      new SortedMap([["a", { items: [10n, 20n], n: 1n }], ["b", { items: [30n], n: 2n }]], cmp),
+    );
+    const scratch = new Uint8Array(blob.byteLength);
+    const reader: Beast2SyncRangeReader = {
+      size: blob.byteLength,
+      read(offset, length) {
+        scratch.set(blob.subarray(offset, offset + length), 0);
+        return scratch.subarray(0, length);
+      },
+    };
+    const pages = openBeast2PagesFor(MapRows)(reader);
+    const rows = beast2SegmentRowsFor(MapRows)(pages, 0);
+    // Reader reuses/overwrites its scratch buffer after opening the segment.
+    scratch.fill(0xff);
+    assert.deepEqual([rows.key(0), rows.key(1)], ["a", "b"]);
+    assert.deepEqual(rows.element(0), ["a", { items: [10n, 20n], n: 1n }]);
+    assert.deepEqual(rows.element(1), ["b", { items: [30n], n: 2n }]);
+
+    // Direct walk also clears ctx.containers after each read so cached segments never pin decoded row containers.
+    const ctx = context();
+    const out = new BufferWriter();
+    own(out, [7n, 8n], 1n);
+    const walked = buildSegmentRowsDecoder(asTypeValue(ArrayType(Row)))(new BufferReader(out.pop(), 0), ctx, 1) as Beast2SegmentRows;
+    assert.equal(ctx.containers.length, 0);
+    assert.deepEqual(walked.element(0), { items: [7n, 8n], n: 1n });
+    assert.equal(ctx.containers.length, 0);
   });
 
   test("a Dict's keys that do not ascend are refused, across the rows and from the segment before", () => {
