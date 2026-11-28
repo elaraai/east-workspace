@@ -356,16 +356,45 @@ describe("the readout (#743, #1753)", () => {
             .toEqual([["30 k sheets", "—", "4 k sheets"], "500px", "translateX(calc(-100% - 4px))"]);
         fireEvent.pointerMove(chart, { clientX: 900 });           // bucket 3 — nothing to read
         expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([false, false]);
-        // A scroll moves the plot from under the box: it closes, and the pointer's next move opens it again.
+        // A scroll moves the plot from under the box: it closes, and the pointer's next move opens it again — even in the same bucket.
         fireEvent.pointerMove(chart, { clientX: 125 });
         fireEvent.scroll(window);
         expect(tip.hasAttribute("data-open")).toBe(false);
-        fireEvent.pointerMove(chart, { clientX: 400 });
+        fireEvent.pointerMove(chart, { clientX: 130 });
         expect(tip.hasAttribute("data-open")).toBe(true);
         fireEvent.pointerLeave(plot);
         expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([false, false]);
         // Not one commit: the readout is chrome, like the hairline (#609).
         expect(commits.length).toBe(before);
+    });
+
+    test("changing the axis scale closes any open tooltip and inline readout cleanly", () => {
+        const tree = (n: number) => (
+            <ChakraProvider value={system}>
+                <EastChakraPlan storageKey="chart-scale-close-tip" value={planRoot([
+                    planRow("c", chartKind([
+                        variant("line", { points: [pt(0.5, 10), pt(1.5, 20)], axis: left, breach: none, fold: MEAN,
+                            style: { label: some("A"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    ])),
+                    planRow("d", chartKind([
+                        variant("line", { points: [pt(0.5, 5), pt(1.5, 15)], axis: left, breach: none, fold: MEAN,
+                            style: { label: some("B"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    ])),
+                ], n)} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(tree(2));
+        const c = container.querySelector(rowSel("c"))!;
+        const d = container.querySelector(rowSel("d"))!;
+        const tip = [...document.querySelectorAll<HTMLElement>("[data-plan-tooltip]")]
+            .find((el) => el.getAttribute("data-plan-tooltip") === c.getAttribute("data-plan-row"))!;
+        const other = d.querySelector<HTMLElement>("[data-plan-readout]")!;
+        stubRect(c.children[1]!, 100);
+        stubRect(c.querySelector("[data-plan-chart]")!, 100);
+        fireEvent.pointerMove(c.querySelector("[data-plan-chart]")!, { clientX: 250 });
+        expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([true, true]);
+        rerender(tree(4));
+        expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([false, false]);
     });
 });
 
@@ -1060,5 +1089,25 @@ describe("a line or an area that keeps every point, and a step held up to a gap 
             .getAttribute("d")!).flat().map(([vx]) => vx)));
         // On [0, 3): the area's gap at 2.5, 833.3 units in; the band's and the stacked area's at 1.5, half way.
         expect([reach("area"), reach("band"), reach("area", 1)]).toEqual([833.333, 500, 500]);
+    });
+
+    test("negative stacked areas draw their outline and dots along their outer edge (lo), and non-finite refLine/refDot values are skipped", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("area", {
+                points: [pt(0.5, -10), pt(1.5, -20)], axis: left, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: true, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none },
+            }),
+            variant("refLine", { y: Number.NaN, axis: left, label: some("BAD"), dash: none, color: none }),
+            variant("refDot", { t: numberInstant(0.5), y: Infinity, axis: left, label: some("INF") }),
+        ], { left: valueAxis({ min: -20, max: 0 }) }))], 2), "chart-neg-stack-and-nan-refs");
+        const row = container.querySelector(rowSel("c"))!;
+        // Over [-20, 0] across [12.5, 76.5]: -10 maps to 44.5, -20 maps to 76.5 (never baseline 0 at 12.5).
+        const lineYs = subpaths(row.querySelector('[data-plan-mark="area-line"]')!.getAttribute("d")!)[0]!.map(([, vy]) => r3(vy));
+        expect(lineYs).toEqual([44.5, 76.5]);
+        const dotYs = [...row.querySelectorAll('[data-plan-dots] [data-plan-mark="dot"]')].map((c) => r3(Number(c.getAttribute("cy"))));
+        expect(dotYs).toEqual([44.5, 76.5]);
+        expect(row.querySelector('[data-plan-mark="refline"]')).toBeNull();
+        expect(row.querySelector('[data-plan-mark="refdot"]')).toBeNull();
+        expect(row.querySelector('[data-plan-line-caption]')).toBeNull();
     });
 });

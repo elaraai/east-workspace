@@ -38,6 +38,7 @@ function observe(el: Element, read: () => void): () => void {
     const Ctor = globalThis.ResizeObserver;
     if (Ctor === undefined) return () => undefined;
     if (shared === undefined || shared.ctor !== Ctor) {
+        shared?.observer.disconnect();
         const readers = new Map<Element, Set<() => void>>();
         const observer = new Ctor((entries) => {
             flushSync(() => {
@@ -77,7 +78,13 @@ export function useLaidOutSize(ref: RefObject<HTMLElement | null>, active: boole
     const last = useRef<LaidOutSize | undefined>(undefined);
     useLayoutEffect(() => {
         const el = ref.current;
-        if (!active || el === null) return undefined;
+        if (!active || el === null) {
+            if (last.current !== undefined) {
+                last.current = undefined;
+                setSize(undefined);
+            }
+            return undefined;
+        }
         const read = () => {
             const { width, height } = el.getBoundingClientRect();
             const was = last.current;
@@ -90,5 +97,5 @@ export function useLaidOutSize(ref: RefObject<HTMLElement | null>, active: boole
         read();
         return observe(el, read);
     }, [ref, active]);
-    return size;
+    return active ? size : undefined;
 }

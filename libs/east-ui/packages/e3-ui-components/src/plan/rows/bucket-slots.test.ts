@@ -43,9 +43,26 @@ describe("a bucket cell's slots (#1735)", () => {
         expect(places(132, 9)).toEqual({ tiles: [[0, 2, 28], [1, 35, 28], [2, 68, 28]], more: [101, 28, 6] });
     });
 
-    test("a day's B/k rounds to a whole pixel before the offsets are added: at B 142.857, halves of 71 and quarters of 36", () => {
-        expect(places(142.857, 2)).toEqual({ tiles: [[0, 2, 66], [1, 73, 66]], more: undefined });
-        expect(places(142.857, 4)).toEqual({ tiles: [[0, 2, 31], [1, 38, 31], [2, 74, 31], [3, 110, 31]], more: undefined });
+    test("slot boundaries round independently so every tile stays 2px inside both rules and 5px apart at fractional and non-divisible pitches", () => {
+        // At B 142.857 (rounded pitch 143, room width 142), right edge stays at 140 (2px inside rule).
+        expect(places(142.857, 2)).toEqual({ tiles: [[0, 2, 66], [1, 73, 67]], more: undefined });
+        expect(places(142.857, 4)).toEqual({ tiles: [[0, 2, 31], [1, 38, 30], [2, 73, 31], [3, 109, 31]], more: undefined });
+        // Across all integer pitches 100..200 and k = 1, 2, 4, left starts at 2, adjacent gap is 5, right edge is pitch - 3 (room.width - 2).
+        for (let pitch = 100; pitch <= 200; pitch++) {
+            for (const count of [1, 2, 4]) {
+                const res = bucketSlots(pitch, count, undefined, FLOOR, LEAST);
+                expect(res.kind).toBe("slots");
+                if (res.kind !== "slots") continue;
+                expect(res.tiles[0]!.left).toBe(2);
+                for (let i = 1; i < res.tiles.length; i++) {
+                    const prev = res.tiles[i - 1]!;
+                    expect(res.tiles[i]!.left - (prev.left + prev.width)).toBe(5);
+                }
+                const last = res.tiles[res.tiles.length - 1]!;
+                expect(last.left + last.width).toBe(pitch - 3);
+                for (const t of res.tiles) expect(t.width).toBeGreaterThanOrEqual(FLOOR);
+            }
+        }
     });
 
     test("the tile the cell keeps takes its slot first, the run from the first filling the rest in order", () => {

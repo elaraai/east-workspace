@@ -211,15 +211,50 @@ function columnPlaces(layers: readonly ChartLayerValue[]): { of: Map<number, num
     return { of, count };
 }
 
+/** One point of a stacked area: its fill span `[lo, hi]`, its outer edge (`hi` when non-negative, `lo` when negative), and its original point index when not a synthetic alignment vertex. */
+export interface StackedAreaPoint extends ChartBandPointValue {
+    /** Outer boundary of this layer's band — `hi` when value >= 0, `lo` when value < 0, `NaN` at a gap. */
+    readonly edge: number;
+    /** Index in `layer.value.points` when this point is one of the layer's own readings; `undefined` for an interpolated stack-alignment vertex. */
+    readonly source?: number | undefined;
+}
+
 /** A chart's stacked geometry: its columns, its stacked areas, and every extent they reach. */
 export interface StackLayout {
     /** The columns inside the render bounds, in layer then point order. */
     columns: ColumnGeometry[];
     /** Each stacked area's points, by its layer's index: its fill from `lo` to `hi` at each instant — a gap where it
      *  has no value. An area on no stack is not here: it fills from the baseline. */
-    areas: Map<number, ChartBandPointValue[]>;
+    areas: Map<number, StackedAreaPoint[]>;
     /** Every column's span per side, and every stacked area point's — drawn or not — for the value domain. */
     extents: { left: number[]; right: number[] };
+}
+
+/** Whether a stacked area layer carries multiple points within a single bucket or explicitly keeps every point (`fold: "none"`). */
+function isUnfoldedArea(layer: Extract<ChartLayerValue, { type: "area" }>, scale: PlanScale): boolean {
+    if (layer.value.fold.type === "none") return true;
+    const seenDrawn = new Set<number>();
+    const seenUndrawn = new Set<number>();
+    for (const p of layer.value.points) {
+        if (!Number.isFinite(p.y)) continue;
+        const bucket = scale.renderBucketOf(p.t);
+        const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
+        if (!Number.isFinite(key)) continue;
+        const set = bucket !== undefined ? seenDrawn : seenUndrawn;
+        if (set.has(key)) return true;
+        set.add(key);
+    }
+    return false;
+}
+
+/** Interpolate a continuous unfolded area value at `x` strictly between `x0` and `x1` according to its curve. */
+function evaluateBetween(curve: string, x0: number, y0: number, x1: number, y1: number, x: number): number {
+    switch (curve) {
+        case "stepAfter": return y0;
+        case "stepBefore": return y1;
+        case "step": return x < (x0 + x1) / 2 ? y0 : y1;
+        default: return y0 + (y1 - y0) * ((x - x0) / (x1 - x0));
+    }
 }
 
 /**
@@ -233,7 +268,10 @@ export interface StackLayout {
  * positive parts climb from 0 and negative parts descend from it. A point
  * outside the render bounds is not drawn, but it still stacks — by its period —
  * so the domain it contributes is the same wherever the window sits. A gap
- * draws nothing, and adds nothing to its stack.
+ * draws nothing, and adds nothing to its stack. When two or more areas on the
+ * same stack keep every point (`fold: "none"`, #1807), they pile at exact
+ * instants over the union of their timestamps so intra-bucket peaks align and
+ * shape the domain accurately.
  *
  * The columns of a bucket stand side by side in it, each at its place
  * ({@link columnPlaces}) — a stack's columns in one — with a little air
@@ -248,10 +286,136 @@ export function layoutStacks(layers: readonly ChartLayerValue[], scale: PlanScal
     const areaStacks: Stacks = { left: new Map(), right: new Map() };
     const places = columnPlaces(layers);
     const columns: ColumnGeometry[] = [];
-    const areas = new Map<number, ChartBandPointValue[]>();
+    const areas = new Map<number, StackedAreaPoint[]>();
     const extents: StackLayout["extents"] = { left: [], right: [] };
+
+    // Identify area stacks that contain >= 2 unfolded layers so they stack at exact instants over their timestamp union.
+    type AreaEntry = { li: number; layer: Extract<ChartLayerValue, { type: "area" }>; unfolded: boolean };
+    const areaGroups = new Map<string, { side: ChartSide; entries: AreaEntry[]; unfoldedCount: number }>();
+    layers.forEach((layer, li) => {
+        if (layer.type !== "area" || layer.value.style.stack.type === "none") return;
+        const side = layer.value.axis.type;
+        const id = `${side}\u0000${layer.value.style.stack.value}`;
+        const unfolded = isUnfoldedArea(layer, scale);
+        let group = areaGroups.get(id);
+        if (group === undefined) {
+            group = { side, entries: [], unfoldedCount: 0 };
+            areaGroups.set(id, group);
+        }
+        group.entries.push({ li, layer, unfolded });
+        if (unfolded) group.unfoldedCount++;
+    });
+
+    const multiUnfolded = new Set<number>();
+    for (const group of areaGroups.values()) {
+        if (group.unfoldedCount < 2) continue;
+        // Build the sorted unique finite timestamp grid across all unfolded layers in this stack.
+        const raw = new Map<number, PlanInstantValue>();
+        for (const { layer, unfolded } of group.entries) {
+            if (!unfolded) continue;
+            for (const p of layer.value.points) {
+                const x = scale.toNumber(p.t);
+                if (Number.isFinite(x) && !raw.has(x)) raw.set(x, p.t);
+            }
+        }
+        const timeline = [...raw.entries()].sort((a, b) => a[0] - b[0]).map(([x, t]) => ({ x, t }));
+        const timeIndex = new Map<number, number>(timeline.map((item, i) => [item.x, i]));
+        // `foldedOnly` accumulates folded layers (base for unfolded layers); `forFolded` also tracks each unfolded layer's
+        // last value in a bucket (base for any folded layer declared above unfolded layers).
+        const foldedOnly: SideStacks = { drawn: new Map(), undrawn: new Map() };
+        const forFolded: SideStacks = { drawn: new Map(), undrawn: new Map() };
+        const unfoldedEnds: StackEnds[] = timeline.map(() => ({ up: 0, down: 0 }));
+
+        for (const { li, layer, unfolded } of group.entries) {
+            multiUnfolded.add(li);
+            const { points, style } = layer.value;
+            if (!unfolded) {
+                areas.set(li, points.map((p, pi): StackedAreaPoint => {
+                    const bucket = scale.renderBucketOf(p.t);
+                    const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
+                    if (!Number.isFinite(p.y) || !Number.isFinite(key)) return { t: p.t, lo: Number.NaN, hi: Number.NaN, edge: Number.NaN, source: pi };
+                    const drawn = bucket !== undefined;
+                    pileOn(foldedOnly, drawn, key, p.y);
+                    const { lo, hi } = pileOn(forFolded, drawn, key, p.y);
+                    extents[group.side].push(lo, hi);
+                    return { t: p.t, lo, hi, edge: p.y < 0 ? lo : hi, source: pi };
+                }));
+                continue;
+            }
+            const curve = style.curve.type === "some" ? style.curve.value.type : "linear";
+            const xs = points.map((p) => scale.toNumber(p.t));
+            const out: StackedAreaPoint[] = [];
+            const seenTi = new Map<number, StackEnds>();
+            const lastBucketVal = { drawn: new Map<number, number>(), undrawn: new Map<number, number>() };
+
+            const pushAt = (t: PlanInstantValue, y: number, ti: number, source: number | undefined): void => {
+                if (!Number.isFinite(y)) {
+                    out.push({ t, lo: Number.NaN, hi: Number.NaN, edge: Number.NaN, source });
+                    return;
+                }
+                const uEnds = unfoldedEnds[ti]!;
+                const base = seenTi.get(ti);
+                if (base === undefined) seenTi.set(ti, { up: uEnds.up, down: uEnds.down });
+                else {
+                    uEnds.up = base.up;
+                    uEnds.down = base.down;
+                }
+                const bucket = scale.renderBucketOf(t);
+                const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(t));
+                const fEnds = Number.isFinite(key) ? (bucket !== undefined ? foldedOnly.drawn : foldedOnly.undrawn).get(key) : undefined;
+                let lo: number;
+                let hi: number;
+                if (y >= 0) {
+                    lo = (fEnds?.up ?? 0) + uEnds.up;
+                    hi = lo + y;
+                    uEnds.up += y;
+                } else {
+                    hi = (fEnds?.down ?? 0) + uEnds.down;
+                    lo = hi + y;
+                    uEnds.down += y;
+                }
+                extents[group.side].push(lo, hi);
+                out.push({ t, lo, hi, edge: y < 0 ? lo : hi, source });
+            };
+
+            for (let pi = 0; pi < points.length; pi++) {
+                const curr = points[pi]!;
+                const x1 = xs[pi]!;
+                if (pi > 0) {
+                    const prev = points[pi - 1]!;
+                    const x0 = xs[pi - 1]!;
+                    const continuous = Number.isFinite(x0) && Number.isFinite(x1) && x1 > x0
+                        && Number.isFinite(prev.y) && (Number.isFinite(curr.y) || curve === "stepAfter");
+                    if (continuous) {
+                        const startTi = timeIndex.get(x0)!;
+                        for (let ti = startTi + 1; ti < timeline.length && timeline[ti]!.x < x1; ti++) {
+                            const item = timeline[ti]!;
+                            const yt = evaluateBetween(curve, x0, prev.y, x1, curr.y, item.x);
+                            pushAt(item.t, yt, ti, undefined);
+                        }
+                    }
+                }
+                if (!Number.isFinite(x1)) {
+                    out.push({ t: curr.t, lo: Number.NaN, hi: Number.NaN, edge: Number.NaN, source: pi });
+                    continue;
+                }
+                const ti = timeIndex.get(x1)!;
+                pushAt(curr.t, curr.y, ti, pi);
+                if (Number.isFinite(curr.y)) {
+                    const bucket = scale.renderBucketOf(curr.t);
+                    const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(curr.t));
+                    if (Number.isFinite(key)) lastBucketVal[bucket !== undefined ? "drawn" : "undrawn"].set(key, curr.y);
+                }
+            }
+            for (const [key, v] of lastBucketVal.drawn) pileOn(forFolded, true, key, v);
+            for (const [key, v] of lastBucketVal.undrawn) pileOn(forFolded, false, key, v);
+            areas.set(li, out);
+        }
+    }
+
     layers.forEach((layer, li) => {
         if (layer.type === "area") {
+            if (multiUnfolded.has(li)) return;
             const { points, axis, style } = layer.value;
             // An area on no stack fills from the baseline, as the row draws it.
             if (style.stack.type === "none") return;
@@ -259,10 +423,10 @@ export function layoutStacks(layers: readonly ChartLayerValue[], scale: PlanScal
             // Where the areas under it end at each bucket, as this one first reaches it: an area that keeps every point
             // (fold `none`) holds several in a bucket, each on the same ends, and the areas over it stand on its last.
             const bases: Record<"drawn" | "undrawn", Map<number, StackEnds>> = { drawn: new Map(), undrawn: new Map() };
-            areas.set(li, points.map((p) => {
+            areas.set(li, points.map((p, pi): StackedAreaPoint => {
                 const bucket = scale.renderBucketOf(p.t);
                 const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
-                if (!Number.isFinite(p.y) || !Number.isFinite(key)) return { t: p.t, lo: Number.NaN, hi: Number.NaN };
+                if (!Number.isFinite(p.y) || !Number.isFinite(key)) return { t: p.t, lo: Number.NaN, hi: Number.NaN, edge: Number.NaN, source: pi };
                 const drawn = bucket !== undefined;
                 const ends = (drawn ? pile.drawn : pile.undrawn).get(key);
                 const base = bases[drawn ? "drawn" : "undrawn"].get(key);
@@ -273,7 +437,7 @@ export function layoutStacks(layers: readonly ChartLayerValue[], scale: PlanScal
                 }
                 const { lo, hi } = pileOn(pile, drawn, key, p.y);
                 extents[axis.type].push(lo, hi);
-                return { t: p.t, lo, hi };
+                return { t: p.t, lo, hi, edge: p.y < 0 ? lo : hi, source: pi };
             }));
             return;
         }
@@ -330,7 +494,7 @@ export function bubbleRadius(kind: ChartKindValue, height: number): ((size: numb
     for (const layer of kind.layers) {
         if (layer.type !== "scatter") continue;
         for (const p of layer.value.points) {
-            if (p.size.type === "some" && p.size.value > most) most = p.size.value;
+            if (p.size.type === "some" && Number.isFinite(p.size.value) && p.size.value > most) most = p.size.value;
         }
     }
     if (!(most > 0) || !Number.isFinite(most)) return undefined;

@@ -84,7 +84,7 @@ import {
     CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, heldToGaps, layoutStacks, lonePoint,
     readoutLines, readoutTable, splitAtNow, styleOf, valueScale,
     type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartLegend, type ChartPointValue, type ChartSide,
-    type ChartStyleValue, type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
+    type ChartStyleValue, type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type StackedAreaPoint, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -274,15 +274,23 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
     const tipRef = useRef<HTMLDivElement | null>(null);
     // The pointer is over this row's plot: its moves say so before the cursor channel hears of them.
     const hovered = useRef(false);
+    const lastBucket = useRef(-1);
+    const dismissed = useRef(false);
+    const scrollClose = useRef<(() => void) | undefined>(undefined);
     const cursor = usePlanCursor();
     // The full readout stands where the plot was as it opened: a scroll moves the plot from under it, so a scroll
     // closes it, and the pointer's next move opens it where the plot is then.
-    const closeTip = useCallback(function close() {
+    const closeTip = useCallback(() => {
         tipRef.current?.removeAttribute("data-open");
-        window.removeEventListener("scroll", close, true);
+        if (scrollClose.current !== undefined) {
+            window.removeEventListener("scroll", scrollClose.current, true);
+            scrollClose.current = undefined;
+        }
     }, []);
     useEffect(() => closeTip, [closeTip]);
     const showReading = useCallback((bucket: number) => {
+        lastBucket.current = bucket;
+        dismissed.current = false;
         if (bucket < 0) hovered.current = false;
         readoutRef.current?.removeAttribute("data-open");
         closeTip();
@@ -308,7 +316,12 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
             // Where the plot is near the page's foot, it stands up from it, whole.
             const tall = tip.getBoundingClientRect().height;
             if (rect.top + 2 + tall > window.innerHeight) tip.style.top = `${Math.max(0, window.innerHeight - tall - 2)}px`;
-            window.addEventListener("scroll", closeTip, { capture: true, passive: true });
+            const onScroll = () => {
+                dismissed.current = true;
+                closeTip();
+            };
+            scrollClose.current = onScroll;
+            window.addEventListener("scroll", onScroll, { capture: true, passive: true });
             return;
         }
         const el = readoutRef.current;
@@ -321,7 +334,17 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
         el.style.transform = shift;
         el.setAttribute("data-open", "");
     }, [readings, bare, scale, closeTip]);
-    useEffect(() => cursor.subscribe(showReading), [cursor, showReading]);
+    useEffect(() => {
+        const unsub = cursor.subscribe(showReading);
+        const readout = readoutRef.current;
+        return () => {
+            unsub();
+            lastBucket.current = -1;
+            dismissed.current = false;
+            closeTip();
+            readout?.removeAttribute("data-open");
+        };
+    }, [cursor, showReading, closeTip]);
 
     // The chart's words (#819) — a strip says its values block by block instead.
     const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale, words)), [ctx, kind, scale, words]);
@@ -419,18 +442,20 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 const stacked = stacks.areas.get(li);
                 if (stacked !== undefined) {
                     // On its stack (#1753): its fill from where the areas under it end to where it does, its line
-                    // along its top.
+                    // along its outer edge (`hi` for non-negative values, `lo` for negative values).
                     const placed = drawnPoints(heldToGaps(stacked, style, bounded), scale);
                     if (placed.length === 0) break;
-                    const top = (q: Placed<ChartBandPointValue>) => s(q.p.hi);
+                    const outer = (q: Placed<StackedAreaPoint>) => s(q.p.edge);
                     pathMarks.push(
-                        <Area<Placed<ChartBandPointValue>> key={`area-${li}`} data={placed} x={x} y0={(q) => s(q.p.lo)} y1={top}
+                        <Area<Placed<StackedAreaPoint>> key={`area-${li}`} data={placed} x={x} y0={(q) => s(q.p.lo)} y1={(q) => s(q.p.hi)}
                             defined={hasBounds} curve={curve} data-plan-mark="area" {...look} />,
-                        <LinePath<Placed<ChartBandPointValue>> key={`arealine-${li}`} data={placed} x={x} y={top}
+                        <LinePath<Placed<StackedAreaPoint>> key={`arealine-${li}`} data={placed} x={x} y={outer}
                             defined={hasBounds} curve={curve}
                             vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
                     );
-                    pointDots(li, points, (pi) => s(stacked[pi]!.hi), style);
+                    const edgeByPoint = new Array<number>(points.length);
+                    for (const pt of stacked) if (pt.source !== undefined) edgeByPoint[pt.source] = pt.edge;
+                    pointDots(li, points, (pi) => s(edgeByPoint[pi]!), style);
                     break;
                 }
                 const placed = drawnPoints(heldToGaps(points, style, valued), scale);
@@ -497,6 +522,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 break;
             }
             case "refLine": {
+                if (!Number.isFinite(layer.value.y)) break;
                 const at = ys(layer.value.axis.type)(layer.value.y);
                 pathMarks.push(<line key={`ref-${li}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={at} y2={at}
                     vectorEffect="non-scaling-stroke" data-plan-mark="refline" style={refLooks[li]?.style} />);
@@ -504,7 +530,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
             }
             case "refDot": {
                 const f = scale.fracOf(layer.value.t);
-                if (!inBounds(f)) break;
+                if (!inBounds(f) || !Number.isFinite(layer.value.y)) break;
                 dotMarks.push(<circle key={`refdot-${li}`} cx={`${f * 100}%`} cy={ys(layer.value.axis.type)(layer.value.y)}
                     r={3} data-plan-mark="refdot" />);
                 break;
@@ -519,8 +545,14 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
             data-left-ticks={leftGlyphs > 0 ? "" : undefined}
             style={leftGlyphs > 0 ? ({ "--left-glyphs": leftGlyphs } as CSSProperties) : undefined}
             onClick={() => dispatch({ t: "row.select", key: rowKey })}
-            onPointerMove={() => { hovered.current = true; }}
-            onPointerLeave={() => { hovered.current = false; }}>
+            onPointerMove={() => {
+                hovered.current = true;
+                if (dismissed.current && lastBucket.current >= 0) showReading(lastBucket.current);
+            }}
+            onPointerLeave={() => {
+                hovered.current = false;
+                dismissed.current = false;
+            }}>
             {/* refBand washes under everything — a span of instants, or the
                 render bounds, so a pan reveals the rest of the band; a range of
                 values on its axis (a target zone), or the plot's height (#1753) */}
@@ -586,6 +618,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 taller charts clamp the label inside the plot box. */}
             {height >= CHART_TALL_PX && kind.layers.map((layer, li) => {
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
+                    if (!Number.isFinite(layer.value.y)) return null;
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 11));
                     // In its line's colour, where it has one (#1753); at the plot's right edge (`data-plan-line-caption`).
                     return <div key={`reflabel-${li}`} className={slot(styles.refLabel)} data-plan-line-caption=""
@@ -593,7 +626,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 }
                 if (layer.type === "refDot" && layer.value.label.type === "some") {
                     const f = scale.fracOf(layer.value.t);
-                    if (!(f > scale.renderMin && f < scale.renderMax)) return null;
+                    if (!(f > scale.renderMin && f < scale.renderMax) || !Number.isFinite(layer.value.y)) return null;
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 6));
                     return <div key={`refdotlabel-${li}`} className={slot(styles.refLabel)}
                         style={{ left: `calc(${f * 100}% + 5px)`, top: `${top}px` }}>{layer.value.label.value}</div>;
