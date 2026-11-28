@@ -15,6 +15,13 @@
  *   in their colours with their units, and hovering a week reads them all. The
  *   right axes read their numbers in a rail after every row's plot.
  *
+ * And four days of a press room's readings —
+ *
+ * - `planChartReadings`, a line that keeps every reading where it was taken
+ *   (`fold: "none"`), a target held up to its next change or up to where it
+ *   was switched off, and a forecast from the last reading on; beside the same
+ *   readings folded to a day's mean.
+ *
  * @packageDocumentation
  */
 
@@ -497,6 +504,106 @@ export const planCharts = example({
                             layers: [Plan.column(Plan.values("weeks", (w) => ({ y: w.get("Printed") })), { label: "Printed" })],
                         }),
                     ]),
+                ]} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * A room's readings, many a day, each at the instant it was taken: what was
+ * read, the target the room's control held from each change of it — `NaN`
+ * where it was switched off — and the forecast from the last reading on.
+ */
+export const RoomReadings = StructType({
+    label: StringType,
+    humidity: DictType(DateTimeType, FloatType),
+    target: DictType(DateTimeType, FloatType),
+    forecast: DictType(DateTimeType, FloatType),
+});
+
+/** Four days of the press room's humidity, in %, read every four hours from Monday 1 June 2026; now midday Thursday. */
+export const planRoomReadings = e3.input("plan_room_readings", DictType(StringType, RoomReadings), variant("value", new Map<string, ValueTypeOf<typeof RoomReadings>>([
+    ["press-room", {
+        label: "Press room",
+        humidity: new SortedMap([
+            [new Date("2026-06-01T02:00:00Z"), 48.0], [new Date("2026-06-01T06:00:00Z"), 50.0], [new Date("2026-06-01T10:00:00Z"), 53.0],
+            [new Date("2026-06-01T14:00:00Z"), 55.0], [new Date("2026-06-01T18:00:00Z"), 54.0], [new Date("2026-06-01T22:00:00Z"), 51.0],
+            [new Date("2026-06-02T02:00:00Z"), 49.0], [new Date("2026-06-02T06:00:00Z"), 50.0], [new Date("2026-06-02T10:00:00Z"), 52.0],
+            [new Date("2026-06-02T14:00:00Z"), 56.0], [new Date("2026-06-02T18:00:00Z"), 57.0], [new Date("2026-06-02T22:00:00Z"), 55.0],
+            [new Date("2026-06-03T02:00:00Z"), 52.0], [new Date("2026-06-03T06:00:00Z"), 51.0], [new Date("2026-06-03T10:00:00Z"), 50.0],
+            [new Date("2026-06-03T14:00:00Z"), 49.0], [new Date("2026-06-03T18:00:00Z"), 50.0], [new Date("2026-06-03T22:00:00Z"), 51.0],
+            [new Date("2026-06-04T02:00:00Z"), 52.0], [new Date("2026-06-04T06:00:00Z"), 53.0], [new Date("2026-06-04T10:00:00Z"), 54.0],
+        ], compareFor(DateTimeType)),
+        // Set at the start of each day's shift, off at its end — changed twice on Tuesday — and set for Thursday's.
+        target: new SortedMap([
+            [new Date("2026-06-01T06:00:00Z"), 50.0], [new Date("2026-06-01T20:00:00Z"), Number.NaN],
+            [new Date("2026-06-02T06:00:00Z"), 55.0], [new Date("2026-06-02T15:00:00Z"), 52.0], [new Date("2026-06-02T20:00:00Z"), Number.NaN],
+            [new Date("2026-06-03T06:00:00Z"), 50.0], [new Date("2026-06-03T20:00:00Z"), Number.NaN],
+            [new Date("2026-06-04T06:00:00Z"), 54.0], [new Date("2026-06-04T20:00:00Z"), Number.NaN],
+        ], compareFor(DateTimeType)),
+        // From the last reading, every six hours.
+        forecast: new SortedMap([
+            [new Date("2026-06-04T10:00:00Z"), 54.0], [new Date("2026-06-04T16:00:00Z"), 56.0], [new Date("2026-06-04T22:00:00Z"), 55.0],
+            [new Date("2026-06-05T04:00:00Z"), 52.0], [new Date("2026-06-05T10:00:00Z"), 53.0], [new Date("2026-06-05T16:00:00Z"), 55.0],
+            [new Date("2026-06-05T22:00:00Z"), 54.0],
+        ], compareFor(DateTimeType)),
+    }],
+])));
+
+/**
+ * A press room's humidity, read every four hours, on a Plan a column a day
+ * (`fold: "none"`):
+ *
+ * - every reading where it was taken, six in each day's column, at every
+ *   resolution the toolbar offers — the day's and the week's;
+ * - the target the room's control held, a step after each change of it, up to
+ *   its next change or up to where it was switched off for the night, where
+ *   the line breaks — Tuesday's two changes both drawn;
+ * - the forecast from the last reading on, starting beside it.
+ *
+ * Beneath it, the same readings as a line that folds, as every line does unless
+ * it says otherwise: one point a day, the day's mean.
+ */
+export const planChartReadings = example({
+    keywords: [
+        "Plan", "chart", "Plan.series.chart", "Plan.line", "Plan.values", "fold", "none", "every point", "every reading", "unfolded",
+        "detail", "readings", "many a day", "stepAfter", "step", "held", "target", "switched off", "gap", "NaN",
+        "forecast", "last reading", "mean", "day", "resolution",
+    ],
+    description: "A press room's humidity, read every four hours, on a Plan a column a day: every reading drawn where it was taken (fold: \"none\"), the target its control held stepping at each change, held up to its next change or up to where it was switched off for the night, and a forecast starting beside the last reading — beneath it, the same readings folded to a day's mean",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The room's readings, read whole.
+            const rooms = $.let(Data.bind(planRoomReadings));
+            return <Plan
+                axis={Plan.axis({
+                    window: { min: new Date("2026-06-01T00:00:00Z"), max: new Date("2026-06-06T00:00:00Z") },
+                    resolution: "day", resolutions: ["day", "week"], now: new Date("2026-06-04T12:00:00Z"),
+                })}
+                data={rooms}
+                series={[
+                    // Every reading where it was taken: each layer keeps its points, whatever a column holds.
+                    Plan.series.chart(RoomReadings, {
+                        key: "readings", title: "Every reading",
+                        label: (r) => r.label,
+                        height: Plan.fixed("160px"),
+                        left: { label: "%", numTicks: 4 },
+                        layers: [
+                            Plan.line(Plan.values("humidity", (v) => ({ y: v })), { label: "Humidity", fold: "none", width: 2, dots: true }),
+                            // A step after each change, up to the next, or up to where it was switched off: there the line breaks.
+                            Plan.line(Plan.values("target", (v) => ({ y: v })), { label: "Target", fold: "none", curve: "stepAfter", color: "red.solid", dash: "6 4" }),
+                            Plan.line(Plan.values("forecast", (v) => ({ y: v })), { label: "Forecast", fold: "none", curve: "monotoneX", dash: "2 3" }),
+                        ],
+                    }),
+                    // The same readings folding as a line does unless it says otherwise: a day's mean, a point a column.
+                    Plan.series.chart(RoomReadings, {
+                        key: "daily", title: "A day's mean",
+                        label: () => "Daily mean",
+                        height: "expanded",
+                        left: { label: "%", numTicks: 3 },
+                        layers: [Plan.line(Plan.values("humidity", (v) => ({ y: v })), { label: "Humidity", width: 2, dots: true })],
+                    }),
                 ]} />;
         }}</Reactive>
     )),

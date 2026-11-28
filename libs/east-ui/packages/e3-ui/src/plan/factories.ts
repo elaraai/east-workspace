@@ -75,6 +75,9 @@ import {
     PlanAxisSideType,
     type PlanAxisSideLiteral,
     PlanBreachType,
+    PlanFoldType,
+    PlanLineFoldType,
+    type PlanLineFoldLiteral,
     PlanRollupType,
     PlanRunType,
     PlanDecisionMarkType,
@@ -118,7 +121,7 @@ import {
  *
  * @property axis - Which y-axis the layer scales against (default `"left"`)
  * @property breach - Breach threshold (`{ above }` / `{ below }`) — beyond it, marks render warn
- * @property fold - How a line, area or column layer folds the points in one bucket (#824)
+ * @property fold - How a line, area or column layer folds the points in one bucket (#824); `"none"` draws every point of a line or an area at its own instant
  * @property label - Its name, which the legend and the tooltip call it by; layers of one name share a colour
  * @property color - Its colour, a theme token (`"teal.solid"`) or a CSS colour; unset, a named layer takes the next series colour
  * @property curve - How a line, an area or a band joins its points (`"linear"` unless given)
@@ -140,8 +143,10 @@ export interface PlanLayerChannels {
     breach?: { above: SubtypeExprOrValue<FloatType> | number } | { below: SubtypeExprOrValue<FloatType> | number };
     /** How a line, area or column layer folds the points in one bucket at a coarser resolution than
      *  theirs — `"sum"` / `"mean"` / `"min"` / `"max"` / `"last"` / `"count"` (default: a column's
-     *  `"sum"`, a line's or an area's `"mean"`, #824). Scatter and band layers draw every point. */
-    fold?: PlanFoldInput;
+     *  `"sum"`, a line's or an area's `"mean"`, #824) — or, for a line or an area, `"none"` (#1807): every
+     *  point drawn at its own instant, at every resolution. A column, one bar a bucket, refuses `"none"`.
+     *  Scatter and band layers draw every point. */
+    fold?: PlanLineFoldInput;
     /** Its name, which the legend and the tooltip call it by — a `Chart.*` layer's `key`. Layers of one name are one
      *  series, which share a colour. */
     label?: SubtypeExprOrValue<StringType>;
@@ -174,6 +179,26 @@ export interface PlanLayerChannels {
     tooltip?: SubtypeExprOrValue<BooleanType>;
     /** Where it draws among the row's layers: higher draws later (default 0, in the order declared). */
     order?: number;
+}
+
+/** A line's or an area's fold input — a {@link PlanLineFoldLiteral} or a `PlanLineFoldType` value / expression. */
+export type PlanLineFoldInput = PlanLineFoldLiteral | SubtypeExprOrValue<PlanLineFoldType>;
+
+/** Why a column refuses `fold: "none"`. */
+const UNFOLDED_COLUMN = "Plan.chart: a column draws one bar a bucket, so it folds the points in it — `fold: \"none\"` keeps every point of a line or an area";
+
+/**
+ * A column layer's fold — the points in a bucket folded to one column, their
+ * `sum` unless it declares another (#824).
+ *
+ * @param fold - The declared fold, if any
+ * @returns The fold
+ * @throws {Error} When it declares `"none"`: only a line or an area keeps every point
+ */
+function columnFold(fold: PlanLineFoldInput | undefined): ExprType<PlanFoldType> {
+    if (fold === "none") throw new Error(UNFOLDED_COLUMN);
+    // A fold given as an expression of a line's fold type: East refuses one that can be `none`.
+    return resolveTag((fold ?? "sum") as PlanFoldInput, PlanFoldType);
 }
 
 /** A Chart layer wrapped with Plan-only channels — see {@link Plan.layer}. */
@@ -369,8 +394,8 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
         return layer.data.map((_$, s) => East.value(variant("line", {
             points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis), breach: breachOpt(channels.breach),
-            // A line is a level: a bucket folds its points to their mean (#824).
-            fold: resolveFold(channels.fold, "mean"),
+            // A line is a level: a bucket folds its points to their mean (#824), unless it keeps every point.
+            fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType),
             style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
@@ -378,7 +403,7 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
         return layer.data.map((_$, s) => East.value(variant("area", {
             points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
-            fold: resolveFold(channels.fold, "mean"),
+            fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType),
             style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
@@ -395,7 +420,7 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
         axis:   axisSide(channels.axis ?? layer.style.axis),
         breach: breachOpt(channels.breach),
         // A column is an amount: a bucket folds its points to their sum (#824).
-        fold: resolveFold(channels.fold, "sum"),
+        fold: columnFold(channels.fold),
         style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key)),
     }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
 }
@@ -437,12 +462,14 @@ function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels:
     const style = chartStyle({}, channels, East.value(none, OptionType(StringType)), East.value(none, OptionType(StringType)));
     const arm = (() => {
         switch (mark) {
-            case "line":    return variant("line", { points, axis, breach: breachOpt(channels.breach), fold: resolveFold(channels.fold, "mean"), style });
-            case "area":    return variant("area", { points, axis, fold: resolveFold(channels.fold, "mean"), style });
+            case "line":    return variant("line", {
+                points, axis, breach: breachOpt(channels.breach), fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType), style,
+            });
+            case "area":    return variant("area", { points, axis, fold: resolveTag(channels.fold ?? "mean", PlanLineFoldType), style });
             case "column":  return variant("column", {
                 points, axis,
                 breach: breachOpt(channels.breach),
-                fold:   resolveFold(channels.fold, "sum"),
+                fold:   columnFold(channels.fold),
                 style,
             });
             // A values read gives a point its value alone: each draws the layer's own dot.
@@ -465,7 +492,7 @@ function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels:
  * @param values - The read
  * @param channels - The Plan channels
  * @returns The description
- * @throws {Error} When `values` is not a `Plan.values` read
+ * @throws {Error} When `values` is not a `Plan.values` read, or a column declares `fold: "none"`
  */
 function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: PlanLayerChannels | undefined): T {
     const read = planReadOf(values);
@@ -475,9 +502,12 @@ function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: Plan
     }
     const fold = mark === "line" || mark === "area" ? "mean" : mark === "column" ? "sum" : undefined;
     const declared = channels?.fold;
+    if (mark === "column" && declared === "none") throw new Error(UNFOLDED_COLUMN);
+    // What its rows past the cap shade by: a line or an area that keeps every point, by their mean — the level it draws.
+    const shade = declared === "none" ? "mean" : declared;
     return planUse<T>({
         makes: "layer", read, cell: mark === "band" ? "band" : "point",
-        fold: declared === undefined ? fold : typeof declared === "string" ? declared : undefined,
+        fold: shade === undefined ? fold : typeof shade === "string" ? shade : undefined,
         rollup: false,
         wrap: (points) => valuesLayer(mark, points, channels ?? {}),
     });
@@ -485,7 +515,8 @@ function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: Plan
 
 /**
  * A chart row's line over a row's values — a vertex at each value's instant,
- * its key (#1436). A bucket folds the points in it to their mean by default.
+ * its key (#1436). A bucket folds the points in it to their mean by default;
+ * `fold: "none"` draws every point at its own instant, at every resolution.
  *
  * @typeParam R - The entry type, inferred from where the layer is used
  * @typeParam K - The axis kind the values' key rides
@@ -503,7 +534,8 @@ export function createLine<R extends EastType, K extends PlanAxisKindLiteral, U,
 
 /**
  * A chart row's filled area over a row's values (#1436). A bucket folds the
- * points in it to their mean by default.
+ * points in it to their mean by default; `fold: "none"` draws every point at
+ * its own instant, at every resolution.
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the values' key rides

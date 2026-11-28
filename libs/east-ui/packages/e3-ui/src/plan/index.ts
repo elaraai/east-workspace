@@ -112,6 +112,7 @@ import {
     PlanBlockType,
     PlanBlocksType,
     PlanFoldType,
+    PlanLineFoldType,
     PlanQuantityType,
     PlanStatusType,
     PlanHeatScaleType,
@@ -306,6 +307,8 @@ export {
     type PlanBlocksValue,
     PlanFoldType,
     type PlanFoldLiteral,
+    PlanLineFoldType,
+    type PlanLineFoldLiteral,
     PlanQuantityType,
     PlanStatusType,
     PlanHeatScaleType,
@@ -412,6 +415,7 @@ export {
 export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput, type PlanRowFields, type PlanGutterFields } from "./assemble.js";
 export {
     type PlanLayerChannels,
+    type PlanLineFoldInput,
     type PlanWrappedLayer,
     type PlanChartLayerInput,
     type PlanChartAxisInput,
@@ -809,6 +813,8 @@ export interface PlanNamespace extends PlanTagType {
         ElementRef: typeof PlanElementRefType;
         /** How a bucket folds the values that fall in it (#824). */
         Fold: typeof PlanFoldType;
+        /** How a line or an area shows the points in one bucket: a fold, or `none` — every point at its own instant (#1807). */
+        LineFold: typeof PlanLineFoldType;
         /** A quantity — a number, its unit and format (#824). */
         Quantity: typeof PlanQuantityType;
         /** An item's status — its words, its tone and whether it draws as an open ring (#1541): what `Plan.status` builds. */
@@ -968,6 +974,7 @@ const PLAN_MEMBERS = {
         RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,
         Fold: PlanFoldType,
+        LineFold: PlanLineFoldType,
         Quantity: PlanQuantityType,
         Status: PlanStatusType,
         HeatScale: PlanHeatScaleType,

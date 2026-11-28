@@ -17,7 +17,9 @@
  * wrong value), where clipping the drawn segment does not.
  *
  * A point whose `y` is not finite (`NaN`) is a GAP: lines and areas break
- * there instead of interpolating across it, and it counts toward no domain.
+ * there instead of interpolating across it, and it counts toward no domain. A
+ * step after each point (`stepAfter`) holds its value up to the gap's instant
+ * first, as it does up to any next point.
  *
  * @packageDocumentation
  */
@@ -254,11 +256,22 @@ export function layoutStacks(layers: readonly ChartLayerValue[], scale: PlanScal
             // An area on no stack fills from the baseline, as the row draws it.
             if (style.stack.type === "none") return;
             const pile = stackNamed(areaStacks, axis.type, style.stack.value);
+            // Where the areas under it end at each bucket, as this one first reaches it: an area that keeps every point
+            // (fold `none`) holds several in a bucket, each on the same ends, and the areas over it stand on its last.
+            const bases: Record<"drawn" | "undrawn", Map<number, StackEnds>> = { drawn: new Map(), undrawn: new Map() };
             areas.set(li, points.map((p) => {
                 const bucket = scale.renderBucketOf(p.t);
                 const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
                 if (!Number.isFinite(p.y) || !Number.isFinite(key)) return { t: p.t, lo: Number.NaN, hi: Number.NaN };
-                const { lo, hi } = pileOn(pile, bucket !== undefined, key, p.y);
+                const drawn = bucket !== undefined;
+                const ends = (drawn ? pile.drawn : pile.undrawn).get(key);
+                const base = bases[drawn ? "drawn" : "undrawn"].get(key);
+                if (base === undefined) bases[drawn ? "drawn" : "undrawn"].set(key, { up: ends?.up ?? 0, down: ends?.down ?? 0 });
+                else if (ends !== undefined) {
+                    ends.up = base.up;
+                    ends.down = base.down;
+                }
+                const { lo, hi } = pileOn(pile, drawn, key, p.y);
                 extents[axis.type].push(lo, hi);
                 return { t: p.t, lo, hi };
             }));
@@ -477,18 +490,45 @@ export function legendFit(lines: number, room: number): { shown: number; more: n
     return { shown: fits - 1, more: lines - (fits - 1) };
 }
 
+/** Whether a series holds each value forward up to its next point — a step after each point (`stepAfter`). */
+const holdsForward = (style: ChartStyleValue | undefined): boolean =>
+    style !== undefined && style.curve.type === "some" && style.curve.value.type === "stepAfter";
+
 /**
  * Whether a point of a line or an area is one no stroke can draw (#1753): it
  * has a value, and the points either side of it have none or are not there —
- * so a dot draws it, and a sparse series loses no reading.
+ * so a dot draws it, and a sparse series loses no reading. A step after each
+ * point holds a value up to the next point, a gap's too, so there a point is
+ * alone only with none after it.
  *
  * @param points - The series' points, in draw order
  * @param i - The point's index
+ * @param style - The layer's styling, whose curve says whether it holds its values forward
  * @returns `true` for a point with no neighbour to join
  */
-export function lonePoint(points: readonly ChartPointValue[], i: number): boolean {
+export function lonePoint(points: readonly ChartPointValue[], i: number, style?: ChartStyleValue): boolean {
     const valued = (p: ChartPointValue | undefined) => p !== undefined && Number.isFinite(p.y);
-    return valued(points[i]) && !valued(points[i - 1]) && !valued(points[i + 1]);
+    if (!valued(points[i]) || valued(points[i - 1])) return false;
+    return holdsForward(style) ? points[i + 1] === undefined : !valued(points[i + 1]);
+}
+
+/**
+ * The points a series draws, each value held up to the gap that ends its run
+ * where the series holds its values forward (`stepAfter`, #1807): a vertex at the
+ * gap's instant, at the value before it — so the step reaches the gap and the
+ * series breaks there, never at its last point. Every other curve draws its
+ * points as they are.
+ *
+ * @param points - The series' points, in draw order
+ * @param style - The layer's styling, whose curve decides
+ * @param valued - Whether a point has a value — a gap has none
+ * @returns The points to draw — `points` itself where nothing is held
+ */
+export function heldToGaps<P extends { t: PlanInstantValue }>(points: readonly P[], style: ChartStyleValue, valued: (p: P) => boolean): readonly P[] {
+    if (!holdsForward(style)) return points;
+    const ends = (p: P, i: number) => i > 0 && !valued(p) && valued(points[i - 1]!);
+    if (!points.some(ends)) return points;
+    return points.flatMap((p, i) => (ends(p, i) ? [{ ...points[i - 1]!, t: p.t }, p] : [p]));
 }
 
 /** A value axis's extent. */

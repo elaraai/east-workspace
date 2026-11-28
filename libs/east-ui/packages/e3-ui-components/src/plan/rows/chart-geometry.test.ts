@@ -25,8 +25,8 @@ import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
     CHART_TALL_PX, axisFormatter, breached, bubbleRadius, chartDomains, chartInks, chartLegend, chartTicks, drawOrder, drawnPoints,
-    layoutStacks, legendFit, lonePoint, readoutLines, readoutTable, splitAtNow, valueScale,
-    type ChartKindValue, type ChartLayerValue,
+    heldToGaps, layoutStacks, legendFit, lonePoint, readoutLines, readoutTable, splitAtNow, valueScale,
+    type ChartKindValue, type ChartLayerValue, type ChartStyleValue,
 } from "./chart-geometry.js";
 import { planMessages } from "../messages.js";
 import { PLAN_WORDS, planWords } from "../words.js";
@@ -242,6 +242,28 @@ describe("areas that share a stack pile up (#1753)", () => {
         expect(bounds(1)).toEqual([[10, 15], [-4, 0], [0, 6]]);
         expect(stacks.areas.has(2)).toBe(false);
         expect(chartDomains(kind, stacks).left).toEqual({ min: -4, max: 20 });
+    });
+
+    test("an area that keeps every point stands each of a bucket's points on the areas under it there, never on its own, and the areas over it stand on its last", () => {
+        const scale = axis(2);
+        const area = (points: { t: number; y: number }[], fold: "mean" | "none") => variant("area", {
+            points: points.map((p) => pt(p.t, p.y)), axis: variant("left", null), fold: variant(fold, null),
+            style: {
+                label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                size: none, stack: some("load"), legend: true, tooltip: true, order: none,
+            },
+        }) as ChartLayerValue;
+        const kind = chart([
+            area([{ t: 0.5, y: 10 }], "mean"),
+            // Two readings in the first bucket, and one in the second.
+            area([{ t: 0.2, y: 4 }, { t: 0.6, y: 6 }, { t: 1.5, y: 2 }], "none"),
+            area([{ t: 0.5, y: 1 }], "mean"),
+        ]);
+        const stacks = layoutStacks(kind.layers, scale);
+        const bounds = (li: number) => stacks.areas.get(li)!.map((p) => [p.lo, p.hi]);
+        expect(bounds(1)).toEqual([[10, 14], [10, 16], [0, 2]]);
+        expect(bounds(2)).toEqual([[16, 17]]);
+        expect(chartDomains(kind, stacks).left).toEqual({ min: 0, max: 17 });
     });
 });
 
@@ -577,6 +599,37 @@ describe("how each layer draws (#1753)", () => {
     test("a point with a value and none either side is one no stroke can draw", () => {
         const points = [pt(0.5, 3), pt(1.5, Number.NaN), pt(2.5, 4), pt(3.5, Number.NaN), pt(4.5, 5), pt(5.5, 6)];
         expect(points.map((_, i) => lonePoint(points, i))).toEqual([true, false, true, false, false, false]);
+    });
+
+    describe("a step after each point (stepAfter) holds its value up to its next point, a gap's too (#1807)", () => {
+        const styled = (curve: "stepAfter" | "step" | undefined): ChartStyleValue => ({
+            label: none, color: none, curve: curve !== undefined ? some(variant(curve, null)) : none, width: none, dash: none, dots: false,
+            fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+        }) as ChartStyleValue;
+        const valued = (p: { y: number }) => Number.isFinite(p.y);
+
+        test("a vertex at each gap that follows a value, at that value — the step reaches the gap and the line breaks there; a gap after a gap, or a run that ends without one, adds none", () => {
+            const points = [pt(2.1, 35), pt(2.4, 30), pt(4.9, 24), pt(6.5, Number.NaN), pt(6.8, Number.NaN), pt(7.2, 26)];
+            expect(heldToGaps(points, styled("stepAfter"), valued))
+                .toEqual([pt(2.1, 35), pt(2.4, 30), pt(4.9, 24), pt(6.5, 24), pt(6.5, Number.NaN), pt(6.8, Number.NaN), pt(7.2, 26)]);
+            // A band's bounds are held as a line's value is.
+            const band = [{ t: numberInstant(0.5), lo: 1, hi: 2 }, { t: numberInstant(1.5), lo: Number.NaN, hi: Number.NaN }];
+            expect(heldToGaps(band, styled("stepAfter"), (p) => Number.isFinite(p.lo) && Number.isFinite(p.hi)))
+                .toEqual([band[0], { t: numberInstant(1.5), lo: 1, hi: 2 }, band[1]]);
+        });
+
+        test("any other curve, and a step with no gap after a value, draws the very points", () => {
+            const gapped = [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2)];
+            for (const curve of [undefined, "step"] as const) expect(heldToGaps(gapped, styled(curve), valued)).toBe(gapped);
+            const whole = [pt(0.5, 1), pt(1.5, 2)];
+            expect(heldToGaps(whole, styled("stepAfter"), valued)).toBe(whole);
+        });
+
+        test("a point before a gap is held to it, so only a point with none after it stands alone", () => {
+            const points = [pt(0.5, 3), pt(1.5, Number.NaN), pt(2.5, 4), pt(3.5, Number.NaN), pt(4.5, 5)];
+            expect(points.map((_, i) => lonePoint(points, i, styled("stepAfter")))).toEqual([false, false, false, false, true]);
+            expect(points.map((_, i) => lonePoint(points, i, styled(undefined)))).toEqual([true, false, true, false, true]);
+        });
     });
 
     test("a scatter point with a size is a bubble — its area in proportion to it against the row's greatest, drawn at 16px or a quarter of the plot, the least at 3px", () => {

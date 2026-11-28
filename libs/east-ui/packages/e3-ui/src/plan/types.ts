@@ -332,6 +332,40 @@ export type PlanFoldType = typeof PlanFoldType;
 export type PlanFoldLiteral = "sum" | "mean" | "min" | "max" | "last" | "count";
 
 /**
+ * How a line or an area shows the points that fall in one bucket (#1807): as
+ * one vertex, their fold ({@link PlanFoldType} — their `mean` unless it
+ * declares another), or every point at its own instant (`none`).
+ *
+ * @remarks
+ * `none` keeps a series' detail at every resolution: readings taken many times
+ * a bucket each draw where they were taken, so a step line changes at the
+ * instant its value did, and a forecast drawn from its last reading meets it
+ * there. Where a paged canvas shades its rows past the cap, such a line or
+ * area shades by its points' `mean`, the level it draws.
+ *
+ * @property sum - The values added up
+ * @property mean - Their mean
+ * @property min - The least of them
+ * @property max - The greatest of them
+ * @property last - The one at the latest instant
+ * @property count - How many there are
+ * @property none - No fold: every point drawn at its own instant
+ */
+export const PlanLineFoldType = VariantType({
+    sum:   NullType,
+    mean:  NullType,
+    min:   NullType,
+    max:   NullType,
+    last:  NullType,
+    count: NullType,
+    none:  NullType,
+});
+export type PlanLineFoldType = typeof PlanLineFoldType;
+
+/** String-literal shorthand for {@link PlanLineFoldType}. */
+export type PlanLineFoldLiteral = PlanFoldLiteral | "none";
+
+/**
  * A quantity — a number, its unit, and how it prints (#824). Runs and links
  * carry one: a run's bar prints it after its label, a link prints it as its
  * caption and takes its weight from it, and a parent's rollup band sums its
@@ -627,7 +661,7 @@ export type PlanChartScatterPointType = typeof PlanChartScatterPointType;
  *
  * @property label - Its name, which the legend and the tooltip call it by
  * @property color - Its colour: a theme token (`"teal.solid"`) or a CSS colour
- * @property curve - How a line, an area or a band joins its points (`none` ⇒ straight)
+ * @property curve - How a line, an area or a band joins its points (`none` ⇒ straight): a `stepAfter` holds each value up to its next point, and up to a gap that follows it, where the series breaks (#1807)
  * @property width - A stroke's width, px
  * @property dash - A stroke's dash pattern (`"6 4"`); `none` ⇒ solid
  * @property dots - Whether every point draws a dot — a point with no neighbour to join draws one regardless
@@ -706,11 +740,13 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * A line, an area and a column series FOLD what falls in one bucket (#824):
  * at a coarser resolution than its points, a column series draws one column
  * per bucket — the `sum` of its points there by default — and a line or an
- * area one vertex — their `mean` ({@link PlanFoldType}). Scatter points and
- * bands draw every point where it is.
+ * area one vertex — their `mean` ({@link PlanFoldType}). A line or an area
+ * whose fold is `none` draws every point at its own instant instead
+ * ({@link PlanLineFoldType}, #1807). Scatter points and bands draw every point
+ * where it is.
  *
- * @property line - A continuous line series (optional breach threshold; folds by `mean`)
- * @property area - A filled area series (folds by `mean`; its style's `stack` piles it)
+ * @property line - A continuous line series (optional breach threshold; folds by `mean`, or keeps every point)
+ * @property area - A filled area series (folds by `mean`, or keeps every point; its style's `stack` piles it)
  * @property column - Per-bucket columns (optional breach; folds by `sum`; its style's `stack` piles it)
  * @property scatter - Point markers, a point with a `size` a bubble ({@link PlanChartScatterPointType})
  * @property band - A filled range (lo/hi per instant)
@@ -720,8 +756,8 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  */
 export const PlanChartLayerType = VariantType({
     line:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
-    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanFoldType,
+                          breach: OptionType(PlanBreachType), fold: PlanLineFoldType, style: PlanChartStyleType }),
+    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanLineFoldType,
                           style: PlanChartStyleType }),
     column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
                           breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),

@@ -15,8 +15,11 @@
  *   strengths; the layers in the order their `order` puts them;
  * - lines draw solid ≤ now and dashed after (the now-split) — a line with a
  *   dash of its own keeps it on both sides, its planned part fainter — and
- *   break at a gap (a non-finite `y`) instead of bridging it; a point with no
- *   neighbour to join draws as a dot;
+ *   break at a gap (a non-finite `y`) instead of bridging it, a step after
+ *   each point (`stepAfter`) holding its value up to the gap's instant, as up
+ *   to any next point; a point with no neighbour to join draws as a dot; a
+ *   line or an area that keeps every point (fold `none`, #1807) draws each
+ *   where it is, several in one bucket;
  * - columns draw planned at a lighter mix of their colour, breach warn;
  *   columns sharing a `stack` pile up, each value axis stacking on its own,
  *   positive parts up and negative parts down, and the columns of a bucket
@@ -78,7 +81,7 @@ import { maxOf } from "../reductions.js";
 import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
-    CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks, lonePoint,
+    CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, heldToGaps, layoutStacks, lonePoint,
     readoutLines, readoutTable, splitAtNow, styleOf, valueScale,
     type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartLegend, type ChartPointValue, type ChartSide,
     type ChartStyleValue, type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
@@ -178,6 +181,9 @@ function useChartTicks(kind: ChartKindValue, height: number): readonly ChartTick
 const x = (q: Placed<unknown>) => q.f * VW;
 const hasY = (q: Placed<ChartPointValue>) => Number.isFinite(q.f) && Number.isFinite(q.p.y);
 const hasBounds = (q: Placed<ChartBandPointValue>) => Number.isFinite(q.f) && Number.isFinite(q.p.lo) && Number.isFinite(q.p.hi);
+/** Whether a point has a value, and a band's point its bounds — a gap has none. */
+const valued = (p: ChartPointValue) => Number.isFinite(p.y);
+const bounded = (p: ChartBandPointValue) => Number.isFinite(p.lo) && Number.isFinite(p.hi);
 
 export interface ChartRowPlotProps {
     kind: ChartKindValue;
@@ -372,10 +378,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
     // A line's or an area's dots: every point's where its style asks for them,
     // and a point no stroke can join regardless — a sparse series loses no
     // reading. Each sits where its stroke is (`at`): a stacked area's on its top.
-    const pointDots = (li: number, points: readonly ChartPointValue[], at: (pi: number) => number, every: boolean) => {
+    const pointDots = (li: number, points: readonly ChartPointValue[], at: (pi: number) => number, style: ChartStyleValue) => {
         points.forEach((p, pi) => {
             const f = scale.fracOf(p.t);
-            if (!Number.isFinite(p.y) || !inBounds(f) || !(every || lonePoint(points, pi))) return;
+            if (!Number.isFinite(p.y) || !inBounds(f) || !(style.dots || lonePoint(points, pi, style))) return;
             dotMarks.push(<circle key={`dot-${li}-${pi}`} cx={`${f * 100}%`} cy={at(pi)} r={DOT_R} data-plan-mark="dot" {...looks[li]} />);
         });
     };
@@ -397,7 +403,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
             }
             case "band": {
                 const s = ys(layer.value.axis.type);
-                const placed = drawnPoints(layer.value.points, scale);
+                const placed = drawnPoints(heldToGaps(layer.value.points, layer.value.style, bounded), scale);
                 if (placed.length === 0) break;
                 pathMarks.push(
                     <Area<Placed<ChartBandPointValue>> key={`band-${li}`} data={placed} x={x}
@@ -414,7 +420,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                 if (stacked !== undefined) {
                     // On its stack (#1753): its fill from where the areas under it end to where it does, its line
                     // along its top.
-                    const placed = drawnPoints(stacked, scale);
+                    const placed = drawnPoints(heldToGaps(stacked, style, bounded), scale);
                     if (placed.length === 0) break;
                     const top = (q: Placed<ChartBandPointValue>) => s(q.p.hi);
                     pathMarks.push(
@@ -424,10 +430,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                             defined={hasBounds} curve={curve}
                             vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
                     );
-                    pointDots(li, points, (pi) => s(stacked[pi]!.hi), style.dots);
+                    pointDots(li, points, (pi) => s(stacked[pi]!.hi), style);
                     break;
                 }
-                const placed = drawnPoints(points, scale);
+                const placed = drawnPoints(heldToGaps(points, style, valued), scale);
                 if (placed.length === 0) break;
                 // The fill runs to 0 — or to the domain's nearer edge when a
                 // declared domain leaves 0 outside it.
@@ -441,13 +447,15 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                         defined={hasY} curve={curve}
                         vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
                 );
-                pointDots(li, points, (pi) => s(points[pi]!.y), style.dots);
+                pointDots(li, points, (pi) => s(points[pi]!.y), style);
                 break;
             }
             case "line": {
                 const s = ys(layer.value.axis.type);
                 const placed = drawnPoints(layer.value.points, scale);
-                const { before, after } = splitAtNow(placed, scale.nowFrac);
+                // Its stroke: a step after each point held up to a gap that follows it.
+                const held = heldToGaps(layer.value.points, layer.value.style, valued);
+                const { before, after } = splitAtNow(Object.is(held, layer.value.points) ? placed : drawnPoints(held, scale), scale.nowFrac);
                 const y = (q: Placed<ChartPointValue>) => s(q.p.y);
                 const curve = curveOf(layer.value.style);
                 if (before.length > 0) {
@@ -464,7 +472,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx, rail
                             vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" {...look} />,
                     );
                 }
-                pointDots(li, layer.value.points, (pi) => s(layer.value.points[pi]!.y), layer.value.style.dots);
+                pointDots(li, layer.value.points, (pi) => s(layer.value.points[pi]!.y), layer.value.style);
                 const breach = layer.value.breach.type === "some" ? layer.value.breach.value : undefined;
                 if (breach !== undefined) {
                     placed.forEach((q, pi) => {

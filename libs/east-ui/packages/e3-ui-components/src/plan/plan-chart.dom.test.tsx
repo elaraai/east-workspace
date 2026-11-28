@@ -26,7 +26,9 @@
  * axis reads its numbers in. And its fold (#1798): its layers folded to each
  * period its columns take, once a period, as it draws — never again for a
  * period it was drawn at, nor for a window landing, which draws none of the
- * chart rows on screen again.
+ * chart rows on screen again. And a line or an area that keeps every point
+ * (fold `none`): each reading where it was taken, at every step, and a step
+ * after each point held up to the gap that ends its run.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -999,5 +1001,64 @@ describe("a chart row folds as it draws, once a period (#1798)", () => {
             setBodyRowRenderProbe(undefined);
             setChartFoldProbe(undefined);
         }
+    });
+});
+
+describe("a line or an area that keeps every point, and a step held up to a gap (#1807)", () => {
+    /** Every point kept, at every resolution — a line's fold, not an Option. */
+    const NONE: Extract<ChartKindValue["layers"][number], { type: "line" }>["value"]["fold"] = variant("none", null);
+    /** A step after each point. */
+    const STEP = {
+        label: none, color: none, curve: some(variant("stepAfter", null)), width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+        size: none, stack: none, legend: true, tooltip: true, order: none,
+    };
+
+    test("readings several times a step each draw where they were taken, at every step — the step held to its next point, and up to a gap, where it breaks; the reading after the gap a dot", () => {
+        const kind = chartKind([variant("line", {
+            points: [pt(2.1, 35), pt(2.4, 30), pt(2.8, 30), pt(4.9, 24), pt(6.5, Number.NaN), pt(7.2, 26)],
+            axis: left, breach: none, fold: NONE, style: STEP,
+        })]);
+        const tree = (step: number) => (
+            <ChakraProvider value={system}>
+                <EastChakraPlan storageKey="chart-every-point" value={{
+                    ...planRoot([planRow("c", kind)], 8),
+                    axis: variant("number", { window: some({ min: 0, max: 8 }), step, now: none, format: none }),
+                } as unknown as PlanRootValue} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(tree(1));
+        const drawn = () => {
+            const row = container.querySelector(rowSel("c"))!;
+            return {
+                line: subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!).map((s) => s.map(([vx, vy]) => [r3(vx), r3(vy)])),
+                dots: [...row.querySelectorAll('[data-plan-dots] [data-plan-mark="dot"]')].map((c) => c.getAttribute("cx")),
+            };
+        };
+        // [24, 35] over the 64px between 12.5 and 76.5 of an 88px row's plot; a step 125 of the 1000 units.
+        const at = (v: number) => r3(76.5 - ((v - 24) / 11) * 64);
+        const expected = {
+            line: [
+                // 35 from 2.1; 30 from 2.4, through 2.8, held to 4.9; 24 held to the gap at 6.5.
+                [[262.5, at(35)], [300, at(35)], [300, at(30)], [350, at(30)], [350, at(30)], [612.5, at(30)], [612.5, at(24)], [812.5, at(24)], [812.5, at(24)]],
+                [[900, at(26)]],
+            ],
+            dots: ["90%"],
+        };
+        expect(drawn()).toEqual(expected);
+        // Four steps a column: every reading where it was, none folded into its column's one.
+        rerender(tree(4));
+        expect(drawn()).toEqual(expected);
+    });
+
+    test("an area's fill and a band's are held up to a gap too, and so is an area's on a stack", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("area", { points: [pt(0.5, 2), pt(1.5, 3), pt(2.5, Number.NaN)], axis: left, fold: NONE, style: STEP }),
+            variant("band", { points: [{ t: numberInstant(0.5), lo: 1, hi: 2 }, { t: numberInstant(1.5), lo: Number.NaN, hi: Number.NaN }], axis: left, style: STEP }),
+            variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN)], axis: left, fold: NONE, style: { ...STEP, stack: some("s") } }),
+        ]))], 3), "chart-step-held-fills");
+        const reach = (mark: string, i = 0) => r3(maxOf(subpaths(container.querySelectorAll(`${rowSel("c")} [data-plan-mark="${mark}"]`)[i]!
+            .getAttribute("d")!).flat().map(([vx]) => vx)));
+        // On [0, 3): the area's gap at 2.5, 833.3 units in; the band's and the stacked area's at 1.5, half way.
+        expect([reach("area"), reach("band"), reach("area", 1)]).toEqual([833.333, 500, 500]);
     });
 });
