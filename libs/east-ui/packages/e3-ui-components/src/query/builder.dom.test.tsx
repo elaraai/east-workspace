@@ -15,7 +15,8 @@
  *   Font Awesome's (#1263); the status line; the save popover and its
  *   description; no border.
  * - **U1**: a condition built by clicks, each pick opening the next slot; the
- *   autocomplete's keys, and ⌘⏎ running; a fix; the history over a pick.
+ *   autocomplete's keys, and ⌘⏎ running — once, and alone, on a card of the
+ *   Library or the Datasets tab too (#1758); a fix; the history over a pick.
  * - **U2**: Visual · jq and back — its notes and notices, a syntax error
  *   keeping jq; Copy jq and Run; saving — an update, a rename, a taken name,
  *   a stale entry's refusal at its commit and before it, and a new query
@@ -348,6 +349,32 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         expect(container.querySelector("[data-query-run]")!.textContent).toBe("Run⌘⏎");
     });
 
+    test("⌘/Ctrl ⏎ on a card of the Library tab or the Datasets tab runs the open query, once, and is not the card's click: no other query opens and none starts (#1758)", async () => {
+        const { container } = await mount();
+        await openQuery(variant("saved", BIG.name));
+        const shown = () => builderOf(container).getAttribute("data-query-open");
+        const runs = () => h.oneShots().length;
+        /** A tab's card by its name: a button, as a card that cannot be dragged is. */
+        async function cardIn(tab: "Library" | "Datasets", name: string) {
+            await act(async () => { fireEvent.click(screen.getByRole("tab", { name: tab })); });
+            await settle();
+            const card = [...container.querySelectorAll<HTMLElement>(`[data-query-tab=${tab.toLowerCase()}] [role=button][data-clickable]`)]
+                .find((c) => within(c).queryByText(name, { exact: true }) !== null);
+            if (card === undefined) throw new Error(`no card “${name}” in ${tab}`);
+            return card;
+        }
+        const ran: number[] = [];
+        for (const [tab, name, held] of [["Library", COUNT.name, { metaKey: true }], ["Datasets", "customers", { ctrlKey: true }]] as const) {
+            const card = await cardIn(tab, name);
+            const before = runs();
+            await act(async () => { fireEvent.keyDown(card, { key: "Enter", ...held }); });
+            await settle();
+            ran.push(runs() - before);
+            expect(shown(), `after the chord on ${tab}'s “${name}”`).toBe(`query.saved:"Big orders"`);
+        }
+        expect(ran).toEqual([1, 1]);
+    });
+
     test("a fix: a payload's field read before the rows are narrowed says so, and Keep only shipped orders first narrows them", async () => {
         const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
@@ -496,6 +523,35 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(saved.description).toEqual(some("The first ten big orders."));
         expect(statusOf(container).save).toEqual(["saved", "Saved", "Big orders"]);
         expect(container.querySelector("[data-query-save]")!.hasAttribute("data-fresh")).toBe(true);
+    });
+
+    test("⌘/Ctrl ⏎ runs from the save popover's fields too — its name, its description, and its tags box, where ⏎ alone adds the tag typed: nothing is saved and no tag is added (#1758)", async () => {
+        const { container } = await mount();
+        await openQuery(variant("saved", BIG.name));
+        await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
+        await settle();
+        const dialog = screen.getByRole("dialog");
+        const tags = dialog.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+        await act(async () => { fireEvent.change(tags, { target: { value: "weekly" } }); });
+        await settle();
+        const runs = () => h.oneShots().length;
+        const presses: [HTMLElement, Record<string, boolean>][] = [
+            [within(dialog).getByRole("textbox", { name: "Query name" }), { metaKey: true }],
+            [within(dialog).getByRole("textbox", { name: "What the query answers, in one sentence" }), { ctrlKey: true }],
+            [tags, { metaKey: true }],
+        ];
+        const ran: number[] = [];
+        for (const [field, held] of presses) {
+            const before = runs();
+            await act(async () => { fireEvent.keyDown(field, { key: "Enter", ...held }); });
+            await settle();
+            ran.push(runs() - before);
+        }
+        expect(ran).toEqual([1, 1, 1]);
+        // The popover stands, nothing saved; the tag typed is in its box still, no tag.
+        expect(screen.queryByRole("dialog")).toBe(dialog);
+        expect(await h.commits()).toEqual(before);
+        expect([tags.value, dialog.querySelectorAll("[data-scope=tags-input][data-part=item-text]").length]).toEqual(["weekly", 0]);
     });
 
     test("the history item's Save: from its click until the record reads back, the steps are the drafts it saves — never the query as it stood before them", async () => {

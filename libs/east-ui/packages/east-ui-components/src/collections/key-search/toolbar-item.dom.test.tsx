@@ -23,6 +23,7 @@ import { toEastTypeValue, StringType } from "@elaraai/east";
 import type { ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { faIcons } from "../../testing/icons.js";
+import { underLoad } from "../../testing/typing.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { focusKeySearch, useKeySearchToolbarItem, type KeySearchSource, type KeySearchToolbarOptions } from "./toolbar-item.js";
 
@@ -267,6 +268,15 @@ test("a host's key for its search reaches it in either form: the box, its text s
     expect(focusKeySearch(null)).toBe(false);
     const bare = render(wrap(<Toolbar items={[PEER]} />));
     expect(focusKeySearch(bare.container.querySelector<HTMLElement>("[data-toolbar]"))).toBe(false);
+});
+
+test("a query typed faster than React's later work — a loaded machine — is the box's whole: the host's key selects all of it (east-workspace#1779)", async () => {
+    const wide = mount(510, search());
+    const input = screen.getByPlaceholderText("Find a job") as HTMLInputElement;
+    await underLoad(input, () => userEvent.type(input, "keys"));
+    input.blur();
+    expect(focusKeySearch(wide.container.querySelector<HTMLElement>("[data-toolbar]"))).toBe(true);
+    expect([input.value, input.selectionStart, input.selectionEnd]).toEqual(["keys", 0, 4]);
 });
 
 

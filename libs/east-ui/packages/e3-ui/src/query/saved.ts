@@ -11,13 +11,22 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, SortedMap, StringType, StructType, checkJq, compareFor, none, some, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, East, SortedMap, SortedSet, StringType, StructType, checkJq, compareFor, none, some, type EastType, type ValueTypeOf } from "@elaraai/east";
 import type { DatasetDef, TaskDef } from "@elaraai/e3";
 import { assertRootField } from "../bind/sources.js";
+import { querySources, queryTags } from "./queries.js";
 import type { SavedQueriesType, SavedQueryType } from "./types.js";
 
 /** The most characters a saved query's description holds, as the builder's Save… popover takes it. */
 const DESCRIPTION_MAX = 140;
+
+const compareStrings = compareFor(StringType);
+
+/** {@link querySources}, compiled on first use: the one function a saved query's `sources` come from. */
+let sourcesOf: ((root: ValueTypeOf<typeof SavedQueryType>["root"]) => ValueTypeOf<typeof SavedQueryType>["sources"]) | undefined;
+
+/** {@link queryTags}, compiled on first use: the one function a saved query's `tags` are kept by. */
+let tagsOf: ((tags: ValueTypeOf<typeof SavedQueryType>["tags"]) => ValueTypeOf<typeof SavedQueryType>["tags"]) | undefined;
 
 /**
  * The root field a query reads the minute it is asked by (#1670): `.now`, a
@@ -32,6 +41,7 @@ const NOW_FIELD = "now";
  * @property name - Its name, which is its key in the record
  * @property jq - Its program, as jq text
  * @property description - One sentence, at most 140 characters; omitted, the sentence generated from its steps shows instead
+ * @property tags - What it is tagged, each a word or two to find it by; omitted, none
  * @property savedAt - When it was saved
  */
 export interface SavedQueryInput {
@@ -41,6 +51,8 @@ export interface SavedQueryInput {
     readonly jq: string;
     /** One sentence, at most 140 characters; omitted, the sentence generated from its steps shows instead. */
     readonly description?: string;
+    /** What it is tagged, each a word or two to find it by; omitted, none. A tag is kept without the spaces around it, once. */
+    readonly tags?: readonly string[];
     /** When it was saved. */
     readonly savedAt: Date;
 }
@@ -62,13 +74,17 @@ export interface SavedQueryInput {
  *   `.now` is no data source, and is not among them.
  * - **A saved query keeps its program** as written, and no types: they are
  *   what checking it against its data sources gives.
+ * - **Its `sources`** are the names of the data sources it reads, as the
+ *   builder's save gives them (`querySources`), and **its tags** the ones
+ *   given, each without the spaces around it.
  *
  * @param sources - The data sources the queries may read: each name, as a query reads it, to its dataset or task
- * @param queries - The queries, each its name, its jq, its description and when it was saved ({@link SavedQueryInput})
+ * @param queries - The queries, each its name, its jq, its description, its tags and when it was saved ({@link SavedQueryInput})
  * @returns The saved queries, by name: a value of the record's type, `Query.Types.Saved`
  * @throws {Error} When a data source's name is not a jq identifier; when a
  *   query does not check, naming it and saying why; when two queries have one
- *   name; and when a description holds more than 140 characters
+ *   name; when a description holds more than 140 characters; and when a tag
+ *   is empty
  *
  * @example
  * ```ts
@@ -81,7 +97,7 @@ export interface SavedQueryInput {
  * // The record ships with one query, checked against `orders` when the package builds.
  * export const queries = e3.record("queries", Query.Types.Saved, {
  *     initial: Query.value({ orders }, [
- *         { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
+ *         { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", tags: ["sales"], savedAt: new Date("2026-10-01T09:00:00Z") },
  *     ]),
  *     mutations: (mutation) => ({
  *         patch: mutation.patch(),
@@ -101,7 +117,7 @@ export function savedQueriesValue(
     // The builder's root: the data sources, then the minute a query is asked as `.now`, unless one is named so.
     const clock: (readonly [string, EastType])[] = datasets.some(({ name }) => name === NOW_FIELD) ? [] : [[NOW_FIELD, DateTimeType]];
     const root = StructType([...datasets.map(({ name, dataset }): readonly [string, EastType] => [name, dataset.type]), ...clock]);
-    const saved = new SortedMap<string, ValueTypeOf<typeof SavedQueryType>>([], compareFor(StringType));
+    const saved = new SortedMap<string, ValueTypeOf<typeof SavedQueryType>>([], compareStrings);
     for (const query of queries) {
         if (saved.has(query.name)) {
             throw new Error(`Query.value: "${query.name}" is saved twice — a saved query's name is its key in the record`);
@@ -114,11 +130,20 @@ export function savedQueriesValue(
             const problems = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
             throw new Error(`Query.value: "${query.name}" does not check — ${problems.join(" ")}`);
         }
+        const keep = (tagsOf ??= East.compile(queryTags, []));
+        // A tag nothing is kept of is the author's slip, never dropped in silence.
+        if ((query.tags ?? []).some(tag => keep(new SortedSet([tag], compareStrings)).size === 0)) {
+            throw new Error(`Query.value: "${query.name}" has an empty tag — a tag is a word or two to find the query by`);
+        }
+        const reads = datasets.filter(({ name }) => checked.reads.includes(name)).map(({ name, dataset }) => ({ name, path: dataset.path }));
+        sourcesOf ??= East.compile(querySources, []);
         saved.set(query.name, {
             name: query.name,
             description: query.description === undefined ? none : some(query.description),
+            tags: keep(new SortedSet(query.tags ?? [], compareStrings)),
             program: checked.program,
-            root: datasets.filter(({ name }) => checked.reads.includes(name)).map(({ name, dataset }) => ({ name, path: dataset.path })),
+            root: reads,
+            sources: sourcesOf(reads),
             saved_at: query.savedAt,
         });
     }

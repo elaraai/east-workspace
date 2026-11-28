@@ -15,12 +15,12 @@ import { ArrayType, IntegerType, StructType, checkJq, encodeBeast2For, evaluateJ
 import { SOURCE_COUNT } from "./steps/count.js";
 import { parseSteps } from "./steps/parse.js";
 import { checkSteps } from "./steps/check.js";
-import { QUERY_HEADER_ID, type QueryHeader } from "./session.js";
+import { newHeader, type QueryHeader } from "./session.js";
 import { canonicalProgram, planRun, runOutput, type RunEditor } from "./run.js";
 import type { QueryResult } from "./one-shot.js";
 import { FIXTURE_VALUE, FixtureType, ROOT } from "./fixture.test-utils.js";
 
-const HEADER: QueryHeader = { id: QUERY_HEADER_ID, name: "Big orders", description: none, source: "orders", jq: none };
+const HEADER: QueryHeader = newHeader("Big orders", "orders");
 
 /** The open query as steps, in a view. */
 function editorOf(program: string, view: RunEditor["view"] = "visual", jqText = ""): RunEditor {

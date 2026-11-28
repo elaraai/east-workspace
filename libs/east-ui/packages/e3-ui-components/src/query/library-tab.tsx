@@ -25,10 +25,10 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { StringType, equalFor, none, some, variant } from "@elaraai/east";
+import { StringType, equalFor, none, some } from "@elaraai/east";
 import { SavedQueryType } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
-import { queryAbout, type QueryAbout } from "./about.js";
+import { queryAbout, refusalGlyph, type QueryAbout } from "./about.js";
 import type { QueryRoot } from "./one-shot.js";
 import type { QueryOpen } from "./open-query.js";
 import type { PartStyles } from "./parts.js";
@@ -159,7 +159,7 @@ export const LibraryTab = memo(function LibraryTab({ record, recent, root, open,
             sublabel: about.description === undefined ? none : some(phoneWidth === undefined ? about.description : twoLines(about.description, phoneWidth - PHONE_CARD_INSET)),
             icon: some(icon),
             status: none,
-            trailing: about.refusal === undefined ? none : some({ icon: "triangle-exclamation", label: about.refusal, tone: some(variant("warning", null)) }),
+            trailing: refusalGlyph(about),
             draggable: false,
             filtered: false,
             placed,

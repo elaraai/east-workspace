@@ -25,6 +25,8 @@ import { East, StringType, NullType, BooleanType, FunctionType, StructType } fro
  * @remarks
  * - On first bind, if the key is not yet set, it is initialized to `defaultValue`
  * - `read()` returns the current value and tracks the dependency for reactive updates
+ * - A value the store kept under another type — an earlier release's form of the state — is nothing kept:
+ *   `read()` returns `defaultValue` until a `write`
  * - `write(value)` writes to the state store
  * - `has()` checks if the key exists (always true after the first bind)
  *

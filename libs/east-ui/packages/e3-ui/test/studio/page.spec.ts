@@ -15,26 +15,24 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, NullType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant,
+    ArrayType, East, FloatType, NullType, StringType, StructType, decodeBeast2For, equalFor, none, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { TreePathType } from "@elaraai/e3-types";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Data, Studio, StudioPagesType, ui } from "@elaraai/e3-ui";
 import { StudioPagePayloadType } from "@elaraai/e3-ui/internal";
 
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type UI = ValueTypeOf<typeof UIComponentType>;
 
-const keys = compareFor(StudioKeyType);
 const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
 /** The record: the Overview, live and drafted since. */
-const PAGES = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "overview" }, variant("page", {
+const PAGES = Studio.value([
+    {
+        key: { project: "ops", page: "overview" },
         draft: {
             title: "Overview",
             cells: [
@@ -42,7 +40,7 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: some({
+        live: {
             version: 1n,
             page: {
                 title: "Overview",
@@ -51,9 +49,9 @@ const PAGES = new SortedMap<Key, Entry>([
                 ],
                 filters: [],
             },
-        }),
-    })],
-], keys);
+        },
+    },
+]);
 
 /** A component that reads nothing. */
 const note = Studio.component("note", { name: "Note", category: "Display", icon: "note-sticky" },
@@ -69,7 +67,7 @@ const payloadOf = (value: UI) => {
 describe("<Studio.Page> (#993)", () => {
     test("R4: its surface's manifest holds the record's path and no write, and exactly what its components read", () => {
         const visits = e3.input("studio_page_visits", ArrayType(FloatType), variant("value", []));
-        const pages = e3.record("studio_page_record", StudioPagesType, { initial: new SortedMap<Key, Entry>([], keys) });
+        const pages = e3.record("studio_page_record", StudioPagesType, { initial: Studio.value([]) });
         const surface = ui("studio_page_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([
                 Studio.component("traffic", { name: "Traffic", category: "Charts", icon: "chart-line" },
@@ -90,7 +88,7 @@ describe("<Studio.Page> (#993)", () => {
         const Row = StructType({ region: StringType, revenue: FloatType });
         const sales = e3.input("studio_page_sales", ArrayType(Row), variant("value", []));
         const orders = e3.input("studio_page_orders", ArrayType(Row), variant("value", []));
-        const pages = e3.record("studio_page_sources_record", StudioPagesType, { initial: new SortedMap<Key, Entry>([], keys) });
+        const pages = e3.record("studio_page_sources_record", StudioPagesType, { initial: Studio.value([]) });
         const surface = ui("studio_page_sources_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([note]);
             const all = $.let(Data.bind(pages));
@@ -119,7 +117,7 @@ describe("<Studio.Page> (#993)", () => {
         assert.deepEqual(live.version, variant("live", null));
         assert.deepEqual(live.components.map((component) => component.key), ["note"]);
         assert.deepEqual(live.sources, [], "no sources listed is none");
-        assert.deepEqual(live.pages.get({ project: "ops", page: "overview" }), PAGES.get({ project: "ops", page: "overview" }));
+        assert.ok(equalFor(StudioPagesType)(live.pages, PAGES), "the record's value is the one given");
 
         const draft = payloadOf(East.compile(East.function([], UIComponentType, ($) => {
             const components = $.let([note]);

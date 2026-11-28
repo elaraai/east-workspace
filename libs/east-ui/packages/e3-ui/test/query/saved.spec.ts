@@ -6,16 +6,17 @@
 /**
  * `Query.value` (#1138): the saved queries a solution ships in its record,
  * each checked against the data sources it may read when the package is
- * built — keeping its program as written and the data sources it reads, by
- * name and path — and refused when it does not check, when two have one name,
- * when a data source can't be read as a root field and when a description
- * holds more than 140 characters.
+ * built — keeping its program as written, the data sources it reads, by name
+ * and path, their names as its `sources` and its tags (#1758) — and refused
+ * when it does not check, when two have one name, when a data source can't be
+ * read as a root field, when a description holds more than 140 characters and
+ * when a tag is empty.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, equalFor, none, parseJq, some, variant, type JqNode } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, IntegerType, SetType, SortedSet, StringType, StructType, compareFor, equalFor, none, parseJq, some, variant, type JqNode } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Query } from "@elaraai/e3-ui";
 
@@ -30,6 +31,10 @@ const totals = e3.task("totals", [orders], East.function([OrdersType], ArrayType
 
 const AT = new Date(Date.UTC(2026, 9, 1, 9, 0));
 const sameQuery = equalFor(Query.Types.SavedQuery);
+const sameNames = equalFor(SetType(StringType));
+
+/** A set of text, in East's order: a saved query's tags, or its sources' names. */
+const texts = (...values: string[]) => new SortedSet(values, compareFor(StringType));
 
 /** A program as the parser gives it: what a saved query keeps. */
 function programOf(jq: string): JqNode {
@@ -49,15 +54,19 @@ describe("Query.value (#1138)", () => {
         assert.ok(sameQuery(saved.get("Revenue")!, {
             name: "Revenue",
             description: some("Every order's total, added up."),
+            tags: texts(),
             program: programOf(".totals | add"),
             root: [{ name: "totals", path: totals.output.path }],
+            sources: texts("totals"),
             saved_at: AT,
         }), "a task's data source is its output dataset");
         assert.ok(sameQuery(saved.get("Named orders")!, {
             name: "Named orders",
             description: none,
+            tags: texts(),
             program: programOf(named),
             root: [{ name: "orders", path: orders.path }, { name: "customers", path: customers.path }],
+            sources: texts("customers", "orders"),
             saved_at: AT,
         }), "the data sources it reads, in the order they are given, not the order it reads them");
     });
@@ -77,6 +86,24 @@ describe("Query.value (#1138)", () => {
             () => Query.value({ now: orders }, [{ name: "Clock", jq: ".now | datetime_add(1; \"day\")", savedAt: AT }]),
             /Query\.value: "Clock" does not check/,
             "a data source named now is no DateTime",
+        );
+    });
+
+    test("#1758: its sources are the names of the data sources it reads, and its tags the ones given, each once and without the spaces around it", () => {
+        const saved = Query.value({ sales: orders, customers }, [
+            { name: "Sales", jq: ".sales | length", tags: [" weekly", "sales", "weekly "], savedAt: AT },
+            { name: "Asked", jq: ".now", savedAt: AT },
+        ]);
+        assert.ok(sameNames(saved.get("Sales")!.sources, texts("sales")), "the name it is read by, never its dataset's, and not a data source it does not read");
+        assert.ok(sameNames(saved.get("Sales")!.tags, texts("sales", "weekly")));
+        assert.ok(sameNames(saved.get("Asked")!.sources, texts()), "a query over the minute alone reads no data source");
+        assert.ok(sameNames(saved.get("Asked")!.tags, texts()), "tags not given are none");
+    });
+
+    test("#1758: an empty tag is refused, naming the query", () => {
+        assert.throws(
+            () => Query.value({ orders }, [{ name: "Count", jq: ".orders | length", tags: ["sales", "  "], savedAt: AT }]),
+            /Query\.value: "Count" has an empty tag — a tag is a word or two to find the query by/,
         );
     });
 
@@ -120,5 +147,19 @@ describe("Query.value (#1138)", () => {
     test("the queries declare a record of the saved queries' type", () => {
         const queries = e3.record("queries", Query.Types.Saved, { initial: Query.value({ orders }, [{ name: "Count", jq: ".orders | length", savedAt: AT }]) });
         assert.deepEqual([...queries.default!.keys()], ["Count"]);
+    });
+
+    test("#1758: the record takes an index led by its sources, its tags, its name and when it was saved", () => {
+        const queries = e3.record("queries", Query.Types.Saved, {
+            initial: Query.value({ orders }, [{ name: "Count", jq: ".orders | length", tags: ["sales"], savedAt: AT }]),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+            indexes: (index) => ({
+                queries_by_source: index.on(["sources"]),
+                queries_by_tag: index.on(["tags"]),
+                queries_by_name: index.on(["name"]),
+                queries_by_saved_at: index.on(["saved_at"]),
+            }),
+        });
+        assert.deepEqual(Object.keys(queries.indexes).sort(), ["queries_by_name", "queries_by_saved_at", "queries_by_source", "queries_by_tag"]);
     });
 });

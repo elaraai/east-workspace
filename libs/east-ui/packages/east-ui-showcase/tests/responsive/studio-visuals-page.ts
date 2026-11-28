@@ -65,9 +65,10 @@ export async function writeVisuals(page: Page, write: (seeded: StudioPage) => St
     if (seeded === undefined) throw new Error("the visuals' pages are seeded");
     const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
     const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => {
-        if (entry.type !== "page") return [key, entry];
-        const written = write(entry.value.draft);
-        return [key, variant("page", { draft: written, live: some({ version: 2n, page: written }) })];
+        if (entry.kind.type !== "page") return [key, entry];
+        const written = write(entry.draft);
+        // An entry's title is its layout's.
+        return [key, { ...entry, title: written.title, draft: written, live: some({ version: 2n, page: written }) }];
     }), compareFor(Studio.Types.Key));
     await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
 }

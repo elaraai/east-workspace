@@ -4,88 +4,293 @@
  */
 
 /**
- * `EastChakraStudioLibrary` — the renderer of the `StudioLibrary`
- * extension declared in `@elaraai/e3-ui` (#997): the page library, built in
- * the browser from its interface — the pages record bound with its patch, the
- * listed components, the project it shows first, the page open in the
- * builder, and who to tell when another is asked for.
+ * `EastChakraStudioLibrary` — the renderer of the `StudioLibrary` extension
+ * declared in `@elaraai/e3-ui` (#997, #1762): the page library, a
+ * builder-frame component — one toolbar over a grid of cards, and no pane.
  *
- * - **One toolbar row**, the shared `Toolbar`: the search over both rows,
- *   Sort · Name, the Pages row's Grid · List, a rule, and the primary
- *   "+ New page in <project>", folded on one ladder.
- * - **The pane**: the projects, the shown one in the brand; the project's
- *   pages with their status dots, the one open in the builder in the strong
- *   ink; the legend at its foot.
- * - **The Templates and Pages rows**, under their heads: two Library
- *   galleries, which draw no toolbar of their own, each card's media a
- *   wireframe of its layout.
- * - **The New page popover**, under the primary action however it opens —
- *   from it, a template's card or the dashed card, which pick its template —
- *   taking a name the project does not hold and a template, or Blank grid.
+ * - **The toolbar**, the frame's one row: Pages · Templates, where its slice
+ *   has a `templates` source; the rail's fields of the view it shows, their
+ *   search, the presets and the count; then New page, which follows the rail
+ *   shown (L12): with one project chosen it reads "New page in Ops console" and
+ *   starts there; otherwise its popover asks for the project — a template's
+ *   own, where it starts from one. The pages' project is no choice of the
+ *   templates' rail.
+ * - **The cards**, main: the pages — or the templates — the rail narrows to,
+ *   in the order e3 pages them, as the shared paged gallery: as many across as
+ *   fit, a window read and a screenful mounted at a time. A card is the
+ *   Library's gallery card: a wireframe of its layout; its title; what it
+ *   places — "KPI rail ×2 · Revenue trend"; its tags; and a foot holding its
+ *   project and how many components it places, then Open in builder, or Start
+ *   a page on a template's. Nothing on it says Live or Draft (L9).
+ * - **Opening**: a press on a page's card, or ⏎ or Space with the keyboard on
+ *   it, tells the host which page is asked for, in a turn of its own, and does
+ *   nothing else; the page the host says is open is marked. A press on a
+ *   template's card opens New page, starting from that template.
+ * - **New page**: in the edit popover under New page, a name, the project
+ *   where the rail has chosen none, and tags; one commit through the record's
+ *   patch write, the page the template's layout or a blank grid. A name the
+ *   project holds — a page's or a template's — is refused by the commit, in the
+ *   popover. Once it commits, the host is told the new page (L10).
+ * - **Its sources' scope**: each view's source lists its kind of entry alone.
+ *   One scoped by nothing is refused where the page is built; one scoped to
+ *   another kind, or to both — which only the page that runs its scope tells —
+ *   is refused here, in the library's place, saying the scope to give it
+ *   (east-workspace#1779).
  *
- * What it shows is e3-ui's East, compiled once ({@link studioEast}); the
- * project shown, the search, the order, the layout and the popover are its
- * own. "Open in builder →" and a page of the pane tell the host, which shows
- * the page in its builder: the page library opens nothing itself, and marks
- * the page the host says is open (#1668). A new page is one commit through
- * the record's patch write. It draws no border around itself.
+ * It reads the record a window at a time, through the slice, and never whole:
+ * a card is a row of a page e3 read, and a new page is a patch built from what
+ * its card and its popover hold. It shares no store entry with a builder
+ * (#1668), and draws no border around itself.
  *
- * Its layout is the `studioLibrary` recipe's; its controls are the
- * theme's shared ones — the Library's search box, the `button` recipe, the
- * `seg` strip, the `status` dots, the edit popover and the `select`, its
- * chevron and check Font Awesome's (#1263).
+ * It draws nothing of its own recipe's: the grid, a card and New page are the
+ * `library` recipe's — the parts every library of cards shares
+ * (`shared/slice-gallery.tsx`) — a card's media the snap grid's wireframe,
+ * Pages · Templates the `seg` strip, and New page's popover the edit popover's,
+ * its fields the shared form's.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { Box } from "@chakra-ui/react";
+import { faFileLines, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import {
-    Box, chakra, createListCollection, Menu as ChakraMenu, Portal, Select as ChakraSelect, useRecipe, useSlotRecipe,
-    type SystemStyleObject,
-} from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+    StringType, StructType, defaultValue, equalFor, equivalentFor, isValueOf, none, printFor, some, variant,
+    type ValueTypeOf, type option,
+} from "@elaraai/east";
+import { Fields } from "@elaraai/east-ui";
+import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
+import { StudioCellType, StudioEntryType, StudioKeyType, StudioLibraryComponent, StudioLibraryPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    faArrowDownAZ, faArrowDownZA, faCaretDown, faCheck, faChevronDown, faFolder, faFolderOpen, faMagnifyingGlass, faPlus, faXmark,
-    type IconDefinition,
-} from "@fortawesome/free-solid-svg-icons";
-import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StudioCellType, StudioLibraryComponent } from "@elaraai/e3-ui/internal";
-import {
-    BannerView, EastChakraLibrary, LibraryLayoutSwitch, SnapGridTiles, Toolbar, implementUIComponent, useFormatters,
-    useTrackedEvaluation, type LibraryItemValue, type LibraryValue, type SnapGridLayoutCell, type ToolbarItem,
+    BannerView, BuilderFrame, FieldForm, SnapGridTiles, getSomeorUndefined, implementUIComponent, useFormatters, usePersistedState,
+    type Formatters, type LibraryItemValue, type SnapGridLayoutCell, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-
+import { keptRead, useSlotStyles, type PagedLibraryGallery } from "@elaraai/east-ui-components/internal";
+import { useEquivalent } from "../shared/equivalent.js";
 import { NamePopover } from "../shared/name-popover.js";
 import { tellHost } from "../shared/open.js";
+import { entryRow } from "../shared/records/entry-row.js";
+import { Seg, SegMenu } from "../shared/schedule/segments.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
+import { LibraryNewButton, SliceGallery, libraryCard, libraryGallery, scopedToOne, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
+import { TagsFormType, TagsType, type Tags } from "../shared/tags-form.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 
-type Styles = Record<string, SystemStyleObject>;
-
 /** The renderer's payload, decoded. */
 type StudioLibraryValue = ValueTypeOf<typeof StudioLibraryComponent.schema>;
+/** A page's key. */
+type Key = ValueTypeOf<typeof StudioKeyType>;
+/** An entry of the pages record. */
+type Entry = ValueTypeOf<typeof StudioEntryType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
-/** How the rows are ordered by name: A to Z, the record's key order, or Z to A. */
-type Sort = "az" | "za";
-/** How the Pages row lays its cards out. */
-type Layout = "grid" | "list";
+/** An entry of the pages record, as a source's page holds it: its key, and the entry. */
+interface PageRow {
+    readonly key: Key;
+    readonly entry: Entry;
+}
+/** What the cards are: the pages, or the templates. */
+type View = "pages" | "templates";
+/** Where New page starts from while its popover is open: a template's card, or none — a blank grid. */
+interface Starting {
+    readonly from: PageRow | undefined;
+}
 
-/** The toolbar's fold ranks: the primary action drops its project, Sort
- *  folds to its icon, the primary action to its plus, and last the search
- *  narrows twice. The layout switch never folds. */
-const RANK = { newPage: 0, sort: 1, newPageIcon: 2, searchMid: 3, searchNarrow: 4 } as const;
+/** The payload's equivalence: its data, and its functions by their IR and what they capture. */
+const payloadEquivalent = equivalentFor(StudioLibraryPayloadType);
+/**
+ * Its write, who it tells, the components and the slice, by the same equivalence: each kept while a new payload's is
+ * equivalent (`useEquivalent`), so a press — which moves the open page alone — makes none of them again, nor the cards,
+ * the rail and the reads over them.
+ */
+const pagesEquivalent = equivalentFor(StudioLibraryPayloadType.fields.pages);
+const onOpenEquivalent = equivalentFor(StudioLibraryPayloadType.fields.onOpen);
+const componentsEquivalent = equivalentFor(StudioLibraryPayloadType.fields.components);
+const sliceEquivalent = equivalentFor(StudioLibraryPayloadType.fields.slice);
+const keyEqual = equalFor(StudioKeyType);
+const textEqual = equalFor(StringType);
+/** A card's key: its page's key, as East prints it. */
+const printKey = printFor(StudioKeyType);
 
-/** The orders Sort offers, in its menu's order, with the icon it folds to. */
-const SORTS: ReadonlyArray<{ key: Sort; icon: IconDefinition; name: (m: StudioMessages) => string }> = [
-    { key: "az", icon: faArrowDownAZ, name: (m) => m.nameAz() },
-    { key: "za", icon: faArrowDownZA, name: (m) => m.nameZa() },
-];
+/** Each view's source in the slice. */
+const SOURCE: Readonly<Record<View, string>> = { pages: "rows", templates: "templates" };
+/** The views, in the order Pages · Templates lists them. */
+const VIEWS: readonly View[] = ["pages", "templates"];
+/** What an entry is: what each view's source is scoped by. */
+const KindType = StudioEntryType.fields.kind;
+const KIND_FIELD = "kind";
+/** The kind of entry each view's source lists alone. */
+const KIND: Readonly<Record<View, ValueTypeOf<typeof KindType>>> = { pages: variant("page", null), templates: variant("template", null) };
+/** The pages' field New page follows (L12): the one project the rail has chosen. */
+const PROJECT_FIELD = "project";
 
-/** The template picker's value for Blank grid — no template's name can be it. */
-const BLANK = "\u0000blank";
+/** What New page's form edits where the rail has chosen no project: the project, and the tags (`TagsFormType` where it has). */
+const ProjectFormType = StructType({ project: StringType, tags: TagsType });
+/** No tags. */
+const NO_TAGS: Tags = defaultValue(TagsType);
+/** No name is taken before the commit: the library holds no page's name, and the commit refuses one the project holds. */
+const NONE_TAKEN: ReadonlySet<string> = new Set();
 
-const stringEqual = equalFor(StringType);
+/** The view a viewer last showed, as storage keeps it. */
+const readView = keptRead.record<{ view: View }>({ view: keptRead.oneOf("pages", "templates") });
+
+/**
+ * A page's row, as a source of the pages record reads it: its key and the entry it holds — the row it joins, or the
+ * one its index carries (`entryRow`) — each checked of its type.
+ *
+ * @param entry - An entry of a page of the source
+ * @returns The row; `undefined` for an entry that holds none, or a row of another type
+ */
+function pageRow(entry: RecordSliceEntry): PageRow | undefined {
+    const row = entryRow(entry);
+    return isValueOf(entry.key, StudioKeyType) && isValueOf(row, StudioEntryType) ? { key: entry.key as Key, entry: row as Entry } : undefined;
+}
+
+/** A placement holds no content in a wireframe: its frame alone. */
+const noContent = () => null;
+
+/** A layout's wireframe — a card's media: the snap grid, a frame a placement, at a twelfth of the page's scale. */
+const LayoutWireframe = memo(function LayoutWireframe({ cells }: { cells: readonly Cell[] }) {
+    const tiles = useMemo(() => cells.map((cell): SnapGridLayoutCell => ({
+        key: cell.key, row: cell.row, span: cell.span,
+        height: some(cell.height.type === "some" ? cell.height.value / 12n : 12n),
+        align: cell.align, frame: true,
+    })), [cells]);
+    return <SnapGridTiles wireframe cells={tiles} content={noContent} />;
+});
+
+/**
+ * An entry's card, as the Library's gallery card draws it: its title, and Open while it is the page its host says is
+ * open, which is then the card marked; what it places; its tags; and a foot holding its project and how many
+ * components it places, then Open in builder — or, on a template's, Start a page.
+ *
+ * @param row - The entry, and its key
+ * @param view - Whether it is a page's card or a template's
+ * @param open - Whether it is the page its host says is open
+ * @param summary - What its layout places, in words
+ * @param m - The words
+ * @param words - The locale's formatters
+ * @returns The card
+ */
+function entryItem(row: PageRow, view: View, open: boolean, summary: string, m: StudioMessages, words: Formatters): LibraryItemValue {
+    const n = row.entry.draft.cells.length;
+    return libraryCard({
+        key: printKey(row.key), label: row.entry.title,
+        sublabel: some(textEqual(summary, "") ? m.blankSummary() : summary),
+        byline: some(m.entryByline({ project: row.key.project, placements: m.placements({ n, count: words.number(n) }) })),
+        action: some(view === "pages" ? m.openInBuilder() : m.startFromTemplate()),
+        open, openWord: m.openNow(), tags: row.entry.tags,
+    });
+}
+
+/**
+ * A view's gallery: each entry the Library's gallery card ({@link entryItem}), its media its layout's wireframe. A
+ * press on a card is told the entry its card was drawn from, so the library holds none of the rows it draws. What a
+ * layout places is worked out once an entry, and kept as the view and the open page move: a press marks another card,
+ * and works out none again.
+ *
+ * @param view - The pages, or the templates
+ * @param open - The page its host says is open
+ * @param components - The listed components: what a summary names
+ * @param onPress - Told the entry whose card was pressed
+ * @returns The gallery the paged gallery draws
+ */
+function useEntryGallery(view: View, open: option<Key>, components: StudioLibraryValue["components"], onPress: (row: PageRow) => void): PagedLibraryGallery<PageRow> {
+    const m = useStudioMessages();
+    const words = useFormatters();
+    const summaryOf = useMemo(() => {
+        const east = studioEast();
+        const summaries = new WeakMap<Entry, string>();
+        return (row: PageRow): string => {
+            const held = summaries.get(row.entry);
+            if (held !== undefined) return held;
+            const summary = east.layoutSummary(components, row.entry.draft.cells);
+            summaries.set(row.entry, summary);
+            return summary;
+        };
+    }, [components]);
+    return useMemo((): PagedLibraryGallery<PageRow> => libraryGallery({
+        item: (row) => entryItem(row, view, view === "pages" && open.type === "some" && keyEqual(open.value, row.key), summaryOf(row), m, words),
+        media: (row) => <LayoutWireframe cells={row.entry.draft.cells} />,
+        onOpen: (_key, row) => onPress(row),
+    }), [view, open, summaryOf, onPress, m, words]);
+}
+
+/** Props of {@link NewPage}. */
+interface NewPageProps {
+    /** Its full words, or its plus alone: the toolbar's folded form. */
+    readonly labelled: boolean;
+    /** The one project the rail has chosen (L12); `undefined` while it has chosen none, or several. */
+    readonly fixed: string | undefined;
+    /** Where it starts from while its popover is open; `undefined` while it is closed. */
+    readonly starting: Starting | undefined;
+    /** Opens its popover from a blank grid, or closes it. */
+    readonly onStarting: (next: Starting | undefined) => void;
+    /** The project its popover offers while the rail has chosen none. */
+    readonly home: string;
+    /** Makes the page: its key, the layout it starts from and its tags — resolving to what refused it, or `undefined` once it is made. */
+    readonly onCreate: (key: Key, from: PageRow | undefined, tags: Tags) => Promise<string | undefined>;
+}
+
+/**
+ * New page (L12), and its popover: a name, the project where the rail has chosen none — the template's, else the
+ * library's own — and tags, over Cancel and Create page. It hangs from the button, however it opens.
+ */
+function NewPage({ labelled, fixed, starting, onStarting, home, onCreate }: NewPageProps) {
+    const m = useStudioMessages();
+    const edit = useSlotStyles("sliceEdit");
+    const label = fixed === undefined ? m.newPage() : m.newPageIn({ project: fixed });
+    const open = starting !== undefined;
+    // The form as it was last told — a tag typed and left for Create is told as the press lands, whether or not the
+    // popover has drawn again by then. Each opening starts from the project it offers, and no tags.
+    const offered = starting?.from?.key.project ?? home;
+    const [form, setForm] = useState({ project: offered, tags: NO_TAGS });
+    const latest = useRef(form);
+    const [wasOpen, setWasOpen] = useState(open);
+    if (open !== wasOpen) {
+        setWasOpen(open);
+        if (open) {
+            latest.current = { project: offered, tags: NO_TAGS };
+            setForm(latest.current);
+        }
+    }
+    const specs = useMemo(() => (fixed === undefined
+        ? Fields.specs(ProjectFormType, { project: Fields.text({ label: m.pageProject() }), tags: Fields.tags({ label: m.tags(), help: m.pageTagsHelp() }) })
+        : Fields.specs(TagsFormType, { tags: Fields.tags({ label: m.tags(), help: m.pageTagsHelp() }) })), [fixed, m]);
+    const value = useMemo(() => (fixed === undefined ? form : { tags: form.tags }), [fixed, form]);
+    const onField = useCallback((path: readonly string[], next: unknown) => {
+        latest.current = path[0] === "project" ? { ...latest.current, project: next as string } : { ...latest.current, tags: next as Tags };
+        setForm(latest.current);
+    }, []);
+    const create = (name: string) => {
+        const project = (fixed ?? latest.current.project).trim();
+        if (textEqual(project, "")) return Promise.resolve(m.pageProjectMissing());
+        return onCreate({ project, page: name }, starting?.from, latest.current.tags);
+    };
+    return (
+        <NamePopover
+            open={open}
+            onOpenChange={(next) => onStarting(next ? { from: undefined } : undefined)}
+            trigger={<LibraryNewButton label={label} labelled={labelled} data-page-library-new={fixed ?? ""} />}
+            label={fixed === undefined ? m.newPage() : <>{m.newPage()} · <Box as="span" css={edit.clauseField}>{fixed}</Box></>}
+            placeholder={m.pageName()}
+            initial=""
+            taken={NONE_TAKEN}
+            missing={m.pageNameMissing()}
+            nameTaken={(name) => m.nameTaken({ name })}
+            confirm={m.createPage()}
+            cancel={m.cancel()}
+            onConfirm={create}
+        >
+            <Box as="span" css={edit.hint} data-page-library-from="">{m.startsFrom({ template: starting?.from?.entry.title })}</Box>
+            <Box data-page-library-form="">
+                {/* Live: a project typed is told as it is typed, so Create — a press that may move no focus — reads it. */}
+                <FieldForm specs={specs} value={value} onChange={onField} live />
+            </Box>
+        </NamePopover>
+    );
+}
 
 /** Props of {@link EastChakraStudioLibrary}. */
 export interface EastChakraStudioLibraryProps {
@@ -96,414 +301,101 @@ export interface EastChakraStudioLibraryProps {
 }
 
 /**
- * Sort · Name, opening a menu of the two orders — folded, the trigger is the
- * order's icon, the words its name and tooltip.
- */
-function SortMenu({ sort, onPick, compact, trigger, caret, check }: {
-    sort: Sort;
-    onPick: (sort: Sort) => void;
-    compact: boolean;
-    trigger: SystemStyleObject;
-    caret: SystemStyleObject;
-    check: SystemStyleObject;
-}) {
-    const m = useStudioMessages();
-    const current = SORTS.find((s) => s.key === sort) ?? SORTS[0]!;
-    const words = m.sortByName();
-    return (
-        <ChakraMenu.Root positioning={{ placement: "bottom-end" }}>
-            <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={trigger} data-page-library-sort=""
-                    {...(compact ? { "aria-label": words, title: words } : {})}>
-                    {compact ? <FontAwesomeIcon icon={current.icon} /> : (
-                        <>
-                            {words}
-                            <Box as="span" css={caret} aria-hidden><FontAwesomeIcon icon={faCaretDown} /></Box>
-                        </>
-                    )}
-                </chakra.button>
-            </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
-                        <ChakraMenu.RadioItemGroup value={sort} onValueChange={(d) => {
-                            const picked = SORTS.find((s) => s.key === d.value);
-                            if (picked !== undefined && picked.key !== sort) onPick(picked.key);
-                        }}>
-                            {SORTS.map((s) => (
-                                <ChakraMenu.RadioItem key={s.key} value={s.key}>
-                                    <Box as="span" css={check}>{s.key === sort && <FontAwesomeIcon icon={faCheck} />}</Box>
-                                    {s.name(m)}
-                                </ChakraMenu.RadioItem>
-                            ))}
-                        </ChakraMenu.RadioItemGroup>
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
-        </ChakraMenu.Root>
-    );
-}
-
-/**
  * Renders the page library — see the module docs.
  *
  * @param props - The payload and its storage key
  * @returns The page library
  */
 export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ value, storageKey }: EastChakraStudioLibraryProps) {
-    const styles = useSlotRecipe({ key: "studioLibrary" })() as Styles;
-    const library = useSlotRecipe({ key: "library" })() as Styles;
-    const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
-    const status = useSlotRecipe({ key: "status" });
-    const liveDot = status({ status: "success" }) as Styles;
-    const draftDot = status({ status: "neutral", ring: true }) as Styles;
-    const button = useRecipe({ key: "button" });
     const m = useStudioMessages();
-    const words = useFormatters();
-    const id = useId();
-    const east = studioEast();
-    const { pages: handle, components } = value;
-    const home = value.project;
-    const onOpen = value.onOpen;
+    const id = getSomeorUndefined(value.id);
+    const libraryKey = id === undefined ? "studio.library" : `studio.library.${id}`;
+    // Its write, who to tell, the components and the slice: each the payload's last one while a new payload's is
+    // equivalent, so a press, which moves the open page alone, makes none of them again.
+    const pages = useEquivalent(value.pages, pagesEquivalent);
+    const onOpen = useEquivalent(value.onOpen, onOpenEquivalent);
+    const components = useEquivalent(value.components, componentsEquivalent);
+    const chrome = useEquivalent(value.slice, sliceEquivalent);
+    const parts = useMemo(() => ({ pages: sourcePart(chrome, SOURCE.pages), templates: sourcePart(chrome, SOURCE.templates) }), [chrome]);
+    // A view whose source is scoped to another kind of entry, or to both: the scope's values are the page's, which may be
+    // an expression's, so the build refuses only one scoped by nothing (east-workspace#1779).
+    const misscoped = useMemo(() => VIEWS.find((v) => {
+        const part = parts[v];
+        return part !== undefined && !scopedToOne(part.config.scope, KIND_FIELD, KindType, KIND[v]);
+    }), [parts]);
 
-    // The record, read where the page library renders, and again when it moves.
-    const read = useCallback(() => handle.read(), [handle]);
-    const { result } = useTrackedEvaluation(read);
-    const records = result.ok ? result.value : undefined;
+    // The view shown: the pages, or — where the slice has them — the templates; the viewer's, kept.
+    const { state: kept, setState: setKept } = usePersistedState<{ view: View }>(`${storageKey}.${libraryKey}.view`, { view: "pages" }, readView);
+    const view: View = parts.templates === undefined ? "pages" : kept.view;
+    const pickView = useCallback((next: View) => setKept({ view: next }), [setKept]);
+    const shown = parts[view];
 
-    // Its own view: the project it shows, the search, the order, the Pages
-    // row's layout, and the New page popover — the template it starts from,
-    // `""` for Blank grid, while it is open.
-    const [project, setProject] = useState(home);
-    const [text, setText] = useState("");
-    const [sort, setSort] = useState<Sort>("az");
-    const [layout, setLayout] = useState<Layout>("grid");
-    const [popover, setPopover] = useState<string | undefined>(undefined);
-    const needle = text.toLowerCase();
+    // The rail, the shown view's source's fields alone, each source counted in its noun; then New page, which follows it.
+    const nouns = useMemo(() => ({ [SOURCE.pages]: m.pageNoun().plural, [SOURCE.templates]: m.templateNoun().plural }), [m]);
+    const hidden = useMemo(() => chrome.slice.parts.filter((part) => part.source !== SOURCE[view])
+        .flatMap((part) => part.slice.config.fields.map((field) => `${part.source}.${field.fieldId}`)), [chrome, view]);
+    const rail = useLibraryRail(chrome, nouns, hidden);
+    // New page follows the rail shown (L12): over the templates, their own project's choice — which their rail rarely
+    // offers — and never the pages', a chip the view hides (east-workspace#1779).
+    const fixed = useRailValue(shown, PROJECT_FIELD);
 
-    // The rows: the search narrows them by title, and Sort orders them by name
-    // — the record's key order, or its reverse.
-    const za = sort === "za";
-    const everyPage = useMemo(() => (records === undefined ? [] : east.libraryPages(records, project)), [east, records, project]);
-    const everyTemplate = useMemo(() => (records === undefined ? [] : east.libraryTemplates(records, project, components)),
-        [east, records, project, components]);
-    const pageRows = useMemo(() => {
-        const matching = everyPage.filter((p) => p.title.toLowerCase().includes(needle));
-        return za ? matching.reverse() : matching;
-    }, [everyPage, needle, za]);
-    const paneRows = useMemo(() => {
-        const byName = records === undefined ? [] : east.palettePages(records, project);
-        return za ? [...byName].reverse() : byName;
-    }, [east, records, project, za]);
-    const templateRows = useMemo(() => {
-        const matching = everyTemplate.filter((t) => t.title.toLowerCase().includes(needle));
-        const ordered = za ? matching.reverse() : matching;
-        // Blank grid is built in, first; its name is none a template can have.
-        const blank = { name: "", title: m.blankGrid(), summary: m.blankSummary(), cells: [] };
-        return m.blankGrid().toLowerCase().includes(needle) ? [blank, ...ordered] : ordered;
-    }, [everyTemplate, needle, za, m]);
-    const projects = useMemo(() => (records === undefined ? [home] : east.libraryProjects(records, home)), [east, records, home]);
-    const taken = useMemo(() => {
-        const names = new Set<string>();
-        if (records !== undefined) {
-            for (const [key] of records) {
-                if (stringEqual(key.project, project)) names.add(key.page);
-            }
-        }
-        return names;
-    }, [records, project]);
+    // New page: open from a blank grid by its button, or from a template by its card. Made, it is one commit, and the host
+    // is told of it (L10).
+    const [starting, setStarting] = useState<Starting | undefined>(undefined);
+    const onCreate = useCallback(async (key: Key, from: PageRow | undefined, tags: Tags): Promise<string | undefined> => {
+        const east = studioEast();
+        const outcome = await pages.commit.patch("", east.newPage(key, key.page, from === undefined ? none : some(from.entry.draft), tags));
+        // A conflict is a name the project holds — before the popover opened, or since: the library holds no page's name
+        // to refuse it by sooner, so it says the name is taken, never that another write took it first.
+        if (outcome.type === "conflict") return m.nameTaken({ name: key.page });
+        const refused = east.nameWriteRefusal(outcome, key.page);
+        if (refused.type === "some") return refused.value;
+        tellHost(onOpen, key);
+        return undefined;
+    }, [pages, onOpen, m]);
 
-    // "Open in builder →": the host is told, in a turn of its own, and shows the page in its builder.
-    const openPage = useCallback((name: string) => { tellHost(onOpen, { project, page: name }); }, [project, onOpen]);
+    // A press on a page's card asks the host for it; on a template's, New page opens from it.
+    const onPress = useCallback((row: PageRow) => {
+        if (view === "pages") tellHost(onOpen, row.key);
+        else setStarting({ from: row });
+    }, [view, onOpen]);
+    const gallery = useEntryGallery(view, value.page, components, onPress);
+    const empty = useMemo(() => (view === "pages" ? { title: m.noPages(), description: m.noPagesHint() } : { title: m.noTemplates(), description: m.noTemplatesHint() }), [view, m]);
+    const narrowed = useMemo(() => ({ title: m.noneMatch({ templates: view === "templates" }), description: m.noneMatchHint({ templates: view === "templates" }) }), [view, m]);
 
-    // A template's card starts a new page from it, Blank grid's from nothing,
-    // and the dashed card from nothing too — each opening the popover under
-    // the New page button.
-    const startFrom = useCallback((name: string) => setPopover(name), []);
-    const startBlank = useCallback(() => setPopover(""), []);
-    // Each card's media: a wireframe of its layout, at a twelfth of the page's
-    // scale, a content-height placement a KPI's.
-    const wireframes = useMemo(() => {
-        const out = new Map<string, SnapGridLayoutCell[]>();
-        const layouts: ReadonlyArray<readonly [string, readonly Cell[]]> = [
-            ...templateRows.map((t) => [`template:${t.name}`, t.cells] as const),
-            ...pageRows.map((p) => [`page:${p.page}`, p.cells] as const),
+    const toolbar = useMemo((): ReadonlyArray<ToolbarItem> => {
+        const items = [
+            { key: "pages", label: m.pages(), icon: faFileLines },
+            { key: "templates", label: m.templates(), icon: faLayerGroup },
+        ] as const;
+        const newPage = (labelled: boolean) => (
+            <NewPage key={labelled ? "full" : "compact"} labelled={labelled} fixed={fixed} starting={starting} onStarting={setStarting} home={value.project} onCreate={onCreate} />
+        );
+        return [
+            ...(parts.templates === undefined ? [] : [{
+                key: "studio-library-view",
+                forms: [
+                    <Seg key="strip" label={m.libraryView()} name="view" scope="studio-library" items={items} active={view} onPick={pickView} />,
+                    <SegMenu key="menu" label={m.libraryView()} name="view" scope="studio-library" items={items} active={view} onPick={pickView} />,
+                ],
+                version: view,
+            }]),
+            ...rail,
+            { key: "studio-library-new", side: "end" as const, forms: [newPage(true), newPage(false)], version: fixed },
         ];
-        for (const [card, cells] of layouts) {
-            out.set(card, cells.map((c) => ({
-                key: c.key,
-                row: c.row,
-                span: c.span,
-                height: some(c.height.type === "some" ? c.height.value / 12n : 12n),
-                align: c.align,
-                frame: true,
-            })));
-        }
-        return out;
-    }, [templateRows, pageRows]);
-    const templateMedia = useCallback((item: LibraryItemValue) => (
-        <SnapGridTiles wireframe cells={wireframes.get(`template:${item.key}`) ?? []} content={() => null} />
-    ), [wireframes]);
-    const pageMedia = useCallback((item: LibraryItemValue) => (
-        <SnapGridTiles wireframe cells={wireframes.get(`page:${item.key}`) ?? []} content={() => null} />
-    ), [wireframes]);
+    }, [parts.templates, view, pickView, rail, fixed, starting, value.project, onCreate, m]);
 
-    const templatesGallery = useMemo((): LibraryValue => ({
-        id: `${storageKey}.templates`,
-        hint: none,
-        items: templateRows.map((t): LibraryItemValue => ({
-            key: t.name, label: t.title, sublabel: some(t.summary), icon: none, status: none, trailing: none,
-            draggable: false, filtered: false, placed: false, media: none, avatar: none, byline: none, action: none,
-            search: none, groups: new Map(), facets: new Map(), dims: new Map(),
-        })),
-        groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [],
-        searchable: false, noun: none, addLabel: none, onAdd: none,
-        onCardClick: some((name: string) => { startFrom(name); return null; }),
-        slice: none,
-        style: some({ height: none, maxHeight: none, virtualization: none, columns: some(4n), mediaPlacement: none, mediaSize: some("80px") }),
-        variant: some(variant("gallery", null)),
-        layout: none,
-        toolbar: false,
-    }), [storageKey, templateRows, startFrom]);
-    const pagesGallery = useMemo((): LibraryValue => ({
-        id: `${storageKey}.pages`,
-        hint: none,
-        items: pageRows.map((p): LibraryItemValue => ({
-            key: p.page, label: p.title,
-            sublabel: some(m.placements({ n: p.cells.length, count: words.number(p.cells.length) })),
-            icon: none,
-            status: some(p.live
-                ? { label: m.live(), tone: variant("success", null), ring: false }
-                : { label: m.draft(), tone: variant("neutral", null), ring: true }),
-            trailing: none, draggable: false, filtered: false, placed: false, media: none, avatar: none, byline: none,
-            action: some(m.openInBuilder()),
-            search: none, groups: new Map(), facets: new Map(), dims: new Map(),
-        })),
-        groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [],
-        searchable: false, noun: none,
-        addLabel: some(m.newPageFromTemplate()),
-        onAdd: some(() => { startBlank(); return null; }),
-        onCardClick: some((name: string) => { openPage(name); return null; }),
-        slice: none,
-        style: some({ height: none, maxHeight: none, virtualization: none, columns: some(2n), mediaPlacement: some(variant("start", null)), mediaSize: some("156px") }),
-        variant: some(variant("gallery", null)),
-        layout: some(layout === "list" ? variant("list", null) : variant("grid", null)),
-        toolbar: false,
-    }), [storageKey, pageRows, m, words, startBlank, openPage, layout]);
-
-    // The New page popover, and the template it starts from — the one whose
-    // card opened it, else Blank grid; each opening starts over.
-    const from = popover !== undefined && popover !== "" ? popover : BLANK;
-    const [template, setTemplate] = useState(from);
-    const [openedFrom, setOpenedFrom] = useState(popover);
-    if (popover !== openedFrom) {
-        setOpenedFrom(popover);
-        if (popover !== undefined) setTemplate(from);
-    }
-    const picker = useMemo(() => createListCollection({
-        items: [{ value: BLANK, label: m.blankGrid() }, ...everyTemplate.map((t) => ({ value: t.name, label: t.title }))],
-    }), [everyTemplate, m]);
-    // A new page: one commit inserting it, its draft the template's placements.
-    const create = async (name: string) => {
-        const now = handle.read();
-        const key = { project, page: name };
-        const patch = east.newPage(now, key, name, template === BLANK ? none : some({ project, page: template }));
-        const outcome = await handle.commit.patch("", patch);
-        const refused = east.nameWriteRefusal(outcome, name);
-        return refused.type === "some" ? refused.value : undefined;
-    };
-
-    const np = everyPage.length;
-    const nt = everyTemplate.length + 1;
-    const shown = pageRows.length;
-    // The page the host says is open in its builder, while this is its project.
-    const current = value.page.type === "some" && stringEqual(value.page.value.project, project) ? value.page.value.page : "";
-
-    // The search box at a width the toolbar folds it to — one element in
-    // every form, so the field keeps its focus and its text as the row folds.
-    const searchBox = (size: "wide" | "mid" | "narrow") => (
-        <Box css={library.searchBox} data-size={size}>
-            <Box as="span" css={library.searchIcon} aria-hidden>
-                <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </Box>
-            <chakra.input
-                css={library.searchInput}
-                placeholder={m.searchLibrary({ pages: words.number(np), templates: words.number(nt), np, nt })}
-                aria-label={m.searchLabel()}
-                value={text}
-                data-page-library-search=""
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === "Escape" && text !== "") {
-                        e.preventDefault();
-                        setText("");
-                    }
-                }}
-            />
-            {text !== "" && (
-                <chakra.button type="button" css={library.searchClear} aria-label={m.clearSearch()} onClick={() => setText("")}>
-                    <FontAwesomeIcon icon={faXmark} />
-                </chakra.button>
-            )}
-        </Box>
-    );
-    const sortMenu = (compact: boolean) => (
-        <SortMenu sort={sort} compact={compact} trigger={button({ variant: "outline", size: "sm" }) as SystemStyleObject}
-            caret={styles.caret!} check={library.menuCheck!} onPick={setSort} />
-    );
-    // The primary action, in each of its forms, is the New page popover's trigger.
-    const newPage = (form: "full" | "short" | "icon"): ReactNode => (
-        <NamePopover
-            open={popover !== undefined}
-            onOpenChange={(next) => setPopover(next ? "" : undefined)}
-            trigger={
-                <chakra.button type="button" css={button({ variant: "solid", size: "sm" })} colorPalette="brand" data-page-library-new=""
-                    {...(form !== "full" ? { title: m.newPageIn({ project }) } : {})}
-                    {...(form === "icon" ? { "aria-label": m.newPageIn({ project }) } : {})}>
-                    <Box as="span" css={styles.buttonIcon} aria-hidden><FontAwesomeIcon icon={faPlus} /></Box>
-                    {form === "full" ? m.newPageIn({ project }) : form === "short" ? m.newPage() : null}
-                </chakra.button>
-            }
-            label={<>{m.newPage()} · <Box as="span" css={edit.clauseField}>{project}</Box></>}
-            placeholder={m.pageName()}
-            initial=""
-            taken={taken}
-            missing={m.pageNameMissing()}
-            nameTaken={(name) => m.nameTaken({ name })}
-            confirm={m.createPage()}
-            cancel={m.cancel()}
-            onConfirm={create}
-        >
-            <ChakraSelect.Root collection={picker} value={[template]} onValueChange={(d) => setTemplate(d.value[0] ?? BLANK)}>
-                <ChakraSelect.HiddenSelect />
-                <ChakraSelect.Label>{m.template()}</ChakraSelect.Label>
-                <ChakraSelect.Control>
-                    <ChakraSelect.Trigger data-page-library-template="">
-                        <ChakraSelect.ValueText />
-                    </ChakraSelect.Trigger>
-                    <ChakraSelect.IndicatorGroup>
-                        <ChakraSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></ChakraSelect.Indicator>
-                    </ChakraSelect.IndicatorGroup>
-                </ChakraSelect.Control>
-                <Portal>
-                    <ChakraSelect.Positioner>
-                        <ChakraSelect.Content>
-                            {picker.items.map((item) => (
-                                <ChakraSelect.Item key={item.value} item={item}>
-                                    {item.label}
-                                    <ChakraSelect.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraSelect.ItemIndicator>
-                                </ChakraSelect.Item>
-                            ))}
-                        </ChakraSelect.Content>
-                    </ChakraSelect.Positioner>
-                </Portal>
-            </ChakraSelect.Root>
-        </NamePopover>
-    );
-    const toolbarItems: ReadonlyArray<ToolbarItem> = [
-        {
-            key: "search",
-            forms: [searchBox("wide"), searchBox("mid"), searchBox("narrow")],
-            rank: [RANK.searchMid, RANK.searchNarrow],
-        },
-        { key: "sort", side: "end", forms: [sortMenu(false), sortMenu(true)], rank: RANK.sort, version: sort },
-        {
-            key: "layout",
-            side: "end",
-            forms: [<LibraryLayoutSwitch layout={layout} onPick={setLayout} />],
-        },
-        { key: "rule", side: "end", forms: [<Box as="span" css={styles.divider} aria-hidden />] },
-        {
-            key: "new",
-            side: "end",
-            forms: [newPage("full"), newPage("short"), newPage("icon")],
-            rank: [RANK.newPage, RANK.newPageIcon],
-            version: project,
-        },
-    ];
-
-    if (!result.ok) {
-        const message = result.error instanceof Error ? result.error.message : String(result.error);
-        return <BannerView status="error" title={message} />;
+    if (misscoped !== undefined) {
+        const templates = misscoped === "templates";
+        return <BannerView status="error" title={m.sourceKind({ templates })} description={m.sourceKindHint({ templates })} />;
     }
     return (
-        <Box css={styles.root} data-studio-page-library="">
-            <Box css={styles.toolbar} data-slot="toolbar">
-                <Toolbar items={toolbarItems} />
-            </Box>
-            <Box css={styles.body}>
-                <Box css={styles.pane} data-page-library-pane="">
-                    <Box css={styles.paneSection} role="group" aria-labelledby={`${id}-projects`}>
-                        <Box css={styles.paneHead}>
-                            <Box as="span" id={`${id}-projects`} css={styles.paneCaption}>{m.projects()}</Box>
-                        </Box>
-                        {projects.map((p) => {
-                            const active = p === project;
-                            return (
-                                <chakra.button key={p} type="button" css={styles.paneRow} data-page-library-project={p}
-                                    {...(active ? { "data-active": "", "aria-current": "true" } : {})}
-                                    onClick={() => { if (!active) setProject(p); }}>
-                                    <Box as="span" css={styles.paneIcon} aria-hidden>
-                                        <FontAwesomeIcon icon={active ? faFolderOpen : faFolder} />
-                                    </Box>
-                                    <Box as="span" css={styles.paneTitle}>{p}</Box>
-                                </chakra.button>
-                            );
-                        })}
-                    </Box>
-                    <Box css={styles.paneRule} aria-hidden />
-                    <Box css={styles.paneSection} role="group" aria-labelledby={`${id}-pages`}>
-                        <Box css={styles.paneHead}>
-                            <Box as="span" id={`${id}-pages`} css={styles.paneCaption}>{m.pages()}</Box>
-                            <Box as="span" css={styles.paneCount}>{words.number(np)}</Box>
-                        </Box>
-                        {paneRows.map((p) => {
-                            const dot = p.live ? liveDot : draftDot;
-                            const state = p.live ? m.live() : m.draft();
-                            return (
-                                <chakra.button key={p.page} type="button" css={styles.paneRow} data-page="" data-page-library-page={p.page}
-                                    {...(p.page === current ? { "data-current": "", "aria-current": "page" } : {})}
-                                    onClick={() => openPage(p.page)}>
-                                    <Box as="span" css={styles.paneTitle}>{p.title}</Box>
-                                    <Box as="span" css={dot.root} role="img" aria-label={state} title={state}>
-                                        <Box as="span" css={dot.indicator} />
-                                    </Box>
-                                </chakra.button>
-                            );
-                        })}
-                    </Box>
-                    <Box css={styles.legend} data-page-library-legend="">
-                        <Box as="span" css={liveDot.root}>
-                            <Box as="span" css={liveDot.indicator} />
-                            <Box as="span" css={liveDot.label}>{m.live()}</Box>
-                        </Box>
-                        <Box as="span" css={draftDot.root}>
-                            <Box as="span" css={draftDot.indicator} />
-                            <Box as="span" css={draftDot.label}>{m.draft()}</Box>
-                        </Box>
-                    </Box>
-                </Box>
-                <Box css={styles.main}>
-                    <Box as="section" css={styles.section} data-section="templates" aria-labelledby={`${id}-templates`}>
-                        <Box css={styles.sectionHead}>
-                            <Box as="h3" id={`${id}-templates`} css={styles.sectionTitle}>{m.templates()}</Box>
-                            <Box as="span" css={styles.sectionSub}>{m.cloneToStart()}</Box>
-                        </Box>
-                        <EastChakraLibrary value={templatesGallery} storageKey={`${storageKey}.templates`} renderMedia={templateMedia} />
-                    </Box>
-                    <Box as="section" css={styles.section} data-section="pages" aria-labelledby={`${id}-rows`}>
-                        <Box css={styles.sectionHead}>
-                            <Box as="h3" id={`${id}-rows`} css={styles.sectionTitle}>{m.pages()}</Box>
-                            <Box as="span" css={styles.sectionSub} data-page-library-shown="">
-                                {m.pagesIn({ shown: words.number(shown), total: words.number(np), project, narrowed: shown !== np })}
-                            </Box>
-                        </Box>
-                        <EastChakraLibrary value={pagesGallery} storageKey={`${storageKey}.pages`} renderMedia={pageMedia} />
-                    </Box>
-                </Box>
-            </Box>
-        </Box>
+        <BuilderFrame storageKey={`${storageKey}.${libraryKey}.frame`} label={m.pageLibrary()} toolbar={toolbar}>
+            {shown !== undefined && (
+                <SliceGallery key={view} part={shown} id={`${libraryKey}.${view}`} gallery={gallery} decode={pageRow} empty={empty} narrowed={narrowed} />
+            )}
+        </BuilderFrame>
     );
-});
+}, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary);

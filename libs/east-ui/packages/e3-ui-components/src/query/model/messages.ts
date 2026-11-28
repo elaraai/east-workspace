@@ -522,7 +522,7 @@ export interface QueryMessages {
     moveStepGesture: (p: { n: string; up: boolean }) => string;
     /** The jq edited and left. */
     editJqGesture: () => string;
-    /** The query named, and described, as it saves. */
+    /** The query named, described and tagged, as it saves. */
     nameGesture: () => string;
 
     // ── The builder (#935) ───────────────────────────────────────────────
@@ -568,6 +568,10 @@ export interface QueryMessages {
     descriptionCount: (p: { count: string; max: string; n: number }) => string;
     /** Returns the description to the sentence generated from the steps. */
     restoreGenerated: () => string;
+    /** Its tags field's label (#1758). */
+    tagsLabel: () => string;
+    /** Under the tags: what they are for. */
+    tagsHelp: () => string;
     /** The save popover's commit. */
     saveConfirm: () => string;
     /** The save popover's cancel. */
@@ -844,20 +848,8 @@ export interface QueryMessages {
     startedOn: (p: { name: string }) => string;
     /** The notice after a query is opened from the Library tab — `Opened “Big orders” from the library.` */
     openedFromLibrary: (p: { name: string }) => string;
-    /** The notice after a query library's card is dropped on the builder — `Opened “Big orders” from the query library.` */
-    openedFromQueryLibrary: (p: { name: string }) => string;
     /** The notice after the builder's host opens a query in it — `Opened “Big orders”.` */
     opened: (p: { name: string }) => string;
-
-    // ── Dropping (#939) ──────────────────────────────────────────────────
-    /** Over the builder while a query library's card rests on it — `Drop to open “Revenue by region”`. */
-    dropToOpen: (p: { name: string }) => string;
-    /** Under it: how many steps that query has — `5 steps.` */
-    dropSteps: (p: { count: string; n: number }) => string;
-    /** The builder, as the drag layer names it in what it says — `Revenue by region is over the query builder.` */
-    dropTargetName: () => string;
-    /** The builder refusing a card, as the drag layer names it, with why — `the query builder (Reads customers, which isn't here) does not take Big orders.` */
-    dropRefusedName: (p: { reason: string }) => string;
 
     // ── The query library (#1063) ────────────────────────────────────────
     /** Its search's placeholder — `Search 7 queries…`. */
@@ -880,6 +872,13 @@ export interface QueryMessages {
     allQueries: () => string;
     /** A card's action. */
     openInBuilder: () => string;
+    /** The mark, on its card in the query library, of the query open in the builder. */
+    openNow: () => string;
+    /** The name of New query's menu, in the query library: the bound data sources a new query may start on. */
+    newQueryMenu: () => string;
+    /** What the query library says where the rail's choices leave no query, and what to do about it. */
+    noQueriesMatch: () => string;
+    changeFilters: () => string;
     /**
      * A card's byline — `orders · 5 steps · up to 10 shipped orders · saved
      * Tue`: what it starts from, its steps (none for a program that is not

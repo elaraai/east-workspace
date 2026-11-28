@@ -49,6 +49,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "groupTrigger", "dimTrigger", "menuCheck",
         "group", "groupHead", "groupLabel", "groupMark", "groupSummary", "grid",
         "body", "canvas", "row", "rowGrid", "pagedRoot", "pagedRow", "pagedSkeleton",
+        "pagedGalleryHead", "pagedGalleryRow", "pagedGalleryCell", "pagedGallerySkeleton",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel", "cardFigure",
         "cardSublabel", "cardNote", "cardRemove", "trailing", "statusPill", "glyph",
         "meter", "meterTrack", "meterFill", "meterText",
@@ -57,6 +58,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "galleryGrid", "galleryCard", "galleryMedia", "galleryFace", "galleryHead", "galleryTitle",
         "gallerySublabel", "galleryFoot", "galleryByline", "galleryBylineText", "galleryAction",
         "galleryAdd", "galleryAddIcon", "galleryAddLabel",
+        "newIcon", "newCaret",
     ],
     base: {
         /* Bare like the Table — identity chrome (title, outer frame)
@@ -93,8 +95,36 @@ export const librarySlotRecipe = defineSlotRecipe({
             },
         },
         pagedSkeleton: { height: "48px" },
-        pagedRoot: { height: "100%", minWidth: 0 },
+        pagedRoot: {
+            height: "100%",
+            minWidth: 0,
+            /* A paged gallery's root is what its lines' end is measured against: its width, the scrollbar's gutter in it. */
+            "&[data-library-gallery]": { containerType: "inline-size" },
+        },
         pagedRow: { paddingX: "14px", paddingY: "3px" },
+        /* A paged gallery (east-workspace#1761): the margin over its first line;
+           a line of its grid, its cards 12px apart with the gap under them and
+           20px in from each side of the gallery's root — at the end, 20 less the
+           gutter its scrollbar keeps there (the root's width, `100cqw`, less the
+           line's, `100%`), whatever the platform's bar: 12px where Chromium
+           draws the styled one, Firefox's thin one, none where the bar overlays
+           the cards, as iOS's does (east-workspace#1772); and a card's place,
+           which the card — or, while its row is read, a skeleton — fills. */
+        pagedGalleryHead: { height: "20px" },
+        pagedGalleryRow: {
+            display: "grid",
+            columnGap: "12px",
+            paddingLeft: "20px",
+            paddingRight: "max(0px, calc(20px - (100cqw - 100%)))",
+            paddingBottom: "12px",
+        },
+        pagedGalleryCell: {
+            display: "flex",
+            minWidth: "0",
+            minHeight: "0",
+            "& > *": { flex: "1", minWidth: "0" },
+        },
+        pagedGallerySkeleton: { borderRadius: "10px" },
         /* Virtualizer sizing canvas — height is bound per render. */
         canvas: {
             position: "relative",
@@ -534,6 +564,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexWrap: "wrap",
             gap: "{spacing.1}",
             marginTop: "3px",
+            /* A paged gallery's cards stand as tall as each other: their
+               chips keep to one line, the ones past its end cut. */
+            "[data-library-gallery] &": { flexWrap: "nowrap", minWidth: "0", overflow: "hidden" },
         },
         chip: {
             fontFamily: "mono",
@@ -546,6 +579,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.xs}",
             paddingX: "6px",
             paddingY: "1px",
+            "[data-library-gallery] &": { flexShrink: "0", whiteSpace: "nowrap" },
         },
         dimText: {
             fontFamily: "mono",
@@ -739,6 +773,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             "[data-media=top] &": { marginTop: "6px" },
+            /* A paged gallery's cards stand as tall as each other: the foot
+               keeps to the card's end, whatever stands over it. */
+            "[data-library-gallery] &": { marginTop: "auto" },
         },
         galleryByline: {
             display: "flex",
@@ -800,5 +837,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             fontWeight: "500",
             color: "fg.muted",
         },
+        /* A library's New, in its host's toolbar (#1761, #1762): the plus
+           before its words, and the caret after them where it opens a menu. */
+        newIcon: { fontSize: "10px" },
+        newCaret: { fontSize: "9px" },
     },
 });

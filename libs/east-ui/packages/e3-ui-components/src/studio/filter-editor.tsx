@@ -37,14 +37,14 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Box } from "@chakra-ui/react";
-import { none, type JqNode } from "@elaraai/east";
+import type { JqNode } from "@elaraai/east";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { ConditionRows, type ConditionRowsProps } from "../query/condition-rows.js";
 import { useQueryCall, useQuerySummaries } from "../query/hooks.js";
 import type { SavedOffer } from "../query/model/slots.js";
 import type { QueryRoot } from "../query/one-shot.js";
 import { usePartStyles } from "../query/parts.js";
-import { QUERY_HEADER_ID, entriesQuery, queryEntries, type QueryEntry, type QueryHeader } from "../query/session.js";
+import { entriesQuery, newHeader, queryEntries, type QueryEntry } from "../query/session.js";
 import type { StepQuery } from "../query/steps/values.js";
 import type { QueryView } from "../query/toolbar.js";
 import { useQueryEditor } from "../query/use-query-editor.js";
@@ -57,11 +57,6 @@ const VIEWS: readonly QueryView[] = ["visual"];
 /** A condition offers no saved queries to start from. */
 const NO_SAVED: readonly SavedOffer[] = [];
 const noop = (): void => {};
-
-/** A condition's query's header: its source alone. */
-function headerOf(source: string): QueryHeader {
-    return { id: QUERY_HEADER_ID, name: "", description: none, source, jq: none };
-}
 
 /**
  * Where a condition's edits go: to a host that applies each as it is made
@@ -111,7 +106,8 @@ export function ConditionEditor({ id, query, held: was, conditionOf, root, onCha
     // The rows' drafts: the query, as it stood when they were opened.
     const [drafts, setDrafts] = useState<{ readonly entries: readonly QueryEntry[]; readonly version: number }>(() => {
         const opened = query();
-        return { entries: queryEntries(headerOf(opened.source), opened.steps), version: 0 };
+        // Its header is its source alone: a condition has no name.
+        return { entries: queryEntries(newHeader("", opened.source), opened.steps), version: 0 };
     });
     const latest = useRef(drafts.entries);
     const current = useCallback(() => latest.current, []);

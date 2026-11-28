@@ -23,7 +23,8 @@
  * which fetches the content of the paths the manifest preloads and no other:
  * a record also bound with `Data.bindPaged` (#1199) is not among them, so it
  * is never fetched whole — its windows hear its new revision through the
- * poll's hash watch instead.
+ * poll's hash watch instead. A read of it whole there has nothing to read,
+ * and says so, naming the record and what to do (east-workspace#1779).
  *
  * A record read whole does not say which of its states the cache holds: its
  * bytes name no commit, and a record another write put back exactly as it was
@@ -83,7 +84,7 @@ import {
 } from "@elaraai/east-ui-components/platform";
 import { TrackedChannelStore } from "./tracked-channel.js";
 import { trackDatasetPath } from "./bind-runtime.js";
-import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
+import { type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import type { TreePath } from "@elaraai/e3-types";
 
 // =============================================================================
@@ -266,6 +267,21 @@ function errorOfMutationResult(result: MutationResult): RecordError {
 
 function transportError(message: string): RecordError {
     return { kind: variant("transport", { message }), message, stderr: "" };
+}
+
+/**
+ * What a read of a record whole says where its state is not loaded (east-workspace#1779): the record holds none yet,
+ * or the surface pages it through `Data.bindPaged` and so never loads it whole (#1199), which leaves nothing there for
+ * a read of it whole — a builder beside the library that pages its record. Which of the two the read cannot tell: a
+ * paged record's windows follow its hash, and no store says the content was never asked for.
+ *
+ * @param name - The record's name
+ * @returns The refusal's words
+ */
+function notLoaded(name: string): string {
+    return `Record.bind: the \`${name}\` record is not loaded on this surface: it holds no state yet, or the surface pages it through ` +
+        "Data.bindPaged, as <Query.Library> and <Studio.Library> do, and never loads it whole. What reads a record whole, as " +
+        "<Query.Builder> and <Studio.Builder> do, needs a ui() of its own";
 }
 
 /** The dataset path a record's current value lives at. */
@@ -686,9 +702,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                     const path = recordPath(nameArg as string);
                     trackDatasetPath(ws, path);
                     const bytes = requireCache().read(ws, path);
-                    if (bytes === undefined) {
-                        throw new Error(`Record.bind: record state not loaded: ${datasetCacheKey(ws, path)} (it should be preloaded via the UI task manifest)`);
-                    }
+                    if (bytes === undefined) throw new Error(notLoaded(nameArg as string));
                     return decode(bytes);
                 };
             }),

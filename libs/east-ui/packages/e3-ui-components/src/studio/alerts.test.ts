@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { East, SortedMap, applyFor, compareFor, decodeBeast2, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, applyFor, decodeBeast2, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { StudioAlertsType, alertFiring, saveAlerts, type StudioPagesType } from "@elaraai/e3-ui/internal";
 import { printAlert } from "../query/visual/alert.js";
@@ -37,8 +37,9 @@ const REGIONS = v.of("orders", v.column({ x: v.group("region"), values: [v.sum("
 const OVERVIEW = { project: "Sales desk", page: "Overview" };
 
 /** The pages: the Overview live, holding the chart under `c-regions`, its draft holding one more the live version does not. */
-const PAGES: Pages = new SortedMap([
-    [OVERVIEW, variant("page", {
+const PAGES: Pages = Studio.value([
+    {
+        key: OVERVIEW,
         draft: {
             title: "Overview", filters: [],
             cells: [
@@ -46,9 +47,9 @@ const PAGES: Pages = new SortedMap([
                 { key: "c-new", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: REGIONS },
             ],
         },
-        live: some({ version: 1n, page: { title: "Overview", filters: [], cells: [{ key: "c-regions", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: REGIONS }] } }),
-    })],
-], compareFor(Studio.Types.Key));
+        live: { version: 1n, page: { title: "Overview", filters: [], cells: [{ key: "c-regions", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: REGIONS }] } },
+    },
+]);
 
 /** An alert on the chart: a region over 60, in the quarter. */
 const OVER: Alert = { page: OVERVIEW, cell: "c-regions", condition: condition(".revenue > 60"), filters: [QUARTER_FILTER], paused: false, firing: none };

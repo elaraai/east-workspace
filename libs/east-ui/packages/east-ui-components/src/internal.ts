@@ -76,6 +76,9 @@ export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 export { DropHint, type DropHintProps } from "./dnd/drop-hint.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
+// A combobox's text, held by React, committed at once, so Zag's write of it never lands over a later key — the Sheet's
+// enum and person editor (east-workspace#1779).
+export { commitTypedText } from "./primitives/typed-text.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 // The editing session's parts: its bar, a draft's presentation and checks, its words, and the data set it belongs to.
 export { HistoryBar } from "./editing/HistoryBar.js";
@@ -150,8 +153,9 @@ export {
 // totals a tile, which a horizon's bars read (#1732), and a Plan's group rows read under a narrowing each (#1716).
 export { RecordSliceKeptCells } from "./platform/slice/kept-cells.js";
 export { recordSliceTotals, recordSliceTotalsOf, type RecordSliceTileTotals } from "./platform/slice/record-totals.js";
-// The UI store, tracked reads, and the boundary a renderer's East calls run in.
-export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
+// The UI store, tracked reads, what it keeps under a key read as a type — nothing, where an earlier release kept it under
+// another (#1758) — and the boundary a renderer's East calls run in.
+export { getStore, initializeStore, trackKey, decodeStored } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
 export { PagedScan, SCAN_CONCURRENCY } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
@@ -197,7 +201,7 @@ export { DrawerContent, type DrawerContentProps, type DrawerOpenInputValue } fro
 // Schematic's Index (#1389) — its search box and its empty state.
 export { LibraryCard, LibraryEmptyState, LibrarySearchBox } from "./collections/library/index.js";
 // Its page — what a host whose figures swap with its rows waits on, the Calendar's Backlog count (#1424).
-export { PagedLibrary, PAGED_LIBRARY_PAGE, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+export { PagedGallery, PagedLibrary, PAGED_LIBRARY_PAGE, type LibraryPageSource, type PagedLibraryGallery, type PagedLibrarySearch } from "./collections/library/paged.js";
 // What a search of a record through its source's part reads, the rail's choices kept: a paged tab's, and the
 // Schematic's Index's over a kind read by area (#1393).
 export { pagedSearchFields, pagedSearchTarget, pagedSearchWhere, type PagedSearchTarget } from "./collections/library/paged-search.js";

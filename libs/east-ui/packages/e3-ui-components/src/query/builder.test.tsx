@@ -12,16 +12,18 @@
  * history item (E1–E7): one gesture is one transaction, undone, redone and
  * discarded; Apply is one patch of one entry; readiness is the check's; a save
  * another session's overtakes is a conflict; a new query is named on its first
- * Apply; opening another query and back keeps the drafts. Recent runs round
- * trip through the browser's storage.
+ * Apply; opening another query and back keeps the drafts. A save writes the
+ * query's tags as they are kept and the names of the data sources it reads
+ * (#1758). Recent runs round trip through the browser's storage, and one kept
+ * under the form a saved query had before #1758 is dropped.
  */
 
 import { describe, test, expect, beforeEach } from "vitest";
 import { useCallback, useMemo } from "react";
 import { fireEvent, renderHook, screen, within } from "@testing-library/react";
 import {
-    East, JqType, PatchType, SortedMap, checkJq, equalFor, none, some, variant,
-    type ValueTypeOf,
+    East, Expr, JqType, PatchType, SortedMap, SortedSet, checkJq, equalFor, none, printFor, some, variant,
+    type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Toolbar, editingMessages, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { Query, QueriesHandleType, Record, RecordBindHandleType, queryKeys } from "@elaraai/e3-ui/internal";
@@ -37,6 +39,7 @@ import { newStep } from "./steps/edit.js";
 import { layOutSteps } from "./steps/print.js";
 import { useQuerySession, type QuerySessionState } from "./use-query-session.js";
 import { useQueryEditingWords, useQueryWords } from "./words.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
 
@@ -287,6 +290,37 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["filter", "limit"]);
     });
 
+    test("#1758: a Save writes the query's tags as they are kept — each without the spaces around it, none empty — and its sources, the names of the data sources it reads", async () => {
+        const { state } = await mountSession();
+        await openQuery(variant("saved", "Big orders"));
+        const { header, query } = entriesQuery(state().entries!);
+        expect([[...header.tags], [...BIG_ORDERS.sources]]).toEqual([[], ["orders"]]);
+        await gesture(state, queryEntries({ ...header, tags: new SortedSet([" weekly", "sales", " "], keys) }, query.steps), "Name the query");
+        await press("Save");
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        const saved = (await h.saved()).get("Big orders")!;
+        expect([[...saved.tags], [...saved.sources]]).toEqual([["sales", "weekly"], ["orders"]]);
+        // Nothing else of it moved but when it was saved, and the other query is as it was.
+        expect(savedEqual({ ...saved, tags: BIG_ORDERS.tags, saved_at: BIG_ORDERS.saved_at }, BIG_ORDERS)).toBe(true);
+        expect(savedEqual((await h.saved()).get("Order count")!, COUNT)).toBe(true);
+        expect([state().session.status, state().session.pending, state().session.stale]).toEqual(["idle", 0, false]);
+    });
+
+    test("#1758: a query that looks another data source up is saved under both: its sources are the names of its root", async () => {
+        const { state } = await mountSession();
+        const named = savedQuery("Named orders", ".customers as $customers | .orders | map(. + {name: $customers[.customer_id].name})");
+        const { header } = entriesQuery(state().entries!);
+        const steps = entriesQuery(queryEntries(header, [])).query.steps;
+        expect(steps).toEqual([]);
+        // The query as its jq, named: a save checks it and reads what it reads off the check.
+        await gesture(state, queryEntries({ ...header, name: named.name, jq: some(".customers as $customers | .orders | map(. + {name: $customers[.customer_id].name})") }, []), "Name the query");
+        await act(async () => { await state().session.apply(); });
+        await settle();
+        const saved = (await h.saved()).get("Named orders")!;
+        expect([saved.root.map((entry) => entry.name), [...saved.sources]]).toEqual([["orders", "customers"], ["customers", "orders"]]);
+        expect(programEqual(saved.program, named.program)).toBe(true);
+    });
+
     test("E4: readiness is the check's — an unfinished step keeps Save off, and says so; a finished one lets it go", async () => {
         const { state } = await mountSession();
         await openQuery(variant("saved", "Big orders"));
@@ -389,5 +423,20 @@ describe("<Query.Builder> — recent runs (#935)", () => {
         const again = renderHook(() => useRecentQueries(key));
         expect(again.result.current.recent.map(q => q.name)).toEqual(["Big orders", "Order count"]);
         expect(savedEqual(again.result.current.recent[1]!, COUNT)).toBe(true);
+    });
+
+    test("#1758: a run kept under the form a saved query had before it held its sources and its tags no longer reads, and is dropped; a run since is kept", () => {
+        const key = queryKeys(undefined).recent;
+        // The form before: the type the record's migration step takes.
+        const Before = (Expr.type(Query.migrations.sourcesAndTags) as { inputs: readonly EastType[] }).inputs[1]!;
+        const { tags: _tags, sources: _sources, ...old } = BIG_ORDERS;
+        localStorage.setItem(keptName(key), JSON.stringify([printFor(Before)(old as never)]));
+        const first = renderHook(() => useRecentQueries(key));
+        expect(first.result.current.recent).toEqual([]);
+        act(() => { first.result.current.remember(COUNT); });
+        first.unmount();
+        const again = renderHook(() => useRecentQueries(key));
+        expect(again.result.current.recent.map(q => q.name)).toEqual(["Order count"]);
+        expect(savedEqual(again.result.current.recent[0]!, COUNT)).toBe(true);
     });
 });

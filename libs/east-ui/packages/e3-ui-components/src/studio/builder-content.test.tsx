@@ -13,7 +13,7 @@
 
 import { describe, test, expect } from "vitest";
 import { waitFor, within } from "@testing-library/react";
-import { East, NullType, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { East, NullType, encodeBeast2For, none } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
@@ -22,8 +22,7 @@ import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, settle } from "../e3-web-mount.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import {
-    components, PAGES, h, ASKED, withEntry, readRecord, tile, inspector, openTabName, openTab, spanOf, textIn, placed, select, keyOn, press, type Key,
-    type Entry,
+    components, PAGES, h, ASKED, withEntry, pageAt, readRecord, tile, inspector, openTabName, openTab, spanOf, textIn, placed, select, keyOn, press, type Key,
 } from "./builder.test-utils.js";
 
 /** A page's reader's filters, as the UI store holds them. */
@@ -39,17 +38,14 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
     const noteWas = Studio.visual.text("Figures are to last night.", "About these numbers");
     const note = Studio.visual.text("Figures are to last night.\nRefreshed at six.\n\n\nAsk the desk for more.", "About these numbers");
     /** The Notes page: live as v1 — the note over the sales as columns — and its draft since: the note edited, the sales as bars, the KPI beside them, and a component under them. */
-    const NOTES_PAGE: Entry = variant("page", {
-        draft: {
-            title: "Notes",
-            cells: [
-                placed("n-note", "r1", 12n, note), placed("n-sales", "r2", 8n, bars), placed("n-stock", "r2", 4n, stock),
-                placed("n-kpi", "r3", 12n, Studio.visual.component("kpi_rail")),
-            ],
-            filters: [],
-        },
-        live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-note", "r1", 12n, noteWas), placed("n-sales", "r2", 8n, columns)], filters: [] } }),
-    });
+    const NOTES_PAGE = pageAt(NOTES, {
+        title: "Notes",
+        cells: [
+            placed("n-note", "r1", 12n, note), placed("n-sales", "r2", 8n, bars), placed("n-stock", "r2", 4n, stock),
+            placed("n-kpi", "r3", 12n, Studio.visual.component("kpi_rail")),
+        ],
+        filters: [],
+    }, { version: 1n, page: { title: "Notes", cells: [placed("n-note", "r1", 12n, noteWas), placed("n-sales", "r2", 8n, columns)], filters: [] } });
 
     /** A builder that lists the sales as a source, its surface holding the Notes page open. */
     const notesBuilder = {
@@ -152,8 +148,8 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         expect(spanOf(container, "n-sales")).toBe("7");
         await press("Save");
         const notes = (await readRecord()).get(NOTES)!;
-        if (notes.type !== "page") throw new Error("expected a page");
-        expect(notes.value.draft.cells.map((c) => [c.key, c.span, c.content])).toEqual([
+        if (notes.kind.type !== "page") throw new Error("expected a page");
+        expect(notes.draft.cells.map((c) => [c.key, c.span, c.content])).toEqual([
             ["n-note", 12n, note], ["n-sales", 7n, bars], ["n-stock", 4n, stock], ["n-kpi", 12n, Studio.visual.component("kpi_rail")],
         ]);
     });
@@ -196,10 +192,9 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
 
     test("the publish preview's change list says a component by its name, never its key: one swapped for another names both", async () => {
         // The Notes page, live with the KPI rail; its draft holds the revenue trend in its place.
-        const swapped: Entry = variant("page", {
-            draft: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("revenue_trend"))], filters: [] },
-            live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("kpi_rail"))], filters: [] } }),
-        });
+        const swapped = pageAt(NOTES,
+            { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("revenue_trend"))], filters: [] },
+            { version: 1n, page: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("kpi_rail"))], filters: [] } });
         await h.patch(ex.studioPages, withEntry(NOTES, swapped)(PAGES));
         const { container } = await h.mount(notesBuilder, { storageKey: "studio-builder" });
         await press("Preview");

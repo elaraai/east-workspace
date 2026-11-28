@@ -177,8 +177,8 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(await commits()).toEqual(["patch", ...before]);
         const template = (await readRecord()).get({ project: "ops", page: "Overview template" })!;
-        if (template.type !== "template") throw new Error("expected a template");
-        expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
+        if (template.kind.type !== "template") throw new Error("expected a template");
+        expect(template.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
         await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
     });
 

@@ -17,7 +17,7 @@
  */
 
 import {
-    East, Expr, StringType, none, some,
+    East, Expr, StringType, isTypeEqual, none, printTypeSummary, some,
     type ArrayType, type BlockBuilder, type EastType, type ExprType, type FunctionType, type IntegerType, type NullType, type OptionType,
     type StructType, type option,
 } from "@elaraai/east";
@@ -148,6 +148,18 @@ type RecordBasePart = ExprType<StructType<{
 }>>;
 
 /**
+ * The fields a source's page scopes (#1621): what its part's type names in `scoped`, which its config holds the values
+ * of.
+ *
+ * @param part - The source's part of the slice
+ * @returns The scoped fields' names, in their order; none where its page holds no scope
+ */
+function scopedFields(part: ExprType<StructType>): string[] {
+    const scoped = (Expr.type(part as unknown as Expr) as StructType).fields["scoped"];
+    return scoped?.type === "Struct" ? Object.keys(scoped.fields) : [];
+}
+
+/**
  * Whether a source's page holds a scope (#1621): its part's type names the fields its page scopes (`scoped`), which its
  * config holds the values of.
  *
@@ -155,8 +167,110 @@ type RecordBasePart = ExprType<StructType<{
  * @returns Whether its page scopes a field
  */
 export function recordSourceScoped(part: ExprType<StructType>): boolean {
-    const scoped = (Expr.type(part as unknown as Expr) as StructType).fields["scoped"];
-    return scoped?.type === "Struct" && Object.keys(scoped.fields).length > 0;
+    return scopedFields(part).length > 0;
+}
+
+/** A builder's slice's sources, as its handle holds them. */
+function sliceSources(slice: RecordSlicesChromeOptions): Readonly<Record<string, ExprType<StructType>>> {
+    return (East.value(slice.slice) as unknown as { sources: Readonly<Record<string, ExprType<StructType>>> }).sources;
+}
+
+/**
+ * The fields a source of a builder's slice scopes (#1621, #1762), read before the slice is bound: what a builder that
+ * needs a source scoped — the page library's pages and templates, each by what an entry is — checks.
+ *
+ * @param slice - The builder's `slice`, checked a `Slice.bindRecords`
+ * @param name - The source's name
+ * @returns The scoped fields' names; none where its page holds no scope
+ */
+export function sliceSourceScopes(slice: RecordSlicesChromeOptions, name: string): string[] {
+    return scopedFields(sliceSources(slice)[name]!);
+}
+
+/** What a library's slice takes (#1761, #1762): its builder's narrowing, and how its refusals write the slice. */
+export interface LibrarySliceSpec extends RecordSourcesSpec {
+    /** How a refusal writes the slice to give (`slice={{ slice: Slice.bindRecords(key, { rows: … }) }}`). */
+    call: string;
+    /** What its cards are, as a refusal says it (`the saved queries`). */
+    cards: string;
+}
+
+/**
+ * A library's slice, checked (#1761, #1762): a library's cards are its `rows` source's rows, read through it a window
+ * at a time, and its rail narrows them — so its slice is given, it is `{ slice }` over `Slice.bindRecords`, its sources
+ * are the library's, and its `rows` source is among them. The query library's and the page library's.
+ *
+ * @param slice - The library's `slice` prop
+ * @param spec - What the library takes, and its words
+ * @returns The slice, its sources, and their chrome, which the library's payload carries
+ * @throws {Error} When `slice` is left out, is no `{ slice }` over `Slice.bindRecords`, names a source the library does
+ *   not take, or has no `rows` source — each naming the slice to write
+ */
+export function librarySlice(slice: RecordSlicesChromeOptions | undefined, spec: LibrarySliceSpec): {
+    slice: RecordSlicesChromeOptions; sources: RecordSources; chrome: ExprType<RecordSlicesChromeType>;
+} {
+    if (slice === undefined) {
+        throw new Error(`${spec.builder}: needs \`slice\` — ${spec.call}: its cards are ${spec.cards} read through it, a window at a time, and its rail narrows them`);
+    }
+    if (typeof slice !== "object" || slice === null || !("slice" in slice) || !isRecordSlices(slice.slice)) {
+        throw new Error(`${spec.builder}: \`slice\` takes { slice } over Slice.bindRecords — ${spec.call}: Slice.bind and a single Slice.bindRecord narrow no record's rows`);
+    }
+    const sources = recordSources(slice, spec);
+    if (!sources.names.includes("rows") || sources.chrome.type === "none") {
+        throw new Error(`${spec.builder}: \`slice\` has no \`rows\` source — its cards are its \`rows\` source's rows: ${spec.call}`);
+    }
+    return { slice, sources, chrome: sources.chrome.value };
+}
+
+/** What a library's source pages (#1761, #1762): its rows' type, and its keys' where the library checks them. */
+export interface LibraryRowsSpec {
+    /** The library, as its refusals name it (`Query.Library`). */
+    builder: string;
+    /** How a refusal writes the slice to give. */
+    call: string;
+    /** The type of the rows its cards are. */
+    row: EastType;
+    /** The type of their record's keys, where the library reads them. */
+    key?: EastType | undefined;
+    /** The rows, as a refusal says it (`saved queries`). */
+    rows: string;
+    /** Their record, as a refusal says it (`the saved queries record, of Query.Types.Saved`). */
+    record: string;
+}
+
+/**
+ * Checks that a source of a library's slice pages the rows its cards are (#1761, #1762): a record of the rows' type,
+ * keyed as the library reads its keys.
+ *
+ * @param slice - The library's slice, checked ({@link librarySlice})
+ * @param name - The source's name
+ * @param spec - The rows' type and the words of the refusal
+ * @throws {Error} When the source pages rows of another type, or is keyed otherwise — naming what it pages and the record to page
+ */
+export function libraryRows(slice: RecordSlicesChromeOptions, name: string, spec: LibraryRowsSpec): void {
+    const { key, row } = sliceSourceTypes(slice, name, `${spec.builder}.slice's ${name}`);
+    const keyed = spec.key === undefined || (key !== undefined && isTypeEqual(key, spec.key));
+    if (row === undefined || !isTypeEqual(row, spec.row) || !keyed) {
+        throw new Error(`${spec.builder}: \`slice\`'s \`${name}\` source pages ${row === undefined ? "no rows" : printTypeSummary(row)}, not ${spec.rows} — ` +
+            `its source is ${spec.record}: ${spec.call}`);
+    }
+}
+
+/**
+ * What a source of a builder's slice pages (#1761, #1762): the type of its record's keys, and of the rows its entries
+ * join, read off the source's own type — what a builder over one record's rows checks its source is.
+ *
+ * @param slice - The builder's `slice`, checked a `Slice.bindRecords`
+ * @param name - The source's name
+ * @param prop - The source as a refusal names it (`Query.Library.slice's rows`)
+ * @returns Its keys' type and its rows' type; each `undefined` where its entries hold none
+ */
+export function sliceSourceTypes(slice: RecordSlicesChromeOptions, name: string, prop: string): { key: EastType | undefined; row: EastType | undefined } {
+    const data = (sliceSources(slice)[name] as unknown as { data: unknown }).data;
+    const entry = resolveRowSource(data, prop).elementType;
+    const fields: Readonly<Record<string, EastType>> = entry.type === "Struct" ? entry.fields as Readonly<Record<string, EastType>> : {};
+    const joined = fields["row"];
+    return { key: fields["key"], row: joined?.type === "Variant" ? (joined.cases as Readonly<Record<string, EastType>>)["some"] : undefined };
 }
 
 /**

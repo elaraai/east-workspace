@@ -4,17 +4,39 @@
  */
 
 /**
- * The pages record's migrations (#1669) — the steps a solution lists in its
- * record's `migrations`, so a deploy carries a workspace's pages from the type
- * an earlier release stored them as to the one this release reads.
+ * The pages record's migrations (#1669, #1759) — the steps a solution lists
+ * in its record's `migrations`, in order, so a deploy carries a workspace's
+ * pages from the type an earlier release stored them as to the one this
+ * release reads.
  *
  * ```ts
  * export const pages = e3.record("pages", Studio.Types.Pages, {
- *     initial: new Map(),
+ *     initial: Studio.value([]),
  *     mutations: (mutation) => ({ patch: mutation.patch() }),
- *     migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)],
+ *     migrations: (migration) => [migration.rows("entry_fields", Studio.migrations.entryFields)],
  * });
  * ```
+ *
+ * **Which steps a record lists.** e3 keeps the names of the steps a record
+ * has applied, and a deploy runs the ones after them, from the first the
+ * record lists that it has not applied. So a record lists a release's step
+ * after the steps it listed before, and no others:
+ *
+ * - a record first declared once a placement held content has applied no
+ *   step, and holds the form `entry_fields` takes: it lists `entry_fields`
+ *   alone, as above;
+ * - a record that listed `cell_content` lists `entry_fields` after it;
+ * - a record that never listed a step and still holds the form before
+ *   `cell_content`, a placement a component's key — its solution skipped the
+ *   release that shipped that step — lists `cell_content`, then
+ *   `entry_fields`.
+ *
+ * What decides is the form the workspace's record holds. Listing
+ * `cell_content` on a record first declared at the content form has the
+ * deploy refused: the record has applied none, so the deploy starts at that
+ * step, which takes entries of a form the record never held. Listing
+ * `entry_fields` alone on a record still at the form before it is refused the
+ * same way. Either way the workspace keeps what it held.
  *
  * A step's types are frozen as they were released: the type it takes and the
  * type it leaves never change, whatever the pages record's type becomes after
@@ -40,6 +62,7 @@ import {
     JqType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -54,9 +77,8 @@ import { ValueFormatType } from "@elaraai/east-ui/internal";
 // The pages record's type as `cell_content` leaves it — frozen
 // ============================================================================
 //
-// A copy, never edited once the step has shipped: the pages record's type the
-// release that ships `cell_content` reads. Until then it follows the Studio's
-// types, held to them by `migrations.spec.ts`.
+// A copy, never edited: the pages record's type the release that shipped
+// `cell_content` read, and the type `entry_fields` takes.
 
 /** A page's key. */
 const KeyV1 = StructType({ project: StringType, page: StringType });
@@ -211,8 +233,7 @@ const EntryBeforeContentType = VariantType({
  * `migration.rows("cell_content", Studio.migrations.cellContent)`. A workspace
  * applies it once, at the deploy that brings the release in. It leaves an
  * entry as {@link StudioEntryV1Type}, whatever the pages record's type is now:
- * while that is the Studio's own, the step is the record's last; once the
- * Studio's type moves on, the release that moves it ships the step after.
+ * the step after it, {@link entryFields}, takes it from there.
  */
 export const cellContent = East.function(
     [KeyV1, EntryBeforeContentType],
@@ -244,11 +265,101 @@ export const cellContent = East.function(
     },
 );
 
+// ============================================================================
+// The pages record's type as `entry_fields` leaves it — frozen
+// ============================================================================
+//
+// A copy, never edited once the step has shipped: the pages record's type the
+// release that ships `entry_fields` reads. Until then it follows the Studio's
+// types, held to them by `migrations.spec.ts`. A layout and a published
+// version are as `cell_content` left them, and are read from its copy.
+
+const EntryV2Impl = StructType({
+    kind: VariantType({ page: NullType, template: NullType }),
+    project: StringType,
+    title: StringType,
+    tags: SetType(StringType),
+    draft: PageV1,
+    live: OptionType(LiveV1),
+});
+type EntryV2Impl = typeof EntryV2Impl;
+
+/**
+ * Type representing one entry of the pages record as `entry_fields` leaves it.
+ *
+ * @remarks
+ * An interface, for the reason {@link StudioEntryV1Type} is one.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioEntryV2Type extends EntryV2Impl {}
+
+/**
+ * One entry of the pages record as `entry_fields` leaves it: the first type
+ * whose entries hold what they are, their project, their title and their tags
+ * as fields of their own. Frozen — see the module docs.
+ */
+export const StudioEntryV2Type: StudioEntryV2Type = EntryV2Impl;
+
+// ============================================================================
+// entry_fields — an entry holds its kind, project, title and tags
+// ============================================================================
+
+/**
+ * Carries one entry of the pages record to the type whose entries hold their
+ * fields (#1759): a page keeps its draft and its published version, and a
+ * template's layout becomes its draft with no published version; each is
+ * what it was — a page or a template — under its key's project and its
+ * layout's title, with no tags; and nothing else changes.
+ *
+ * @remarks
+ * A solution lists it as a rows step of its pages record,
+ * `migration.rows("entry_fields", Studio.migrations.entryFields)`: alone
+ * where the record was first declared once a placement held content, and
+ * after `cell_content` where it lists that step or still holds the form
+ * before it (the module docs say why).
+ * A workspace applies it once, at the deploy that brings the release in. It
+ * takes an entry as {@link StudioEntryV1Type} and leaves it as
+ * {@link StudioEntryV2Type}, whatever the pages record's type is now: while
+ * that is the Studio's own, the step is the record's last; once the Studio's
+ * type moves on, the release that moves it ships the step after.
+ */
+export const entryFields = East.function(
+    [KeyV1, StudioEntryV1Type],
+    StudioEntryV2Type,
+    (_$, key, entry) => entry.match({
+        page: (_$2, held) => East.value({
+            kind: variant("page", null),
+            project: key.project,
+            title: held.draft.title,
+            tags: new Set<string>(),
+            draft: held.draft,
+            live: held.live,
+        }, StudioEntryV2Type),
+        template: (_$2, layout) => East.value({
+            kind: variant("template", null),
+            project: key.project,
+            title: layout.title,
+            tags: new Set<string>(),
+            draft: layout,
+            live: none,
+        }, StudioEntryV2Type),
+    }),
+);
+
 /** The pages record's migration steps, on the `Studio` namespace. */
 export interface StudioMigrationsNamespace {
     /** A placement's component key becomes its content ({@link cellContent}): `migration.rows("cell_content", Studio.migrations.cellContent)`. */
     cellContent: typeof cellContent;
+    /**
+     * An entry holds what it is, its project, its title and its tags ({@link entryFields}):
+     * `migration.rows("entry_fields", Studio.migrations.entryFields)` — alone where the record was first declared once a
+     * placement held content, and after `cell_content` where it lists that step or still holds the form before it.
+     */
+    entryFields: typeof entryFields;
 }
 
-/** The pages record's migration steps. */
-export const StudioMigrations: StudioMigrationsNamespace = { cellContent };
+/**
+ * The pages record's migration steps, in the order they shipped. A record lists the ones it has not applied, never
+ * both by rote: `entryFields` alone where it was first declared once a placement held content (the module docs).
+ */
+export const StudioMigrations: StudioMigrationsNamespace = { cellContent, entryFields };

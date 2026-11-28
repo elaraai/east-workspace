@@ -10,13 +10,11 @@
  */
 
 import {
-    ArrayType, East, FloatType, StringType, StructType, example, none, some, variant, type ValueTypeOf,
+    ArrayType, East, FloatType, StringType, StructType, example, none, some, variant,
 } from "@elaraai/east";
 import { Chart, Format, HStack, Stat, UIComponentType } from "@elaraai/east-ui";
 import { Studio } from "@elaraai/e3-ui";
 
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 export const studioPage = example({
     keywords: [
@@ -51,8 +49,9 @@ export const studioPage = example({
                     return <Chart height="fill" grid={false} layers={Chart.Bar(regions, { x: r => r.share, y: r => r.region })} />;
                 })),
         ]);
-        const pages = $.let(new Map<Key, Entry>([
-            [{ project: "ops", page: "overview" }, variant("page", {
+        const pages = $.let(Studio.value([
+            {
+                key: { project: "ops", page: "overview" },
                 draft: {
                     title: "Overview",
                     cells: [
@@ -62,7 +61,7 @@ export const studioPage = example({
                     ],
                     filters: [],
                 },
-                live: some({
+                live: {
                     version: 1n,
                     page: {
                         title: "Overview",
@@ -73,8 +72,8 @@ export const studioPage = example({
                         ],
                         filters: [],
                     },
-                }),
-            })],
+                },
+            },
         ]), Studio.Types.Pages);
         return <Studio.Page pages={pages} components={components} page={{ project: "ops", page: "overview" }} />;
     }),

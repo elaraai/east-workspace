@@ -6,13 +6,46 @@
 
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import { DensityProvider } from "@elaraai/east-ui-components/internal";
 import { system } from "@elaraai/east-ui-components";
-import { SheetEditor } from "./Editor.js";
+import { underLoad } from "@elaraai/east-ui-components/testing";
+import { SheetEditor, type EditorOption } from "./Editor.js";
 
 afterEach(cleanup);
+
+// jsdom has no `CSS.escape`, and the combobox finds its highlighted item with it — every browser has one.
+(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
+
+/** An enum column's options. */
+const STATUSES: readonly EditorOption[] = [{ key: "open", label: "Open" }, { key: "shut", label: "Shut" }];
+
+/** An enum column's editor, its buffer held by its host, which records each buffer it is told. */
+function HeldEnum({ told }: { told: string[] }) {
+    const [value, setValue] = useState("");
+    return <SheetEditor styles={{}} kind="enum" value={value} date={undefined} seed={undefined} ghost="" resolve="" badge="" error={false}
+        focus={{ seq: 0, selectAll: false }} ariaLabel="Status" link={undefined} options={STATUSES}
+        onChange={(next) => { told.push(next); setValue(next); }} onKey={() => false} onBlur={() => {}} onHalfDown={() => {}} onChipRemove={() => {}} />;
+}
+
+test("an enum column's combobox, its buffer held by its host: keys typed faster than React's later work — as a loaded machine sends them — all land, its host told each buffer in turn (east-workspace#1779)", async () => {
+    // Its list is open while the editor is, and Ark's positioner observes sizes: jsdom has no ResizeObserver.
+    vi.stubGlobal("ResizeObserver", class { observe(): void { /* noop */ } unobserve(): void { /* noop */ } disconnect(): void { /* noop */ } });
+    try {
+        const told: string[] = [];
+        const ui = render(<ChakraProvider value={system}><HeldEnum told={told} /></ChakraProvider>);
+        const box = ui.getByRole("combobox", { name: "Status" }) as HTMLInputElement;
+        await underLoad(box, () => userEvent.type(box, "keys"));
+        expect(box.value).toBe("keys");
+        expect(told).toEqual(["k", "ke", "key", "keys"]);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
 
 /**
  * A key pressed at the end of a number field holding `text`, as a browser

@@ -7,7 +7,8 @@
  * `@elaraai/east-ui-components/testing` — the DOM test helpers this package's
  * renderer tests use, for the sibling renderer packages' tests (e3-ui-components'
  * Plan, #1177): the drag layer's faked seams, slice configs, the row frame's
- * re-measure probe, the icon checks and the styles a class declares (#1263).
+ * re-measure probe, the icon checks, the styles a class declares (#1263) and
+ * a press's release as a browser runs it (east-workspace#1779).
  * Not an API for apps. They need React's `act` and a DOM — jsdom in a test
  * run — and nothing of a test framework. It also hands a browser spec the
  * editing session's words (`editingMessages`, #1194), which it names the
@@ -21,6 +22,10 @@
 export { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "./testing/drag-layer.js";
 export { ICON_GLYPHS, faIcons, foreignIcons, loneGlyphs, markOf } from "./testing/icons.js";
 export { declaredStyle } from "./testing/styles.js";
+// Keys as a loaded machine sends them: what a box whose text React holds is typed into, to show it loses none.
+export { LOADED_MS, underLoad } from "./testing/typing.js";
+// A press let go as a browser lets it go: its release's events each run to its end, the work it queued with it.
+export { releasePress } from "./testing/pointer.js";
 export { integerField, sliceConfig, stringField, type SliceFieldSpec } from "./testing/slice.js";
 export { setVirtualRowsMeasureProbe } from "./collections/virtual-rows.js";
 export { editingMessages } from "./editing/messages.js";

@@ -8,6 +8,7 @@ import { Box, chakra, Combobox, Portal, createListCollection, useSlotRecipe } fr
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { useListClosesOnFocusOutside } from "../../forms/combobox/close-on-focus-outside.js";
+import { commitTypedText } from "../../primitives/typed-text.js";
 
 /** An already-resolved suggestion. Its identity never comes from its label. */
 export interface SliceSearchSuggestion { value: string; label: string; meta?: ReactNode; hint?: string; disabled?: boolean }
@@ -25,7 +26,11 @@ export interface SliceSearchInputProps {
     busy?: boolean;
 }
 
-/** Render local and record searches through the same keyboard/touch combobox. */
+/**
+ * Render local and record searches through the same keyboard/touch combobox. Its text is its host's, each key's
+ * committed at once (`commitTypedText`), so Zag's write of the input's text never lands over a later key
+ * (east-workspace#1779).
+ */
 export function SliceSearchInput({ text, items, onInput, onSelect, onSubmit, compact = true,
     showIds = false, placeholder = "Search…", emptyText = "No matches", busy = false }: SliceSearchInputProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
@@ -39,7 +44,7 @@ export function SliceSearchInput({ text, items, onInput, onSelect, onSubmit, com
         <FontAwesomeIcon icon={faXmark} />
     </chakra.button>;
     return <Combobox.Root key={epoch} collection={collection} value={[]} inputValue={text}
-        onInputValueChange={d => onInput(d.inputValue)}
+        onInputValueChange={d => commitTypedText(() => onInput(d.inputValue))}
         onValueChange={d => { const id = d.value[0]; if (id === undefined) onInput(""); else onSelect(id); }}
         onOpenChange={onOpenChange} openOnClick allowCustomValue selectionBehavior="preserve"
         css={compact ? styles.searchCompact : styles.searchFull}

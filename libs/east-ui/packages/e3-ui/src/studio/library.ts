@@ -4,38 +4,35 @@
  */
 
 /**
- * `<Studio.Library>` (#997) — a project's templates and pages, and where
- * new pages start.
+ * `<Studio.Library>` (#997, #1762) — the pages and the templates as cards, in
+ * a grid its rail narrows, and where new pages start.
  *
  * The page library is a component of its own, apart from the builder: an
- * interface — the pages record bound with its patch, the listed components,
- * the project it shows first, the page open in the builder, and who to tell
- * when another is asked for — which the `StudioLibrary` renderer draws,
- * headerless with one toolbar: the
- * search over both rows, Sort · Name, the pages' Grid · List and the primary
- * "+ New page in <project>"; beside it the projects the record holds and the
- * project's pages; under it the Templates — Blank grid, then the project's
- * templates — and the Pages, each card a wireframe of its layout.
+ * interface — the rail's chrome over its `slice`, whose `rows` source pages
+ * the pages and whose `templates` source, where it has one, the templates, each
+ * from the pages record through its indexes; the record's patch write, which a
+ * new page is one commit through; the listed components, which a layout's
+ * summary names; the project a new page starts in; the page open in the
+ * builder; and who to tell when another is asked for — which the
+ * `StudioLibrary` renderer draws in a `BuilderFrame`: one toolbar holding
+ * Pages · Templates, the rail and New page, over the cards. It has no pane.
  *
- * A new page — from the toolbar's button, the dashed last card or a template's
- * card — takes a name and a template, and is one commit on the record.
- * "Open in builder →" tells the host (`onOpen`), which shows the page in its
- * builder: the page library opens nothing itself, and shares no store entry
- * with a builder (#1668).
+ * It reads the record a window at a time, through the slice, and never whole.
+ * A page's card, and a new page once it commits, tell the host (`onOpen`),
+ * which shows the page in its builder: the page library opens nothing itself,
+ * and shares no store entry with a builder (#1668).
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType,
-    BooleanType,
     DictType,
     East,
     FunctionType,
     IntegerType,
     NullType,
     OptionType,
-    SetType,
     StringType,
     StructType,
     none,
@@ -45,71 +42,57 @@ import {
 } from "@elaraai/east";
 import {
     EastUI,
+    RecordSlicesChromeType,
     optionsTag,
     type JsxTag,
     type OptionsProps,
+    type RecordSlicesChromeOptions,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
+import { libraryRows, librarySlice, sliceSourceScopes } from "../utils/record-sources.js";
 import { StudioComponentType, componentNames } from "./component.js";
 import { viewWords } from "./content.js";
-import { StudioCellType, StudioKeyType, StudioPagesHandleType, StudioPagesType, pageStatus, type StudioPagesHandle } from "./pages.js";
+import { StudioCellType, StudioEntryType, StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * A page of the project, as the page library's Pages row draws it.
+ * The pages record's patch write, as the page library takes it from the
+ * record's `Record.bind` handle: what a new page is one commit through. The
+ * page library reads the record through its slice alone, a window at a time,
+ * so it takes nothing else of the handle.
  *
- * @property page - The page's name in the project
- * @property title - Its title
- * @property live - Whether it is live: published, its draft its live layout
- * @property cells - Its draft's placements — its card's wireframe
+ * @property commit - The record's patch write, awaited: a request id and the patch, answered by the outcome
  */
-export const StudioLibraryPageType = StructType({
-    page: StringType,
-    title: StringType,
-    live: BooleanType,
-    cells: ArrayType(StudioCellType),
+export const StudioPagesWriteType = StructType({
+    commit: StudioPagesHandleType.fields.commit,
 });
 
-/** Type representing a page as the Pages row draws it. */
-export type StudioLibraryPageType = typeof StudioLibraryPageType;
-
-/**
- * A template, as the page library's Templates row draws it.
- *
- * @property name - The template's name in the project; `""` for Blank grid
- * @property title - Its title
- * @property summary - What it places — "KPI rail ×4 · Revenue trend"
- * @property cells - Its placements — its card's wireframe
- */
-export const StudioLibraryTemplateType = StructType({
-    name: StringType,
-    title: StringType,
-    summary: StringType,
-    cells: ArrayType(StudioCellType),
-});
-
-/** Type representing a template as the Templates row draws it. */
-export type StudioLibraryTemplateType = typeof StudioLibraryTemplateType;
+/** Type representing the pages record's patch write. */
+export type StudioPagesWriteType = typeof StudioPagesWriteType;
 
 /**
  * The `StudioLibrary` renderer's payload — the page library's interface.
  *
- * @property pages - The pages record, bound with its patch — what it reads, and a new page commits through
+ * @property pages - The pages record's patch write — what a new page commits through
+ * @property slice - The rail's chrome: the narrowing of the pages and the templates, whose `rows` and `templates` sources the renderer pages its cards through
  * @property components - The components the surface lists — what a layout's summary names
- * @property project - The project it shows first
- * @property page - The page open in the builder, which the pane marks; `none`, no page is marked
- * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
+ * @property project - The project a new page starts in while the rail has chosen none
+ * @property page - The page open in the builder, whose card is marked; `none`, no card is marked
+ * @property onOpen - Told when a page is asked for, and when a new page commits, with its key — the host shows it in its builder
+ * @property id - Keeps the library's frame apart from another's on its surface; `none` for the one library
  */
 export const StudioLibraryPayloadType = StructType({
-    pages: StudioPagesHandleType,
+    pages: StudioPagesWriteType,
+    slice: RecordSlicesChromeType,
     components: ArrayType(StudioComponentType),
     project: StringType,
     page: OptionType(StudioKeyType),
     onOpen: FunctionType([StudioKeyType], NullType),
+    id: OptionType(StringType),
 });
 
 /** Type representing the `StudioLibrary` renderer's payload. */
@@ -118,24 +101,6 @@ export type StudioLibraryPayloadType = typeof StudioLibraryPayloadType;
 // ============================================================================
 // What the page library shows
 // ============================================================================
-
-/** The projects the record holds, and the surface's own, in name order. */
-export const libraryProjects = East.function(
-    [StudioPagesType, StringType],
-    ArrayType(StringType),
-    ($, pages, home) => {
-        const projects = $.let(new Set<string>(), SetType(StringType));
-        $(projects.insert(home));
-        $.for(pages, ($2, _entry, key) => {
-            $2(projects.tryInsert(key.project));
-        });
-        const listed = $.let([], ArrayType(StringType));
-        $.for(projects, ($2, project) => {
-            $2(listed.pushLast(project));
-        });
-        return listed;
-    },
-);
 
 /** What a layout places of one thing: the words it is shown in, and how many. */
 const PlacedType = StructType({ words: StringType, count: IntegerType });
@@ -192,54 +157,6 @@ export const layoutSummary = East.function(
     },
 );
 
-/** A project's pages, in name order: each one's name, title, whether it is live, and its draft's placements. */
-export const libraryPages = East.function(
-    [StudioPagesType, StringType],
-    ArrayType(StudioLibraryPageType),
-    ($, pages, project) => {
-        const listed = $.let([], ArrayType(StudioLibraryPageType));
-        $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project), ($3) => {
-                $3.match(entry, {
-                    page: ($4, page) => {
-                        $4(listed.pushLast({
-                            page: key.page,
-                            title: page.draft.title,
-                            live: pageStatus(page).hasTag("live"),
-                            cells: page.draft.cells,
-                        }));
-                    },
-                });
-            });
-        });
-        return listed;
-    },
-);
-
-/** A project's templates, in name order, each with what it places. */
-export const libraryTemplates = East.function(
-    [StudioPagesType, StringType, ArrayType(StudioComponentType)],
-    ArrayType(StudioLibraryTemplateType),
-    ($, pages, project, components) => {
-        const listed = $.let([], ArrayType(StudioLibraryTemplateType));
-        $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project), ($3) => {
-                $3.match(entry, {
-                    template: ($4, layout) => {
-                        $4(listed.pushLast({
-                            name: key.page,
-                            title: layout.title,
-                            summary: layoutSummary(components, layout.cells),
-                            cells: layout.cells,
-                        }));
-                    },
-                });
-            });
-        });
-        return listed;
-    },
-);
-
 /**
  * What refused a write that makes an entry under a new name — a new page, a
  * template — or `none` when it committed. A name another write took first is
@@ -278,89 +195,142 @@ export const StudioLibraryComponent = EastUI.component("StudioLibrary", StudioLi
 /**
  * `<Studio.Library>` options.
  *
- * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
+ * @property pages - The pages record, bound — `Record.bind(pages)`: its patch write, which a new page commits through
+ * @property slice - The narrowing: `{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(pages, { indexes }), scope: { kind: ["page"] }, … }, templates: { …, scope: { kind: ["template"] } } }) }`
  * @property components - The components the surface lists — what a layout's summary names
- * @property project - The project it shows first
- * @property page - The page open in the builder, which the pane marks
- * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
+ * @property project - The project a new page starts in while the rail has chosen none
+ * @property page - The page open in the builder, whose card is marked
+ * @property onOpen - Told when a page is asked for, and when a new page commits, with its key — the host shows it in its builder
+ * @property id - Keeps the library's frame apart from another's, when a surface holds two
  */
 export interface StudioLibraryOptions {
-    /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
+    /** The pages record, bound — `Record.bind(pages)`: its patch write, which a new page commits through. The page library never reads it whole. */
     pages: StudioPagesHandle;
+    /**
+     * The narrowing, and where the cards come from: `slice={{ slice }}` over
+     * `Slice.bindRecords(key, { rows: { source: Data.bindPaged(pages, {
+     * indexes: [...] }), scope: { kind: ["page"] }, … }, templates: { source,
+     * scope: { kind: ["template"] }, … } })`. Its `rows` source is the pages
+     * and its `templates` source, which it may leave out, the templates — each
+     * paged from the pages record through its indexes, and scoped by what an
+     * entry is. Its rail — one, in the toolbar — narrows them: by the start of a
+     * title, by project, by tag. `Slice.bind` and `Slice.bindRecord` are
+     * refused.
+     */
+    slice: RecordSlicesChromeOptions;
     /** The components the surface lists — what a layout's summary names. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
-    /** The project it shows first. */
+    /** The project a new page starts in while the rail has chosen none: what New page's popover offers. */
     project: SubtypeExprOrValue<StringType>;
-    /** The page open in the builder, which the pane marks — the value the host gives its builder's `page`. Omitted, no page is marked. */
+    /** The page open in the builder, whose card is marked — the value the host gives its builder's `page`. Omitted, no card is marked. */
     page?: SubtypeExprOrValue<StudioKeyType>;
     /**
-     * Told when "Open in builder" or a page of the pane is pressed, with the
-     * page's key. The host shows it in its builder: it navigates, or writes
+     * Told when a page's card is pressed, and when a new page commits, with
+     * the page's key. The host shows it in its builder: it navigates, or writes
      * the state its builder's `page` reads. The page library opens nothing
      * itself.
      */
     onOpen: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /** Keeps the library's frame apart from another's — needed only when one surface holds two. */
+    id?: string;
 }
 
+/** How a refusal writes the slice a page library takes. */
+const SLICE_CALL = "slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(pages, { indexes: [...] }), scope: { kind: [\"page\"] }, … }, " +
+    "templates: { source: …, scope: { kind: [\"template\"] }, … } }) }}";
+
+/** What each source lists, by its name: the entries of one kind. */
+const KINDS: Readonly<Record<string, string>> = { rows: "page", templates: "template" };
+
 /**
- * A project's templates and pages, and where new pages start.
+ * The project's pages and templates, as cards in a grid, and where new pages
+ * start.
  *
  * @remarks
- * - **The toolbar**, one row: the search "Search N pages and M templates…",
- *   which narrows both rows by title; Sort · Name, A to Z (the record's key
- *   order) or Z to A; the Pages row's Grid · List; and "+ New page in
- *   <project>".
- * - **The pane**: the projects the record holds, the one shown in the brand;
- *   then the project's pages, each with its status dot — ● live, ○ draft —
- *   the one open in the builder (`page`) in the strong ink, a click asking
- *   the host for one (`onOpen`); and the legend.
- * - **Templates**, "clone to start a page": Blank grid, then the project's
- *   templates, four across, each with its wireframe, its title and what it
- *   places; a click starts a new page from it.
- * - **Pages**, "N in <project>": two across, each with its wireframe at its
- *   start, its title and status, how many components it places, and "Open in
- *   builder →"; a dashed card last starts a new page.
- * - **A new page** takes a name the project does not hold and a template, or
- *   Blank grid, in a popover under the New page button — which a template's
- *   card and the dashed card open too, their template picked — and is one
- *   commit on the record; a name another write took first is refused in the
- *   popover.
+ * - **The toolbar**, one row: Pages · Templates, where `slice` has a
+ *   `templates` source; the rail — the fields the shown view's source lists,
+ *   its search, its presets and `N of M pages` — then New page, which follows
+ *   the rail shown: with one project chosen it reads "New page in Ops console"
+ *   and starts there; otherwise its popover asks for the project, offering a
+ *   template's own where it starts from one, else `project`.
+ * - **The cards**, a grid as many across as fit: a page, or a template, a
+ *   card, read a window at a time in the order e3 returns them — a wireframe
+ *   of its layout; its title; what it places, "KPI rail ×2 · Revenue trend";
+ *   its tags; and its project and how many components it places. A press on a
+ *   page's card asks the host for it, and the page the host says is open is
+ *   marked; a press on a template's card opens New page, starting from it.
+ *   Nothing says Live or Draft.
+ * - **A new page** takes a name, its project where the rail has chosen none,
+ *   and tags, in a popover under New page, and is one commit through the
+ *   record's patch write: its layout a template's, or a blank grid. A name the
+ *   project holds, a page's or a template's, is refused by the commit, in the
+ *   popover. Once it commits, the host is told the new page.
+ * - **Each source** lists its kind of entry alone. One scoped by nothing is
+ *   refused here; one scoped to another kind, or to both — whose values only
+ *   the page that runs its scope holds — is refused where the library is
+ *   drawn, in its place, saying the scope to give it (east-workspace#1779).
  *
- * The project shown, the search, the order and the Pages row's layout are the
- * page library's own; the open page is the host's, which gives it to the page
- * library and to its `<Studio.Builder>` as `page` and changes it in `onOpen`.
- * The page library draws no border around itself.
+ * The open page is the host's, which gives it to the page library and to its
+ * `<Studio.Builder>` as `page` and changes it in `onOpen`. The two are surfaces
+ * of their own — a `ui()` each: the library pages the record, and a surface
+ * that pages a record never loads it whole, which the builder does: on one
+ * `ui()` the builder has nothing to read, and says so (#1779). The page library
+ * draws no border around itself.
  *
- * @param options - The bound record, the listed components, the project, the open page and who to tell ({@link StudioLibraryOptions})
+ * @param options - The bound record, the slice, the listed components, the project, the open page, who to tell and the library's name ({@link StudioLibraryOptions})
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When `slice` is left out, is not `{ slice: Slice.bindRecords(…) }`, has no `rows` source or one beside it other than `templates`, or a source does not page the pages record's entries scoped by what an entry is
  *
  * @example
  * ```tsx
  * import { East, NullType } from "@elaraai/east";
- * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Studio, ui } from "@elaraai/e3-ui";
+ * import { Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Studio, ui } from "@elaraai/e3-ui";
  *
- * // The page library: the project's pages and templates, and where new pages start.
- * // The surface holds the open page, which its builder shows.
+ * // The page library: the pages and the templates as cards, narrowed by its rail. The surface holds the open page,
+ * // which its builder — a surface of its own — shows.
  * export const library = ui("library", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
  *         const pages      = $.let(Record.bind(d.pages));
+ *         const rows       = $.let(Data.bindPaged(d.pages, { indexes: ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] }));
+ *         const slice      = $.let(Slice.bindRecords("ops.library", {
+ *             rows:      { source: rows, label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+ *                          fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } } },
+ *             templates: { source: rows, label: "Templates", scope: { kind: ["template"] }, search: ["title"], fields: { title: { label: "Name" } } },
+ *         }));
  *         const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
  *         const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
- *         return <Studio.Library pages={pages} components={components} project="Ops console"
+ *         return <Studio.Library pages={pages} components={components} project="Ops console" slice={{ slice }}
  *             page={open.read()} onOpen={go} />;
  *     }}</Reactive>
  * )));
  * ```
  */
 function createLibrary(options: StudioLibraryOptions): ExprType<UIComponentType> {
+    // The slice's sources are the pages and the templates: a source beside them is refused, naming it.
+    const { slice, sources, chrome } = librarySlice(options.slice as RecordSlicesChromeOptions | undefined, {
+        builder: "Studio.Library", names: ["rows", "templates"], what: "the pages and the templates", call: SLICE_CALL, cards: "the pages and the templates",
+    });
+    for (const name of sources.names) {
+        libraryRows(slice, name, {
+            builder: "Studio.Library", call: SLICE_CALL, row: StudioEntryType, key: StudioKeyType,
+            rows: "the pages record's entries", record: "the pages record, of Studio.Types.Pages",
+        });
+        // Each source lists one kind of entry: the pages, or the templates.
+        if (!sliceSourceScopes(slice, name).includes("kind")) {
+            throw new Error(`Studio.Library: \`slice\`'s \`${name}\` source lists the ${KINDS[name]}s alone — scope it by what an entry is, ` +
+                `scope: { kind: ["${KINDS[name]}"] }: ${SLICE_CALL}`);
+        }
+    }
     return StudioLibraryComponent.Root({
-        pages: { read: options.pages.read, history: options.pages.history, commit: { patch: options.pages.commit.patch } },
+        pages: { commit: { patch: options.pages.commit.patch } },
+        slice: chrome,
         components: options.components,
         project: options.project,
         page: options.page === undefined ? none : some(options.page),
         onOpen: options.onOpen,
+        id: options.id === undefined ? none : some(options.id),
     });
 }
 
@@ -369,7 +339,7 @@ function createLibrary(options: StudioLibraryOptions): ExprType<UIComponentType>
 // ============================================================================
 
 /**
- * `<Studio.Library>` — a project's templates and pages, and where new
- * pages start. See {@link createLibrary}.
+ * `<Studio.Library>` — the pages and the templates as cards, in a grid its rail
+ * narrows, and where new pages start. See {@link createLibrary}.
  */
 export const StudioLibrary: JsxTag<OptionsProps<typeof createLibrary>> = optionsTag(createLibrary);

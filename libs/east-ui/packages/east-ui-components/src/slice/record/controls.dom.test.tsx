@@ -214,6 +214,35 @@ test("Unset leaves optional String search available, while Set search cannot com
     expect(member.slice.read().where.size).toBe(0);
 });
 
+test("a Set field's search takes one value: it says so, and a second pick replaces the first", async () => {
+    const f = fixture([field({ fieldId: "skills", label: "Skills", set: true, multiple: false, values: [] })]);
+    f.suggest.mockImplementation((_id, query) => { trackKey("network"); return some([
+        { value: '"First aid"', label: "First aid", count: some(4n), error: none, selected: false },
+        { value: '"Forklift"', label: "Forklift", count: some(2n), error: none, selected: false },
+    ].filter(v => v.label.startsWith(query))); });
+    f.show();
+    expect(screen.getByText("Includes one value")).toBeTruthy();
+    const user = userEvent.setup();
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    await user.type(input, "Fi");
+    // Each pick waits for its suggestion to be listed: the list is read after the typing settles.
+    await user.click(await screen.findByRole("option", { name: /^First aid/ }));
+    await waitFor(() => expect(f.slice.read().where.get("skills")).toEqual(variant("values", ['"First aid"'])));
+    await waitFor(() => expect(input.value).toBe("First aid"));
+    // The box typed over, the first value still chosen: the next pick stands alone. Its text is selected as a person
+    // selects it, once the click that opens its list has settled: Zag puts the caret at the box's end a frame after the
+    // list opens (`setInitialFocus`), which a selection made in that frame does not survive — on a busy runner the
+    // frame came between the selection and the first key, and the keys were added to the end.
+    await user.click(input);
+    await act(async () => { await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); }); });
+    await user.type(input, "Fo", { skipClick: true, initialSelectionStart: 0, initialSelectionEnd: input.value.length });
+    const second = await screen.findByRole("option", { name: /^Forklift/ });
+    expect(input.value).toBe("Fo");
+    expect(f.slice.read().where.get("skills")).toEqual(variant("values", ['"First aid"']));
+    await user.click(second);
+    await waitFor(() => expect(f.slice.read().where.get("skills")).toEqual(variant("values", ['"Forklift"'])));
+});
+
 test("a search field clears from the × in its box, with no Clear row under it for its suggestions to open over (ruled 23 Nov 2026)", async () => {
     const f = fixture([field({ fieldId: "name", label: "Name", values: [] })]);
     f.suggest.mockImplementation((_id, query) => { trackKey("network"); return some([{ value: '"Alice"', label: "Alice", count: some(2n), error: none, selected: false }].filter(v => v.label.startsWith(query))); });

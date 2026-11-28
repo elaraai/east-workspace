@@ -16,17 +16,14 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, IntegerType, NullType, SortedMap, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, IntegerType, NullType, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Button, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
-import { Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui/internal";
+import { Studio, StudioPagesType } from "@elaraai/e3-ui/internal";
 // The page is an extension: its renderer registers as it loads.
 import "./page.js";
-
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -42,8 +39,9 @@ afterEach(() => {
 });
 
 /** The Overview live (a KPI line, the counter twice, a retired component) and drafted since; the Detail never published; a template. */
-const PAGES = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "a-overview" }, variant("page", {
+const PAGES = Studio.value([
+    {
+        key: { project: "ops", page: "a-overview" },
         draft: {
             title: "Overview",
             cells: [
@@ -51,7 +49,7 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: some({
+        live: {
             version: 1n,
             page: {
                 title: "Overview",
@@ -63,9 +61,10 @@ const PAGES = new SortedMap<Key, Entry>([
                 ],
                 filters: [],
             },
-        }),
-    })],
-    [{ project: "ops", page: "b-detail" }, variant("page", {
+        },
+    },
+    {
+        key: { project: "ops", page: "b-detail" },
         draft: {
             title: "Detail",
             cells: [
@@ -73,11 +72,11 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-    [{ project: "ops", page: "d-notes" }, variant("page", {
+    },
+    {
+        key: { project: "ops", page: "d-notes" },
         draft: { title: "Notes", cells: [], filters: [] },
-        live: some({
+        live: {
             version: 1n,
             page: {
                 title: "Notes",
@@ -90,16 +89,19 @@ const PAGES = new SortedMap<Key, Entry>([
                 ],
                 filters: [],
             },
-        }),
-    })],
-    [{ project: "ops", page: "c-template" }, variant("template", {
-        title: "Starter",
-        cells: [
-            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi") },
-        ],
-        filters: [],
-    })],
-], compareFor(StudioKeyType));
+        },
+    },
+    {
+        key: { project: "ops", page: "c-template" },
+        template: {
+            title: "Starter",
+            cells: [
+                { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi") },
+            ],
+            filters: [],
+        },
+    },
+]);
 
 /** A note. */
 const note = Studio.component("note", { name: "Note", category: "Display", icon: "note-sticky" },

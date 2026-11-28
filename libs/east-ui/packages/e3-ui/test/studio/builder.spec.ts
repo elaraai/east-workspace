@@ -16,18 +16,15 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, NullType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none,
+    ArrayType, East, FloatType, NullType, OptionType, PatchType, StringType, decodeBeast2For, equalFor, none,
     some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { RecordCommitInfoType, TreePathType } from "@elaraai/e3-types";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Record, RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Data, Record, RecordOutcomeType, Studio, StudioPagesType, ui } from "@elaraai/e3-ui";
 import { StudioBuilderPayloadType, StudioPagesHandleType } from "@elaraai/e3-ui/internal";
-
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
@@ -46,8 +43,9 @@ const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Disp
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
 
 /** The record: one page, never published. */
-const PAGES = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "overview" }, variant("page", {
+const PAGES = Studio.value([
+    {
+        key: { project: "ops", page: "overview" },
         draft: {
             title: "Overview",
             cells: [
@@ -55,14 +53,13 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-], compareFor(StudioKeyType));
+    },
+]);
 
 describe("<Studio.Builder> (#1000)", () => {
     test("R4: its surface's manifest holds the record it writes, and exactly what its components read", () => {
         const pages = e3.record("builder_pages", StudioPagesType, {
-            initial: new SortedMap<Key, Entry>([], compareFor(StudioKeyType)),
+            initial: Studio.value([]),
             mutations: (mutation) => ({
                 patch: mutation.patch(),
             }),
@@ -100,7 +97,7 @@ describe("<Studio.Builder> (#1000)", () => {
             [payload.project, payload.env, payload.audience, payload.rollout, payload.id],
             ["ops", some("Staging"), none, none, none]);
         assert.deepEqual(payload.components.map((component) => component.key), ["revenue_trend", "kpi_rail"]);
-        assert.deepEqual(payload.pages.read().get({ project: "ops", page: "overview" }), PAGES.get({ project: "ops", page: "overview" }));
+        assert.ok(equalFor(StudioPagesType)(payload.pages.read(), PAGES), "the record it reads is the bound record's");
         // Given no page and no one to tell, it holds its own open page.
         assert.deepEqual([payload.page, payload.onOpen], [none, none]);
     });
@@ -139,7 +136,7 @@ describe("<Studio.Builder> (#1000)", () => {
         const build = () => East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let(Record.bind(e3.record("builder_refused_pages", StudioPagesType, {
-                initial: new SortedMap<Key, Entry>([], compareFor(StudioKeyType)),
+                initial: Studio.value([]),
                 mutations: (mutation) => ({
                     patch: mutation.patch(),
                 }),

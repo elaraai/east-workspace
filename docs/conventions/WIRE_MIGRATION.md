@@ -1878,3 +1878,91 @@ Each wire changed under this rule, with the kind it is.
   output is not stored state, and a column from data reads and writes a
   field the app's record already holds, as it holds it, so no repository
   upgrade step ships with it.
+- **e3-ui's saved queries hold the names of the data sources they read, and
+  their tags (#1758)** — an application's record, and package-borne.
+  `Query.Types.SavedQuery` gains `tags` after `description` and `sources`
+  after `root`, each a set of text: what a person tagged the query, and the
+  names of its root, which every write gives through one function. A saved
+  queries record is an application's own, declared at e3-ui's type, and one an
+  earlier release wrote is carried by that record's own migration, as with any
+  record whose type an application changes: the release ships the step,
+  `Query.migrations.sourcesAndTags` — listed as `migration.rows("sources_and_tags",
+  …)`, its types frozen copies (`e3-ui`'s `query/migrations.ts`) — which a
+  deploy runs, giving each query its root's names and no tags; a record
+  declared at the new type without it is refused at the deploy, the workspace
+  keeping what it held. The type travels in the query builder's payload — the
+  bound record's `read` — and in its and the query library's
+  `Query.Types.Open`, whose `new` case holds a saved query, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. What a browser kept of the earlier form — this viewer's recent
+  runs, each a saved query as East prints it, and the open query of a builder
+  that holds its own — does not read under the new type, and is nothing kept:
+  the recent runs start empty, and such a builder opens a new query on its
+  first data source.
+- **e3-ui's Studio pages record's entry is a struct that holds what it is,
+  its project, its title and its tags (#1759)** — an application's record,
+  and package-borne. `Studio.Types.Entry` was a variant, `page` — a draft and
+  a live version — or `template` — a layout. It is a struct: `kind` (page or
+  template), `project` (its key's), `title` (its layout's), `tags` (a set of
+  text), `draft` (a page's draft, a template's layout) and `live` (a page's
+  published version, none for a template). A pages record is an application's
+  own, declared at e3-ui's type, and one an earlier release wrote is carried
+  by that record's own migration: the release ships the step,
+  `Studio.migrations.entryFields` — listed as `migration.rows("entry_fields",
+  …)`, its types frozen copies (`e3-ui`'s `studio/migrations.ts`) — which a
+  deploy runs, giving each entry its fields from its key and its layout and no
+  tags. e3 runs the steps a record has not applied, by name, so a record lists
+  the steps it has not applied and no others: `entry_fields` alone where it
+  was first declared once a placement held content, and after `cell_content`
+  where it lists that step or still holds the form before it, a placement a
+  component's key — a record whose solution skipped the release that shipped
+  `cell_content`. A record first declared at the content form has applied
+  none, and listing `cell_content` on it has the deploy refused: that step
+  takes a form the record never held. Listing `entry_fields` alone on a record
+  still at the form before it is refused the same way, the workspace keeping
+  what it held. A record declared at the new type without the
+  step is refused, where it is declared if it lists `cell_content` alone, else
+  at the deploy, the workspace keeping what it held. A seed
+  written by hand writes the new form, or `Studio.value`, which builds it.
+  The type travels in the builder's, the page library's and the page's
+  payloads — the builder's bound record, the page library's patch write of
+  the record, and the record's value a page is given — so a UI value encoded
+  under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A browser keeps none of it: the page a builder has open is kept by
+  its key, and its drafts are of a page's placements and starting filters,
+  whose types are as they were.
+- **e3-ui's query library pages the saved queries through a Slice (#1761)** —
+  package-borne. The `QueryLibrary` extension's payload trades `queries`, the
+  saved queries record's bound handle, for `slice`, in its place: the chrome of
+  a Slice over the record (`RecordSlicesChromeType`), as every builder narrowed
+  over records carries one, its `rows` source paging the saved queries through
+  the record's indexes. The library reads them a window at a time and never the
+  record whole, so its surface's manifest lists the record among what it pages,
+  not among the records it binds. A surface that held the library and its
+  `<Query.Builder>` together becomes two, a `ui()` each: the builder reads the
+  record whole, which a surface that pages it never loads, so on one `ui()` the
+  builder has nothing to read, and says so, naming the record (#1779). A UI
+  value encoded under either payload type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output
+  is not stored state, and the saved queries record keeps its type, so no
+  repository upgrade step ships with it.
+- **e3-ui's page library pages the pages record through a Slice, and writes it
+  by its patch alone (#1762)** — package-borne. The `StudioLibrary`
+  extension's payload trades `pages`, the record's bound handle, for the
+  handle's patch write alone (`StudioPagesWriteType`, its `commit`), and gains
+  `slice`, after it — the chrome of a Slice over the record
+  (`RecordSlicesChromeType`), its `rows` source paging the pages and a
+  `templates` source, where it has one, the templates, each scoped by what an
+  entry is — and `id`, last, the library's name. The library reads the record
+  a window at a time and never whole, so its surface's manifest lists the
+  record among what it pages, beside the records it binds to write. A surface
+  that held the library and its `<Studio.Builder>` together becomes two, a
+  `ui()` each, for the same reason: on one, the builder has nothing to read,
+  and says so (#1779). A UI value
+  encoded under either payload type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and the pages record
+  keeps its type, so no repository upgrade step ships with it.

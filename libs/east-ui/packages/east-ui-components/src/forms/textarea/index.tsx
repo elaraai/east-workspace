@@ -9,6 +9,7 @@ import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Textarea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useValueSync } from "../../hooks/useValueSync";
+import { useGrowWithText } from "../../primitives/grow-with-text.js";
 
 // Pre-define equality function at module level
 const textareaEqual = equivalentFor(Textarea.Types.Textarea);
@@ -58,10 +59,15 @@ export interface EastChakraTextareaProps {
 }
 
 /**
- * Renders an East UI Textarea value using Chakra UI Textarea component.
+ * Renders an East UI Textarea value using Chakra UI Textarea component. One
+ * that grows (`autoresize`) is as tall as its text, never under its rows and
+ * never resized by hand, through the shared `useGrowWithText`
+ * (east-workspace#1779) — never Ark's own `autoresize`, which takes the box's
+ * value over and handed a value its host set back to its `onChange` as typing.
  */
 export const EastChakraTextarea = memo(function EastChakraTextarea({ value }: EastChakraTextareaProps) {
     const [props, setProps] = useState(toChakraTextarea(value));
+    const [box, setBox] = useState<HTMLTextAreaElement | null>(null);
 
     // Extract callbacks
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -90,9 +96,16 @@ export const EastChakraTextarea = memo(function EastChakraTextarea({ value }: Ea
         }
     }, [onFocusFn]);
 
+    // Grown here, its height alone set; Chakra's box given no `autoresize` of its own.
+    const { autoresize, ...shown } = props;
+    const grows = autoresize ?? false;
+    useGrowWithText(box, props.value, grows);
+
     return (
         <ChakraTextarea
-            {...props}
+            {...shown}
+            {...(grows && shown.resize === undefined && { resize: "none" })}
+            ref={setBox}
             onChange={handleChange}
             onBlur={handleBlur}
             onFocus={handleFocus}

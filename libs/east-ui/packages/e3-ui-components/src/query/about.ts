@@ -8,13 +8,14 @@
  * saved query, or of a recent run, against the root a surface's data sources
  * make, which the builder's Library tab and the query library share: the data
  * source its steps start from, its description, why it can't open here, its
- * outline, its problems and what it gives. And when it was saved, in words.
+ * outline, its problems and what it gives; the glyph the card of one that
+ * can't open here ends with. And when it was saved, in words.
  *
  * @packageDocumentation
  */
 
-import { DateTimeType, checkJq, lessFor } from "@elaraai/east";
-import type { Formatters } from "@elaraai/east-ui-components";
+import { DateTimeType, checkJq, lessFor, none, some, variant } from "@elaraai/east";
+import type { Formatters, LibraryItemValue } from "@elaraai/east-ui-components";
 import { outlineOf, type OutlineLine } from "./model/cards.js";
 import { problemWords } from "./model/problem-words.js";
 import { describeQuery } from "./model/step-words.js";
@@ -90,6 +91,18 @@ export function queryAbout(saved: SavedQuery, root: QueryRoot, words: QueryWords
         problem: first === undefined ? undefined : problemWords(first, query, root.type, checked, words).text,
         gives: errors.length > 0 || checked.final.kind === "unknown" ? undefined : shapeWords(checked.final, words),
     };
+}
+
+/**
+ * The glyph the card of a query that can't open here ends with: a warning's,
+ * saying why — a card of the builder's Library tab and one of the query
+ * library alike.
+ *
+ * @param about - What the query is here
+ * @returns The glyph; `none` for a query that opens
+ */
+export function refusalGlyph(about: QueryAbout): LibraryItemValue["trailing"] {
+    return about.refusal === undefined ? none : some({ icon: "triangle-exclamation", label: about.refusal, tone: some(variant("warning", null)) });
 }
 
 /**

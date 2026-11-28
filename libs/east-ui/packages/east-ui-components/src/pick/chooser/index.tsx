@@ -46,6 +46,7 @@ import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
 import { faArrowDown, faArrowUp, faCheck, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { composingKey } from "../../editing/shortcuts.js";
 
 /**
  * How an option can be chosen.
@@ -173,7 +174,8 @@ export const Chooser = memo(function Chooser({
         el?.scrollIntoView?.({ block: "nearest" });
     });
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.nativeEvent.isComposing) return;
+        // A key that is an input method's — the Enter that confirms a conversion — chooses nothing.
+        if (composingKey(event)) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             const n = enabled.length;

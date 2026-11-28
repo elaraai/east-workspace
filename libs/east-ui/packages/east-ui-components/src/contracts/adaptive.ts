@@ -10,14 +10,15 @@
  * @remarks
  * Two orthogonal signals drive adaptation:
  *
- * - **Container width** (`useContainerBreakpoint` / `useContainerBelow`):
- *   components adapt to the box they render in — a splitter pane, a task
- *   preview, a webview — never to the viewport. Both hooks observe the
- *   referenced element with a `ResizeObserver` and re-render only when the
- *   derived value crosses a threshold (not on every pixel) — before the
- *   frame at the new width paints, as the shared toolbar and the builder
- *   frame take a width, so a component never paints a frame of the layout it
- *   is leaving (#1259).
+ * - **Container width** (`useContainerBreakpoint` / `useContainerBelow` /
+ *   `useContainerColumns`): components adapt to the box they render in — a
+ *   splitter pane, a task preview, a webview — never to the viewport. The
+ *   hooks observe the referenced element with a `ResizeObserver` — the one
+ *   the ref holds after each commit, so an element drawn again is followed —
+ *   and re-render only when the derived value crosses a threshold (not on
+ *   every pixel) — before the frame at the new width paints, as the shared
+ *   toolbar and the builder frame take a width, so a component never paints a
+ *   frame of the layout it is leaving (#1259).
  * - **Pointer capability** (`useCoarsePointer` / `useHoverCapable`): a
  *   global media fact, mirroring the theme conditions `_coarse`
  *   (`@media (pointer: coarse)`) and `_hoverNone` (`@media (hover: none)`)
@@ -55,6 +56,10 @@ function classify(width: number, compactBelow: number, wideAbove: number): Conta
  * Observe an element's inline size and call `onWidth` when it changes, what
  * it sets committed before the frame paints. Shared plumbing for the public
  * container hooks.
+ *
+ * The element observed is the one the ref holds after each commit of its
+ * host: a host that draws it again — under a new key, or after drawing none —
+ * is followed to the new one, and the old one let go (east-workspace#1772).
  */
 function useContainerWidthEffect(
     ref: RefObject<HTMLElement | null>,
@@ -70,17 +75,31 @@ function useContainerWidthEffect(
             onWidth(width);
         }
     }, [ref, onWidth]);
-    // A parent frame may settle its pane placement during the same commit.
-    // Recheck after each commit so the initial narrow render is corrected
-    // before paint, without waiting for the first ResizeObserver delivery.
-    useLayoutEffect(measure);
+    // What the observer calls: the latest commit's measure, so a new listener needs no new observer.
+    const latest = useRef(measure);
+    const observed = useRef<{ readonly el: HTMLElement; readonly observer: ResizeObserver } | undefined>(undefined);
+    // After each commit: observe the element the ref holds now, and measure it. A parent frame may settle its pane
+    // placement during the same commit, so the initial narrow render is corrected before paint, without waiting for
+    // the first ResizeObserver delivery.
     useLayoutEffect(() => {
+        latest.current = measure;
         const el = ref.current;
-        if (el === null || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(() => flushSync(measure));
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [ref, measure]);
+        if (observed.current?.el !== el) {
+            observed.current?.observer.disconnect();
+            observed.current = undefined;
+            if (el !== null && typeof ResizeObserver !== "undefined") {
+                const observer = new ResizeObserver(() => flushSync(() => latest.current()));
+                observer.observe(el);
+                observed.current = { el, observer };
+            }
+        }
+        measure();
+    });
+    // Unmounted, it observes nothing.
+    useLayoutEffect(() => () => {
+        observed.current?.observer.disconnect();
+        observed.current = undefined;
+    }, []);
 }
 
 /**
@@ -96,6 +115,27 @@ export function useContainerWidth(ref: RefObject<HTMLElement | null>): number {
     const [width, setWidth] = useState(0);
     useContainerWidthEffect(ref, useCallback((w: number) => { setWidth(Math.round(w)); }, []));
     return width;
+}
+
+/**
+ * How many columns stand across the referenced element: as many of `least`
+ * px at least, `gap` px apart, as fit between its `margins` — one at least —
+ * re-rendering only when the count changes, as a gallery's grid lays its cards
+ * (east-workspace#1761).
+ *
+ * @param ref - the element whose inline size holds the columns
+ * @param least - the narrowest a column stands, px
+ * @param gap - the gap between two columns, px
+ * @param margins - what the element keeps clear beside the columns, its two sides together, px
+ * @returns the columns that fit; `1` until the element is measured, and when
+ * `ResizeObserver` is unavailable (SSR, jsdom)
+ */
+export function useContainerColumns(ref: RefObject<HTMLElement | null>, least: number, gap: number, margins: number): number {
+    const [columns, setColumns] = useState(1);
+    useContainerWidthEffect(ref, useCallback((width: number) => {
+        setColumns(Math.max(1, Math.floor((width - margins + gap) / (least + gap))));
+    }, [least, gap, margins]));
+    return columns;
 }
 
 /**

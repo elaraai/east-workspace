@@ -15,6 +15,11 @@
  * against the same blob — simpler than splitting state across many keys, and
  * `Reactive.Root` already coalesces re-renders within a tick.
  *
+ * A store outlives a release, so the blob under a slice's key may be the state
+ * an earlier release wrote, of another type. That is nothing kept (#1758,
+ * `decodeStored`): the slice reads the state it was bound with, and the next
+ * mutator writes today's over it.
+ *
  * # Serializable handles (issue #106)
  *
  * The handle's ~27 methods are thin IR-bearing `East.function`s over the
@@ -54,12 +59,13 @@ import {
     decodeBeast2For,
     equalFor,
     isValueOf,
+    printType,
     type option,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
 import { Slice, SliceApplyImpl, SliceBindPrimitives, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
-import { getStore, trackKey } from "../state-runtime.js";
+import { decodeStored, getStore, trackKey } from "../state-runtime.js";
 import { flushKept, kept, keptBytes, type Kept } from "../kept.js";
 import { registerPlatformImplementation, getRegisteredPlatformImplementations } from "../registry.js";
 
@@ -75,6 +81,8 @@ type Match = ValueTypeOf<typeof Slice.Types.SearchMatch>;
 
 const encodeState = encodeBeast2For(Slice.Types.State);
 const decodeState = decodeBeast2For(Slice.Types.State);
+/** A slice's state type, as East prints it: what a state kept under another type is told from. */
+const STATE_TYPE = printType(Slice.Types.State);
 /** Structural predicate equality — nested variant/struct/Date/Set payloads. */
 const predicateEqual = equalFor(Slice.Types.Predicate);
 /** East's order over cohort ids — an active-cohort set is an East Set. */
@@ -93,10 +101,19 @@ export const DEFAULT_SLICE_STATE: SliceState = {
     resolution:    none,
 };
 
+/**
+ * A slice's state, as its store keeps it. A state kept under another type — an
+ * earlier release's — is nothing kept (#1758): the slice reads the state its
+ * latest bind gave it, which that bind would have seeded over a key that held
+ * nothing; with no bind in the page, the default, as over such a key.
+ *
+ * @param key - The slice's store key
+ * @returns Its state
+ */
 function readState(key: string): SliceState {
     const encoded = getStore().read(key);
     if (encoded === undefined) return DEFAULT_SLICE_STATE;
-    return decodeState(encoded);
+    return decodeStored(key, encoded, STATE_TYPE, decodeState) ?? boundByKey.get(key)?.initial ?? DEFAULT_SLICE_STATE;
 }
 
 function writeState(key: string, state: SliceState): void {
@@ -184,14 +201,17 @@ export function resetSlicePersistence(): void {
 const only = (patch: Partial<SliceState>): SliceState => ({ ...DEFAULT_SLICE_STATE, ...patch });
 
 /** Bound data + config + `toMatch` per slice key — what the data-derived methods
- *  narrow from. The rows entry may be a getter so long-lived handles (a
- *  DecisionQueue's handle-owned slice) always see the live collection. Refreshed
- *  on every `Slice.bind`, so the IR-bearing handle methods (which carry only the
- *  key) resolve the current rows / config / `toMatch` live by key. */
+ *  narrow from — and the state the slice was bound with, which it reads over a
+ *  state kept under another type (#1758). The rows entry may be a getter so
+ *  long-lived handles (a DecisionQueue's handle-owned slice) always see the live
+ *  collection. Refreshed on every `Slice.bind`, so the IR-bearing handle methods
+ *  (which carry only the key) resolve the current rows / config / `toMatch` live
+ *  by key. */
 const boundByKey = new Map<string, {
     rows: Row[] | (() => Row[]);
     config: SliceConfig;
     toMatch: ((r: Row) => Match) | undefined;
+    initial: SliceState;
 }>();
 
 function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
@@ -409,7 +429,9 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
     const toMatchOpt = toMatch as option<(r: Row) => Match> | undefined;
     const toMatchFn = toMatchOpt?.type === "some" ? toMatchOpt.value : undefined;
 
-    /* First bind seeds the key with the caller-supplied initial state. */
+    /* First bind seeds the key with the caller-supplied initial state. A key
+     * that holds a state of another type is left as it is — a bind runs every
+     * frame, and decodes nothing: `readState` reads the initial state over it. */
     if (!getStore().has(k)) writeState(k, initial as SliceState);
     /* Refresh the live bound entry EVERY bind (rows getter / config / toMatch),
      * before the cache check — so a cached handle's primitives always resolve the
@@ -417,7 +439,7 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
     // Store the GUARDED `liveRows` getter (not the raw source) so a getter that
     // transiently returns undefined (data not yet loaded) yields `[]`, not a
     // `totalCount` crash — the `?? []` guard must cover both branches.
-    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? liveRows : liveRows()), config: cfg, toMatch: toMatchFn });
+    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? liveRows : liveRows()), config: cfg, toMatch: toMatchFn, initial: initial as SliceState });
 
     const cached = sliceHandleCache.get(k);
     if (cached) return cached;

@@ -505,9 +505,9 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             expect(unlike(steppers, /^chevron-(up|down)$/, [19, 13], [9, 9]), "a stepper not 9px in its 19 × 13 trigger").toEqual([]);
         });
 
-        test(`Studio's height select and the page library's template select: each chevron and the picked item's check 16px square (${theme})`, async ({ page }) => {
+        test(`Studio's height select: its chevron and the picked item's check 16px square (${theme})`, async ({ page }) => {
             test.setTimeout(120_000);
-            let row = await openExample(page, "e3/studio/studio/studioBuilder", theme);
+            const row = await openExample(page, "e3/studio/studio/studioBuilder", theme);
             const builder = page.locator(row).locator("[data-studio-builder]").first();
             await expect(builder.locator("[data-snap-grid-tile]").first()).toBeVisible({ timeout: 30_000 });
             // The mock's width: the inspector shows its layout's fields beside the canvas.
@@ -524,22 +524,8 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             await height.click();
             await page.locator(openList("select")).waitFor();
             await settled(page);
-            let checks = shown(await partIcons(page, openList("select"), "[data-part='item-indicator']"));
+            const checks = shown(await partIcons(page, openList("select"), "[data-part='item-indicator']"));
             expect([checks.length, unlike(checks, "check", [16, 16], [16, 16])], "the picked height's check not 16px square").toEqual([1, []]);
-            row = await openExample(page, "e3/studio/studio/studioLibrary", theme);
-            const add = page.locator(row).locator("[data-page-library-new]").first();
-            await expect(add).toBeVisible({ timeout: 30_000 });
-            await add.click();
-            const template = page.locator("[data-page-library-template]").first();
-            await expect(template).toBeVisible();
-            await settled(page);
-            expect(unlike(await partIcons(page, "", "[data-scope='select'][data-part='control']:has([data-page-library-template]) [data-part='indicator']"), "chevron-down", [16, 16], [16, 16]),
-                "the template's chevron not 16px square").toEqual([]);
-            await template.click();
-            await page.locator(openList("select")).waitFor();
-            await settled(page);
-            checks = shown(await partIcons(page, openList("select"), "[data-part='item-indicator']"));
-            expect([checks.length, unlike(checks, "check", [16, 16], [16, 16])], "the picked template's check not 16px square").toEqual([1, []]);
         });
 
         test(`the query builder's note close is a 14px xmark in its 24px button (${theme})`, async ({ page }) => {
