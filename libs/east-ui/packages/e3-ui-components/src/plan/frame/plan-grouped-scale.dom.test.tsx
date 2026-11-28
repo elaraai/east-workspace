@@ -43,11 +43,15 @@
  *   the index is asked for what is not held alone.
  * - A read of the jobs on its way is never given up while the next read is
  *   counted (#1797): a change of period, and the view moving on a block, ask
- *   it again as it was, and no read of the jobs' entries is asked twice.
+ *   it again as it was, and no row of the jobs' entries is asked twice.
  *   Through the index in time order, weeks pressed across a year's end name
  *   every cell anew over the runs the days' read asks: on its way when they are
  *   counted, they read those runs through it; landed while they were, they take
- *   them from it — e3 asked for none of them again.
+ *   them from it — e3 asked for none of them again. Through the index in key
+ *   order, with jobs either side of the window, weeks pressed and a week's pan
+ *   take each press's run past the days' read on its way: its rows are read
+ *   through it, e3 is asked for the rows past them alone, and the jobs drawn
+ *   are those drawn once the days' read has landed.
  * - Zoomed out past the jobs' series tile (#1541, U1), each task beneath a
  *   press counts its own jobs, from a summary led by the task. With none, a
  *   task row draws its own jobs while the range holds few, and past the cap is
@@ -187,6 +191,18 @@ const JOB_ROWS = jobs();
 function yearEndJobs(): ValueTypeOf<typeof Jobs> {
     const out = new Map(jobs(YEAR_END));
     for (const [key, job] of jobs(NEXT_JANUARY)) out.set(`L${key}`, job);
+    return out as ValueTypeOf<typeof Jobs>;
+}
+
+/**
+ * The window's jobs, and as many again in each fortnight either side of it (#1797): through the series index in key
+ * order, weeks pressed, or the window panned a week on, take each press's run of tiles past the days' run, its rows and
+ * rows beyond them.
+ */
+function aroundJobs(): ValueTypeOf<typeof Jobs> {
+    const out = new Map(jobs());
+    for (const [key, job] of jobs(new Date(FIRST.getTime() - 14 * DAY))) out.set(`B${key}`, job);
+    for (const [key, job] of jobs(LAST)) out.set(`A${key}`, job);
     return out as ValueTypeOf<typeof Jobs>;
 }
 
@@ -516,6 +532,10 @@ const searchesOf = (from: number): number => findsOf(SERIES, from).reduce((n, re
 const inTimeRuns = (request: E3Request) => request.kind === "runs" && request.dataset === JOBS_AT && request.query.get("index") === IN_TIME;
 /** Whether a request counts searches of the jobs through their series index in time order (#1797). */
 const inTimeFinds = (request: E3Request) => request.kind === "find" && request.dataset === JOBS_AT && request.query.get("index") === IN_TIME;
+/** Whether a request reads the jobs' entries through their series index in key order (#1797). */
+const seriesRuns = (request: E3Request) => request.kind === "runs" && request.dataset === JOBS_AT && request.query.get("index") === SERIES;
+/** Whether a request counts searches of the jobs through their series index in key order (#1797). */
+const seriesFinds = (request: E3Request) => request.kind === "find" && request.dataset === JOBS_AT && request.query.get("index") === SERIES;
 
 /** Each press's place among the presses the page draws — each hall's, in the halls' order — by the press as the jobs' indexes file a job on it. */
 const PLACE_OF = new Map(DRAWN.flatMap((hall) => pressCodes[hall]!).map((code, at) => [pressLiteral(code), at] as const));
@@ -612,22 +632,25 @@ function report(step: string, from: number, cpu0: number, container: HTMLElement
 
 describe("a Plan over grouped rows at a page's size (#1710)", () => {
     /**
-     * The runs the reads of the jobs' entries through the index in time order since `from` asked that a read before
-     * them asked too, each by its first row and how many entries it holds (#1797): what was asked of e3 again, a read
-     * given up and asked once more among them. Each read's runs are its body's, the wire's JSON, parsed as the test
-     * reads its log (the warning that flags `JSON.parse` at module scope is a deployed program's rule; no program reads
-     * this).
+     * Every row each read of the jobs' entries `picks` picks since `from` asked, by the runs its body names (#1797).
+     * Each read's runs are its body's, the wire's JSON, parsed as the test reads its log (the warning that flags
+     * `JSON.parse` at module scope is a deployed program's rule; no program reads this).
      */
-    const runsAskedAgain = (from: number): string[] => {
-        const seen = new Set<string>();
-        const again: string[] = [];
-        for (const request of h.requests().slice(from).filter(inTimeRuns)) {
-            const { runs } = JSON.parse(new TextDecoder().decode(request.body)) as { runs: number[][] };
-            for (const [row, count] of runs) {
-                const run = `${row}+${count}`;
-                if (seen.has(run)) again.push(run);
-                seen.add(run);
-            }
+    const rowsAsked = (from: number, picks: (request: E3Request) => boolean): number[][] => h.requests().slice(from).filter(picks).map((request) => {
+        const { runs } = JSON.parse(new TextDecoder().decode(request.body)) as { runs: [number, number][] };
+        return runs.flatMap(([row, count]) => Array.from({ length: count }, (_x, i) => row + i));
+    });
+
+    /**
+     * The rows those reads asked that one before them asked too (#1797): what was asked of e3 again, a read given up
+     * and asked once more among them, and a run asked whole that takes in one asked before.
+     */
+    const rowsAskedAgain = (from: number, picks: (request: E3Request) => boolean): number[] => {
+        const seen = new Set<number>();
+        const again: number[] = [];
+        for (const row of rowsAsked(from, picks).flat()) {
+            if (seen.has(row)) again.push(row);
+            seen.add(row);
         }
         return again;
     };
@@ -1003,17 +1026,12 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
         const restore = emulateWindowScroll();
         const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
         try {
-            /** A read of the jobs' entries, or a count of their searches, through the series index. */
-            const entriesOf = (request: E3Request) => request.kind === "runs" && request.dataset === JOBS_AT && request.query.get("index") === SERIES;
-            const countOf = (request: E3Request) => request.kind === "find" && request.dataset === JOBS_AT && request.query.get("index") === SERIES;
             /** The reads of the jobs' entries since `from` given up on their way: each one's signal aborted. */
-            const givenUp = (from: number) => h.requests().slice(from).filter((request) => entriesOf(request) && request.signal.aborted);
-            /** What each read of the jobs' entries since `from` asked: the runs it read, as its body names them. */
-            const runsAsked = (from: number) => h.requests().slice(from).filter(entriesOf).map((request) => new TextDecoder().decode(request.body));
+            const givenUp = (from: number) => h.requests().slice(from).filter((request) => seriesRuns(request) && request.signal.aborted);
 
             // The page opening, the entries of the first block's jobs held on their way.
             let from = h.requests().length;
-            let entries = h.e3.hold(entriesOf);
+            let entries = h.e3.hold(seriesRuns);
             const { container } = await h.mount(page, { storageKey: "plan-on-its-way" });
             await waitFor(() => expect(container.querySelectorAll("[data-plan-row]").length).toBeGreaterThan(0), { timeout: 600_000 });
             await entries.holding;
@@ -1021,23 +1039,22 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
 
             // Weeks pressed while they are on their way, the next read's searches held as they are counted: the read on its
             // way is still wanted, and asked again as it was — never given up.
-            let counts = h.e3.hold(countOf);
+            let counts = h.e3.hold(seriesFinds);
             await zoomTo(container, "week");
             await counts.holding;
             await settle();
             expect(givenUp(from)).toEqual([]);
             expect(entries.held).toBe(1);
             // Counted, and landed: the read on its way lands once — the jobs lie inside the window, so the weeks either
-            // side hold none, and it holds every entry the weeks want — and no read of the jobs' entries is asked twice.
+            // side hold none, and it holds every entry the weeks want — and no row of the jobs' entries is asked twice.
             await act(async () => { counts.release(); });
             await settle();
             await act(async () => { entries.release(); });
             await settle();
             await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
             expect(givenUp(from)).toEqual([]);
-            const atWeeks = runsAsked(from);
-            expect(atWeeks.length).toBeGreaterThan(0);
-            expect(new Set(atWeeks).size).toBe(atWeeks.length);
+            expect(rowsAsked(from, seriesRuns).length).toBeGreaterThan(0);
+            expect(rowsAskedAgain(from, seriesRuns)).toEqual([]);
 
             // Inside a hall far down, as the first test of this file rests there: the two blocks of presses the view meets
             // and the next, their jobs' entries held on their way.
@@ -1048,7 +1065,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             const before = DRAWN.slice(0, DRAWN.indexOf(deep)).reduce((sum, hall) => sum + SIZES[hall]!, 0);
             const into = (SCHEDULE_CELL_BLOCK + 5 - (before % SCHEDULE_CELL_BLOCK)) % SCHEDULE_CELL_BLOCK;
             from = h.requests().length;
-            entries = h.e3.hold(entriesOf);
+            entries = h.e3.hold(seriesRuns);
             act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + into * pressPx }); });
             await scrollStopped();
             await entries.holding;
@@ -1056,7 +1073,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
 
             // On a block while they are on their way, the next block's searches held as they are counted: the read on its
             // way still holds the block the view meets now, and is asked again as it was — never given up.
-            counts = h.e3.hold(countOf);
+            counts = h.e3.hold(seriesFinds);
             act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + (into + SCHEDULE_CELL_BLOCK) * pressPx }); });
             await scrollStopped();
             await counts.holding;
@@ -1068,9 +1085,8 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await act(async () => { entries.release(); });
             await settle();
             expect(givenUp(from)).toEqual([]);
-            const onABlock = runsAsked(from);
-            expect(onABlock.length).toBeGreaterThan(1);
-            expect(new Set(onABlock).size).toBe(onABlock.length);
+            expect(rowsAsked(from, seriesRuns).length).toBeGreaterThan(1);
+            expect(rowsAskedAgain(from, seriesRuns)).toEqual([]);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
 
             // Nothing failed to read on the way.
@@ -1081,6 +1097,81 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             restore();
         }
     }, 1_800_000);
+
+    /** Weeks pressed, or the window moved on a week a day at a time, as a planner does: each a gesture that widens a run (#1797). */
+    const widenings: readonly (readonly [string, (of: HTMLElement) => Promise<void>])[] = [
+        ["weeks pressed", (of) => zoomTo(of, "week")],
+        ["a week's pan", async (of) => {
+            for (let step = 0; step < 7; step++) await act(async () => { fireEvent.keyDown(of.querySelector("[data-plan-body]")!, { key: "]" }); });
+        }],
+    ];
+
+    for (const [gesture, make] of widenings) {
+        test(`through the series index in key order, ${gesture} while the days' read is on its way take each press's run past it: its rows are read through it, e3 asked for the rows past them alone, never a row twice, and the jobs drawn are those a page whose days' read had landed draws (#1797)`, async () => {
+            const restore = emulateWindowScroll();
+            const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+            try {
+                /** The reads of the jobs' entries since `from` given up on their way: each one's signal aborted. */
+                const givenUp = (from: number) => h.requests().slice(from).filter((request) => seriesRuns(request) && request.signal.aborted);
+                // The jobs of each fortnight either side of the window too: at weeks, or a week on, each press's run of tiles
+                // takes in the days' run and rows past it.
+                await h.patch(scaleJobs, aroundJobs());
+
+                // The days' read on its way through the gesture, the next view's searches held as they are counted: it is
+                // still wanted — never given up.
+                let from = h.requests().length;
+                let cpu0 = cpu();
+                const entries = h.e3.hold(seriesRuns);
+                const { container, unmount } = await h.mount(page, { storageKey: "plan-around" });
+                await waitFor(() => expect(container.querySelectorAll("[data-plan-row]").length).toBeGreaterThan(0), { timeout: 600_000 });
+                await entries.holding;
+                await settle();
+                const counts = h.e3.hold(seriesFinds);
+                await make(container);
+                await counts.holding;
+                await settle();
+                expect(givenUp(from)).toEqual([]);
+                expect(entries.held).toBe(1);
+                // Counted, each press's run takes in the days' and rows past it: the days' rows are read through the read on
+                // its way, and e3 is asked for those past them alone.
+                await act(async () => { counts.release(); });
+                await settle();
+                await act(async () => { entries.release(); });
+                await settle();
+                await waitFor(() => expect(marksOf(container).length).toBeGreaterThan(0), { timeout: 600_000 });
+                await settle();
+                report(`${gesture}, the days' read on its way`, from, cpu0, container);
+                expect(givenUp(from)).toEqual([]);
+                const asked = rowsAsked(from, seriesRuns);
+                expect(asked).toHaveLength(2);
+                expect(asked[1]!.length).toBeGreaterThan(0);
+                expect(rowsAskedAgain(from, seriesRuns)).toEqual([]);
+                const drawn = marksOf(container);
+                unmount();
+
+                // The same jobs read a hall at a time, by a Slice of its own, the days' read landed before the gesture: no
+                // row asked twice either, and the same jobs drawn.
+                from = h.requests().length;
+                cpu0 = cpu();
+                const landed = await h.mount(byHall, { storageKey: "plan-around-landed" });
+                await waitFor(() => expect(marksOf(landed.container).length).toBeGreaterThan(0), { timeout: 600_000 });
+                await settle();
+                await make(landed.container);
+                await settle();
+                await waitFor(() => expect(marksOf(landed.container)).toEqual(drawn), { timeout: 600_000 });
+                report(`${gesture}, the days' read landed`, from, cpu0, landed.container);
+                expect(rowsAskedAgain(from, seriesRuns)).toEqual([]);
+                landed.unmount();
+
+                // Nothing failed to read on the way.
+                const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
+                expect(failed).toEqual([]);
+            } finally {
+                errors.mockRestore();
+                restore();
+            }
+        }, 1_800_000);
+    }
 
     test("through a series index in time order, weeks pressed across a year's end name every cell anew over the runs of the days' read on its way: it is never given up while the weeks are counted, and they read its runs through it, as it was, asking none again (#1797)", async () => {
         const restore = emulateWindowScroll();
@@ -1114,7 +1205,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
             expect(givenUp(from)).toEqual([]);
-            expect(runsAskedAgain(from)).toEqual([]);
+            expect(rowsAskedAgain(from, inTimeRuns)).toEqual([]);
             expect(h.requests().slice(from).filter(inTimeRuns).length).toBe(2);
 
             // Nothing failed to read on the way.
@@ -1155,7 +1246,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             await settle();
             await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
             expect(givenUp(from)).toEqual([]);
-            expect(runsAskedAgain(from)).toEqual([]);
+            expect(rowsAskedAgain(from, inTimeRuns)).toEqual([]);
             expect(h.requests().slice(from).filter(inTimeRuns).length).toBe(2);
 
             // Nothing failed to read on the way.

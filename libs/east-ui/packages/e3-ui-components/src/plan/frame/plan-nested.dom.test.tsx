@@ -21,6 +21,10 @@
  *   reads nothing, their cells kept (#1797).
  * - A read of the cells on its way is never given up while the next view's
  *   searches are counted, and no read of their entries is asked twice (#1797).
+ *   Weeks pressed while it is on its way, on a canvas holding its own window,
+ *   take each machine's runs past it: its rows are read through it, e3 is
+ *   asked for the rest alone — no row twice — and each machine draws what the
+ *   same Plan draws with nothing on its way.
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -367,6 +371,47 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         expect(asked).toHaveLength(2);
         expect(new Set(asked).size).toBe(2);
         await waitFor(() => expect(drawnRow(container, "presses", "M-10001").length).toBeGreaterThan(0), { timeout: 10_000 });
+    });
+
+    test("weeks pressed while the cells' read is on its way take each machine's runs past it: its rows are read through it, e3 asked for the rest alone, never a row twice, and each machine drawn as the same Plan draws it with nothing on its way (#1797)", async () => {
+        onTestFinished(emulateWindowScroll());
+        const entriesOf = (request: E3Request) => through(IN_TIME)(request) && request.kind === "runs";
+        const givenUp = () => h.requests().filter((request) => entriesOf(request) && request.signal.aborted);
+        /** Every row each read of the cells' entries asked, by the runs its body names: the wire's JSON, parsed as the test reads its log. */
+        const rowsAsked = () => h.requests().filter(entriesOf).map((request) =>
+            (JSON.parse(new TextDecoder().decode(request.body)) as { runs: [number, number][] }).runs
+                .flatMap(([row, count]) => Array.from({ length: count }, (_x, i) => row + i)));
+        // The page opening, the entries of the first block's cells held on their way: on a canvas holding its own window,
+        // which a period pressed sets.
+        const entries = h.e3.hold(entriesOf);
+        const { container } = await h.mount(slicePlan);
+        await entries.holding;
+        await settle();
+        // Weeks pressed while they are on their way — as many weeks from the window's start as the plot holds, past the
+        // fortnight read — the weeks' searches held as they are counted: the read on its way is still wanted, never given up.
+        const counts = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
+        await zoomTo(container, "week");
+        await counts.holding;
+        await settle();
+        expect(givenUp()).toEqual([]);
+        expect(entries.held).toBe(1);
+        // Counted, each machine's runs at the weeks take in the fortnight's and rows past them: the fortnight's rows are read
+        // through the read on its way, and e3 is asked for those past them alone.
+        await act(async () => { counts.release(); });
+        await settle();
+        await act(async () => { entries.release(); });
+        await settle();
+        expect(givenUp()).toEqual([]);
+        const [fortnight, rest, ...more] = rowsAsked();
+        expect(more).toEqual([]);
+        expect(rest!.length).toBeGreaterThan(0);
+        const held = new Set(fortnight);
+        expect(rest!.filter((row) => held.has(row))).toEqual([]);
+        // Each of the first twelve machines draws what the same Plan draws at the weeks with nothing on its way.
+        const { container: control } = await h.mount(slicePlan, { storageKey: "control" });
+        await settle();
+        await zoomTo(control, "week");
+        await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(control)), { timeout: 10_000 });
     });
 
     test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {

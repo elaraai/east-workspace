@@ -20,7 +20,7 @@ import type { TreePath } from "@elaraai/e3-types";
 import type { PagedSelector, PagedRow, PagedRun } from "./api.js";
 import { pagedWindowFamily, pagedTotalKey } from "./keys.js";
 import { isPermanentPageError, failureOf } from "./errors.js";
-import { type PageEntry, type Snapshot, type HeldRows, MAX_HELD_ROWS } from "./state.js";
+import { type PageEntry, type Snapshot, type HeldRows, type RunSpans, MAX_HELD_ROWS } from "./state.js";
 import { coveringAt, elementCount, cutWindow } from "./windows.js";
 import { PagedChannels } from "./channels.js";
 
@@ -28,15 +28,44 @@ import { PagedChannels } from "./channels.js";
  * What a spec watches a paging runtime by (test use only), as the Calendar's
  * frame is watched by its render probe: each landed channel a read looks at as
  * it seeks one that answers it — a window covering the window it reads
- * (#1217), or one holding the key it reads the row of (#1351) — and the runs a
- * read of runs takes from the landed reads that hold them, which e3 is never
- * asked for (#1797).
+ * (#1217), or one holding the key it reads the row of (#1351) — and the
+ * stretches of its runs a read of runs takes from the landed reads that hold
+ * them, which e3 is never asked for (#1797).
  */
 export interface PagedRuntimeProbe {
     /** Called for each landed channel a read looks at. */
     readonly looked?: () => void;
-    /** Called with how many of a read's runs it takes from landed reads, for a read that takes any. */
-    readonly took?: (runs: number) => void;
+    /** Called with how many stretches of a read's runs it takes from landed reads, for a read that takes any. */
+    readonly took?: (stretches: number) => void;
+}
+
+/**
+ * A stretch of one of a read's runs (#1797): its rows, and where they are had
+ * from — a landed read that holds them (its channel, and where they start in
+ * its window), a read on its way that asks them (its channel), or e3.
+ */
+export type RunStretch =
+    | { readonly from: "held"; readonly row: number; readonly count: number; readonly key: string; readonly at: number }
+    | { readonly from: "coming"; readonly row: number; readonly count: number; readonly key: string }
+    | { readonly from: "e3"; readonly row: number; readonly count: number };
+
+/** A read of a family's rows that holds some, landed, or asks them on its way: its channel, and its runs, ascending, each where it sits in its window. */
+interface RunsHolder {
+    readonly key: string;
+    readonly landed: boolean;
+    readonly runs: RunSpans["runs"];
+}
+
+/** The last of some ascending runs that starts at or before `row`: its index, or -1 where none does. */
+function runAtOrBefore(runs: RunSpans["runs"], row: number): number {
+    let lo = 0;
+    let hi = runs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (runs[mid]!.row <= row) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo - 1;
 }
 
 /** The probe a spec installed; `undefined` outside tests. */
@@ -179,47 +208,115 @@ export class PagedReads extends PagedChannels {
     }
 
     /**
-     * Each run's entries a landed window of its family holds whole — a
-     * window's, or one run of a runs read's (#1217, #1351) — cut from it now,
-     * for a runs read to take in place of asking e3 for them (#1797): a read
-     * of the rows a read on its way asked under other searches, as a change
-     * of period's cells are, asks e3 only for what no landed window holds.
-     * Only the landed windows are looked at — at most
-     * {@link MAX_RETAINED_WINDOWS}, or past it what its readers hold — never
-     * every channel of the revision, and each window a run is cut from was
-     * read, through its cut.
+     * A read's runs cut into stretches at the edges of what the reads of its
+     * family hold (#1797): a stretch a landed read holds — a window's, or a
+     * run of a runs read's (#1217, #1351) — is had from it; one a read on its
+     * way asks — a window's (#1596), or a runs read's — waits on it; the rest
+     * are e3's to ask. Of the reads holding a row, a landed one is taken
+     * before one on its way, and of two alike the one holding more of what
+     * follows. So a read of rows a read before it brought, or is bringing,
+     * under other searches — a change of period's cells, a run a period's
+     * tiles widen — asks e3 only for what no read holds or asks. Only the
+     * landed windows and the reads in flight are looked at, never every
+     * channel of the revision.
+     *
+     * @param family - The read's family
+     * @param runs - Its runs: ascending, disjoint, each inside the source
+     * @param into - The read's own channel, never one a stretch is had from
+     * @returns The stretches, in order: together the runs, each had wholly from one place
+     */
+    protected stretchesOf(family: string, runs: readonly PagedRun[], into: PageEntry): RunStretch[] {
+        const holders: RunsHolder[] = [];
+        for (const key of this.loadedWindows.keys()) {
+            pagedRuntimeProbe?.looked?.();
+            const entry = this.entries.get(key);
+            if (entry === undefined || entry === into || entry.status !== "loaded" || entry.window === undefined) continue;
+            if (entry.span !== undefined) {
+                if (entry.span.family === family) holders.push({ key, landed: true, runs: [{ row: entry.span.offset, count: entry.span.count, at: 0 }] });
+            } else if (entry.runSpans !== undefined && entry.runSpans.family === family) {
+                holders.push({ key, landed: true, runs: entry.runSpans.runs });
+            }
+        }
+        for (const key of this.fetching.keys()) {
+            const entry = this.entries.get(key);
+            if (entry === undefined || entry === into || entry.status !== "running") continue;
+            if (entry.askingRuns !== undefined && entry.askingRuns.family === family) {
+                holders.push({ key, landed: false, runs: entry.askingRuns.runs });
+            } else if (entry.asking !== undefined && entry.asking.family === family) {
+                holders.push({ key, landed: false, runs: [{ row: entry.asking.offset, count: entry.asking.count, at: 0 }] });
+            }
+        }
+        const stretches: RunStretch[] = [];
+        for (const [row, count] of runs) {
+            const end = row + count;
+            for (let at = row; at < end;) {
+                // The read to have row `at` from, and — none holding it — where the rows the next one holds begin.
+                let by: { readonly holder: RunsHolder; readonly run: RunSpans["runs"][number] } | undefined;
+                let next = end;
+                for (const holder of holders) {
+                    const i = runAtOrBefore(holder.runs, at);
+                    const run = holder.runs[i];
+                    if (run !== undefined && at < run.row + run.count) {
+                        if (by === undefined || (holder.landed !== by.holder.landed ? holder.landed : run.row + run.count > by.run.row + by.run.count)) {
+                            by = { holder, run };
+                        }
+                        continue;
+                    }
+                    const after = holder.runs[i + 1];
+                    if (after !== undefined && after.row < next) next = after.row;
+                }
+                if (by === undefined) {
+                    stretches.push({ from: "e3", row: at, count: next - at });
+                    at = next;
+                    continue;
+                }
+                const upto = Math.min(end, by.run.row + by.run.count);
+                stretches.push(by.holder.landed
+                    ? { from: "held", row: at, count: upto - at, key: by.holder.key, at: by.run.at + (at - by.run.row) }
+                    : { from: "coming", row: at, count: upto - at, key: by.holder.key });
+                at = upto;
+            }
+        }
+        return stretches;
+    }
+
+    /**
+     * A read's stretches cut from where they are had (#1797), in order, once
+     * none waits on a read on its way: each one a landed read holds cut from
+     * it, and those asked of e3 cut in turn from the window e3 answered for
+     * them all. Each landed read cut from was read, through its cut — touched
+     * once every cut is made, so none goes before it is.
      *
      * @param sourceType - The source's type
-     * @param family - The read's family
-     * @param runs - The runs: ascending, disjoint, each inside the source
-     * @param into - The read's own channel, never one a run is cut from
-     * @returns Each run's cut, in order; `undefined` for a run no landed window holds whole
+     * @param stretches - The read's stretches
+     * @param fetched - The window e3 answered for the stretches asked of it, in order; `undefined` where none was
+     * @returns Each stretch's cut, in order; `undefined` while one waits on a read on its way, or where a read no longer holds its stretch
      */
-    protected runsFromCovering(sourceType: EastTypeValue, family: string, runs: readonly PagedRun[], into: PageEntry): unknown[] {
-        // The landed windows of the family, looked at once whatever the runs.
-        const covering: { key: string; entry: PageEntry }[] = [];
-        for (const landed of this.loadedWindows.keys()) {
-            pagedRuntimeProbe?.looked?.();
-            const entry = this.entries.get(landed);
-            if (entry === undefined || entry === into || entry.status !== "loaded" || entry.window === undefined) continue;
-            if ((entry.span ?? entry.runSpans)?.family !== family) continue;
-            covering.push({ key: landed, entry });
-        }
+    protected cutStretches(sourceType: EastTypeValue, stretches: readonly RunStretch[], fetched: unknown): unknown[] | undefined {
+        const cuts: unknown[] = [];
         const read = new Set<string>();
-        const cuts = runs.map(([row, count]): unknown => {
-            for (const { key, entry } of covering) {
-                const from = coveringAt(entry, family, row, count);
-                if (from === undefined) continue;
-                const cut = cutWindow(sourceType, entry.window, from, count);
+        let taken = 0;
+        // Where the next stretch asked of e3 starts in the window it answered.
+        let into = 0;
+        for (const stretch of stretches) {
+            if (stretch.from === "coming") return undefined;
+            if (stretch.from === "e3") {
+                const cut = fetched === undefined ? undefined : cutWindow(sourceType, fetched, into, stretch.count);
                 if (cut === undefined) return undefined;
-                read.add(key);
-                return cut;
+                cuts.push(cut);
+                into += stretch.count;
+                continue;
             }
-            return undefined;
-        });
-        // Each window cut from was read, through its cuts — touched once every cut is made, so none goes before it is.
+            const entry = this.entries.get(stretch.key);
+            if (entry === undefined || entry.status !== "loaded" || entry.window === undefined) return undefined;
+            const cut = cutWindow(sourceType, entry.window, stretch.at, stretch.count);
+            if (cut === undefined) return undefined;
+            cuts.push(cut);
+            read.add(stretch.key);
+            taken += 1;
+        }
         for (const key of read) this.touchWindow(key);
-        if (read.size > 0) pagedRuntimeProbe?.took?.(cuts.filter((cut) => cut !== undefined).length);
+        if (taken > 0) pagedRuntimeProbe?.took?.(taken);
         return cuts;
     }
 
