@@ -211,8 +211,8 @@ export function checkedScheduleTilings(
                     $3.assign(summary, some(index.name));
                     $3.assign(summaries, summaries.add(1n));
                 }
-                // One of each by a tile over the same fields.
-                const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile, order: tiling.order }, TilingKeyType);
+                // One of each by a tile over the same fields (order-independent, matching tileIndexFor).
+                const place = $3.let({ summary: arm === "summary", fields: index.fields.sort(), tile: tiling.tile, order: tiling.order }, TilingKeyType);
                 const at = $3.let(East.print(place));
                 $3.if(seen.has(at), ($4) => {
                     const tile = $4.let(tiling.tile.match({

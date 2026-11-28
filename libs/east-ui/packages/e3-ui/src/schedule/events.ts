@@ -168,8 +168,10 @@ export interface ScheduleRecordHandle<K extends EastType, R extends EastType> {
     binding: unknown;
 }
 
-/** Whether a variant's cases are an Option's. */
-type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
+/** Whether a variant's cases are exactly an Option's (`none: NullType` and `some`). */
+type IsOption<C> = keyof C extends "none" | "some"
+    ? ("none" extends keyof C ? ("some" extends keyof C ? (C["none" & keyof C] extends NullType ? true : false) : false) : false)
+    : false;
 
 /** Whether every case of a variant holds a String. */
 type StringCases<C> = [C[keyof C]] extends [StringType] ? true : false;
@@ -1469,9 +1471,9 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
             throw new Error(`${where}: the builder's source "${source}" reads only its narrowing — and one event, the inspector's ` +
                 "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
         }
-        const scheduled = once(scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where, cap));
+        const scheduled = once(scheduleRecordWindow(part, source, keyType, rowType, startField, endField, optional, false, where, cap));
         if (!optional) return { days: scheduled, backlog: undefined, alone: undefined, withDrafts: once(withDraftsFor(true)) as never, pagedBacklog: false };
-        const backlogged = once(scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, true, where));
+        const backlogged = once(scheduleRecordWindow(part, source, keyType, rowType, startField, endField, optional, true, where));
         if (pagedBacklog) {
             // Its builder pages its backlog through the source itself (#1424): the window is its rows alone, and a draft
             // its host gives draws where it places its event — a backlog event scheduled into the window among them — the
@@ -2124,7 +2126,7 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
         // interval index — the count its window's read asks first, so none of its own; through its day index, the days'
         // entries the search its window's read asks first answers — an event under each day it runs on, so an upper
         // bound on them, never their number; or, its record read whole, in memory, by the views' rule.
-        const count = part !== undefined ? scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)
+        const count = part !== undefined ? scheduleRecordCount(part, config.source ?? slot, keyType, rowType, startField, endField, optional, where)
             : dayWindow !== undefined ? scheduleDayCount(dayWindow, where) : countWhole;
         // Each template's values, by key, as the templates on the wire carry them.
         const templateRows = boundTemplates ?? East.value(templates.map((t) => ({
@@ -2624,7 +2626,7 @@ export function scheduleCaseEvents(record: unknown, input: unknown, kindCase: Sc
             return heldKind((once) => {
                 // What it draws its events from (#1725): the copies its source's series index holds of them, where it lists
                 // one declared with a `value`; else their rows.
-                const copy = part === undefined ? undefined : scheduleCopyOf(part, slot, keyType, rowType, where);
+                const copy = part === undefined ? undefined : scheduleCopyOf(part, config.source ?? slot, keyType, rowType, where);
                 if (copy !== undefined && copy.beside.length > 0) {
                     // Its cells are of one type: the copies, every cell read through their index.
                     throw new Error(`Plan: events.${slot}'s source lists the series index "${copy.index}", whose entries are copies of its events, beside ` +

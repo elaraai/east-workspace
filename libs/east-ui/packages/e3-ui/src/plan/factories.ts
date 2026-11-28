@@ -31,6 +31,7 @@ import {
     FloatType,
     OptionType,
     StringType,
+    isVariant,
     variant,
     some,
     none,
@@ -187,6 +188,13 @@ export type PlanLineFoldInput = PlanLineFoldLiteral | SubtypeExprOrValue<PlanLin
 /** Why a column refuses `fold: "none"`. */
 const UNFOLDED_COLUMN = "Plan.chart: a column draws one bar a bucket, so it folds the points in it — `fold: \"none\"` keeps every point of a line or an area";
 
+/** The tag name of a fold input written as a literal string or East variant value; `undefined` for an expression. */
+function foldLiteral(fold: PlanLineFoldInput | undefined): PlanLineFoldLiteral | undefined {
+    if (typeof fold === "string") return fold;
+    if (isVariant(fold)) return fold.type as PlanLineFoldLiteral;
+    return undefined;
+}
+
 /**
  * A column layer's fold — the points in a bucket folded to one column, their
  * `sum` unless it declares another (#824).
@@ -196,7 +204,7 @@ const UNFOLDED_COLUMN = "Plan.chart: a column draws one bar a bucket, so it fold
  * @throws {Error} When it declares `"none"`: only a line or an area keeps every point
  */
 function columnFold(fold: PlanLineFoldInput | undefined): ExprType<PlanFoldType> {
-    if (fold === "none") throw new Error(UNFOLDED_COLUMN);
+    if (foldLiteral(fold) === "none") throw new Error(UNFOLDED_COLUMN);
     // A fold given as an expression of a line's fold type: East refuses one that can be `none`.
     return resolveTag((fold ?? "sum") as PlanFoldInput, PlanFoldType);
 }
@@ -502,12 +510,13 @@ function valuesLayerUse<T>(mark: PlanValuesMark, values: unknown, channels: Plan
     }
     const fold = mark === "line" || mark === "area" ? "mean" : mark === "column" ? "sum" : undefined;
     const declared = channels?.fold;
-    if (mark === "column" && declared === "none") throw new Error(UNFOLDED_COLUMN);
+    const literal = foldLiteral(declared);
+    if (mark === "column" && literal === "none") throw new Error(UNFOLDED_COLUMN);
     // What its rows past the cap shade by: a line or an area that keeps every point, by their mean — the level it draws.
-    const shade = declared === "none" ? "mean" : declared;
+    const shade = literal === "none" ? "mean" : literal;
     return planUse<T>({
         makes: "layer", read, cell: mark === "band" ? "band" : "point",
-        fold: shade === undefined ? fold : typeof shade === "string" ? shade : undefined,
+        fold: declared === undefined ? fold : shade,
         rollup: false,
         wrap: (points) => valuesLayer(mark, points, channels ?? {}),
     });

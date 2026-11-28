@@ -174,4 +174,18 @@ describe("Data.bindPaged's totals", () => {
                 "rail offers, the scope holds or such an index is led by, or by none",
         });
     });
+
+    test("refuses two totals at the same tile whose leading fields are permutations of each other", () => {
+        const permRec = e3.record("data_totals_perm_jobs", DictType(StringType, Job), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_time: index.interval({ from: "start", to: "end" }),
+                by_hall_title: index.totals({ on: ["hall", "title"], from: "start", to: "end", tile: "month" }),
+                by_title_hall: index.totals({ on: ["title", "hall"], from: "start", to: "end", tile: "month" }),
+            }),
+        });
+        assert.throws(() => Data.bindPaged(permRec, { indexes: ["by_time"], totals: ["by_hall_title", "by_title_hall"] }), {
+            message: "Data.bindPaged: 'by_hall_title' and 'by_title_hall' are each the record's totals a month over the same leading fields — list one",
+        });
+    });
 });

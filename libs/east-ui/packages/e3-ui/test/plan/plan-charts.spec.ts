@@ -17,12 +17,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, printFor,
+    ArrayType, DateTimeType, DictType, East, FloatType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant,
     type EastIR,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Chart } from "@elaraai/east-ui/internal";
 import { Plan, deriveManifest } from "@elaraai/e3-ui/internal";
+import { planUseOf } from "../../src/plan/reads.js";
 import * as ex from "./plan-charts.examples.js";
 import { rowsOf } from "./plan-rows.fixtures.js";
 
@@ -165,10 +166,25 @@ describe("a line or an area that keeps every point (fold: \"none\", #1807)", () 
             key: "levels", title: "Levels", label: (row) => row.name,
             layers: [Plan.column(Plan.values("readings", (v) => ({ y: v })), { fold: "none" })],
         }), /^Error: Plan\.chart: a column draws one bar a bucket, so it folds the points in it — `fold: "none"` keeps every point of a line or an area$/);
+        assert.throws(() => Plan.series.chart(Meter, {
+            key: "levels", title: "Levels", label: (row) => row.name,
+            layers: [Plan.column(Plan.values("readings", (v) => ({ y: v })), { fold: none })],
+        }), /a column draws one bar a bucket/);
         const Point = StructType({ at: FloatType, y: FloatType });
         assert.throws(() => East.function([], ArrayType(Plan.Types.Row), ($) => {
             const points = $.const([{ at: 2.1, y: 35 }], ArrayType(Point));
             return Plan.chart({ key: "c", label: "C", layers: [Plan.layer(Chart.Column(points, { x: (p) => p.at, y: (p) => p.y }), { fold: "none" })] });
         }), /a column draws one bar a bucket/);
+        assert.throws(() => East.function([], ArrayType(Plan.Types.Row), ($) => {
+            const points = $.const([{ at: 2.1, y: 35 }], ArrayType(Point));
+            return Plan.chart({ key: "c", label: "C", layers: [Plan.layer(Chart.Column(points, { x: (p) => p.at, y: (p) => p.y }), { fold: none })] });
+        }), /a column draws one bar a bucket/);
+    });
+
+    test("fold: none variant on a values line keeps mean shading metadata (never drops to count)", () => {
+        const layer = Plan.line(Plan.values("readings", () => ({ y: 1.0 })), { fold: none });
+        assert.equal(planUseOf(layer)?.fold, "mean");
+        const maxLayer = Plan.line(Plan.values("readings", () => ({ y: 1.0 })), { fold: variant("max", null) });
+        assert.equal(planUseOf(maxLayer)?.fold, "max");
     });
 });

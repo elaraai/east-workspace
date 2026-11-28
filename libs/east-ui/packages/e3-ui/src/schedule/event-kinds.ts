@@ -41,9 +41,12 @@ import {
 import type { FieldName } from "./fields.js";
 import type { ScheduleTemplates } from "./templates.js";
 import type { ScheduleDurationType } from "./types.js";
+import { optionOf } from "./window.js";
 
-/** Whether a variant's cases are an Option's. */
-type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
+/** Whether a variant's cases are exactly an Option's (`none: NullType` and `some`). */
+type IsOption<C> = keyof C extends "none" | "some"
+    ? ("none" extends keyof C ? ("some" extends keyof C ? (C["none" & keyof C] extends NullType ? true : false) : false) : false)
+    : false;
 
 /** A type with its Option taken off, once. */
 type Unwrapped<T> = T extends VariantType<infer C> ? (IsOption<C> extends true ? C["some" & keyof C] : T) : T;
@@ -266,7 +269,7 @@ export function scheduleEventKinds<
     const row = held?.type === "Dict" ? held.value as EastType : undefined;
     const fields = row?.type === "Struct" ? row.fields as Readonly<Record<string, EastType>> : undefined;
     const known = variantCasesIn(fields, field);
-    if (fields !== undefined && (known === undefined || ("none" in known && "some" in known))) {
+    if (fields !== undefined && (known === undefined || optionOf(fields[field]!) !== undefined)) {
         throw new Error(`${where}: \`field\` names a variant field of the rows, a kind for each of its cases — and "${field}" is ` +
             `${fields[field] === undefined ? `no field of them (${Object.keys(fields).join(", ")})` : "no variant, or an Option"}`);
     }
@@ -276,6 +279,7 @@ export function scheduleEventKinds<
         throw new Error(`${where}: gives no case of "${field}" a kind — give each case drawn its own: { ${Object.keys(known ?? {}).map((c) => `${c}: { … }`).join(", ")} }`);
     }
     const out: Record<string, ScheduleEventKind<EastType, EastType>> = {};
+    let sharedRef: { readonly tag: string; readonly start: string; readonly end: string; readonly resource: string | undefined } | undefined;
     for (const [tag, config] of given) {
         if (known !== undefined && !Object.hasOwn(known, tag)) {
             throw new Error(`${where}: "${tag}" is no case of "${field}" (${Object.keys(known).join(", ")})`);
@@ -298,7 +302,26 @@ export function scheduleEventKinds<
         };
         // A key left undefined is no option given.
         for (const key of Object.keys(kind)) if (kind[key] === undefined) delete kind[key];
-        out[tag] = scheduleCaseEvents(record, kind, { field, tag });
+        const built = scheduleCaseEvents(record, kind, { field, tag });
+        // Cases sharing a paged source read through the same interval, series, summary and totals indexes, so they
+        // must agree on their time fields and resource field.
+        if (shared?.source !== undefined) {
+            const { start, end } = built.times;
+            const resource = built.resourceField;
+            if (sharedRef === undefined) {
+                sharedRef = { tag, start, end, resource };
+            } else {
+                if (sharedRef.start !== start || sharedRef.end !== end) {
+                    throw new Error(`${where}: cases "${sharedRef.tag}" (${sharedRef.start}..${sharedRef.end}) and "${tag}" (${start}..${end}) ` +
+                        `share source "${shared.source}" with different time fields — cases sharing a paged source read the same indexes and must share start/end`);
+                }
+                if (sharedRef.resource !== resource) {
+                    throw new Error(`${where}: cases "${sharedRef.tag}" (${sharedRef.resource ?? "no resource"}) and "${tag}" (${resource ?? "no resource"}) ` +
+                        `share source "${shared.source}" with different resource fields — cases sharing a paged source must share one resource field (or all omit resource)`);
+                }
+            }
+        }
+        out[tag] = built;
     }
     return out as unknown as { readonly [T in keyof NoInfer<C> & string]: ScheduleEventKind<NoInfer<K>, NoInfer<R>> };
 }

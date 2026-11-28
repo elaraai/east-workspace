@@ -146,7 +146,10 @@ export function scheduleCopyOf(part: ScheduleKindPart, slot: string, key: EastTy
     const type = marker.type === "Array" ? marker.value as EastType : undefined;
     const copies = binding?.copies;
     const carried = copies?.type === "Variant" ? fieldsOf((copies.cases as Record<string, EastType>).some)?.[index] : undefined;
-    if (type?.type !== "Struct" || carried === undefined || !isTypeEqual(carried, FunctionType([key, row], type))) {
+    if (type?.type !== "Struct") {
+        throw new Error(`${label}: the builder's source "${slot}" lists the series index "${index}", whose copy type is not a Struct — a Plan copy must be a Struct holding the kind's fields`);
+    }
+    if (carried === undefined || !isTypeEqual(carried, FunctionType([key, row], type))) {
         throw new Error(`${label}: the builder's source "${slot}" lists the series index "${index}", whose entries are copies of its events, and its ` +
             "binding carries no value function of the copy's type for it — bind it with Data.bindPaged(record, { indexes })");
     }
