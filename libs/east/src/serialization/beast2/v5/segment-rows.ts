@@ -35,7 +35,7 @@
 import type { EastTypeValue } from "../../../type_of_type.js";
 import type { EastType } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
-import type { BufferReader } from "../../binary-utils.js";
+import { BufferReader } from "../../binary-utils.js";
 import { asTypeValue } from "./type-section.js";
 import { buildV5Decoder, isSegmentedRoot, type V5DecodeContext, type V5Decoder } from "./codec.js";
 import { buildSkipper, type Skipper } from "./project.js";
@@ -78,6 +78,17 @@ export interface Beast2SegmentRows {
 /** What a decode says of a Dict's keys that do not ascend. */
 const KEYS_DESCEND = "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)";
 
+/**
+ * Thrown by {@link buildSegmentRowsDecoder} when row `i > 0` holds a backref
+ * outside its own row's definition table — valid under Format v1 per-segment
+ * aliasing (`v5/SPEC.md`), so {@link beast2SegmentRowsFor} falls back to
+ * decoding the segment whole (which still rejects corrupt out-of-segment
+ * backrefs).
+ */
+class CrossRowAliasError extends Error {}
+
+const BACKREF_OUT_OF_RANGE = /^beast2 v5: container backref delta \d+ out of range/;
+
 function outside(row: number, count: number): RangeError {
   return new RangeError(`beast2 v5: row ${row} is outside a segment of ${count} rows`);
 }
@@ -89,9 +100,10 @@ function outside(row: number, count: number): RangeError {
 class RowsOfBytes implements Beast2SegmentRows {
   readonly count: number;
   readonly weight: number;
+  private readonly reader: BufferReader;
 
   constructor(
-    private readonly reader: BufferReader,
+    reader: BufferReader,
     private readonly ctx: V5DecodeContext,
     /** Where each row starts, and, last, where the rows end. */
     private readonly offsets: Uint32Array,
@@ -100,8 +112,15 @@ class RowsOfBytes implements Beast2SegmentRows {
     /** An Array's element decoder, or a Dict's value decoder. */
     private readonly decodeValue: V5Decoder,
   ) {
+    // Detach shared subviews (e.g. uncompressed CODEC_NONE frames over a
+    // multi-segment blob, slab pool, or reusable Beast2SyncRangeReader buffer)
+    // so lazy reads cannot observe buffer reuse and `weight` matches retained
+    // memory.
+    this.reader = reader.buffer.byteOffset === 0 && reader.buffer.byteLength === reader.buffer.buffer.byteLength
+      ? reader
+      : new BufferReader(reader.buffer.slice(), 0);
     this.count = offsets.length - 1;
-    this.weight = reader.buffer.byteLength + offsets.byteLength;
+    this.weight = this.reader.buffer.byteLength + offsets.byteLength;
   }
 
   /** The reader at a row's first byte, the definition table empty. */
@@ -114,18 +133,27 @@ class RowsOfBytes implements Beast2SegmentRows {
 
   key(row: number): unknown {
     if (this.decodeKey === null) throw new TypeError(`beast2 v5: an Array's rows have no keys`);
-    return this.decodeKey(this.at(row), this.ctx);
+    const reader = this.at(row);
+    try {
+      return this.decodeKey(reader, this.ctx);
+    } finally {
+      this.ctx.containers.length = 0;
+    }
   }
 
   element(row: number): unknown {
     const reader = this.at(row);
-    const element = this.decodeKey === null
-      ? this.decodeValue(reader, this.ctx)
-      : [this.decodeKey(reader, this.ctx), this.decodeValue(reader, this.ctx)];
-    if (reader.offset !== this.offsets[row + 1]) {
-      throw new Error(`beast2 v5: row ${row} decodes to ${reader.offset - this.offsets[row]!} bytes where the segment holds ${this.offsets[row + 1]! - this.offsets[row]!} for it`);
+    try {
+      const element = this.decodeKey === null
+        ? this.decodeValue(reader, this.ctx)
+        : [this.decodeKey(reader, this.ctx), this.decodeValue(reader, this.ctx)];
+      if (reader.offset !== this.offsets[row + 1]) {
+        throw new Error(`beast2 v5: row ${row} decodes to ${reader.offset - this.offsets[row]!} bytes where the segment holds ${this.offsets[row + 1]! - this.offsets[row]!} for it`);
+      }
+      return element;
+    } finally {
+      this.ctx.containers.length = 0;
     }
-    return element;
   }
 }
 
@@ -188,8 +216,16 @@ export function buildSegmentRowsDecoder(wire: EastTypeValue): SegmentDecoder {
       for (let i = 0; i < n; i++) {
         offsets[i] = reader.offset;
         ctx.containers.length = 0;
-        skipElement(reader, ctx);
+        try {
+          skipElement(reader, ctx);
+        } catch (err) {
+          if (i > 0 && err instanceof Error && BACKREF_OUT_OF_RANGE.test(err.message)) {
+            throw new CrossRowAliasError(err.message);
+          }
+          throw err;
+        }
       }
+      ctx.containers.length = 0;
       offsets[n] = reader.offset;
       return new RowsOfBytes(reader, ctx, offsets, null, element);
     };
@@ -206,14 +242,22 @@ export function buildSegmentRowsDecoder(wire: EastTypeValue): SegmentDecoder {
       for (let i = 0; i < n; i++) {
         offsets[i] = reader.offset;
         ctx.containers.length = 0;
-        const k = key(reader, ctx);
-        if (order) {
-          if (order.has && cmp(order.prev, k) >= 0) throw new Error(KEYS_DESCEND);
-          order.prev = k;
-          order.has = true;
+        try {
+          const k = key(reader, ctx);
+          if (order) {
+            if (order.has && cmp(order.prev, k) >= 0) throw new Error(KEYS_DESCEND);
+            order.prev = k;
+            order.has = true;
+          }
+          skipValue(reader, ctx);
+        } catch (err) {
+          if (i > 0 && err instanceof Error && BACKREF_OUT_OF_RANGE.test(err.message)) {
+            throw new CrossRowAliasError(err.message);
+          }
+          throw err;
         }
-        skipValue(reader, ctx);
       }
+      ctx.containers.length = 0;
       offsets[n] = reader.offset;
       return new RowsOfBytes(reader, ctx, offsets, key, value);
     };
@@ -263,12 +307,8 @@ export function beast2SegmentRowsFor(type: EastType | EastTypeValue): (pages: Be
       if (!(err instanceof TypeError)) throw err;
     }
   }
-  if (walk !== null) {
-    const decoder = walk;
-    return (pages, i) => pages.segmentProjected(i, decoder) as unknown as Beast2SegmentRows;
-  }
   const weigh = decodedWeightFor(typeValue);
-  return (pages, i) => {
+  const decodeWhole = (pages: Beast2Pages, i: number): Beast2SegmentRows => {
     if (kind === "Array") {
       const items = pages.segment(i) as unknown as readonly unknown[];
       return new RowsDecoded(null, items, weigh(items));
@@ -290,4 +330,19 @@ export function beast2SegmentRowsFor(type: EastType | EastTypeValue): (pages: Be
     // The arrays the rows are read from cost a reference an element beside the value.
     return new RowsDecoded(keys, values, weigh(value) + 8 * (keys.length + values.length));
   };
+  if (walk !== null) {
+    const decoder = walk;
+    return (pages, i) => {
+      try {
+        return pages.segmentProjected(i, decoder) as unknown as Beast2SegmentRows;
+      } catch (err) {
+        // Format v1 self-contained segments may alias containers defined by
+        // earlier rows of the same segment (`v5/SPEC.md`): fall back to
+        // decoding the segment whole, which still rejects out-of-segment refs.
+        if (err instanceof CrossRowAliasError) return decodeWhole(pages, i);
+        throw err;
+      }
+    };
+  }
+  return decodeWhole;
 }

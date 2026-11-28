@@ -46,6 +46,9 @@ export function sameEastType(a: EastType, b: EastType): boolean {
  * @throws {Error} When the function is async, or calls a platform function.
  */
 export function checkPure(subject: string, fn: { toIR(): unknown }, why: { async: string; platform: string }): void {
+  if (fn === null || fn === undefined || typeof (fn as { toIR?: unknown }).toIR !== 'function') {
+    throw new Error(`${subject} must be a synchronous East function — ${why.async}`);
+  }
   const ir = fn.toIR();
   if (ir instanceof AsyncEastIR) {
     throw new Error(`${subject} must be a synchronous East function — ${why.async}`);
@@ -197,6 +200,9 @@ export function indexedEntry(constructor: IndexConstructor, name: string, rec: R
 
 /** Refuses an option a constructor does not take, naming those it does. */
 export function onlyOptions(constructor: IndexConstructor, name: string, spec: object, options: readonly string[], instead?: string): void {
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    throw new Error(`${constructor} '${name}' takes an options object ({ ${options.join(', ')} })`);
+  }
   const extra = Object.keys(spec).filter((option) => !options.includes(option));
   if (extra.length === 0) return;
   throw new Error(
